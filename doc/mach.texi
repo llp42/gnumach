@@ -556,10 +556,6 @@ implementing a certain device driver.
 @item --disable-kmsg
 Kernel message device @samp{kmsg}.
 
-@item --enable-lpr
-Parallel port device driver for the @samp{lpr%d} devices.  On @samp{ix86-at}
-enabled by @samp{default}.
-
 @item --enable-floppy
 PC floppy disk controller device driver for the @samp{fd%d} devices.  On
 @samp{ix86-at} enabled by @samp{default} and for @samp{qemu}.

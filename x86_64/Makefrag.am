@@ -75,17 +75,6 @@ libkernel_a_SOURCES += \
 endif
 
 #
-# `lpr' device support.
-#
-
-if enable_lpr
-libkernel_a_SOURCES += \
-	i386/i386at/lpr.c \
-	i386/i386at/lpr.h
-endif
-
-
-#
 # Further source files for any x86_64 kernel.
 #
 

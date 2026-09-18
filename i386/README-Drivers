@@ -17,9 +17,6 @@ PC com ports (always enabled)
 	0x3f8,2f8,3e8
 	com%d
 
-Parallel port
-	lpr%d
-
 System Console (always enabled)
 	(indirect name for kd or first com line)
 	console

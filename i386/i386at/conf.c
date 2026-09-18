@@ -42,11 +42,6 @@
 #define	comname			"com"
 #endif	/* NCOM > 0 */
 
-#if	NLPR > 0
-#include <i386at/lpr.h>
-#define	lprname			"lpr"
-#endif	/* NLPR > 0 */
-
 #include <i386at/kd_event.h>
 #define	kbdname			"kbd"
 
@@ -104,13 +99,6 @@ struct dev_ops	dev_name_list[] =
 	{ comname,	comopen,	comclose,	comread,
 	  comwrite,	comgetstat,	comsetstat,	nomap,
 	  nodev_async_in,	nulldev_reset,	comportdeath,	0,
-	  nodev_info },
-#endif
-
-#ifdef MACH_LPR
-	{ lprname,	lpropen,	lprclose,	lprread,
-	  lprwrite,	lprgetstat,	lprsetstat,	nomap,
-	  nodev_async_in,	nulldev_reset,	lprportdeath,	0,
 	  nodev_info },
 #endif
 

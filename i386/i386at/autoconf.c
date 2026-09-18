@@ -47,11 +47,6 @@ extern	struct	bus_driver	comdriver;
 #include <i386at/com.h>
 #endif /* NCOM */
 
-#if NLPR > 0
-extern	struct	bus_driver	lprdriver;
-#include <i386at/lpr.h>
-#endif /* NLPR */
-
 struct	bus_ctlr	bus_master_init[] = {
 
 /* driver    name unit intr    address        len phys_address
@@ -74,17 +69,6 @@ struct	bus_device	bus_device_init[] = {
   {&comdriver, "com", 2, comintr, 0x3e8, 8, 0x3e8,
      '?',    0,   -1,    -1,    0,   0,        0,   SPL_TTY, 5},
 #endif /* NCOM > 0 */
-
-#ifdef MACH_LPR
-#if NLPR > 0
-  {&lprdriver, "lpr", 0, lprintr, 0x378, 3, 0x378,
-     '?',    0,   -1,    -1,    0,   0,        0,   SPL_TTY, 7},
-  {&lprdriver, "lpr", 0, lprintr, 0x278, 3, 0x278,
-     '?',    0,   -1,    -1,    0,   0,        0,   SPL_TTY, 7},
-  {&lprdriver, "lpr", 0, lprintr, 0x3bc, 3, 0x3bc,
-     '?',    0,   -1,    -1,    0,   0,        0,   SPL_TTY, 7},
-#endif /* NLPR > 0 */
-#endif /* MACH_LPR */
 
   {0}
 };
