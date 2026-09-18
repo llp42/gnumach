@@ -113,9 +113,6 @@ AC_DEFINE([POWER_SAVE], [1], [POWER_SAVE])
 
 # Use statistical timing.
 AC_DEFINE([STAT_TIME], [1], [STAT_TIME])
-
-# Kernel tracing.
-AC_DEFINE([XPR_DEBUG], [0], [XPR_DEBUG])
 
 #
 # Options.

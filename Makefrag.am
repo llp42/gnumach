@@ -215,8 +215,6 @@ libkernel_a_SOURCES += \
 	kern/thread_swap.h \
 	kern/timer.c \
 	kern/timer.h \
-	kern/xpr.c \
-	kern/xpr.h \
 	kern/elf-load.c \
 	kern/boot_script.c
 EXTRA_DIST += \

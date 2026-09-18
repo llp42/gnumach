@@ -48,7 +48,6 @@
 #include <kern/mach.server.h>
 #include <kern/lock.h>
 #include <kern/queue.h>
-#include <kern/xpr.h>
 #include <kern/slab.h>
 #include <vm/memory_object.h>
 #include <vm/vm_fault.h>

@@ -45,7 +45,6 @@
 #include <kern/thread.h>
 #include <mach/vm_statistics.h>
 #include <machine/vm_param.h>
-#include <kern/xpr.h>
 #include <kern/slab.h>
 #include <vm/pmap.h>
 #include <vm/vm_map.h>
