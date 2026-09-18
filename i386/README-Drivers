@@ -41,13 +41,6 @@ Interface to setting up IO port access for users (always enabled)
 	iopl%d
 
 
-*** Disk controllers (except for SCSI)
-
-PC floppy
-	0x3f0, 370
-	fd%d
-
-
 *** Ethernet controllers
 These all show up as `eth%d' except the atp device.
 

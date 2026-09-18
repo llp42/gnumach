@@ -556,10 +556,6 @@ implementing a certain device driver.
 @item --disable-kmsg
 Kernel message device @samp{kmsg}.
 
-@item --enable-floppy
-PC floppy disk controller device driver for the @samp{fd%d} devices.  On
-@samp{ix86-at} enabled by @samp{default} and for @samp{qemu}.
-
 @item --enable-ide
 IDE controller device driver for the @samp{hd%d} and @samp{hd%ds%d} (disks and
 their partitions) devices.  On @samp{ix86-at} enabled by @samp{default} and for
