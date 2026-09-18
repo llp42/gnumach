@@ -29,18 +29,11 @@
 
 #include <kern/macros.h>
 
-#if	STAT_TIME
 /*
  *	Statistical timer definitions - use microseconds in timer, seconds
  *	in high unit field.  No adjustment needed to convert to time_value64_t
  *	as a result.  Service timers once an hour.
  */
-
-/*
- *	TIMER_MAX is needed if a 32-bit rollover timer needs to be adjusted for
- *	maximum value.
- */
-#undef TIMER_MAX
 
 /*
  *	TIMER_RATE is the rate of the timer in ticks per second.  It is used to
@@ -60,21 +53,6 @@
  *	seconds.
  */
 #undef	TIMER_ADJUST
-
-/*
- *	MACHINE_TIMER_ROUTINES should defined if the timer routines are
- *	implemented in machine-dependent code (e.g. assembly language).
- */
-#undef	MACHINE_TIMER_ROUTINES
-
-#else	/* STAT_TIME */
-/*
- *	Machine dependent definitions based on hardware support.
- */
-
-#include <machine/timer.h>
-
-#endif	/* STAT_TIME */
 
 /*
  *	Definitions for accurate timers.  high_bits_check is a copy of
@@ -120,13 +98,8 @@ typedef struct timer_save	timer_save_data_t, *timer_save_t;
  *	Exported kernel interface to timers
  */
 
-#if	STAT_TIME
 #define start_timer(timer)
 #define timer_switch(timer)
-#else	/* STAT_TIME */
-extern void	start_timer(timer_t);
-extern void	timer_switch(timer_t);
-#endif	/* STAT_TIME */
 
 extern void		timer_read(timer_t, time_value64_t *);
 extern void		thread_read_times(thread_t, time_value64_t *, time_value64_t *);
@@ -134,7 +107,6 @@ extern unsigned		timer_delta(timer_t, timer_save_t);
 extern void		timer_normalize(timer_t);
 extern void		timer_init(timer_t);
 
-#if	STAT_TIME
 /*
  *	Macro to bump timer values.
  */
@@ -145,16 +117,6 @@ MACRO_BEGIN							\
 		timer_normalize(timer);				\
 	}							\
 MACRO_END
-
-#else	/* STAT_TIME */
-/*
- *	Exported hardware interface to timers
- */
-extern void	time_trap_uentry(unsigned);
-extern void	time_trap_uexit(int);
-extern timer_t	time_int_entry(unsigned, timer_t);
-extern void	time_int_exit(unsigned, timer_t);
-#endif	/* STAT_TIME */
 
 /*
  *	TIMER_DELTA finds the difference between a timer and a saved value,
