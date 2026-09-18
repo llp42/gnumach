@@ -41,10 +41,6 @@ AC_DEFINE_UNQUOTED([NCOM], [$ncom], [NCOM])
   AC_DEFINE([MACH_HOST], [0], [MACH_HOST])
 [fi]
 
-# Sanity-check locking.
-AC_DEFINE([MACH_LDEBUG], [0], [MACH_LDEBUG])
-
-
 
 #
 # Options.

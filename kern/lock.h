@@ -50,12 +50,9 @@
  * [... critical section]
  * simple_unlock_irq(s, &mylock);
  *
- * To catch faulty code, when MACH_LDEBUG is set we check that non-_irq versions
- * are not called while handling an interrupt.
- *
  * In the following, the _nocheck versions don't check anything, the _irq
- * versions disable interrupts, and the pristine versions add a check when
- * MACH_LDEBUG is set.
+ * versions disable interrupts, and the pristine versions are the ones to
+ * use in ordinary code.
  */
 
 #include <machine/lock.h>/*XXX*/
@@ -65,7 +62,7 @@
 #define simple_unlock_nocheck	_simple_unlock
 #endif
 
-#define MACH_SLOCKS	((NCPUS > 1) || MACH_LDEBUG)
+#define MACH_SLOCKS	(NCPUS > 1)
 
 /*
  *	A simple spin lock.
@@ -213,9 +210,6 @@ struct lock {
 	/* boolean_t */	can_sleep:1,	/* Can attempts to lock go to sleep? */
 			recursion_depth:12, /* Depth of recursion */
 			:0; 
-#if MACH_LDEBUG
-	struct thread	*writer;
-#endif	/* MACH_LDEBUG */
 	decl_simple_lock_data(,interlock)
 					/* Hardware interlock field.
 					   Last in the structure so that
@@ -246,17 +240,9 @@ extern void		lock_set_recursive(lock_t);
 extern void		lock_clear_recursive(lock_t);
 
 /* Lock debugging support.  */
-#if	! MACH_LDEBUG
 #define have_read_lock(l)	1
 #define have_write_lock(l)	1
 #define lock_check_no_interrupts()
-#else	/* MACH_LDEBUG */
-/* XXX: We don't keep track of readers, so this is an approximation.  */
-#define have_read_lock(l)	((l)->read_count > 0)
-#define have_write_lock(l)	((l)->writer == current_thread())
-extern unsigned long in_interrupt[NCPUS];
-#define lock_check_no_interrupts()	assert(!in_interrupt[cpu_number()])
-#endif	/* MACH_LDEBUG */
 #define have_lock(l)		(have_read_lock(l) || have_write_lock(l))
 
 #define simple_lock(l)		\

@@ -558,18 +558,11 @@ ENTRY(all_intrs)
 
 	pushl	%ecx			/* save pointer to old stack */
 
-#ifdef MACH_LDEBUG
-	incl	CX(EXT(in_interrupt),%edx)
-#endif
-
 	call	EXT(interrupt)		/* call generic interrupt routine */
 	.globl	EXT(return_to_iret)	/* ( label for hardclock */
 LEXT(return_to_iret)			/* to find the return from calling interrupt) */
 
 	CPU_NUMBER(%edx)
-#ifdef MACH_LDEBUG
-	decl	CX(EXT(in_interrupt),%edx)
-#endif
 
 	popl	%esp			/* switch back to old stack */
 
