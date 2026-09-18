@@ -72,16 +72,8 @@ typedef unsigned long ast_t;
 
 extern volatile ast_t need_ast[NCPUS];
 
-#ifdef	MACHINE_AST
-/*
- *	machine/ast.h is responsible for defining aston and astoff.
- */
-#else	/* MACHINE_AST */
-
 #define aston(mycpu)
 #define astoff(mycpu)
-
-#endif	/* MACHINE_AST */
 
 extern void ast_taken(void);
 

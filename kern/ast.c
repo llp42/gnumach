@@ -57,12 +57,10 @@ volatile ast_t need_ast[NCPUS];
 void
 ast_init(void)
 {
-#ifndef	MACHINE_AST
 	int i;
 
 	for (i=0; i<NCPUS; i++)
 		need_ast[i] = 0;
-#endif	/* MACHINE_AST */
 }
 
 void
