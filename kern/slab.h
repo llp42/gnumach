@@ -48,7 +48,6 @@
 #define _KERN_SLAB_H
 
 #include <cache.h>
-#include <kern/cpu_number.h>
 #include <kern/lock.h>
 #include <kern/list.h>
 #include <kern/rbtree.h>
@@ -57,36 +56,6 @@
 #include <vm/vm_types.h>
 
 struct kmem_cache;
-
-#if SLAB_USE_CPU_POOLS
-
-/*
- * Per-processor cache of pre-constructed objects.
- *
- * The flags member is a read-only CPU-local copy of the parent cache flags.
- */
-struct kmem_cpu_pool {
-    simple_lock_data_t lock;
-    int flags;
-    int size;
-    int transfer_size;
-    int nr_objs;
-    void **array;
-} __attribute__((aligned(CPU_L1_SIZE)));
-
-/*
- * When a cache is created, its CPU pool type is determined from the buffer
- * size. For small buffer sizes, many objects can be cached in a CPU pool.
- * Conversely, for large buffer sizes, this would incur much overhead, so only
- * a few objects are stored in a CPU pool.
- */
-struct kmem_cpu_pool_type {
-    size_t buf_size;
-    int array_size;
-    size_t array_align;
-    struct kmem_cache *array_cache;
-};
-#endif /* SLAB_USE_CPU_POOLS */
 
 /*
  * Buffer descriptor.
@@ -149,19 +118,10 @@ typedef void (*kmem_cache_ctor_t)(void *obj);
 /*
  * Cache of objects.
  *
- * Locking order : cpu_pool -> cache. CPU pools locking is ordered by CPU ID.
- *
- * Currently, SLAB_USE_CPU_POOLS is not defined.  KMEM_CACHE_NAME_SIZE
- * is chosen so that the struct fits into two cache lines.  The first
- * cache line contains all hot fields.
+ * KMEM_CACHE_NAME_SIZE is chosen so that the struct fits into two cache
+ * lines.  The first cache line contains all hot fields.
  */
 struct kmem_cache {
-#if SLAB_USE_CPU_POOLS
-    /* CPU pool layer */
-    struct kmem_cpu_pool cpu_pools[NCPUS];
-    struct kmem_cpu_pool_type *cpu_pool_type;
-#endif /* SLAB_USE_CPU_POOLS */
-
     /* Slab layer */
     simple_lock_data_t lock;
     struct list node;   /* Cache list linkage */
@@ -177,7 +137,7 @@ struct kmem_cache {
     kmem_cache_ctor_t ctor;
     /* All fields below are cold  */
     size_t obj_size;    /* User-provided size */
-    /* Assuming ! SLAB_USE_CPU_POOLS, here is the cacheline boundary */
+    /* Here is the cacheline boundary */
     size_t align;
     size_t buf_size;    /* Aligned object size  */
     size_t color;
