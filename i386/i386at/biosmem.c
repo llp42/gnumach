@@ -24,7 +24,6 @@
 #include <kern/macros.h>
 #include <kern/printf.h>
 #include <mach/vm_param.h>
-#include <mach/xen.h>
 #include <mach/machine/multiboot.h>
 #include <sys/types.h>
 #include <vm/vm_page.h>

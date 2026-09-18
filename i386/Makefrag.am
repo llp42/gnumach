@@ -196,13 +196,5 @@ include_mach_i386_HEADERS = \
 #
 # Platform specific parts.
 #
-
-if PLATFORM_xen
-include i386/xen/Makefrag.am
-
-libkernel_a_SOURCES += \
-	i386/i386/xen.h
-
-endif
 
 endif # HOST_i386

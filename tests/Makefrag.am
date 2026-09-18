@@ -35,7 +35,6 @@ TESTS += \
 EXTRA_DIST += \
 	tests/README \
 	tests/grub.cfg.single.template \
-	tests/grub.cfg.xen.template \
 	tests/run-qemu.sh.template \
 	tests/include/string.h \
 	tests/include/syscalls.h \

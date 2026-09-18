@@ -46,7 +46,6 @@
 #include <i386/ldt.h>
 #include <i386/mp_desc.h>
 #include <i386/apic.h>
-#include <i386/xen.h>
 
 expr	CALL_AST_CHECK
 expr	CALL_PMAP_UPDATE

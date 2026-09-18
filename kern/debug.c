@@ -24,8 +24,6 @@
  * the rights to redistribute these changes.
  */
 
-#include <mach/xen.h>
-
 #include <kern/printf.h>
 #include <stdarg.h>
 

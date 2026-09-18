@@ -49,15 +49,11 @@ m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([no])],
 #
 # Deduce the architecture we're building for.
 #
-# TODO: Should we also support constructs like `i686_xen-pc-gnu' or
-# `i686-pc_xen-gnu'?
-
 AC_CANONICAL_HOST
 
 AC_ARG_ENABLE([platform],
   AS_HELP_STRING([--enable-platform=PLATFORM], [specify the platform to build a
-    kernel for.  Defaults to `at' for `i?86'.  The other possibility is
-    `xen'.]),
+    kernel for.  Defaults to `at' for `i?86'.]),
   [host_platform=$enable_platform],
   [host_platform=default])
 [# Supported configurations.
@@ -66,7 +62,7 @@ case $host_platform:$host_cpu in
     host_platform=at;;
   default:x86_64)]
     [host_platform=at;;
-  at:i?86 | xen:i?86 | at:x86_64 | xen:x86_64)
+  at:i?86 | at:x86_64)
     :;;
   *:aarch64)
     ;;
@@ -144,9 +140,6 @@ AS_HELP_STRING([--enable-user32], [enable 32-bit user space on a 64-bit kernel])
 
 # General options.
 m4_include([configfrag-first.ac])
-
-# Xen.
-m4_include([xen/configfrag.ac])
 
 # Machine-specific configuration.
 

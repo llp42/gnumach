@@ -15,9 +15,7 @@ jobs:
           "--enable-apic --disable-pae --enable-ncpus=1",
           "--enable-apic --enable-pae --enable-ncpus=1",
           "--enable-apic --disable-pae --enable-ncpus=8",
-          "--enable-apic --enable-pae --enable-ncpus=8",
-          "--enable-platform=xen --enable-pae --enable-ncpus=1"
-          #"--enable-platform=xen --enable-pae --enable-ncpus=8"
+          "--enable-apic --enable-pae --enable-ncpus=8"
         ]
         kdb: ["--enable-kdb", "--disable-kdb"]
     steps:
@@ -73,9 +71,7 @@ jobs:
         platform: [
           "--disable-apic --enable-ncpus=1",
           "--enable-apic --enable-ncpus=1",
-          "--enable-apic --enable-ncpus=8",
-          "--enable-platform=xen --enable-ncpus=1"
-          #"--enable-platform=xen --enable-ncpus=8"
+          "--enable-apic --enable-ncpus=8"
         ]
         user32: ["--enable-user32", "--disable-user32"]
         kdb: ["--enable-kdb", "--disable-kdb"]

@@ -18,12 +18,6 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 
-if $PLATFORM_XEN
-then
-  # ignore this test
-  exit 77
-fi
-
 [ -n "$GNUMACH" ] || GNUMACH=gnumach
 
 # `grub-file' is the upstream name; Fedora and RHEL install it as `grub2-file'.

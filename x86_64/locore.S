@@ -38,7 +38,6 @@
 #include <i386/i386/msr.h>
 #include <i386/i386/i386asm.h>
 #include <i386/i386/cpu_number.h>
-#include <i386/i386/xen.h>
 
 
 /*

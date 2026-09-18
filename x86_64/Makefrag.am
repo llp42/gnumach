@@ -215,20 +215,6 @@ AM_CCASFLAGS += \
 	-Ii386
 endif
 
-if PLATFORM_xen
-libkernel_a_SOURCES += \
-	x86_64/xen_locore.S \
-	x86_64/xen_boothdr.S \
-	i386/xen/xen.c \
-	i386/i386/xen.h
-
-gnumach_LINKFLAGS += \
-	--defsym _START_MAP=$(KERNEL_MAP_BASE) \
-	--defsym _START=$(KERNEL_MAP_BASE) \
-	--defsym KERNEL_MAP_SHIFT=0 \
-	-T '$(srcdir)'/x86_64/ldscript
-endif
-
 # We do not support or need position-independent
 AM_CFLAGS += \
 	-no-pie -fno-PIE -fno-pie -fno-pic

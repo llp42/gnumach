@@ -32,7 +32,6 @@
 #include <kern/startup.h>
 #include <kern/kmutex.h>
 #include <mach/machine.h>
-#include <mach/xen.h>
 #include <vm/vm_kern.h>
 
 #include <i386/mp_desc.h>

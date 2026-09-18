@@ -28,8 +28,6 @@
 #include <i386/i386/seg.h>
 #include <i386/i386/i386asm.h>
 
-#include <xen/public/arch-x86/xen-x86_64.h>
-
 /* We'll be using macros to fill in a table in data hunk 2
    while writing trap entrypoint routines at the same time.
    Here's the header that comes before everything else.  */

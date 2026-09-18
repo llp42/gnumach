@@ -77,7 +77,6 @@
 #include <vm/vm_user.h>
 
 #include <mach/machine/vm_param.h>
-#include <mach/xen.h>
 #include <machine/thread.h>
 #include <i386/cpu_number.h>
 #include <i386/proc_reg.h>

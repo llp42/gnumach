@@ -29,7 +29,6 @@
  */
 #include <mach/machine/eflags.h>
 #include <mach/machine/vm_types.h>
-#include <mach/xen.h>
 
 #include <intel/pmap.h>
 #include <kern/debug.h>

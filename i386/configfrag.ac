@@ -51,12 +51,6 @@ case $host_platform:$host_cpu in
 
     # i386/bogus/platforms.h]
     AC_DEFINE([AT386], [1], [AT386])[;;
-  xen:i?86)
-    # TODO.  That should probably not be needed.
-    ncom=1
-    # TODO.  That should probably not be needed.
-    # i386/bogus/platforms.h]
-    AC_DEFINE([AT386], [1], [AT386])[;;
   *)
     :;;
 esac]
@@ -100,11 +94,6 @@ AC_ARG_ENABLE([apic],
   enable_apic=yes
 [fi]
 
-[case $host_platform:$host_cpu in
-  xen:*)
-    enable_apic=no;;
-esac]
-
 [if [ x"$enable_apic" = xno ]; then]
   AM_CONDITIONAL([enable_apic], [false])
 [else]
@@ -113,8 +102,6 @@ esac]
 [fi]
 
 [case $host_platform:$host_cpu in
-  xen:i?86)
-    enable_pae=${enable_pae-yes};;
   *:i?86)
     :;;
   *:x86_64)

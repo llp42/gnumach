@@ -33,7 +33,6 @@
 #include <ipc/ipc_space.h>
 #include <kern/debug.h>
 #include <kern/task.h>
-#include <xen/xen.h>
 
 #include <device/device_types.h>
 #include <device/device_port.h>

@@ -31,7 +31,6 @@
  * Global descriptor table.
  */
 #include <mach/machine/vm_types.h>
-#include <mach/xen.h>
 
 #include <kern/assert.h>
 #include <intel/pmap.h>

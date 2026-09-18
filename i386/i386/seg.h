@@ -147,7 +147,6 @@ struct real_gate {
 #ifndef __ASSEMBLER__
 
 #include <mach/inline.h>
-#include <mach/xen.h>
 
 
 /* Format of a "pseudo-descriptor", used for loading the IDT and GDT.  */

@@ -24,7 +24,6 @@
 #ifdef DEBUG
 
 #include <mach/machine/asm.h>
-#include <i386/xen.h>
 
 #include "debug.h"
 

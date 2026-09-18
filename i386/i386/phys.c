@@ -27,7 +27,6 @@
 #include <string.h>
 
 #include <mach/boolean.h>
-#include <mach/xen.h>
 #include <kern/task.h>
 #include <kern/thread.h>
 #include <vm/vm_map.h>

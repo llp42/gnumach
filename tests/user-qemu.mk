@@ -173,18 +173,11 @@ tests/module-%: $(srcdir)/tests/test-%.c $(SRC_TESTLIB) $(MACH_TESTINSTALL)
 # packaging of qemu bootable image and test runner
 #
 
-XEN_BIN ?= /usr/share/xen/xen
 GRUB_MKRESCUE ?= grub-mkrescue
 GNUMACH_ARGS = console=com0
 QEMU_OPTS = -m 2047 -nographic -no-reboot -monitor none -serial stdio -boot d
 QEMU_GDB_PORT ?= 1234
 
-if PLATFORM_xen
-PLATFORM_XEN = true
-QEMU_BIN = qemu-system-x86_64
-QEMU_OPTS += -cpu core2duo-v1
-else
-PLATFORM_XEN = false
 if HOST_ix86
 QEMU_BIN = qemu-system-i386
 QEMU_OPTS += -cpu pentium3-v1
@@ -193,31 +186,11 @@ if HOST_x86_64
 QEMU_BIN = qemu-system-x86_64
 QEMU_OPTS += -cpu core2duo-v1
 endif
-endif
-
-# tests/test-multiboot reads this as a shell variable, so it has to reach the
-# test's environment -- defining it in the Makefile is not enough.
-export PLATFORM_XEN
 
 if enable_smp
 QEMU_OPTS += -smp 2
 endif
 
-if PLATFORM_xen
-tests/test-%.iso: tests/module-% $(GNUMACH) $(srcdir)/tests/grub.cfg.xen.template
-	rm -rf $(builddir)/tests/isofiles-$*
-	mkdir -p $(builddir)/tests/isofiles-$*/boot/grub/
-	< $(srcdir)/tests/grub.cfg.xen.template		\
-		sed -e "s|BOOTMODULE|$(notdir $<)|g"		\
-		    -e "s/GNUMACHARGS/$(GNUMACH_ARGS)/g"	\
-		    -e "s/TEST_START_MARKER/$(TEST_START_MARKER)/g"	\
-		>$(builddir)/tests/isofiles-$*/boot/grub/grub.cfg
-	cp $(GNUMACH) $(builddir)/tests/isofiles-$*/boot/gnumach
-	if [ -e "$(XEN_BIN)" ]; then cp $(XEN_BIN) $(builddir)/tests/isofiles-$*/boot/xen; fi
-	cp $< $(builddir)/tests/isofiles-$*/boot/
-	$(GRUB_MKRESCUE) -o $@ $(builddir)/tests/isofiles-$*
-	rm -rf $(builddir)/tests/isofiles-$*
-else
 tests/test-%.iso: tests/module-% $(GNUMACH) $(srcdir)/tests/grub.cfg.single.template
 	rm -rf $(builddir)/tests/isofiles-$*
 	mkdir -p $(builddir)/tests/isofiles-$*/boot/grub/
@@ -230,15 +203,12 @@ tests/test-%.iso: tests/module-% $(GNUMACH) $(srcdir)/tests/grub.cfg.single.temp
 	cp $< $(builddir)/tests/isofiles-$*/boot/
 	$(GRUB_MKRESCUE) -o $@ $(builddir)/tests/isofiles-$*
 	rm -rf $(builddir)/tests/isofiles-$*
-endif
 
 tests/test-%: tests/test-%.iso $(srcdir)/tests/run-qemu.sh.template
 	< $(srcdir)/tests/run-qemu.sh.template			\
 		sed -e "s|TESTNAME|$(subst tests/test-,,$@)|g"	\
 		    -e "s/QEMU_OPTS/$(QEMU_OPTS)/g"		\
 		    -e "s/QEMU_BIN/$(QEMU_BIN)/g"			\
-		    -e "s|XEN_BIN|$(XEN_BIN)|g"				\
-		    -e "s/PLATFORM_XEN/$(PLATFORM_XEN)/g"		\
 		    -e "s/TEST_START_MARKER/$(TEST_START_MARKER)/g"	\
 		    -e "s/TEST_SUCCESS_MARKER/$(TEST_SUCCESS_MARKER)/g"	\
 		    -e "s/TEST_FAILURE_MARKER/$(TEST_FAILURE_MARKER)/g"	\

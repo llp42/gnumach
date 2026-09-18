@@ -22,11 +22,6 @@ log="tests/test-TESTNAME.raw"
 
 echo "temp log $log"
 
-if PLATFORM_XEN && [ ! -e 'XEN_BIN' ]; then
-    echo "skipping, XEN_BIN not found for xen tests"
-    exit 77
-fi
-
 if which QEMU_BIN >/dev/null ; then
     if ! timeout -v --foreground --kill-after=3 120s $cmd \
             | tee $log | sed -n "/TEST_START_MARKER/"',$p' ; then

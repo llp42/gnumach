@@ -20,7 +20,6 @@
 #include <mach/machine/asm.h>
 #include <i386/i386/ipl.h>
 #include <i386/i386/i386asm.h>
-#include <i386/i386/xen.h>
 #include <i386/cpu_number.h>
 
 #if NCPUS > 1

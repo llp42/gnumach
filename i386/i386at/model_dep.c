@@ -41,7 +41,6 @@
 #include <mach/vm_prot.h>
 #include <mach/machine.h>
 #include <mach/machine/multiboot.h>
-#include <mach/xen.h>
 
 #include <kern/assert.h>
 #include <kern/cpu_number.h>
