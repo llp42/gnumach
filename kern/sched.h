@@ -48,7 +48,7 @@
 
 /*
  *	Statistical timing uses microseconds as timer units.  17 bit shift
- *	yields priorities.  PRI_SHIFT_2 isn't needed.
+ *	yields priorities.
  */
 #define PRI_SHIFT	17
 

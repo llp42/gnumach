@@ -1004,40 +1004,20 @@ shift_data_t	wait_shift[32] = {
  *	do_priority_computation:
  *
  *	Calculate new priority for thread based on its base priority plus
- *	accumulated usage.  PRI_SHIFT and PRI_SHIFT_2 convert from
- *	usage to priorities.  SCHED_SHIFT converts for the scaling
- *	of the sched_usage field by SCHED_SCALE.  This scaling comes
- *	from the multiplication by sched_load (thread_timer_delta)
- *	in sched.h.  sched_load is calculated as a scaled overload
- *	factor in compute_mach_factor (mach_factor.c).
+ *	accumulated usage.  PRI_SHIFT converts from usage to priorities.
+ *	SCHED_SHIFT converts for the scaling of the sched_usage field by
+ *	SCHED_SCALE.  This scaling comes from the multiplication by
+ *	sched_load (thread_timer_delta) in sched.h.  sched_load is
+ *	calculated as a scaled overload factor in compute_mach_factor
+ *	(mach_factor.c).
  */
 
-#ifdef	PRI_SHIFT_2
-#if	PRI_SHIFT_2 > 0
-#define do_priority_computation(th, pri)				\
-	MACRO_BEGIN							\
-	(pri) = (th)->priority	/* start with base priority */		\
-	    + ((th)->sched_usage >> (PRI_SHIFT + SCHED_SHIFT))		\
-	    + ((th)->sched_usage >> (PRI_SHIFT_2 + SCHED_SHIFT));	\
-	if ((pri) > NRQS - 1) (pri) = NRQS - 1;				\
-	MACRO_END
-#else	/* PRI_SHIFT_2 */
-#define do_priority_computation(th, pri)				\
-	MACRO_BEGIN							\
-	(pri) = (th)->priority	/* start with base priority */		\
-	    + ((th)->sched_usage >> (PRI_SHIFT + SCHED_SHIFT))		\
-	    - ((th)->sched_usage >> (SCHED_SHIFT - PRI_SHIFT_2));	\
-	if ((pri) > NRQS - 1) (pri) = NRQS - 1;				\
-	MACRO_END
-#endif	/* PRI_SHIFT_2 */
-#else	/* defined(PRI_SHIFT_2) */
 #define do_priority_computation(th, pri)				\
 	MACRO_BEGIN							\
 	(pri) = (th)->priority	/* start with base priority */		\
 	    + ((th)->sched_usage >> (PRI_SHIFT + SCHED_SHIFT));		\
 	if ((pri) > NRQS - 1) (pri) = NRQS - 1;				\
 	MACRO_END
-#endif	/* defined(PRI_SHIFT_2) */
 
 /*
  *	compute_priority:

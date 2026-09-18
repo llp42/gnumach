@@ -54,15 +54,7 @@
  *	cause a priority shift that moves a thread between run queues.
  */
 
-#ifdef	PRI_SHIFT_2
-#if	PRI_SHIFT_2 > 0
-#define	USAGE_THRESHOLD (((1 << PRI_SHIFT) + (1 << PRI_SHIFT_2)) << (2 + SCHED_SHIFT))
-#else	/* PRI_SHIFT_2 > 0 */
-#define	USAGE_THRESHOLD (((1 << PRI_SHIFT) - (1 << -(PRI_SHIFT_2))) << (2 + SCHED_SHIFT))
-#endif	/* PRI_SHIFT_2 > 0 */
-#else	/* PRI_SHIFT_2 */
 #define USAGE_THRESHOLD	(1 << (PRI_SHIFT + 2 + SCHED_SHIFT))
-#endif	/* PRI_SHIFT_2 */
 
 /*
  *	thread_quantum_update:
