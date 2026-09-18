@@ -1233,34 +1233,6 @@ void thread_setrun(
 	     *	Not bound, any processor in the processor set is ok.
 	     */
 	    pset = th->processor_set;
-#if	HW_FOOTPRINT
-	    /*
-	     *	But first check the last processor it ran on.
-	     */
-	    processor = th->last_processor;
-	    if (processor != PROCESSOR_NULL && processor->state == PROCESSOR_IDLE) {
-		    processor_lock(processor);
-		    pset_idle_lock();
-		    if ((processor->state == PROCESSOR_IDLE)
-#if	MACH_HOST
-			&& (processor->processor_set == pset)
-#endif	/* MACH_HOST */
-			) {
-			    queue_remove(&pset->idle_queue, processor,
-			        processor_t, processor_queue);
-			    pset->idle_count--;
-			    processor->next_thread = th;
-			    processor->state = PROCESSOR_DISPATCHING;
-			    pset_idle_unlock();
-			    processor_unlock(processor);
-			    if (processor != current_processor())
-				cause_ast_check(processor);
-		            return;
-		    }
-		    pset_idle_unlock();
-		    processor_unlock(processor);
-	    }
-#endif	/* HW_FOOTPRINT */
 
 	    if (pset->idle_count > 0) {
 		pset_idle_lock();

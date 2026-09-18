@@ -43,9 +43,6 @@ AC_DEFINE_UNQUOTED([NLPR], [$nlpr], [NLPR])
 # Used in `kern/bootstrap.c'.
 AC_DEFINE([BOOTSTRAP_SYMBOLS], [0], [BOOTSTRAP_SYMBOLS])
 
-# Cache footprint support.
-AC_DEFINE([HW_FOOTPRINT], [0], [HW_FOOTPRINT])
-
 # Fixed priority threads.
 AC_DEFINE([MACH_FIXPRI], [1], [MACH_FIXPRI])
 

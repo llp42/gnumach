@@ -499,29 +499,10 @@ kern_return_t thread_create(
 	if (pset->empty)
 		new_thread->suspend_count++;
 
-#if	HW_FOOTPRINT
 	/*
-	 *	Need to set last_processor, idle processor would be best, but
-	 *	that requires extra locking nonsense.  Go for tail of
-	 *	processors queue to avoid master.
+	 *	Don't need to initialize last_processor because the context
+	 *	switch code will set it before it can be used.
 	 */
-	if (!pset->empty) {
-		new_thread->last_processor = 
-			(processor_t)queue_first(&pset->processors);
-	}
-	else {
-		/*
-		 *	Thread created in empty processor set.  Pick
-		 *	master processor as an acceptable legal value.
-		 */
-		new_thread->last_processor = master_processor;
-	}
-#else	/* HW_FOOTPRINT */
-	/*
-	 *	Don't need to initialize because the context switch
-	 *	code will set it before it can be used.
-	 */
-#endif	/* HW_FOOTPRINT */
 
 #if	MACH_PCSAMPLE
 	new_thread->pc_sample.seqno = 0;
