@@ -110,8 +110,6 @@ routine processor_set_stack_usage(
 	out	maxusage	: vm_size_t;
 	out	maxstack	: vm_offset_t);
 
-#if	!defined(MACH_VM_DEBUG) || MACH_VM_DEBUG
-
 /*
  *	Returns information about the global VP table.
  */
@@ -120,10 +118,6 @@ routine host_virtual_physical_table_info(
 		host		: host_t;
 	out	info		: hash_info_bucket_array_t,
 					CountInOut, Dealloc);
-
-#else	/* !defined(MACH_VM_DEBUG) || MACH_VM_DEBUG */
-skip;	/* host_virtual_physical_table_info */
-#endif	/* !defined(MACH_VM_DEBUG) || MACH_VM_DEBUG */
 
 /* The old host_load_symbol_table with a different ABI for symtab_name_t */
 skip;
@@ -138,8 +132,6 @@ routine	mach_port_kernel_object(
 		name		: mach_port_name_t;
 	out	object_type	: unsigned;
 	out	object_addr	: vm_offset_t);
-
-#if	!defined(MACH_VM_DEBUG) || MACH_VM_DEBUG
 
 /*
  *	Returns information about a region of memory.
@@ -171,12 +163,6 @@ routine mach_vm_object_pages(
 	out	pages		: vm_page_info_array_t,
 					CountInOut, Dealloc);
 
-#else	/* !defined(MACH_VM_DEBUG) || MACH_VM_DEBUG */
-skip;	/* mach_vm_region_info */
-skip;	/* mach_vm_object_info */
-skip;	/* mach_vm_object_pages */
-#endif	/* !defined(MACH_VM_DEBUG) || MACH_VM_DEBUG */
-
 /*
  *	Returns information about the memory allocation caches.
  */
@@ -202,11 +188,7 @@ routine host_load_symbol_table(
 skip;	/* host_load_symbol_table */
 #endif	/* !defined(MACH_KDB) || MACH_KDB */
 
-#if	!defined(MACH_VM_DEBUG) || MACH_VM_DEBUG
 routine mach_vm_object_pages_phys(
 		object		: memory_object_name_t;
 	out	pages		: vm_page_phys_info_array_t,
 					CountInOut, Dealloc);
-#else	/* !defined(MACH_VM_DEBUG) || MACH_VM_DEBUG */
-skip;	/* mach_vm_object_pages_phys */
-#endif	/* !defined(MACH_VM_DEBUG) || MACH_VM_DEBUG */

@@ -47,9 +47,7 @@
 #include <kern/macros.h>
 #include <kern/sched_prim.h>	/* definitions of wait/wakeup */
 
-#if	MACH_VM_DEBUG
 #include <mach_debug/hash_info.h>
-#endif
 
 /*
  *	Management of resident (logical) pages.
@@ -239,11 +237,9 @@ extern void		vm_page_copy(vm_page_t src_m, vm_page_t dest_m);
 extern void		vm_page_wire(vm_page_t);
 extern void		vm_page_unwire(vm_page_t);
 
-#if	MACH_VM_DEBUG
 extern unsigned int	vm_page_info(
 	hash_info_bucket_t	*info,
 	unsigned int		count);
-#endif
 
 /*
  *	Functions implemented as macros

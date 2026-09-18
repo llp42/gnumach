@@ -52,11 +52,9 @@
 #include <vm/vm_kern.h>
 #include <vm/vm_resident.h>
 
-#if	MACH_VM_DEBUG
 #include <mach/kern_return.h>
 #include <mach_debug/hash_info.h>
 #include <vm/vm_user.h>
-#endif
 
 #if	MACH_KDB
 #include <ddb/db_output.h>
@@ -1062,7 +1060,6 @@ void vm_page_copy(
 	pmap_copy_page(src_m->phys_addr, dest_m->phys_addr);
 }
 
-#if	MACH_VM_DEBUG
 /*
  *	Routine:	vm_page_info
  *	Purpose:
@@ -1100,7 +1097,6 @@ vm_page_info(
 
 	return vm_page_bucket_count;
 }
-#endif	/* MACH_VM_DEBUG */
 
 
 #if	MACH_KDB
