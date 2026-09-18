@@ -143,14 +143,6 @@ LEXT(retry_table_end)			;\
 	RECOVER_TABLE_START
 	RETRY_TABLE_START
 
-/*
- * Timing routines.
- */
-#define	TIME_TRAP_UENTRY
-#define	TIME_TRAP_SENTRY
-#define	TIME_TRAP_UEXIT
-#define	TIME_INT_ENTRY
-#define	TIME_INT_EXIT
 /**/
 
 /*
@@ -348,7 +340,6 @@ trap_set_segs:
 trap_from_user:
 
 	CPU_NUMBER(%edx)
-	TIME_TRAP_UENTRY
 
 	movl	CX(EXT(kernel_stack),%edx),%ebx
 	xchgl	%ebx,%esp		/* switch to kernel stack */
@@ -382,7 +373,6 @@ _return_from_trap:
 					/* have to wait */
 
 _return_to_user:
-	TIME_TRAP_UEXIT
 
 /*
  * Return from kernel mode to interrupted thread.
@@ -642,7 +632,6 @@ ast_from_interrupt:
 	PUSH_SEGMENTS_ISR		/* save segment registers */
 	SET_KERNEL_SEGMENTS(%dx)	/* switch to kernel segments */
 	CPU_NUMBER(%edx)
-	TIME_TRAP_UENTRY
 
 	movl	CX(EXT(kernel_stack),%edx),%esp
 					/* switch to kernel stack */
@@ -688,7 +677,6 @@ syscall_entry_2:
 	movl	%ebx,R_EFLAGS(%esp)	/* fix eflags */
 
 	CPU_NUMBER(%edx)
-	TIME_TRAP_SENTRY
 
 	movl	CX(EXT(kernel_stack),%edx),%ebx
 					/* get current kernel stack */
