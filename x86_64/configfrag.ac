@@ -31,10 +31,7 @@ dnl USE OF THIS SOFTWARE.
       user32_cpu=i686
     fi]
 
-    [# Does the architecture provide machine-specific interfaces?
-    mach_machine_routines=1
-
-    enable_pae=yes;;
+    [enable_pae=yes;;
   *)]
     AM_CONDITIONAL([HOST_x86_64], [false])[;;
 esac

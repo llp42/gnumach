@@ -17,10 +17,7 @@ dnl USE OF THIS SOFTWARE.
   aarch64)]
     AM_CONDITIONAL([HOST_aarch64], [true])
 
-    [
-    # Does the architecture provide machine-specific interfaces?
-    mach_machine_routines=1
-    ;;
+    [;;
   *)]
     AM_CONDITIONAL([HOST_aarch64], [false])
     [;;
