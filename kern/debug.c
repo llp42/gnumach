@@ -96,9 +96,7 @@ panic_init(void)
 	simple_lock_init_irq(&panic_lock);
 }
 
-#if ! MACH_KBD
 extern boolean_t reboot_on_panic;
-#endif
 
 /*VARARGS1*/
 void
