@@ -150,10 +150,8 @@ static char biosmem_panic_too_many_boot_data[] __bootdata
     = "biosmem: too many boot data ranges";
 static char biosmem_panic_too_big_msg[] __bootdata
     = "biosmem: too many memory map entries";
-#ifndef MACH_HYP
 static char biosmem_panic_setup_msg[] __bootdata
     = "biosmem: unable to set up the early memory allocator";
-#endif /* MACH_HYP */
 static char biosmem_panic_noseg_msg[] __bootdata
     = "biosmem: unable to find any memory segment";
 static char biosmem_panic_inval_msg[] __bootdata
@@ -258,7 +256,6 @@ biosmem_unregister_boot_data(phys_addr_t start, phys_addr_t end)
                  (biosmem_nr_boot_data - i) * sizeof(*biosmem_boot_data_array));
 }
 
-#ifndef MACH_HYP
 
 static void __boot
 biosmem_map_adjust_alignment(struct biosmem_map_entry *e)
@@ -319,7 +316,6 @@ biosmem_map_build_simple(const struct multiboot_raw_info *mbi)
     biosmem_map_size = 2;
 }
 
-#endif /* MACH_HYP */
 
 static int __boot
 biosmem_map_entry_is_invalid(const struct biosmem_map_entry *entry)
@@ -621,7 +617,6 @@ biosmem_find_avail(phys_addr_t start, phys_addr_t end,
     return 0;
 }
 
-#ifndef MACH_HYP
 
 static void __boot
 biosmem_setup_allocator(const struct multiboot_raw_info *mbi)
@@ -671,7 +666,6 @@ biosmem_setup_allocator(const struct multiboot_raw_info *mbi)
     biosmem_register_boot_data(biosmem_heap_start, biosmem_heap_end, FALSE);
 }
 
-#endif /* MACH_HYP */
 
 static void __boot
 biosmem_bootstrap_common(void)
@@ -688,7 +682,7 @@ biosmem_bootstrap_common(void)
     if (error)
         boot_panic(biosmem_panic_noseg_msg);
 
-#if !defined(MACH_HYP) && NCPUS > 1
+#if NCPUS > 1
     /*
      * Grab an early page for AP boot code which needs to be below 1MB.
      */
@@ -748,52 +742,6 @@ biosmem_bootstrap_common(void)
     biosmem_set_segment(VM_PAGE_SEG_HIGHMEM, phys_start, phys_end);
 }
 
-#ifdef MACH_HYP
-
-void
-biosmem_xen_bootstrap(void)
-{
-    struct biosmem_map_entry *entry;
-
-    entry = biosmem_map;
-    entry->base_addr = 0;
-    entry->length = boot_info.nr_pages << PAGE_SHIFT;
-    entry->type = BIOSMEM_TYPE_AVAILABLE;
-
-    biosmem_map_size = 1;
-
-    biosmem_bootstrap_common();
-
-    biosmem_heap_start = _kvtophys(boot_info.pt_base)
-                         + (boot_info.nr_pt_frames + 3) * 0x1000;
-    biosmem_heap_end = boot_info.nr_pages << PAGE_SHIFT;
-
-#ifndef __LP64__
-    if (biosmem_heap_end > VM_PAGE_DIRECTMAP_LIMIT)
-        biosmem_heap_end = VM_PAGE_DIRECTMAP_LIMIT;
-#endif /* __LP64__ */
-
-    biosmem_heap_bottom = biosmem_heap_start;
-    biosmem_heap_top = biosmem_heap_end;
-
-    /*
-     * XXX Allocation on Xen are initially bottom-up :
-     * At the "start of day", only 512k are available after the boot
-     * data. The pmap module then creates a 4g mapping so all physical
-     * memory is available, but it uses this allocator to do so.
-     * Therefore, it must return pages from this small 512k regions
-     * first.
-     */
-    biosmem_heap_topdown = FALSE;
-
-    /*
-     * Prevent biosmem_free_usable() from releasing the Xen boot information
-     * and the heap.
-     */
-    biosmem_register_boot_data(0, biosmem_heap_end, FALSE);
-}
-
-#else /* MACH_HYP */
 
 void __boot
 biosmem_bootstrap(const struct multiboot_raw_info *mbi)
@@ -807,7 +755,6 @@ biosmem_bootstrap(const struct multiboot_raw_info *mbi)
     biosmem_setup_allocator(mbi);
 }
 
-#endif /* MACH_HYP */
 
 unsigned long __boot
 biosmem_bootalloc(unsigned int nr_pages)

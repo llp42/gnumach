@@ -444,21 +444,6 @@ int user_trap(struct i386_saved_state *regs)
 		/*NOTREACHED*/
 		break;
 
-#ifdef MACH_PV_PAGETABLES
-	    case 15:
-		{
-			static unsigned count = 0;
-			count++;
-			if (!(count % 10000))
-				printf("%d 4gb segments accesses\n", count);
-			if (count > 1000000) {
-				printf("A million 4gb segment accesses, stopping reporting them.");
-				if (hyp_vm_assist(VMASST_CMD_disable, VMASST_TYPE_4gb_segments_notify))
-					panic("couldn't disable 4gb segments vm assist notify");
-			}
-			return 0;
-		}
-#endif /* MACH_PV_PAGETABLES */
 
 	    case T_FLOATING_POINT_ERROR:
 		fpexterrflt();
@@ -489,7 +474,6 @@ void
 i386_astintr(void)
 {
 	(void) splsched();	/* block interrupts to check reasons */
-#ifndef	MACH_RING1
 	int	mycpu = cpu_number();
 
 	if (need_ast[mycpu] & AST_I386_FP) {
@@ -504,7 +488,6 @@ i386_astintr(void)
 	    fpastintr();
 	}
 	else
-#endif	/* MACH_RING1 */
 	{
 	    /*
 	     * Not an FPU trap.  Handle the AST.

@@ -30,14 +30,10 @@
 #include <sys/types.h>
 #include <device/cons.h>
 
-#ifdef	MACH_HYP
-#include <xen/console.h>
-#else	/* MACH_HYP */
 #include "kd.h"
 #if NCOM > 0
 #include "com.h"
 #endif
-#endif	/* MACH_HYP */
 
 #if	ENABLE_IMMEDIATE_CONSOLE
 #include "immc.h"
@@ -48,9 +44,6 @@
  * cnprobe routine.
  */
 struct	consdev constab[] = {
-#ifdef	MACH_HYP
-	{"hyp",	hypcnprobe,	hypcninit,	hypcngetc,	hypcnputc},
-#else	/* MACH_HYP */
 #if	ENABLE_IMMEDIATE_CONSOLE
 	{"immc", immc_cnprobe,	immc_cninit,	immc_cngetc,	immc_cnputc},
 #endif	/* ENABLE_IMMEDIATE_CONSOLE */
@@ -58,6 +51,5 @@ struct	consdev constab[] = {
 #if NCOM > 0
 	{"com",	comcnprobe,	comcninit,	comcngetc,	comcnputc},
 #endif
-#endif	/* MACH_HYP */
 	{0}
 };

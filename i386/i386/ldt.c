@@ -41,10 +41,6 @@
 #include "mp_desc.h"
 #include "msr.h"
 
-#ifdef	MACH_PV_DESCRIPTORS
-/* It is actually defined in xen_boothdr.S */
-extern
-#endif	/* MACH_PV_DESCRIPTORS */
 struct real_descriptor ldt[LDTSZ];
 
 #if defined(__x86_64__) && ! defined(USER32)
@@ -56,16 +52,10 @@ struct real_descriptor ldt[LDTSZ];
 static void
 ldt_fill(struct real_descriptor *myldt, struct real_descriptor *mygdt)
 {
-#ifdef	MACH_PV_DESCRIPTORS
-#ifdef	MACH_PV_PAGETABLES
-	pmap_set_page_readwrite(myldt);
-#endif	/* MACH_PV_PAGETABLES */
-#else	/* MACH_PV_DESCRIPTORS */
 	/* Initialize the master LDT descriptor in the GDT.  */
 	_fill_gdt_sys_descriptor(mygdt, KERNEL_LDT,
 			        kvtolin(myldt), (LDTSZ * sizeof(struct real_descriptor))-1,
 			        ACC_PL_K|ACC_LDT, 0);
-#endif	/* MACH_PV_DESCRIPTORS */
 
 	/* Initialize the syscall entry point */
 #if defined(__x86_64__) && ! defined(USER32)
@@ -94,11 +84,7 @@ ldt_fill(struct real_descriptor *myldt, struct real_descriptor *mygdt)
 			    ACC_PL_U|ACC_DATA_W, USER_SEGMENT_SIZEBITS);
 
 	/* Activate the LDT.  */
-#ifdef	MACH_PV_DESCRIPTORS
-	hyp_set_ldt(myldt, LDTSZ);
-#else	/* MACH_PV_DESCRIPTORS */
 	lldt(KERNEL_LDT);
-#endif	/* MACH_PV_DESCRIPTORS */
 }
 
 void

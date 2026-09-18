@@ -44,10 +44,6 @@ extern struct idt_init_entry idt_inittab[];
 static void
 idt_fill(struct real_gate *myidt)
 {
-#ifdef	MACH_PV_DESCRIPTORS
-	if (hyp_set_trap_table(kvtolin(idt_inittab)))
-		panic("couldn't set trap table\n");
-#else	/* MACH_PV_DESCRIPTORS */
 	struct idt_init_entry *iie = idt_inittab;
 
 	/* Initialize the exception vectors from the idt_inittab.  */
@@ -71,7 +67,6 @@ idt_fill(struct real_gate *myidt)
 		pdesc.linear_base = kvtolin(myidt);
 		lidt(&pdesc);
 	}
-#endif	/* MACH_PV_DESCRIPTORS */
 }
 
 void idt_init(void)

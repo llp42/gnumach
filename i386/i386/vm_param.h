@@ -27,9 +27,6 @@
 
 /* XXX use xu/vm_param.h */
 #include <mach/vm_param.h>
-#ifdef MACH_PV_PAGETABLES
-#include <xen/public/xen.h>
-#endif
 
 /* To avoid ambiguity in kernel code, make the name explicit */
 #define VM_MIN_USER_ADDRESS VM_MIN_ADDRESS
@@ -45,29 +42,15 @@
 #define VM_MIN_KERNEL_ADDRESS	0xC0000000UL
 #endif
 
-#if defined(MACH_XEN) || defined (__x86_64__)
+#if defined (__x86_64__)
 /* PV kernels can be loaded directly to the target virtual address */
 #define INIT_VM_MIN_KERNEL_ADDRESS	VM_MIN_KERNEL_ADDRESS
-#else	/* MACH_XEN */
+#else	/* __x86_64__ */
 /* This must remain 0 */
 #define INIT_VM_MIN_KERNEL_ADDRESS	0x00000000UL
-#endif	/* MACH_XEN */
+#endif	/* __x86_64__ */
 
-#ifdef	MACH_PV_PAGETABLES
-#ifdef __i386__
-#if	PAE
-#define HYP_VIRT_START	HYPERVISOR_VIRT_START_PAE
-#else	/* PAE */
-#define HYP_VIRT_START	HYPERVISOR_VIRT_START_NONPAE
-#endif	/* PAE */
-#define VM_MAX_KERNEL_ADDRESS	(HYP_VIRT_START - LINEAR_MIN_KERNEL_ADDRESS + VM_MIN_KERNEL_ADDRESS)
-#else
-#define HYP_VIRT_START	HYPERVISOR_VIRT_START
 #define VM_MAX_KERNEL_ADDRESS	(LINEAR_MAX_KERNEL_ADDRESS - LINEAR_MIN_KERNEL_ADDRESS + VM_MIN_KERNEL_ADDRESS)
-#endif
-#else	/* MACH_PV_PAGETABLES */
-#define VM_MAX_KERNEL_ADDRESS	(LINEAR_MAX_KERNEL_ADDRESS - LINEAR_MIN_KERNEL_ADDRESS + VM_MIN_KERNEL_ADDRESS)
-#endif	/* MACH_PV_PAGETABLES */
 
 /*
  * Reserve mapping room for the kernel map, which includes
@@ -106,14 +89,8 @@
 #define LINEAR_MAX_KERNEL_ADDRESS	(0xffffffffUL)
 #endif
 
-#ifdef	MACH_PV_PAGETABLES
-/* need room for mmu updates (2*8bytes) */
-#define KERNEL_STACK_SIZE	(4*I386_PGBYTES)
-#define INTSTACK_SIZE		(4*I386_PGBYTES)
-#else	/* MACH_PV_PAGETABLES */
 #define KERNEL_STACK_SIZE	(1*I386_PGBYTES)
 #define INTSTACK_SIZE		(1*I386_PGBYTES)
-#endif	/* MACH_PV_PAGETABLES */
 						/* interrupt stack size */
 
 /*
@@ -145,22 +122,6 @@
  */
 #define VM_PAGE_DMA_LIMIT       DECL_CONST(0x1000000, UL)
 
-#ifdef MACH_XEN
-/* TODO Completely check Xen physical/virtual layout */
-#ifdef __LP64__
-#define VM_PAGE_MAX_SEGS 4
-#define VM_PAGE_DMA32_LIMIT     DECL_CONST(0x100000000, UL)
-#define VM_PAGE_DIRECTMAP_LIMIT DECL_CONST(0x400000000000, UL)
-#define VM_PAGE_HIGHMEM_LIMIT   DECL_CONST(0x10000000000000, ULL)
-#else
-#define VM_PAGE_MAX_SEGS 4
-#define VM_PAGE_DMA32_LIMIT     DECL_CONST(0x100000000, UL)
-#define VM_PAGE_DIRECTMAP_LIMIT (VM_MAX_KERNEL_ADDRESS \
-				 - VM_MIN_KERNEL_ADDRESS \
-				 - VM_KERNEL_MAP_SIZE)
-#define VM_PAGE_HIGHMEM_LIMIT   DECL_CONST(0x10000000000000, ULL)
-#endif
-#else /* MACH_XEN */
 #ifdef __LP64__
 #define VM_PAGE_MAX_SEGS 4
 #define VM_PAGE_DMA32_LIMIT     DECL_CONST(0x100000000, UL)
@@ -181,7 +142,6 @@
 #define VM_PAGE_HIGHMEM_LIMIT   DECL_CONST(0xfffff000, UL)
 #endif /* PAE */
 #endif /* __LP64__ */
-#endif /* MACH_XEN */
 
 /*
  * Physical segment indexes.

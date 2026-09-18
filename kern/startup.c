@@ -209,9 +209,7 @@ void start_kernel_threads(void)
 	(void) kernel_thread(kernel_task, "reaper", reaper_thread, (char *) 0);
 	(void) kernel_thread(kernel_task, "swapin", swapin_thread, (char *) 0);
 	(void) kernel_thread(kernel_task, "sched", sched_thread, (char *) 0);
-#ifndef MACH_XEN
 	(void) kernel_thread(kernel_task, "intr", intr_thread, (char *)0);
-#endif	/* MACH_XEN */
 
 #if	NCPUS > 1
 	/*

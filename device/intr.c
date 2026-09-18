@@ -34,12 +34,10 @@ io_return_t irqgetstat(
 
   switch (flavor)
     {
-#ifndef MACH_XEN
       case IRQGETPICMODE:
         *data = pic_mode;
         *count = 1;
         break;
-#endif
       default:
         result = D_INVALID_OPERATION;
         break;
@@ -48,7 +46,6 @@ io_return_t irqgetstat(
   return (result);
 }
 
-#ifndef MACH_XEN
 
 def_simple_lock_irq_data(static, intr_lock)
 
@@ -398,4 +395,3 @@ deliver_intr (int id, ipc_port_t dst_port)
   return TRUE;
 }
 
-#endif	/* MACH_XEN */

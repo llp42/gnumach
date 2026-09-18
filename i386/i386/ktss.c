@@ -51,12 +51,6 @@ ktss_fill(struct task_tss *myktss, struct real_descriptor *mygdt)
 	static int double_fault_stack[1024];
 #endif /* __x86_64__ */
 
-#ifdef	MACH_RING1
-	/* Xen won't allow us to do any I/O by default anyway, just register
-	 * exception stack */
-	if (hyp_stack_switch(KERNEL_DS, (unsigned long)(exception_stack+1024)))
-		panic("couldn't register exception stack\n");
-#else	/* MACH_RING1 */
 	/* Initialize the master TSS descriptor.  */
 	_fill_gdt_sys_descriptor(mygdt, KERNEL_TSS,
 				kvtolin(myktss), sizeof(struct task_tss) - 1,
@@ -77,7 +71,6 @@ ktss_fill(struct task_tss *myktss, struct real_descriptor *mygdt)
 
 	/* Load the TSS.  */
 	ltr(KERNEL_TSS);
-#endif	/* MACH_RING1 */
 }
 
 void

@@ -62,11 +62,7 @@ void biosmem_register_boot_data(phys_addr_t start, phys_addr_t end,
  * Note that on Xen, this function registers all the Xen boot information
  * as boot data itself.
  */
-#ifdef MACH_HYP
-void biosmem_xen_bootstrap(void);
-#else /* MACH_HYP */
 void biosmem_bootstrap(const struct multiboot_raw_info *mbi);
-#endif /* MACH_HYP */
 
 /*
  * Allocate contiguous physical pages during bootstrap.

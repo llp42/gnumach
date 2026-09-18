@@ -170,12 +170,7 @@ typedef phys_addr_t pt_entry_t;
 #define INTEL_PTE_REF		0x00000020
 #define INTEL_PTE_MOD		0x00000040
 #define INTEL_PTE_PS		0x00000080
-#ifdef	MACH_PV_PAGETABLES
-/* Not supported */
-#define INTEL_PTE_GLOBAL	0x00000000
-#else	/* MACH_PV_PAGETABLES */
 #define INTEL_PTE_GLOBAL	0x00000100
-#endif	/* MACH_PV_PAGETABLES */
 #define INTEL_PTE_WIRED		0x00000200
 #ifdef PAE
 #ifdef __x86_64__
@@ -188,11 +183,7 @@ typedef phys_addr_t pt_entry_t;
 #endif
 
 #define	pa_to_pte(a)		((a) & INTEL_PTE_PFN)
-#ifdef	MACH_PSEUDO_PHYS
-#define	pte_to_pa(p)		ma_to_pa((p) & INTEL_PTE_PFN)
-#else	/* MACH_PSEUDO_PHYS */
 #define	pte_to_pa(p)		((p) & INTEL_PTE_PFN)
-#endif	/* MACH_PSEUDO_PHYS */
 #define	pte_increment_pa(p)	((p) += INTEL_OFFMASK+1)
 
 /*
@@ -210,10 +201,6 @@ struct pmap {
 #else	/* PAE */
 #ifdef __x86_64__
 	pt_entry_t	*l4base;	/* l4 table */
-#ifdef MACH_HYP
-	pt_entry_t	*user_l4base;	/* Userland l4 table */
-	pt_entry_t	*user_pdpbase;	/* Userland l4 table */
-#endif	/* MACH_HYP */
 #else	/* x86_64 */
 	pt_entry_t	*pdpbase;	/* page directory pointer table */
 #endif	/* x86_64 */
@@ -229,28 +216,11 @@ typedef struct pmap	*pmap_t;
 
 #define PMAP_NULL	((pmap_t) 0)
 
-#ifdef	MACH_PV_PAGETABLES
-extern void pmap_set_page_readwrite(void *addr);
-extern void pmap_set_page_readonly(void *addr);
-extern void pmap_set_page_readonly_init(void *addr);
-extern void pmap_map_mfn(void *addr, unsigned long mfn);
-extern void pmap_clear_bootstrap_pagetable(pt_entry_t *addr);
-#endif	/* MACH_PV_PAGETABLES */
 
 #if PAE
 #ifdef __x86_64__
 /* TODO: support PCID */
-#ifdef MACH_HYP
-#define	set_pmap(pmap)	\
-	MACRO_BEGIN					\
-		set_cr3(kvtophys((vm_offset_t)(pmap)->l4base)); \
-		if (pmap->user_l4base) \
-			if (!hyp_set_user_cr3(kvtophys((vm_offset_t)(pmap)->user_l4base))) \
-				panic("set_user_cr3"); \
-	MACRO_END
-#else	/* MACH_HYP */
 #define	set_pmap(pmap)	set_cr3(kvtophys((vm_offset_t)(pmap)->l4base))
-#endif	/* MACH_HYP */
 #else	/* x86_64 */
 #define	set_pmap(pmap)	set_cr3(kvtophys((vm_offset_t)(pmap)->pdpbase))
 #endif	/* x86_64 */

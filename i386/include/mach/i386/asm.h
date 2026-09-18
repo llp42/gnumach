@@ -58,13 +58,7 @@
 #define B_ARG2	S_ARG2
 #define B_ARG3	S_ARG3
 
-#ifdef MACH_XEN
-#define INT_FIX \
-	popq %rcx ;\
-	popq %r11
-#else
 #define INT_FIX
-#endif
 #endif
 
 #ifdef i486

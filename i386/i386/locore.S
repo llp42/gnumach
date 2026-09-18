@@ -306,11 +306,7 @@ ENTRY(t_debug)
 ENTRY(t_page_fault)
 	pushl	$(T_PAGE_FAULT)		/* mark a page fault trap */
 	pusha				/* save the general registers */
-#ifdef	MACH_PV_PAGETABLES
-	movl	%ss:hyp_shared_info+CR2,%eax
-#else	/* MACH_PV_PAGETABLES */
 	movl	%cr2,%eax		/* get the faulting address */
-#endif	/* MACH_PV_PAGETABLES */
 	movl	%eax,R_CR2-R_EDI(%esp)	/* save in esp save slot */
 	jmp	trap_push_segs		/* continue fault */
 
@@ -843,13 +839,9 @@ ENTRY(discover_x86_cpu_type)
 
 #if 0
 /* Seems to hang with kvm linux 4.3.0 */
-#ifdef	MACH_HYP
-#warning Assuming not Cyrix CPU
-#else	/* MACH_HYP */
 	inb	$0xe8,%al		/* Enable ID flag for Cyrix CPU ... */
 	andb	$0x80,%al		/* ... in CCR4 reg bit7 */
 	outb	%al,$0xe8
-#endif	/* MACH_HYP */
 #endif
 
 	pushfl				/* Fetch flags ... */
@@ -993,10 +985,10 @@ ENTRY(copyout)
 	movl	$USER_DS,%eax		/* use user data segment for accesses */
 	mov	%ax,%es
 
-#if !defined(MACH_HYP) && !PAE
+#if !PAE
 	cmpl	$3,machine_slot+SUB_TYPE_CPU_TYPE
 	jbe	copyout_retry		/* Use slow version on i386 */
-#endif /* !defined(MACH_HYP) && !PAE */
+#endif /* !PAE */
 
 	/*cld*/				/* count up: always this way in GCC code */
 	movl	%edx,%ecx		/* move by longwords first */
@@ -1040,11 +1032,11 @@ ENTRY(copyoutmsg)
 	movl	$USER_DS,%eax		/* use user data segment for accesses */
 	mov	%ax,%es
 
-#if !defined(MACH_HYP) && !PAE
+#if !PAE
 	movl	8+S_ARG2,%edx		/* copyout_retry expects count here */
 	cmpl	$3,machine_slot+SUB_TYPE_CPU_TYPE
 	jbe	copyout_retry		/* Use slow version on i386 */
-#endif /* !defined(MACH_HYP) && !PAE */
+#endif /* !PAE */
 
 	shrl	$2,%ecx			/* move by longwords */
 	RECOVER(copyoutmsg_fail)
@@ -1064,7 +1056,7 @@ copyoutmsg_fail:
 	movl	$1,%eax			/* return 1 for failure */
 	jmp	copyoutmsg_ret		/* pop frame and return */
 
-#if !defined(MACH_HYP) && !PAE
+#if !PAE
 /*
  * Check whether user address space is writable
  * before writing to it - i386 hardware is broken.
@@ -1125,7 +1117,7 @@ copyout_retry:
 	jg	copyout_retry		/* restart on next page if not done */
 	xorl	%eax,%eax		/* return 0 for success */
 	jmp	copyout_ret
-#endif /* !defined(MACH_HYP) && !PAE */
+#endif /* !PAE */
 
 /*
  * int inst_fetch(int eip, int cs);

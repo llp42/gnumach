@@ -53,9 +53,6 @@ device_service_create(void)
 	    panic("can't allocate master device port");
 
 	mach_device_init();
-#ifdef MACH_HYP
-	hyp_dev_init();
-#endif
 	dev_lookup_init();
 	net_io_init();
 	device_pager_init();

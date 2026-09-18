@@ -61,11 +61,6 @@ ENTRY(spl0)
 	cmpl	$(SPL0),CX(EXT(curr_ipl),%rdx)	/* are we at spl0? */
 	je	1f				/* yes, all done */
 	movl	$(SPL0),CX(EXT(curr_ipl),%rdx)	/* set ipl */
-#ifdef MACH_XEN
-	movl	EXT(int_mask)+SPL0*4,%eax
-					/* get xen mask */
-	XEN_SETMASK()			/* program xen evts */
-#endif
 1:
 	sti				/* enable interrupts */
 	popq	%rax			/* return previous mask */
@@ -148,12 +143,6 @@ splx_cli:
 	cmpl	CX(EXT(curr_ipl),%rax),%edx	/* same ipl as current? */
 	je	1f				/* yes, all done */
 	movl	%edx,CX(EXT(curr_ipl),%rax)	/* set ipl */
-#ifdef MACH_XEN
-	movl	EXT(int_mask),%eax
-	movl	(%eax,%edx,4),%eax
-					/* get int mask */
-	XEN_SETMASK()			/* program xen evts with new mask */
-#endif
 1:
 	ret
 
@@ -167,17 +156,9 @@ spl:
 	CPU_NUMBER(%eax)
 	cmpl	$SPL7,%edx		/* spl7? */
 	je	EXT(spl7)		/* yes, handle specially */
-#ifdef MACH_XEN
-	movl	EXT(int_mask),%eax
-	movl	(%eax,%edx,4),%eax
-					/* get int mask */
-#endif
 	cli				/* disable interrupts */
 	CPU_NUMBER(%eax)
 	xchgl	CX(EXT(curr_ipl),%rax),%edx	/* set ipl */
-#ifdef MACH_XEN
-	XEN_SETMASK()			/* program PICs with new mask */
-#endif
 	sti				/* enable interrupts */
 	movl	%edx,%eax		/* return previous ipl */
 	ret

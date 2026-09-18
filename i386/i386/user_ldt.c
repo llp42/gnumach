@@ -148,17 +148,9 @@ i386_set_ldt(
 	    if (new_ldt == 0) {
 		simple_unlock(&pcb->lock);
 
-#ifdef	MACH_PV_DESCRIPTORS
-		/* LDT needs to be aligned on a page */
-		vm_offset_t alloc = kalloc(ldt_size_needed + PAGE_SIZE + offsetof(struct user_ldt, ldt));
-		new_ldt = (user_ldt_t) (round_page((alloc + offsetof(struct user_ldt, ldt))) - offsetof(struct user_ldt, ldt));
-		new_ldt->alloc = alloc;
-		
-#else	/* MACH_PV_DESCRIPTORS */
 		new_ldt = (user_ldt_t)
 				kalloc(ldt_size_needed
 				       + sizeof(struct real_descriptor));
-#endif	/* MACH_PV_DESCRIPTORS */
 		/*
 		 *	Build a descriptor that describes the
 		 *	LDT itself
@@ -224,20 +216,9 @@ i386_set_ldt(
 	simple_unlock(&pcb->lock);
 
 	if (new_ldt)
-#ifdef	MACH_PV_DESCRIPTORS
-	{
-#ifdef	MACH_PV_PAGETABLES
-	    for (i=0; i<(new_ldt->desc.limit_low + 1)/sizeof(struct real_descriptor); i+=PAGE_SIZE/sizeof(struct real_descriptor))
-		pmap_set_page_readwrite(&new_ldt->ldt[i]);
-#endif	/* MACH_PV_PAGETABLES*/
-	    kfree(new_ldt->alloc, new_ldt->desc.limit_low + 1
-		+ PAGE_SIZE + offsetof(struct user_ldt, ldt));
-	}
-#else	/* MACH_PV_DESCRIPTORS */
 	    kfree((vm_offset_t)new_ldt,
 		  new_ldt->desc.limit_low + 1
 		+ sizeof(struct real_descriptor));
-#endif	/* MACH_PV_DESCRIPTORS */
 
 	/*
 	 * Free the descriptor list, if it was
@@ -371,19 +352,9 @@ i386_get_ldt(const thread_t thread,
 void
 user_ldt_free(user_ldt_t user_ldt)
 {
-#ifdef	MACH_PV_DESCRIPTORS
-	unsigned i;
-#ifdef	MACH_PV_PAGETABLES
-	for (i=0; i<(user_ldt->desc.limit_low + 1)/sizeof(struct real_descriptor); i+=PAGE_SIZE/sizeof(struct real_descriptor))
-		pmap_set_page_readwrite(&user_ldt->ldt[i]);
-#endif	/* MACH_PV_PAGETABLES */
-	kfree(user_ldt->alloc, user_ldt->desc.limit_low + 1
-		+ PAGE_SIZE + offsetof(struct user_ldt, ldt));
-#else	/* MACH_PV_DESCRIPTORS */
 	kfree((vm_offset_t)user_ldt,
 		user_ldt->desc.limit_low + 1
 		+ sizeof(struct real_descriptor));
-#endif	/* MACH_PV_DESCRIPTORS */
 }
 
 

@@ -114,9 +114,6 @@ init_fpu(void)
 {
 	unsigned short	status, control;
 
-#ifdef	MACH_RING1
-	clear_ts();
-#else	/* MACH_RING1 */
 	unsigned int native = 0;
 
 	if (machine_slot[cpu_number()].cpu_type >= CPU_TYPE_I486)
@@ -128,7 +125,6 @@ init_fpu(void)
 	 * the control and status registers.
 	 */
 	set_cr0((get_cr0() & ~(CR0_EM|CR0_TS)) | native);	/* allow use of FPU */
-#endif	/* MACH_RING1 */
 
 	fninit();
 	status = fnstsw();
@@ -170,10 +166,8 @@ init_fpu(void)
 		    cpuid(eax, ebx, ecx, edx);
 		    fp_xsave_support = eax + (((uint64_t) edx) << 32);
 
-#ifndef MACH_RING1
 		    set_cr4(get_cr4() | CR4_OSFXSR | CR4_OSXSAVE);
 		    set_xcr0(fp_xsave_support);
-#endif /* MACH_RING1 */
 
 		    eax = 0xd;
 		    ecx = 0x1;
@@ -214,9 +208,7 @@ init_fpu(void)
 		}
 
 		else if (CPU_HAS_FEATURE(CPU_FEATURE_FXSR)) {
-#ifndef MACH_RING1
 		    set_cr4(get_cr4() | CR4_OSFXSR);
-#endif /* MACH_RING1 */
 		    fp_kind = FP_387FX;
 		    fp_save_kind = FP_FXSAVE;
 		}
@@ -233,14 +225,10 @@ init_fpu(void)
 		    mxcsr_feature_mask &= mask;
 		}
 	    }
-#ifdef MACH_RING1
-	    set_ts();
-#else	/* MACH_RING1 */
 	    /*
 	     * Trap wait instructions.  Turn off FPU for now.
 	     */
 	    set_cr0(get_cr0() | CR0_TS | CR0_MP);
-#endif	/* MACH_RING1 */
 	}
 	else {
 	    /*
@@ -848,7 +836,6 @@ fpexterrflt(void)
 	/*NOTREACHED*/
 }
 
-#ifndef MACH_RING1
 /*
  * FPU error. Called by AST.
  */
@@ -905,7 +892,6 @@ ASSERT_IPL(SPL0);
 		           thread->pcb->ims.ifps->fp_save_state.fp_status);
 	/*NOTREACHED*/
 }
-#endif /* MACH_RING1 */
 
 /*
  * Save FPU state.
@@ -976,7 +962,7 @@ ASSERT_IPL(SPL0);
 	ifps->fp_valid = FALSE;		/* in FPU */
 }
 
-#if	(defined(AT386) || defined(ATX86_64)) && !defined(MACH_XEN)
+#if	defined(AT386) || defined(ATX86_64)
 /*
  *	Handle a coprocessor error interrupt on the AT386.
  *	This comes in on line 5 of the slave PIC at SPL1.

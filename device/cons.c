@@ -27,9 +27,6 @@
 #include <mach/boolean.h>
 #include <device/cons.h>
 
-#ifdef MACH_HYP
-#include <xen/console.h>
-#endif
 
 #ifdef MACH_KMSG
 #include <device/io_req.h>
@@ -154,14 +151,6 @@ cnputc(char c)
 	kmsg_putchar (c);
 #endif
 	
-#if defined(MACH_HYP)
-	{
-		/* Also output on hypervisor's emergency console, for
-		 * debugging */
-		unsigned char d = c;
-		hyp_console_write(&d, 1);
-	}
-#endif	/* MACH_HYP */
 	
 	if (cn_tab) {
 		(*cn_tab->cn_putc)(cn_tab->cn_dev, c);

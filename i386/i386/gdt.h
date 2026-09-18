@@ -42,9 +42,7 @@
 #define	KERNEL_DS	(0x10 | KERNEL_RING)		/* kernel data */
 
 
-#ifndef	MACH_PV_DESCRIPTORS
 #define	KERNEL_LDT	0x18		/* master LDT */
-#endif	/* MACH_PV_DESCRIPTORS */
 
 #ifdef __x86_64__
 /* LDT needs two entries */
@@ -66,9 +64,7 @@
 #endif
 
 
-#ifndef	MACH_PV_DESCRIPTORS
 #define	LINEAR_DS	0x38		/* linear mapping */
-#endif	/* MACH_PV_DESCRIPTORS */
 
 /*			0x40		   was USER_FPREGS, now used by TSS in 64bit mode */
 

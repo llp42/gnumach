@@ -210,7 +210,6 @@ interrupt_processor(int cpu)
 static void
 paging_enable(void)
 {
-#ifndef MACH_HYP
     /* Turn paging on.
      * TODO: Why does setting the WP bit here cause a crash?
      */
@@ -221,7 +220,6 @@ paging_enable(void)
     set_cr0(get_cr0() & ~(CR0_CD | CR0_NW));
     if (CPU_HAS_FEATURE(CPU_FEATURE_PGE))
         set_cr4(get_cr4() | CR4_PGE);
-#endif  /* MACH_HYP */
 }
 
 static __attribute__((noreturn)) void
