@@ -61,9 +61,6 @@
 queue_head_t		swapin_queue;
 def_simple_lock_data(static,	swapper_lock_data)
 
-#define swapper_lock()		simple_lock(&swapper_lock_data)
-#define swapper_unlock()	simple_unlock(&swapper_lock_data)
-
 /*
  *	swapper_init: [exported]
  *
@@ -94,9 +91,9 @@ void thread_swapin(thread_t thread)
 		 */
 		thread->state = (thread->state & ~TH_SWAP_STATE)
 				| TH_SW_COMING_IN;
-		swapper_lock();
+		simple_lock(&swapper_lock_data);
 		enqueue_tail(&swapin_queue, &(thread->links));
-		swapper_unlock();
+		simple_unlock(&swapper_lock_data);
 		thread_wakeup((event_t) &swapin_queue);
 		break;
 
@@ -162,18 +159,18 @@ static void __attribute__((noreturn)) swapin_thread_continue(void)
 		spl_t s;
 
 		s = splsched();
-		swapper_lock();
+		simple_lock(&swapper_lock_data);
 
 		while ((thread = (thread_t) dequeue_head(&swapin_queue))
 							!= THREAD_NULL) {
 			kern_return_t kr;
-			swapper_unlock();
+			simple_unlock(&swapper_lock_data);
 			(void) splx(s);
 
 			kr = thread_doswapin(thread);		/* may block */
 
 			s = splsched();
-			swapper_lock();
+			simple_lock(&swapper_lock_data);
 
 			if (kr != KERN_SUCCESS) {
 				enqueue_head(&swapin_queue,
@@ -183,7 +180,7 @@ static void __attribute__((noreturn)) swapin_thread_continue(void)
 		}
 
 		assert_wait((event_t) &swapin_queue, FALSE);
-		swapper_unlock();
+		simple_unlock(&swapper_lock_data);
 		(void) splx(s);
 		thread_block(swapin_thread_continue);
 	}
