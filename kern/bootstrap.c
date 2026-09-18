@@ -399,32 +399,6 @@ static void get_compat_strings(char *flags_str, char *root_str)
 	*cp = '\0';
 }
 
-#if 0
-/*
- * Copy boot_data (executable) to the user portion of this task.
- */
-static boolean_t	load_protect_text = TRUE;
-
-static vm_offset_t
-boot_map(
-	void *		data,	/* private data */
-	vm_offset_t	offset)	/* offset to map */
-{
-	vm_offset_t	start_offset = (vm_offset_t) data;
-
-	return pmap_extract(kernel_pmap, start_offset + offset);
-}
-
-
-#if BOOTSTRAP_SYMBOLS
-static boolean_t load_bootstrap_symbols = TRUE;
-#else
-static boolean_t load_bootstrap_symbols = FALSE;
-#endif
-#endif
-
-
-
 static int
 boot_read(void *handle, vm_offset_t file_ofs, void *buf, vm_size_t size,
 	  vm_size_t *out_actual)
