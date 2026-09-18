@@ -37,7 +37,6 @@
 #include <mach/port.h>
 #include <mach/message.h>
 #include <kern/assert.h>
-#include <kern/counters.h>
 #include <kern/debug.h>
 #include <kern/sched_prim.h>
 #include <kern/ipc_sched.h>
@@ -259,7 +258,6 @@ ipc_mqueue_send(
 		self->ith_state = MACH_SEND_IN_PROGRESS;
 
 	 	ip_unlock(port);
-		counter(c_ipc_mqueue_send_block++);
 		thread_block(thread_no_continuation);
 		ip_lock(port);
 
@@ -573,9 +571,7 @@ ipc_mqueue_receive(
 
 		imq_unlock(mqueue);
 		if (continuation != (void (*)(void)) 0) {
-			counter(c_ipc_mqueue_receive_block_user++);
 		} else {
-			counter(c_ipc_mqueue_receive_block_kernel++);
 		}
 		thread_block(continuation);
 	after_thread_block:

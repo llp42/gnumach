@@ -41,7 +41,6 @@
 #include <mach/time_value.h>
 #include <mach/vm_param.h>
 #include <mach/vm_prot.h>
-#include <kern/counters.h>
 #include "cpu_number.h"
 #include <kern/debug.h>
 #include <kern/host.h>
@@ -205,10 +204,6 @@ void clock_interrupt(
 {
 	int		my_cpu = cpu_number();
 	thread_t	thread = current_thread();
-
-	counter(c_clock_ticks++);
-	counter(c_threads_total += c_threads_current);
-	counter(c_stacks_total += c_stacks_current);
 
 #if	STAT_TIME
 	/*

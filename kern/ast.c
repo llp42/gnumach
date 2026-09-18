@@ -36,7 +36,6 @@
  */
 
 #include <kern/ast.h>
-#include <kern/counters.h>
 #include <kern/debug.h>
 #include "cpu_number.h"
 #include <kern/queue.h>
@@ -105,7 +104,6 @@ ast_taken(void)
 
 		if ((reasons & AST_BLOCK) ||
 		    csw_needed(self, current_processor())) {
-			counter(c_ast_taken_block++);
 			thread_block(thread_exception_return);
 		}
 	}

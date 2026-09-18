@@ -31,7 +31,6 @@
 #include <mach/thread_switch.h>
 #include <ipc/ipc_port.h>
 #include <ipc/ipc_space.h>
-#include <kern/counters.h>
 #include <kern/ipc_kobject.h>
 #include <kern/mach_clock.h>
 #include <kern/printf.h>
@@ -82,7 +81,6 @@ boolean_t swtch(void)
 		return(FALSE);
 #endif	/* NCPUS > 1 */
 
-	counter(c_swtch_block++);
 	thread_block(swtch_continue);
 	myprocessor = current_processor();
 	return(myprocessor->runq.count > 0 ||
@@ -120,7 +118,6 @@ boolean_t  swtch_pri(int pri)
 	 */
 	thread_depress_priority(thread, min_quantum);
 
-	counter(c_swtch_pri_block++);
 	thread_block(swtch_pri_continue);
 
 	if (thread->depress_priority >= 0)
@@ -224,7 +221,6 @@ kern_return_t thread_switch(
 			    myprocessor->first_quantum = TRUE;
 			}
 #endif	/* MACH_FIXPRI */
-			counter(c_thread_switch_handoff++);
 			thread_run(thread_switch_continue, thread);
 			/*
 			 *  Restore depressed priority
@@ -254,7 +250,6 @@ kern_return_t thread_switch(
 	myprocessor->runq.count > 0)
 #endif	/* NCPUS > 1 */
     {
-	counter(c_thread_switch_block++);
 	thread_block(thread_switch_continue);
     }
 

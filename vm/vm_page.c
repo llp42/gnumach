@@ -37,7 +37,6 @@
 
 #include <string.h>
 #include <kern/assert.h>
-#include <kern/counters.h>
 #include <kern/cpu_number.h>
 #include <kern/debug.h>
 #include <kern/list.h>
@@ -2298,10 +2297,8 @@ vm_page_wait(void (*continuation)(void))
     simple_unlock(&vm_page_queue_free_lock);
 
     if (continuation != 0) {
-        counter(c_vm_page_wait_block_user++);
         thread_block(continuation);
     } else {
-        counter(c_vm_page_wait_block_kernel++);
         thread_block((void (*)(void)) 0);
     }
 }

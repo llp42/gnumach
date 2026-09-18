@@ -37,7 +37,6 @@
 #include <string.h>
 
 #include <mach/vm_prot.h>
-#include <kern/counters.h>
 #include <kern/debug.h>
 #include <kern/list.h>
 #include <kern/sched_prim.h>

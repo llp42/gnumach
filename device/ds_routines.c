@@ -69,7 +69,6 @@
 #include <ipc/ipc_space.h>
 
 #include <kern/ast.h>
-#include <kern/counters.h>
 #include <kern/debug.h>
 #include <kern/printf.h>
 #include <kern/queue.h>
@@ -1583,7 +1582,6 @@ static void  __attribute__ ((noreturn)) io_done_thread_continue(void)
 
 	    assert_wait(&io_done_list, FALSE);
 	    simple_unlock_irq(s, &io_done_list_lock);
-	    counter(c_io_done_thread_block++);
 	    thread_block(io_done_thread_continue);
 	}
 }

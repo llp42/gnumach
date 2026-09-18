@@ -41,7 +41,6 @@
 #include <vm/memory_object_user.user.h>
 #include <mach/vm_param.h>
 #include <mach/vm_statistics.h>
-#include <kern/counters.h>
 #include <kern/debug.h>
 #include <kern/slab.h>
 #include <kern/task.h>

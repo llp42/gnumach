@@ -40,7 +40,6 @@
 #include <ipc/ipc_pset.h>
 #include <ipc/mach_msg.h>
 #include <ipc/ipc_machdep.h>
-#include <kern/counters.h>
 #include <kern/debug.h>
 #include <kern/ipc_tt.h>
 #include <kern/task.h>
@@ -468,7 +467,6 @@ exception_raise(
 		imq_unlock(dest_mqueue);
 		goto slow_exception_raise;
 	}
-	counter(c_exception_raise_block++);
 
 	assert(current_thread() == receiver);
 

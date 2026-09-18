@@ -55,7 +55,6 @@
 #include <ipc/ipc_kmsg.h>
 #include <ipc/ipc_mqueue.h>
 
-#include <kern/counters.h>
 #include <kern/debug.h>
 #include <kern/lock.h>
 #include <kern/printf.h>
@@ -565,7 +564,6 @@ static void __attribute__ ((noreturn)) net_thread_continue(void)
 		assert_wait(&net_thread_awake, FALSE);
 		simple_unlock(&net_queue_lock);
 		(void) splx(s);
-		counter(c_net_thread_block++);
 		thread_block(net_thread_continue);
 	}
 }
@@ -591,7 +589,6 @@ void net_thread(void)
 	assert_wait(&net_thread_awake, FALSE);
 	simple_unlock(&net_queue_lock);
 	(void) splx(s);
-	counter(c_net_thread_block++);
 	thread_block(net_thread_continue);
 	net_thread_continue();
 	/*NOTREACHED*/

@@ -45,7 +45,6 @@
  */
 
 #include <ipc/ipc_kmsg.h>
-#include <kern/counters.h>
 #include <kern/debug.h>
 #include <kern/thread.h>
 #include <kern/lock.h>
@@ -186,7 +185,6 @@ static void __attribute__((noreturn)) swapin_thread_continue(void)
 		assert_wait((event_t) &swapin_queue, FALSE);
 		swapper_unlock();
 		(void) splx(s);
-		counter(c_swapin_thread_block++);
 		thread_block(swapin_thread_continue);
 	}
 }

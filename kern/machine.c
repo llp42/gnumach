@@ -40,7 +40,6 @@
 #include <mach/mach_types.h>
 #include <mach/machine.h>
 #include <mach/host_info.h>
-#include <kern/counters.h>
 #include <kern/debug.h>
 #include <kern/ipc_host.h>
 #include <kern/host.h>
@@ -619,7 +618,6 @@ void __attribute__((noreturn)) action_thread_continue(void)
 		assert_wait((event_t) &action_queue, FALSE);
 		simple_unlock(&action_lock);
 		(void) splx(s);
-		counter(c_action_thread_block++);
 		thread_block(action_thread_continue);
 	}
 }

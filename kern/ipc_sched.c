@@ -25,7 +25,6 @@
  */
 
 #include <mach/message.h>
-#include <kern/counters.h>
 #include "cpu_number.h"
 #include <kern/debug.h>
 #include <kern/lock.h>
@@ -214,7 +213,6 @@ thread_handoff(
 		thread_unlock(new);
 		(void) splx(s);
 
-		counter(c_thread_handoff_misses++);
 		return FALSE;
 	}
 
@@ -278,6 +276,5 @@ thread_handoff(
     after_old_thread:
 	(void) splx(s);
 
-	counter(c_thread_handoff_hits++);
 	return TRUE;
 }
