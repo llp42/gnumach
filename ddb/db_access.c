@@ -76,11 +76,7 @@ db_get_task_value(
 	    return 0;
 
 	value = 0;
-#if	BYTE_MSF
-	for (i = 0; i < size; i++)
-#else	/* BYTE_LSF */
 	for (i = size - 1; i >= 0; i--)
-#endif
 	{
 	    value = (value << 8) + (data[i] & 0xFF);
 	}
@@ -102,11 +98,7 @@ db_put_task_value(
 	char		data[sizeof(db_expr_t)];
 	int		i;
 
-#if	BYTE_MSF
-	for (i = size - 1; i >= 0; i--)
-#else	/* BYTE_LSF */
 	for (i = 0; i < size; i++)
-#endif
 	{
 	    data[i] = value & 0xFF;
 	    value >>= 8;
