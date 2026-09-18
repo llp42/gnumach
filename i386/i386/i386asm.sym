@@ -168,15 +168,6 @@ expr	(VM_MIN_KERNEL_ADDRESS>>PDESHIFT)*sizeof(pt_entry_t)	KERNELBASEPDE
 
 expr	INTSTACK_SIZE
 
-#if	!STAT_TIME
-offset	timer			tm	low_bits	LOW_BITS
-offset	timer			tm	high_bits	HIGH_BITS
-offset	timer			tm	high_bits_check	HIGH_BITS_CHECK
-expr	TIMER_HIGH_UNIT
-offset	thread			th	system_timer
-offset	thread			th	user_timer
-#endif
-
 #ifdef	MACH_XEN
 offset	shared_info		si	vcpu_info[0].evtchn_upcall_mask	CPU_CLI
 offset	shared_info		si	vcpu_info[0].evtchn_upcall_pending	CPU_PENDING
