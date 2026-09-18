@@ -121,10 +121,6 @@ struct task {
 #define task_lock(task)		simple_lock(&(task)->lock)
 #define task_unlock(task)	simple_unlock(&(task)->lock)
 
-#define	itk_lock_init(task)	simple_lock_init(&(task)->itk_lock_data)
-#define	itk_lock(task)		simple_lock(&(task)->itk_lock_data)
-#define	itk_unlock(task)	simple_unlock(&(task)->itk_lock_data)
-
 /*
  *	Exported routines/macros
  */

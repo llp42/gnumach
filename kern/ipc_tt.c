@@ -83,7 +83,7 @@ ipc_task_init(
 	if (kport == IP_NULL)
 		panic("ipc_task_init");
 
-	itk_lock_init(task);
+	simple_lock_init(&(task)->itk_lock_data);
 	task->itk_self = kport;
 	task->itk_sself = ipc_port_make_send(kport);
 	task->itk_space = space;
@@ -94,7 +94,7 @@ ipc_task_init(
 		for (i = 0; i < TASK_PORT_REGISTER_MAX; i++)
 			task->itk_registered[i] = IP_NULL;
 	} else {
-		itk_lock(parent);
+		simple_lock(&(parent)->itk_lock_data);
 		assert(parent->itk_self != IP_NULL);
 
 		/* inherit registered ports */
@@ -110,7 +110,7 @@ ipc_task_init(
 		task->itk_bootstrap =
 			ipc_port_copy_send(parent->itk_bootstrap);
 
-		itk_unlock(parent);
+		simple_unlock(&(parent)->itk_lock_data);
 	}
 }
 
@@ -128,11 +128,11 @@ ipc_task_enable(
 {
 	ipc_port_t kport;
 
-	itk_lock(task);
+	simple_lock(&(task)->itk_lock_data);
 	kport = task->itk_self;
 	if (kport != IP_NULL)
 		ipc_kobject_set(kport, (ipc_kobject_t) task, IKOT_TASK);
-	itk_unlock(task);
+	simple_unlock(&(task)->itk_lock_data);
 }
 
 /*
@@ -149,11 +149,11 @@ ipc_task_disable(
 {
 	ipc_port_t kport;
 
-	itk_lock(task);
+	simple_lock(&(task)->itk_lock_data);
 	kport = task->itk_self;
 	if (kport != IP_NULL)
 		ipc_kobject_set(kport, IKO_NULL, IKOT_NONE);
-	itk_unlock(task);
+	simple_unlock(&(task)->itk_lock_data);
 }
 
 /*
@@ -172,17 +172,17 @@ ipc_task_terminate(
 	ipc_port_t kport;
 	int i;
 
-	itk_lock(task);
+	simple_lock(&(task)->itk_lock_data);
 	kport = task->itk_self;
 
 	if (kport == IP_NULL) {
 		/* the task is already terminated (can this happen?) */
-		itk_unlock(task);
+		simple_unlock(&(task)->itk_lock_data);
 		return;
 	}
 
 	task->itk_self = IP_NULL;
-	itk_unlock(task);
+	simple_unlock(&(task)->itk_lock_data);
 
 	/* release the naked send rights */
 
@@ -333,12 +333,12 @@ retrieve_task_self(task)
 
 	assert(task != TASK_NULL);
 
-	itk_lock(task);
+	simple_lock(&(task)->itk_lock_data);
 	if (task->itk_self != IP_NULL)
 		port = ipc_port_copy_send(task->itk_sself);
 	else
 		port = IP_NULL;
-	itk_unlock(task);
+	simple_unlock(&(task)->itk_lock_data);
 
 	return port;
 }
@@ -391,7 +391,7 @@ retrieve_task_self_fast(
 
 	assert(task == current_task());
 
-	itk_lock(task);
+	simple_lock(&(task)->itk_lock_data);
 	assert(task->itk_self != IP_NULL);
 
 	if ((port = task->itk_sself) == task->itk_self) {
@@ -404,7 +404,7 @@ retrieve_task_self_fast(
 		ip_unlock(port);
 	} else
 		port = ipc_port_copy_send(port);
-	itk_unlock(task);
+	simple_unlock(&(task)->itk_lock_data);
 
 	return port;
 }
@@ -464,12 +464,12 @@ retrieve_task_exception(task)
 
 	assert(task != TASK_NULL);
 
-	itk_lock(task);
+	simple_lock(&(task)->itk_lock_data);
 	if (task->itk_self != IP_NULL)
 		port = ipc_port_copy_send(task->itk_exception);
 	else
 		port = IP_NULL;
-	itk_unlock(task);
+	simple_unlock(&(task)->itk_lock_data);
 
 	return port;
 }
@@ -615,14 +615,14 @@ task_get_special_port(
 		return KERN_INVALID_ARGUMENT;
 	}
 
-	itk_lock(task);
+	simple_lock(&(task)->itk_lock_data);
 	if (task->itk_self == IP_NULL) {
-		itk_unlock(task);
+		simple_unlock(&(task)->itk_lock_data);
 		return KERN_FAILURE;
 	}
 
 	port = ipc_port_copy_send(*whichp);
-	itk_unlock(task);
+	simple_unlock(&(task)->itk_lock_data);
 
 	*portp = port;
 	return KERN_SUCCESS;
@@ -672,15 +672,15 @@ task_set_special_port(
 		return KERN_INVALID_ARGUMENT;
 	}
 
-	itk_lock(task);
+	simple_lock(&(task)->itk_lock_data);
 	if (task->itk_self == IP_NULL) {
-		itk_unlock(task);
+		simple_unlock(&(task)->itk_lock_data);
 		return KERN_FAILURE;
 	}
 
 	old = *whichp;
 	*whichp = port;
-	itk_unlock(task);
+	simple_unlock(&(task)->itk_lock_data);
 
 	if (IP_VALID(old))
 		ipc_port_release_send(old);
@@ -835,9 +835,9 @@ mach_ports_register(
 	for (; i < TASK_PORT_REGISTER_MAX; i++)
 		ports[i] = IP_NULL;
 
-	itk_lock(task);
+	simple_lock(&(task)->itk_lock_data);
 	if (task->itk_self == IP_NULL) {
-		itk_unlock(task);
+		simple_unlock(&(task)->itk_lock_data);
 		return KERN_INVALID_ARGUMENT;
 	}
 
@@ -854,7 +854,7 @@ mach_ports_register(
 		ports[i] = old;
 	}
 
-	itk_unlock(task);
+	simple_unlock(&(task)->itk_lock_data);
 
 	for (i = 0; i < TASK_PORT_REGISTER_MAX; i++)
 		if (IP_VALID(ports[i]))
@@ -906,9 +906,9 @@ mach_ports_lookup(
 	if (memory == 0)
 		return KERN_RESOURCE_SHORTAGE;
 
-	itk_lock(task);
+	simple_lock(&(task)->itk_lock_data);
 	if (task->itk_self == IP_NULL) {
-		itk_unlock(task);
+		simple_unlock(&(task)->itk_lock_data);
 
 		kfree(memory, size);
 		return KERN_INVALID_ARGUMENT;
@@ -924,7 +924,7 @@ mach_ports_lookup(
 	for (i = 0; i < TASK_PORT_REGISTER_MAX; i++)
 		ports[i] = ipc_port_copy_send(task->itk_registered[i]);
 
-	itk_unlock(task);
+	simple_unlock(&(task)->itk_lock_data);
 
 	*portsp = (mach_port_t *)ports;
 	*portsCnt = TASK_PORT_REGISTER_MAX;
@@ -1060,12 +1060,12 @@ convert_task_to_port(task_t task)
 {
 	ipc_port_t port;
 
-	itk_lock(task);
+	simple_lock(&(task)->itk_lock_data);
 	if (task->itk_self != IP_NULL)
 		port = ipc_port_make_send(task->itk_self);
 	else
 		port = IP_NULL;
-	itk_unlock(task);
+	simple_unlock(&(task)->itk_lock_data);
 
 	task_deallocate(task);
 	return port;

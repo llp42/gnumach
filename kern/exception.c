@@ -153,17 +153,17 @@ exception_try_task(
 	 *	Optimized version of retrieve_task_exception.
 	 */
 
-	itk_lock(task);
+	simple_lock(&(task)->itk_lock_data);
 	assert(task->itk_self != IP_NULL);
 	exc_port = task->itk_exception;
 	if (!IP_VALID(exc_port)) {
-		itk_unlock(task);
+		simple_unlock(&(task)->itk_lock_data);
 		exception_no_server();
 		/*NOTREACHED*/
 	}
 
 	ip_lock(exc_port);
-	itk_unlock(task);
+	simple_unlock(&(task)->itk_lock_data);
 	if (!ip_active(exc_port)) {
 		ip_unlock(exc_port);
 		exception_no_server();
