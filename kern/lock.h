@@ -178,14 +178,6 @@ class struct simple_lock_irq_data_empty name;
 #endif	/* MACH_SLOCKS */
 
 
-#define decl_mutex_data(class,name)	decl_simple_lock_data(class,name)
-#define def_mutex_data(class,name)	def_simple_lock_data(class,name)
-#define	mutex_try(l)			simple_lock_try(l)
-#define	mutex_lock(l)			simple_lock(l)
-#define	mutex_unlock(l)			simple_unlock(l)
-#define	mutex_init(l)			simple_lock_init(l)
-
-
 /*
  *	The general lock structure.  Provides for multiple readers,
  *	upgrading from read to write, and sleeping until the lock
