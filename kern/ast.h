@@ -72,9 +72,6 @@ typedef unsigned long ast_t;
 
 extern volatile ast_t need_ast[NCPUS];
 
-#define aston(mycpu)
-#define astoff(mycpu)
-
 extern void ast_taken(void);
 
 /*
@@ -87,26 +84,20 @@ extern void ast_taken(void);
 
 #define ast_on(mycpu, reasons)						\
 MACRO_BEGIN								\
-	if ((need_ast[mycpu] |= (reasons)) != AST_ZILCH)		\
-		{ aston(mycpu); }					\
+	need_ast[mycpu] |= (reasons);					\
 MACRO_END
 
 #define ast_off(mycpu, reasons)						\
 MACRO_BEGIN								\
-	if ((need_ast[mycpu] &= ~(reasons)) == AST_ZILCH)		\
-		{ astoff(mycpu); } 					\
+	need_ast[mycpu] &= ~(reasons);					\
 MACRO_END
 
 #define ast_propagate(thread, mycpu)	ast_on((mycpu), (thread)->ast)
 
 #define ast_context(thread, mycpu)					\
 MACRO_BEGIN								\
-	if ((need_ast[mycpu] =						\
-	     (need_ast[mycpu] &~ AST_PER_THREAD) | (thread)->ast)	\
-					!= AST_ZILCH)			\
-		{ aston(mycpu);	}					\
-	else								\
-		{ astoff(mycpu); }					\
+	need_ast[mycpu] = (need_ast[mycpu] &~ AST_PER_THREAD)		\
+			  | (thread)->ast;				\
 MACRO_END
 
 
