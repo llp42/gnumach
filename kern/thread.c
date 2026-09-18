@@ -107,8 +107,6 @@ vm_size_t		stack_max_usage = 0;
  */
 
 def_simple_lock_data(static, stack_lock_data)/* splsched only */
-#define stack_lock()	simple_lock(&stack_lock_data)
-#define stack_unlock()	simple_unlock(&stack_lock_data)
 
 vm_offset_t stack_free_list;		/* splsched only */
 unsigned int stack_free_count = 0;	/* splsched only */
@@ -134,7 +132,7 @@ boolean_t stack_alloc_try(
 {
 	vm_offset_t stack;
 
-	stack_lock();
+	simple_lock(&stack_lock_data);
 	stack = stack_free_list;
 	if (stack != 0) {
 		stack_free_list = stack_next(stack);
@@ -142,7 +140,7 @@ boolean_t stack_alloc_try(
 	} else {
 		stack = thread->stack_privilege;
 	}
-	stack_unlock();
+	simple_unlock(&stack_lock_data);
 
 	if (stack != 0) {
 		stack_attach(thread, stack, resume);
@@ -173,13 +171,13 @@ kern_return_t stack_alloc(
 	 */
 
 	s = splsched();
-	stack_lock();
+	simple_lock(&stack_lock_data);
 	stack = stack_free_list;
 	if (stack != 0) {
 		stack_free_list = stack_next(stack);
 		stack_free_count--;
 	}
-	stack_unlock();
+	simple_unlock(&stack_lock_data);
 	(void) splx(s);
 
 	if (stack == 0) {
@@ -207,11 +205,11 @@ void stack_free(
 	stack = stack_detach(thread);
 
 	if (stack != thread->stack_privilege) {
-		stack_lock();
+		simple_lock(&stack_lock_data);
 		stack_next(stack) = stack_free_list;
 		stack_free_list = stack;
 		stack_free_count += 1;
-		stack_unlock();
+		simple_unlock(&stack_lock_data);
 	}
 }
 
@@ -228,21 +226,21 @@ void stack_collect(void)
 	spl_t s;
 
 	s = splsched();
-	stack_lock();
+	simple_lock(&stack_lock_data);
 	while (stack_free_count > stack_free_limit) {
 		stack = stack_free_list;
 		stack_free_list = stack_next(stack);
 		stack_free_count--;
-		stack_unlock();
+		simple_unlock(&stack_lock_data);
 		(void) splx(s);
 
 		stack_finalize(stack);
 		kmem_cache_free(&thread_stack_cache, stack);
 
 		s = splsched();
-		stack_lock();
+		simple_lock(&stack_lock_data);
 	}
-	stack_unlock();
+	simple_unlock(&stack_lock_data);
 	(void) splx(s);
 }
 
@@ -2366,7 +2364,7 @@ static void stack_statistics(
 	spl_t	s;
 
 	s = splsched();
-	stack_lock();
+	simple_lock(&stack_lock_data);
 	if (stack_check_usage) {
 		vm_offset_t stack;
 
@@ -2386,7 +2384,7 @@ static void stack_statistics(
 	}
 
 	*totalp = stack_free_count;
-	stack_unlock();
+	simple_unlock(&stack_lock_data);
 	(void) splx(s);
 }
 
