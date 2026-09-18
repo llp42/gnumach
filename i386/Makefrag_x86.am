@@ -55,7 +55,6 @@ libkernel_a_SOURCES += \
 	i386/i386/pio.h \
 	i386/i386/pmap.h \
 	i386/i386/proc_reg.h \
-	i386/i386/sched_param.h \
 	i386/i386/seg.h \
 	i386/i386/setjmp.h \
 	i386/i386/smp.c \
