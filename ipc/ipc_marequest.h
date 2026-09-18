@@ -75,12 +75,8 @@ typedef struct ipc_marequest {
 extern void
 ipc_marequest_init(void);
 
-#if	MACH_IPC_DEBUG
-
 extern unsigned int
 ipc_marequest_info(unsigned int *, hash_info_bucket_t *, unsigned int);
-
-#endif	/* MACH_IPC_DEBUG */
 
 extern mach_msg_return_t
 ipc_marequest_create(ipc_space_t space, ipc_port_t port,

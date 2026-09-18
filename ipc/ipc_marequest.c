@@ -48,13 +48,11 @@
 #include <ipc/ipc_marequest.h>
 #include <ipc/ipc_notify.h>
 
-#if	MACH_IPC_DEBUG
 #include <mach/kern_return.h>
 #include <mach_debug/hash_info.h>
 #include <vm/vm_map.h>
 #include <vm/vm_kern.h>
 #include <vm/vm_user.h>
-#endif
 
 
 struct kmem_cache ipc_marequest_cache;
@@ -389,9 +387,6 @@ ipc_marequest_destroy(ipc_marequest_t marequest)
 	ipc_notify_msg_accepted(soright, name);
 }
 
-#if	MACH_IPC_DEBUG
-
-
 /*
  *	Routine:	ipc_marequest_info
  *	Purpose:
@@ -434,4 +429,3 @@ ipc_marequest_info(
 	return ipc_marequest_size;
 }
 
-#endif	/* MACH_IPC_DEBUG */
