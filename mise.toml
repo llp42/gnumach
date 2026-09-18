@@ -1,0 +1,119 @@
+# Developer tasks for GNU Mach.
+#
+#   mise run deps           report any missing prerequisites
+#   mise run test           build + run the qemu test suite, x86_64 and i386
+#   mise run test:x86_64    ditto for a single architecture
+#   mise run build          build both kernels without running the tests
+#   mise run clean          remove the build directories
+#
+# The suite is the project's own: `make check` boots each tests/module-* under
+# qemu from a grub ISO built on the fly (see tests/user-qemu.mk).  Kernels are
+# built SMP (--enable-ncpus=2) so the locking is actually exercised; that also
+# flips enable_smp, which makes the harness pass -smp 2 to qemu.  Override the
+# CPU count with NCPUS=1 in the environment if you need a uniprocessor build.
+
+[tasks.deps]
+description = "Report the tools needed to build and test gnumach"
+run = '''
+set -u
+missing=0
+need() {
+  if command -v "$1" >/dev/null 2>&1; then printf '  ok       %s\n' "$1"
+  else printf '  MISSING  %-22s %s\n' "$1" "$2"; missing=1; fi
+}
+need autoreconf         "autoconf/automake, to generate configure"
+need gcc                "C compiler"
+need x86_64-gnu-mig     "MIG, for the 64-bit kernel"
+need i686-gnu-mig       "MIG, for the 32-bit kernel"
+need qemu-system-x86_64 "qemu, to run the 64-bit tests"
+need qemu-system-i386   "qemu, to run the 32-bit tests"
+if   command -v grub-mkrescue  >/dev/null 2>&1; then printf '  ok       grub-mkrescue\n'
+elif command -v grub2-mkrescue >/dev/null 2>&1; then printf '  ok       grub2-mkrescue\n'
+else printf '  MISSING  %-22s %s\n' grub-mkrescue "builds the bootable test ISO"; missing=1
+fi
+if printf 'void _start(void){}\n' >/tmp/mise-m32.c &&
+   gcc -m32 -static -nostartfiles -nolibc -ffreestanding \
+       -o /tmp/mise-m32 /tmp/mise-m32.c 2>/dev/null
+then printf '  ok       gcc -m32\n'
+else printf '  MISSING  %-22s %s\n' "gcc -m32" "32-bit compilation, for the i386 kernel"; missing=1
+fi
+rm -f /tmp/mise-m32.c /tmp/mise-m32
+if [ "$missing" = 0 ]; then printf '\nAll prerequisites present.\n'
+else printf '\nInstall the missing tools above and re-run.\n'; exit 1; fi
+'''
+
+[tasks."build:x86_64"]
+description = "Configure and build the x86_64 kernel"
+run = '''
+set -euo pipefail
+cd "${MISE_PROJECT_ROOT:-$(git rev-parse --show-toplevel)}"
+[ -x configure ] || autoreconf -fi
+mkdir -p build-64; cd build-64
+want=${NCPUS:-2}
+have=$(sed -n 's/^#define NCPUS \([0-9]*\)$/\1/p' config.h 2>/dev/null | head -1)
+if [ ! -f Makefile ] || [ "$have" != "$want" ]; then
+  ../configure --host=x86_64-gnu MIG=x86_64-gnu-mig --enable-ncpus="$want"
+fi
+make -j"$(nproc)"
+'''
+
+[tasks."build:i386"]
+description = "Configure and build the 32-bit i386 kernel"
+run = '''
+set -euo pipefail
+cd "${MISE_PROJECT_ROOT:-$(git rev-parse --show-toplevel)}"
+[ -x configure ] || autoreconf -fi
+mkdir -p build-32; cd build-32
+want=${NCPUS:-2}
+have=$(sed -n 's/^#define NCPUS \([0-9]*\)$/\1/p' config.h 2>/dev/null | head -1)
+if [ ! -f Makefile ] || [ "$have" != "$want" ]; then
+  # ld defaults to elf64 on an x86_64 host, so point it at elf_i386; the
+  # kernel is linked with bare ld rather than through the compiler driver.
+  ../configure --host=i686-gnu \
+      CC='gcc -m32' LD='ld -m elf_i386' \
+      MIG=i686-gnu-mig USER_CC='gcc -m32' USER_CPP='gcc -m32 -E' \
+      --enable-ncpus="$want"
+fi
+make -j"$(nproc)"
+'''
+
+[tasks."test:x86_64"]
+description = "Build and run the qemu test suite on x86_64"
+depends = ["build:x86_64"]
+run = '''
+set -euo pipefail
+cd "${MISE_PROJECT_ROOT:-$(git rev-parse --show-toplevel)}"
+GRUB_MKRESCUE="$(command -v grub-mkrescue || command -v grub2-mkrescue)" \
+  make -C build-64 check
+'''
+
+[tasks."test:i386"]
+description = "Build and run the qemu test suite on i386"
+depends = ["build:i386"]
+run = '''
+set -euo pipefail
+cd "${MISE_PROJECT_ROOT:-$(git rev-parse --show-toplevel)}"
+GRUB_MKRESCUE="$(command -v grub-mkrescue || command -v grub2-mkrescue)" \
+  make -C build-32 check
+'''
+
+[tasks.test]
+description = "Build and run the qemu test suite on x86_64 and i386"
+run = '''
+set -euo pipefail
+mise run test:x86_64
+mise run test:i386
+printf '\nBoth architectures passed.\n'
+'''
+
+[tasks.build]
+description = "Build both kernels"
+run = '''
+set -euo pipefail
+mise run build:x86_64
+mise run build:i386
+'''
+
+[tasks.clean]
+description = "Remove the build directories"
+run = "rm -rf build-64 build-32"
