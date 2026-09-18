@@ -43,10 +43,6 @@ AC_DEFINE_UNQUOTED([NLPR], [$nlpr], [NLPR])
 # Used in `kern/bootstrap.c'.
 AC_DEFINE([BOOTSTRAP_SYMBOLS], [0], [BOOTSTRAP_SYMBOLS])
 
-# Restartable Atomic Sequences to get a really fast test-n-set.  Can't be
-# enabled, as the `void recover_ras()' function is missing.
-AC_DEFINE([FAST_TAS], [0], [FAST_TAS])
-
 # Cache footprint support.
 AC_DEFINE([HW_FOOTPRINT], [0], [HW_FOOTPRINT])
 

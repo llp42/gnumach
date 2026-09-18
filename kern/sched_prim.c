@@ -873,15 +873,6 @@ void thread_block(
 
 	s = splsched();
 
-#if	FAST_TAS
-	{
-		extern void recover_ras();
-
-		if (csw_needed(thread, myprocessor))
-			recover_ras(thread);
-	}
-#endif	/* FAST_TAS */
-
 	ast_off(cpu_number(), AST_BLOCK);
 
 	do

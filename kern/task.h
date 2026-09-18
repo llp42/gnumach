@@ -106,12 +106,6 @@ struct task {
 
 	sample_control_t pc_sample;
 
-#if	FAST_TAS
-#define TASK_FAST_TAS_NRAS	8
-	vm_offset_t	fast_tas_base[TASK_FAST_TAS_NRAS];
-	vm_offset_t	fast_tas_end[TASK_FAST_TAS_NRAS];
-#endif	/* FAST_TAS */
-
 	/* Hardware specific data.  */
 	machine_task_t	machine;
 

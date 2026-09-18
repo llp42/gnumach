@@ -102,9 +102,6 @@ task_create_kernel(
 {
 	task_t		new_task;
 	processor_set_t	pset;
-#if FAST_TAS
-	int i;
-#endif
 
 	new_task = (task_t) kmem_cache_alloc(&task_cache);
 	if (new_task == TASK_NULL)
@@ -198,18 +195,6 @@ task_create_kernel(
 	new_task->pc_sample.seqno = 0;
 	new_task->pc_sample.sampletypes = 0;
 #endif	/* MACH_PCSAMPLE */
-
-#if	FAST_TAS
-	for (i = 0; i < TASK_FAST_TAS_NRAS; i++)  {
-	    if (inherit_memory) {
-		new_task->fast_tas_base[i] = parent_task->fast_tas_base[i];
- 		new_task->fast_tas_end[i]  = parent_task->fast_tas_end[i];
-	    } else {
- 		new_task->fast_tas_base[i] = (vm_offset_t)0;
- 		new_task->fast_tas_end[i]  = (vm_offset_t)0;
-	    }
-	}
-#endif	/* FAST_TAS */
 
 	if (parent_task == TASK_NULL)
 		snprintf (new_task->name, sizeof new_task->name, "%p",
@@ -1304,66 +1289,8 @@ task_ras_control(
  	vm_offset_t endpc,
 	int flavor)
 {
-    kern_return_t ret = KERN_FAILURE;
-
-#if	FAST_TAS
-    int i;
-
-    ret = KERN_SUCCESS;
-    task_lock(task);
-    switch (flavor)  {
-    case TASK_RAS_CONTROL_PURGE_ALL:  /* remove all RAS */
-	for (i = 0; i < TASK_FAST_TAS_NRAS; i++) {
-	    task->fast_tas_base[i] = task->fast_tas_end[i] = 0;
-	}
-	break;
-    case TASK_RAS_CONTROL_PURGE_ONE:  /* remove this RAS, collapse remaining */
-	for (i = 0; i < TASK_FAST_TAS_NRAS; i++)  {
-	    if ( (task->fast_tas_base[i] == pc)
-		&& (task->fast_tas_end[i] == endpc))  {
-			while (i < TASK_FAST_TAS_NRAS-1)  {
-	    		  task->fast_tas_base[i] = task->fast_tas_base[i+1];
-	    		  task->fast_tas_end[i] = task->fast_tas_end[i+1];
-			  i++;
-			 }
-	    		task->fast_tas_base[TASK_FAST_TAS_NRAS-1] = 0;
-	    		task->fast_tas_end[TASK_FAST_TAS_NRAS-1] = 0;
-			break;
-	     }
-	}
-	if (i == TASK_FAST_TAS_NRAS) {
-	    ret = KERN_INVALID_ADDRESS;
-	}
-	break;
-    case TASK_RAS_CONTROL_PURGE_ALL_AND_INSTALL_ONE:
-	/* remove all RAS an install this RAS */
-	for (i = 0; i < TASK_FAST_TAS_NRAS; i++) {
-	    task->fast_tas_base[i] = task->fast_tas_end[i] = 0;
-	}
-	/* FALL THROUGH */
-    case TASK_RAS_CONTROL_INSTALL_ONE: /* install this RAS */
-	for (i = 0; i < TASK_FAST_TAS_NRAS; i++)  {
-	    if ( (task->fast_tas_base[i] == pc)
-	    && (task->fast_tas_end[i] == endpc))   {
-		/* already installed */
-		break;
-	    }
-	    if ((task->fast_tas_base[i] == 0) && (task->fast_tas_end[i] == 0)){
-		task->fast_tas_base[i] = pc;
-		task->fast_tas_end[i] = endpc;
-		break;
-	    }
-	}
-	if (i == TASK_FAST_TAS_NRAS)  {
-	    ret = KERN_RESOURCE_SHORTAGE;
-	}
-	break;
-    default: ret = KERN_INVALID_VALUE;
-	break;
-    }
-    task_unlock(task);
-#endif /* FAST_TAS */
-    return ret;
+    /* Restartable atomic sequences are not implemented.  */
+    return KERN_FAILURE;
 }
 
 /*
