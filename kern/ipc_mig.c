@@ -116,12 +116,12 @@ mach_msg_abort_rpc(ipc_thread_t thread)
 {
 	ipc_port_t reply = IP_NULL;
 
-	ith_lock(thread);
+	simple_lock(&(thread)->ith_lock_data);
 	if (thread->ith_self != IP_NULL) {
 		reply = thread->ith_rpc_reply;
 		thread->ith_rpc_reply = IP_NULL;
 	}
-	ith_unlock(thread);
+	simple_unlock(&(thread)->ith_lock_data);
 
 	if (reply != IP_NULL)
 		ipc_port_dealloc_reply(reply);

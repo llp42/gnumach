@@ -42,10 +42,6 @@ typedef thread_t ipc_thread_t;
 
 #define	ITH_NULL		THREAD_NULL
 
-#define	ith_lock_init(thread)	simple_lock_init(&(thread)->ith_lock_data)
-#define	ith_lock(thread)	simple_lock(&(thread)->ith_lock_data)
-#define	ith_unlock(thread)	simple_unlock(&(thread)->ith_lock_data)
-
 /*
  *	Note that this isn't a queue, but rather a stack. This causes
  *	threads that were recently running to be reused earlier, which

@@ -226,7 +226,7 @@ ipc_thread_init(thread_t thread)
 	ipc_thread_links_init(thread);
 	ipc_kmsg_queue_init(&thread->ith_messages);
 
-	ith_lock_init(thread);
+	simple_lock_init(&(thread)->ith_lock_data);
 	thread->ith_self = kport;
 	thread->ith_sself = ipc_port_make_send(kport);
 	thread->ith_exception = IP_NULL;
@@ -248,11 +248,11 @@ ipc_thread_enable(thread_t thread)
 {
 	ipc_port_t kport;
 
-	ith_lock(thread);
+	simple_lock(&(thread)->ith_lock_data);
 	kport = thread->ith_self;
 	if (kport != IP_NULL)
 		ipc_kobject_set(kport, (ipc_kobject_t) thread, IKOT_THREAD);
-	ith_unlock(thread);
+	simple_unlock(&(thread)->ith_lock_data);
 }
 
 /*
@@ -268,11 +268,11 @@ ipc_thread_disable(thread_t thread)
 {
 	ipc_port_t kport;
 
-	ith_lock(thread);
+	simple_lock(&(thread)->ith_lock_data);
 	kport = thread->ith_self;
 	if (kport != IP_NULL)
 		ipc_kobject_set(kport, IKO_NULL, IKOT_NONE);
-	ith_unlock(thread);
+	simple_unlock(&(thread)->ith_lock_data);
 }
 
 /*
@@ -289,17 +289,17 @@ ipc_thread_terminate(thread_t thread)
 {
 	ipc_port_t kport;
 
-	ith_lock(thread);
+	simple_lock(&(thread)->ith_lock_data);
 	kport = thread->ith_self;
 
 	if (kport == IP_NULL) {
 		/* the thread is already terminated (can this happen?) */
-		ith_unlock(thread);
+		simple_unlock(&(thread)->ith_lock_data);
 		return;
 	}
 
 	thread->ith_self = IP_NULL;
-	ith_unlock(thread);
+	simple_unlock(&(thread)->ith_lock_data);
 
 	assert(ipc_kmsg_queue_empty(&thread->ith_messages));
 
@@ -360,12 +360,12 @@ retrieve_thread_self(thread)
 
 	assert(thread != ITH_NULL);
 
-	ith_lock(thread);
+	simple_lock(&(thread)->ith_lock_data);
 	if (thread->ith_self != IP_NULL)
 		port = ipc_port_copy_send(thread->ith_sself);
 	else
 		port = IP_NULL;
-	ith_unlock(thread);
+	simple_unlock(&(thread)->ith_lock_data);
 
 	return port;
 }
@@ -428,7 +428,7 @@ retrieve_thread_self_fast(thread_t thread)
 
 	assert(thread == current_thread());
 
-	ith_lock(thread);
+	simple_lock(&(thread)->ith_lock_data);
 	assert(thread->ith_self != IP_NULL);
 
 	if ((port = thread->ith_sself) == thread->ith_self) {
@@ -441,7 +441,7 @@ retrieve_thread_self_fast(thread_t thread)
 		ip_unlock(port);
 	} else
 		port = ipc_port_copy_send(port);
-	ith_unlock(thread);
+	simple_unlock(&(thread)->ith_lock_data);
 
 	return port;
 }
@@ -491,12 +491,12 @@ retrieve_thread_exception(thread)
 
 	assert(thread != ITH_NULL);
 
-	ith_lock(thread);
+	simple_lock(&(thread)->ith_lock_data);
 	if (thread->ith_self != IP_NULL)
 		port = ipc_port_copy_send(thread->ith_exception);
 	else
 		port = IP_NULL;
-	ith_unlock(thread);
+	simple_unlock(&(thread)->ith_lock_data);
 
 	return port;
 }
@@ -726,14 +726,14 @@ thread_get_special_port(
 		return KERN_INVALID_ARGUMENT;
 	}
 
-	ith_lock(thread);
+	simple_lock(&(thread)->ith_lock_data);
 	if (thread->ith_self == IP_NULL) {
-		ith_unlock(thread);
+		simple_unlock(&(thread)->ith_lock_data);
 		return KERN_FAILURE;
 	}
 
 	port = ipc_port_copy_send(*whichp);
-	ith_unlock(thread);
+	simple_unlock(&(thread)->ith_lock_data);
 
 	*portp = port;
 	return KERN_SUCCESS;
@@ -779,15 +779,15 @@ thread_set_special_port(
 		return KERN_INVALID_ARGUMENT;
 	}
 
-	ith_lock(thread);
+	simple_lock(&(thread)->ith_lock_data);
 	if (thread->ith_self == IP_NULL) {
-		ith_unlock(thread);
+		simple_unlock(&(thread)->ith_lock_data);
 		return KERN_FAILURE;
 	}
 
 	old = *whichp;
 	*whichp = port;
-	ith_unlock(thread);
+	simple_unlock(&(thread)->ith_lock_data);
 
 	if (IP_VALID(old))
 		ipc_port_release_send(old);
@@ -1086,12 +1086,12 @@ convert_thread_to_port(thread_t thread)
 {
 	ipc_port_t port;
 
-	ith_lock(thread);
+	simple_lock(&(thread)->ith_lock_data);
 	if (thread->ith_self != IP_NULL)
 		port = ipc_port_make_send(thread->ith_self);
 	else
 		port = IP_NULL;
-	ith_unlock(thread);
+	simple_unlock(&(thread)->ith_lock_data);
 
 	thread_deallocate(thread);
 	return port;

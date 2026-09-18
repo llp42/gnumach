@@ -83,17 +83,17 @@ exception(
 	 *	Optimized version of retrieve_thread_exception.
 	 */
 
-	ith_lock(self);
+	simple_lock(&(self)->ith_lock_data);
 	assert(self->ith_self != IP_NULL);
 	exc_port = self->ith_exception;
 	if (!IP_VALID(exc_port)) {
-		ith_unlock(self);
+		simple_unlock(&(self)->ith_lock_data);
 		exception_try_task(_exception, code, subcode);
 		/*NOTREACHED*/
 	}
 
 	ip_lock(exc_port);
-	ith_unlock(self);
+	simple_unlock(&(self)->ith_lock_data);
 	if (!ip_active(exc_port)) {
 		ip_unlock(exc_port);
 		exception_try_task(_exception, code, subcode);
@@ -347,14 +347,14 @@ exception_raise(
 	 *	Check first for a cached port.
 	 */
 
-	ith_lock(self);
+	simple_lock(&(self)->ith_lock_data);
 	assert(self->ith_self != IP_NULL);
 
 	reply_port = self->ith_rpc_reply;
 	if (reply_port == IP_NULL) {
-		ith_unlock(self);
+		simple_unlock(&(self)->ith_lock_data);
 		reply_port = ipc_port_alloc_reply();
-		ith_lock(self);
+		simple_lock(&(self)->ith_lock_data);
 		if ((reply_port == IP_NULL) ||
 		    (self->ith_rpc_reply != IP_NULL))
 			panic("exception_raise");
@@ -363,7 +363,7 @@ exception_raise(
 
 	ip_lock(reply_port);
 	assert(ip_active(reply_port));
-	ith_unlock(self);
+	simple_unlock(&(self)->ith_lock_data);
 
 	/*
 	 *	Make a naked send-once right for the reply port,
