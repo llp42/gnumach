@@ -80,16 +80,9 @@ typedef struct ipc_entry {
 
 #define	IE_BITS_RIGHT_MASK	0x003fffff	/* relevant to the right */
 
-#if PORT_GENERATIONS
-#error "not supported"
-#define	IE_BITS_GEN_MASK	0xff000000U	/* 8 bits for generation */
-#define	IE_BITS_GEN(bits)	((bits) & IE_BITS_GEN_MASK)
-#define	IE_BITS_GEN_ONE		0x01000000	/* low bit of generation */
-#else
 #define	IE_BITS_GEN_MASK	0
 #define	IE_BITS_GEN(bits)	0
 #define	IE_BITS_GEN_ONE		0
-#endif
 
 
 extern struct kmem_cache ipc_entry_cache;

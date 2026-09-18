@@ -53,15 +53,9 @@
  *	in ipc/ipc_entry.h.
  */
 
-#if PORT_GENERATIONS
-#define	MACH_PORT_INDEX(name)		((name) >> 8)
-#define	MACH_PORT_GEN(name)		(((name) & 0xff) << 24)
-#define	MACH_PORT_MAKE(index, gen)	(((index) << 8) | ((gen) >> 24))
-#else
 #define	MACH_PORT_INDEX(name)		(name)
 #define	MACH_PORT_GEN(name)		0
 #define	MACH_PORT_MAKE(index, gen)	(index)
-#endif
 
 #define	MACH_PORT_NGEN(name)		MACH_PORT_MAKE(0, MACH_PORT_GEN(name))
 #define	MACH_PORT_MAKEB(index, bits)	MACH_PORT_MAKE(index, IE_BITS_GEN(bits))
