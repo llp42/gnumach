@@ -515,8 +515,6 @@ exec_msgids_DATA = gnumach.msgids
 # Specific code.
 #
 
-# Linux device drivers and the glue code.
-include linux/Makefrag.am
 
 #
 # Platform specific parts.

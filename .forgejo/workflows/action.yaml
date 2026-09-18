@@ -31,7 +31,6 @@ jobs:
           mkdir build32
           cd build32
           ../configure --prefix= --host=i686-gnu LD="x86_64-linux-gnu-ld -melf_i386" CC="x86_64-linux-gnu-gcc -m32" \
-                  --disable-linux-groups \
                   ${{ matrix.platform }} \
                   ${{ matrix.kdb }}
           make DESTDIR=../gnu32 install-data
@@ -49,7 +48,6 @@ jobs:
           CCASFLAGS="-fdebug-prefix-map=$PWD=." CFLAGS="-ffile-prefix-map=$PWD=." \
           ../configure --prefix= --host=i686-gnu \
                   MIG=i686-gnu-mig LD="x86_64-linux-gnu-ld -melf_i386" CC="x86_64-linux-gnu-gcc -m32" \
-                  --disable-linux-groups \
                   ${{ matrix.platform }} \
                   ${{ matrix.kdb }}
           set -o pipefail
@@ -101,7 +99,6 @@ jobs:
           mkdir build64
           cd build64
           ../configure --prefix= --host=x86_64-gnu LD=x86_64-linux-gnu-ld CC=x86_64-linux-gnu-gcc \
-                  --disable-linux-groups \
                   ${{ matrix.platform }} \
                   ${{ matrix.user32 }} \
                   ${{ matrix.kdb }}
@@ -122,7 +119,6 @@ jobs:
             mkdir build32
             cd build32
             ../configure --prefix= --host=i686-gnu LD="x86_64-linux-gnu-ld -melf_i386" CC="x86_64-linux-gnu-gcc -m32" \
-                    --disable-linux-groups \
                     ${{ matrix.platform }} \
                     ${{ matrix.kdb }}
             make DESTDIR=../gnu32 install-data
@@ -140,7 +136,6 @@ jobs:
           ../configure --prefix= --host=x86_64-gnu \
                   MIG=x86_64-gnu-mig LD=x86_64-linux-gnu-ld CC=x86_64-linux-gnu-gcc \
                   USER_MIG=${USER_H}-gnu-mig USER_CC="x86_64-linux-gnu-gcc ${USER_M32}" USER_LD="x86_64-linux-gnu-ld ${USER_ELF}" USER_CPP="x86_64-linux-gnu-gcc ${USER_M32} -E" \
-                  --disable-linux-groups \
                   ${{ matrix.platform }} \
                   ${{ matrix.user32 }} \
                   ${{ matrix.kdb }}

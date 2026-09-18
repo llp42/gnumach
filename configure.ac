@@ -183,9 +183,6 @@ m4_include([aarch64/configfrag.ac])
 # General options.
 m4_include([configfrag.ac])
 
-# Linux code snarfed into GNU Mach.
-m4_include([linux/configfrag.ac])
-
 # The test suite.
 m4_include([tests/configfrag.ac])
 

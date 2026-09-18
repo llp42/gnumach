@@ -44,8 +44,6 @@ build-aux/
 # Ignore arch symlinks
 /machine
 /mach/machine
-/linux/src/include/asm
-/linux/dev/include/asm
 
 /doc/mach.aux
 /doc/mach.cp
