@@ -17,8 +17,6 @@ dnl USE OF THIS SOFTWARE.
 # Definitions.
 #
 
-AC_DEFINE([MACH], [1], [MACH])
-AC_DEFINE([CMU], [1], [CMU])
 AC_DEFINE([MACH_KERNEL], [1], [Standalone MACH kernel])
 AC_DEFINE([KERNEL], [1], [KERNEL])
 
