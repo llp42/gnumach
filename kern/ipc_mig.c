@@ -446,12 +446,12 @@ port_name_to_task(mach_port_name_t name)
 		task = (task_t) port->ip_kobject;
 		assert(task != TASK_NULL);
 
-		task_lock(task);
+		simple_lock(&(task)->lock);
 		/* can safely unlock port now that task is locked */
 		ip_unlock(port);
 
 		task->ref_count++;
-		task_unlock(task);
+		simple_unlock(&(task)->lock);
 
 		return task;
 	}

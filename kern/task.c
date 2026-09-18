@@ -163,7 +163,7 @@ task_create_kernel(
 	record_time_stamp (&new_task->creation_time);
 
 	if (parent_task != TASK_NULL) {
-		task_lock(parent_task);
+		simple_lock(&(parent_task)->lock);
 		pset = parent_task->processor_set;
 		if (!pset->active)
 			pset = &default_pset;
@@ -172,7 +172,7 @@ task_create_kernel(
 		new_task->max_priority = parent_task->max_priority;
 		/* at this point max_priority/priority must be valid */
 		assert(new_task->priority >= new_task->max_priority);
-		task_unlock(parent_task);
+		simple_unlock(&(parent_task)->lock);
 	}
 	else {
 		pset = &default_pset;
@@ -229,9 +229,9 @@ void task_deallocate(
 	if (task == TASK_NULL)
 		return;
 
-	task_lock(task);
+	simple_lock(&(task)->lock);
 	c = --(task->ref_count);
-	task_unlock(task);
+	simple_unlock(&(task)->lock);
 	if (c != 0)
 		return;
 
@@ -255,9 +255,9 @@ void task_reference(
 	if (task == TASK_NULL)
 		return;
 
-	task_lock(task);
+	simple_lock(&(task)->lock);
 	task->ref_count++;
-	task_unlock(task);
+	simple_unlock(&(task)->lock);
 }
 
 /*
@@ -290,12 +290,12 @@ kern_return_t task_terminate(
 	 *	loop simple.
 	 */
 	if (task == cur_task) {
-		task_lock(task);
+		simple_lock(&(task)->lock);
 		if (!task->active) {
 			/*
 			 *	Task is already being terminated.
 			 */
-			task_unlock(task);
+			simple_unlock(&(task)->lock);
 			return KERN_FAILURE;
 		}
 		/*
@@ -306,7 +306,7 @@ kern_return_t task_terminate(
 		if (!cur_thread->active) {
 			thread_unlock(cur_thread);
 			(void) splx(s);
-			task_unlock(task);
+			simple_unlock(&(task)->lock);
 			thread_terminate(cur_thread);
 			return KERN_FAILURE;
 		}
@@ -315,7 +315,7 @@ kern_return_t task_terminate(
 		queue_remove(list, cur_thread, thread_t, thread_list);
 		thread_unlock(cur_thread);
 		(void) splx(s);
-		task_unlock(task);
+		simple_unlock(&(task)->lock);
 
 		/*
 		 *	Shut down this thread's ipc now because it must
@@ -330,12 +330,12 @@ kern_return_t task_terminate(
 		 *	potential deadlock.
 		 */
 		if ((vm_offset_t)task < (vm_offset_t)cur_task) {
-			task_lock(task);
-			task_lock(cur_task);
+			simple_lock(&(task)->lock);
+			simple_lock(&(cur_task)->lock);
 		}
 		else {
-			task_lock(cur_task);
-			task_lock(task);
+			simple_lock(&(cur_task)->lock);
+			simple_lock(&(task)->lock);
 		}
 		/*
 		 *	Check if current thread or task is being terminated.
@@ -348,25 +348,25 @@ kern_return_t task_terminate(
 			 */
 			thread_unlock(cur_thread);
 			(void) splx(s);
-			task_unlock(task);
-			task_unlock(cur_task);
+			simple_unlock(&(task)->lock);
+			simple_unlock(&(cur_task)->lock);
 			thread_terminate(cur_thread);
 			return KERN_FAILURE;
 		}
 		thread_unlock(cur_thread);
 		(void) splx(s);
-		task_unlock(cur_task);
+		simple_unlock(&(cur_task)->lock);
 
 		if (!task->active) {
 			/*
 			 *	Task is already being terminated.
 			 */
-			task_unlock(task);
+			simple_unlock(&(task)->lock);
 			return KERN_FAILURE;
 		}
 		task_hold_locked(task);
 		task->active = FALSE;
-		task_unlock(task);
+		simple_unlock(&(task)->lock);
 	}
 
 	/*
@@ -398,7 +398,7 @@ kern_return_t task_terminate(
 	 *      the task so repeated iteration over the thread list is
 	 *      required.
 	 */
-	task_lock(task);
+	simple_lock(&(task)->lock);
 	while (!queue_empty(list)) {
 		thread = (thread_t) queue_first(list);
 		thread_reference(thread);
@@ -409,15 +409,15 @@ kern_return_t task_terminate(
 			if (!queue_end(list, (queue_entry_t) next))
 				thread_reference(next);
 
-			task_unlock(task);
+			simple_unlock(&(task)->lock);
 			thread_force_terminate(thread);
 			thread_deallocate(thread);
 			thread_block(thread_no_continuation);
 			thread = next;
-			task_lock(task);
+			simple_lock(&(task)->lock);
 		} while (!queue_end(list, (queue_entry_t) thread));
 	}
-	task_unlock(task);
+	simple_unlock(&(task)->lock);
 
 	/*
 	 *	Shut down IPC.
@@ -439,11 +439,11 @@ kern_return_t task_terminate(
 	 *	the task.
 	 */
 	if (cur_thread->task == task) {
-		task_lock(task);
+		simple_lock(&(task)->lock);
 		s = splsched();
 		queue_enter(list, cur_thread, thread_t, thread_list);
 		(void) splx(s);
-		task_unlock(task);
+		simple_unlock(&(task)->lock);
 		(void) thread_terminate(cur_thread);
 	}
 
@@ -493,15 +493,15 @@ void task_hold_locked(
 kern_return_t task_hold(
 	task_t	task)
 {
-	task_lock(task);
+	simple_lock(&(task)->lock);
 	if (!task->active) {
-		task_unlock(task);
+		simple_unlock(&(task)->lock);
 		return KERN_FAILURE;
 	}
 
 	task_hold_locked(task);
 
-	task_unlock(task);
+	simple_unlock(&(task)->lock);
 	return KERN_SUCCESS;
 }
 
@@ -543,7 +543,7 @@ kern_return_t task_dowait(
 
 	list = &task->thread_list;
 	prev_thread = THREAD_NULL;
-	task_lock(task);
+	simple_lock(&(task)->lock);
 	queue_iterate(list, thread, thread_t, thread_list) {
 		if (!(task->active) && !(must_wait)) {
 			ret = KERN_FAILURE;
@@ -551,16 +551,16 @@ kern_return_t task_dowait(
 		}
 		if (thread != cur_thread) {
 			thread_reference(thread);
-			task_unlock(task);
+			simple_unlock(&(task)->lock);
 			if (prev_thread != THREAD_NULL)
 				thread_deallocate(prev_thread);
 							/* may block */
 			(void) thread_dowait(thread, TRUE);  /* may block */
 			prev_thread = thread;
-			task_lock(task);
+			simple_lock(&(task)->lock);
 		}
 	}
-	task_unlock(task);
+	simple_unlock(&(task)->lock);
 	if (prev_thread != THREAD_NULL)
 		thread_deallocate(prev_thread);		/* may block */
 	return ret;
@@ -572,9 +572,9 @@ kern_return_t task_release(
 	queue_head_t	*list;
 	thread_t	thread, next;
 
-	task_lock(task);
+	simple_lock(&(task)->lock);
 	if (!task->active) {
-		task_unlock(task);
+		simple_unlock(&(task)->lock);
 		return KERN_FAILURE;
 	}
 
@@ -590,7 +590,7 @@ kern_return_t task_release(
 		thread_release(thread);
 		thread = next;
 	}
-	task_unlock(task);
+	simple_unlock(&(task)->lock);
 	return KERN_SUCCESS;
 }
 
@@ -613,9 +613,9 @@ kern_return_t task_threads(
 	size = 0; addr = 0;
 
 	for (;;) {
-		task_lock(task);
+		simple_lock(&(task)->lock);
 		if (!task->active) {
-			task_unlock(task);
+			simple_unlock(&(task)->lock);
 			return KERN_FAILURE;
 		}
 
@@ -628,7 +628,7 @@ kern_return_t task_threads(
 			break;
 
 		/* unlock the task and allocate more memory */
-		task_unlock(task);
+		simple_unlock(&(task)->lock);
 
 		if (size != 0)
 			kfree(addr, size);
@@ -655,7 +655,7 @@ kern_return_t task_threads(
 	assert(queue_end(&task->thread_list, (queue_entry_t) thread));
 
 	/* can unlock task now that we've got the thread refs */
-	task_unlock(task);
+	simple_unlock(&(task)->lock);
 
 	if (actual == 0) {
 		/* no threads, so return null pointer and deallocate memory */
@@ -706,10 +706,10 @@ kern_return_t task_suspend(
 		return KERN_INVALID_ARGUMENT;
 
 	hold = FALSE;
-	task_lock(task);
+	simple_lock(&(task)->lock);
 	if ((task->user_stop_count)++ == 0)
 		hold = TRUE;
-	task_unlock(task);
+	simple_unlock(&(task)->lock);
 
 	/*
 	 *	If the stop count was positive, the task is
@@ -757,16 +757,16 @@ kern_return_t task_resume(
 		return KERN_INVALID_ARGUMENT;
 
 	release = FALSE;
-	task_lock(task);
+	simple_lock(&(task)->lock);
 	if (task->user_stop_count > 0) {
 		if (--(task->user_stop_count) == 0)
 	    		release = TRUE;
 	}
 	else {
-		task_unlock(task);
+		simple_unlock(&(task)->lock);
 		return KERN_FAILURE;
 	}
-	task_unlock(task);
+	simple_unlock(&(task)->lock);
 
 	/*
 	 *	Release the task if necessary.
@@ -809,7 +809,7 @@ kern_return_t task_info(
 		basic_info->resident_size = ((rpc_vm_size_t) pmap_resident_count(map->pmap))
 						   * PAGE_SIZE;
 
-		task_lock(task);
+		simple_lock(&(task)->lock);
 		basic_info->base_priority = task->priority;
 		basic_info->suspend_count = task->user_stop_count;
 		TIME_VALUE64_TO_TIME_VALUE(&task->total_user_time,
@@ -825,7 +825,7 @@ kern_return_t task_info(
 		    basic_info->system_time64 = task->total_system_time;
 		    basic_info->creation_time64 = creation_time64;
 		}
-		task_unlock(task);
+		simple_unlock(&(task)->lock);
 
 		if (*task_info_count > TASK_BASIC_INFO_COUNT)
 		  *task_info_count = TASK_BASIC_INFO_COUNT;
@@ -842,7 +842,7 @@ kern_return_t task_info(
 
 		event_info = (task_events_info_t) task_info_out;
 
-		task_lock(task);
+		simple_lock(&(task)->lock);
 		event_info->faults = task->faults;
 		event_info->zero_fills = task->zero_fills;
 		event_info->reactivations = task->reactivations;
@@ -850,7 +850,7 @@ kern_return_t task_info(
 		event_info->cow_faults = task->cow_faults;
 		event_info->messages_sent = task->messages_sent;
 		event_info->messages_received = task->messages_received;
-		task_unlock(task);
+		simple_unlock(&(task)->lock);
 
 		*task_info_count = TASK_EVENTS_INFO_COUNT;
 		break;
@@ -872,7 +872,7 @@ kern_return_t task_info(
 		time_value64_init(&acc_user_time);
 		time_value64_init(&acc_system_time);
 
-		task_lock(task);
+		simple_lock(&(task)->lock);
 		queue_iterate(&task->thread_list, thread,
 			      thread_t, thread_list)
 		{
@@ -890,7 +890,7 @@ kern_return_t task_info(
 		    time_value64_add(&acc_user_time, &user_time);
 		    time_value64_add(&acc_system_time, &system_time);
 		}
-		task_unlock(task);
+		simple_unlock(&(task)->lock);
 		TIME_VALUE64_TO_TIME_VALUE(&acc_user_time, &times_info->user_time);
 		TIME_VALUE64_TO_TIME_VALUE(&acc_system_time, &times_info->system_time);
 		if (*task_info_count >= TASK_THREAD_TIMES_INFO_COUNT) {
@@ -937,13 +937,13 @@ task_assign(
 	 *	task.  Only one freeze may be held per task.
 	 */
 
-	task_lock(task);
+	simple_lock(&(task)->lock);
 	while (task->may_assign == FALSE) {
 		task->assign_active = TRUE;
 		assert_wait((event_t)&task->assign_active, TRUE);
-		task_unlock(task);
+		simple_unlock(&(task)->lock);
 		thread_block(thread_no_continuation);
-		task_lock(task);
+		simple_lock(&(task)->lock);
 	}
 
 	/*
@@ -954,12 +954,12 @@ task_assign(
 		 *	No need for task->assign_active wakeup:
 		 *	task->may_assign is still TRUE.
 		 */
-		task_unlock(task);
+		simple_unlock(&(task)->lock);
 		return KERN_SUCCESS;
 	}
 
 	task->may_assign = FALSE;
-	task_unlock(task);
+	simple_unlock(&(task)->lock);
 
 	/*
 	 *	Safe to get the task`s pset: it cannot change while
@@ -997,7 +997,7 @@ task_assign(
 	 *	Now grab the task lock and move the task.
 	 */
 
-	task_lock(task);
+	simple_lock(&(task)->lock);
 	pset_remove_task(pset, task);
 	pset_add_task(new_pset, task);
 
@@ -1015,7 +1015,7 @@ task_assign(
 			task->assign_active = FALSE;
 			thread_wakeup((event_t) &task->assign_active);
 		}
-		task_unlock(task);
+		simple_unlock(&(task)->lock);
 		pset_deallocate(pset);
 		return KERN_SUCCESS;
 	}
@@ -1024,9 +1024,9 @@ task_assign(
 	 *	If current thread is in task, freeze its assignment.
 	 */
 	if (current_thread()->task == task) {
-		task_unlock(task);
+		simple_unlock(&(task)->lock);
 		thread_freeze(current_thread());
-		task_lock(task);
+		simple_lock(&(task)->lock);
 	}
 
 	/*
@@ -1043,12 +1043,12 @@ task_assign(
 		}
 		if (thread != current_thread()) {
 			thread_reference(thread);
-			task_unlock(task);
+			simple_unlock(&(task)->lock);
 			if (prev_thread != THREAD_NULL)
 			    thread_deallocate(prev_thread); /* may block */
 			thread_assign(thread,new_pset);	    /* may block */
 			prev_thread = thread;
-			task_lock(task);
+			simple_lock(&(task)->lock);
 		}
 	}
 
@@ -1060,7 +1060,7 @@ task_assign(
 		task->assign_active = FALSE;
 		thread_wakeup((event_t)&task->assign_active);
 	}
-	task_unlock(task);
+	simple_unlock(&(task)->lock);
 	if (prev_thread != THREAD_NULL)
 		thread_deallocate(prev_thread);		/* may block */
 
@@ -1141,9 +1141,9 @@ task_priority(
 	if (task == TASK_NULL || invalid_pri(priority))
 		return KERN_INVALID_ARGUMENT;
 
-	task_lock(task);
+	simple_lock(&(task)->lock);
 	if (task->max_priority > priority) {
-		task_unlock(task);
+		simple_unlock(&(task)->lock);
 		return KERN_NO_ACCESS;
 	}
 	task->priority = priority;
@@ -1160,7 +1160,7 @@ task_priority(
 		}
 	}
 
-	task_unlock(task);
+	simple_unlock(&(task)->lock);
 	return ret;
 }
 
@@ -1381,11 +1381,11 @@ task_max_priority(
 			invalid_pri(max_priority))
 		return KERN_INVALID_ARGUMENT;
 
-	task_lock(task);
+	simple_lock(&(task)->lock);
 
 	if ((max_priority < task->max_priority) &&
 			(ikot_host != IKOT_HOST_PRIV)) {
-		task_unlock(task);
+		simple_unlock(&(task)->lock);
 		return KERN_NO_ACCESS;
 	}
 
@@ -1406,6 +1406,6 @@ task_max_priority(
 		}
 	}
 
-	task_unlock(task);
+	simple_unlock(&(task)->lock);
 	return ret;
 }

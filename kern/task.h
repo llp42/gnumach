@@ -118,9 +118,6 @@ struct task {
 	char	name[TASK_NAME_SIZE];
 };
 
-#define task_lock(task)		simple_lock(&(task)->lock)
-#define task_unlock(task)	simple_unlock(&(task)->lock)
-
 /*
  *	Exported routines/macros
  */

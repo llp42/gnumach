@@ -415,10 +415,10 @@ kern_return_t thread_create(
 	/*
 	 *	Find the processor set for the parent task.
 	 */
-	task_lock(parent_task);
+	simple_lock(&(parent_task)->lock);
 	pset = parent_task->processor_set;
 	pset_reference(pset);
-	task_unlock(parent_task);
+	simple_unlock(&(parent_task)->lock);
 
 	/*
 	 *	This thread will mosty probably start working, assume it
@@ -440,7 +440,7 @@ kern_return_t thread_create(
 
     Restart:
 	pset_lock(pset);
-	task_lock(parent_task);
+	simple_lock(&(parent_task)->lock);
 
 	/*
 	 *	If the task has changed processor sets,
@@ -455,7 +455,7 @@ kern_return_t thread_create(
 
 	    if (cur_pset != pset) {
 		pset_reference(cur_pset);
-		task_unlock(parent_task);
+		simple_unlock(&(parent_task)->lock);
 		pset_unlock(pset);
 		pset_deallocate(pset);
 		pset = cur_pset;
@@ -521,14 +521,14 @@ kern_return_t thread_create(
 	new_thread->active = TRUE;
 
 	if (!parent_task->active) {
-		task_unlock(parent_task);
+		simple_unlock(&(parent_task)->lock);
 		pset_unlock(pset);
 		(void) thread_terminate(new_thread);
 		/* release ref we would have given our caller */
 		thread_deallocate(new_thread);
 		return KERN_FAILURE;
 	}
-	task_unlock(parent_task);
+	simple_unlock(&(parent_task)->lock);
 	pset_unlock(pset);
 
 	ipc_thread_enable(new_thread);
@@ -591,7 +591,7 @@ void thread_deallocate(
 #endif	/* MACH_HOST */
 
 	task = thread->task;
-	task_lock(task);
+	simple_lock(&(task)->lock);
 
 	s = splsched();
 	thread_lock(thread);
@@ -602,7 +602,7 @@ void thread_deallocate(
 		 */
 		thread_unlock(thread);
 		(void) splx(s);
-		task_unlock(task);
+		simple_unlock(&(task)->lock);
 		pset_unlock(pset);
 		return;
 	}
@@ -636,7 +636,7 @@ void thread_deallocate(
 
 	thread_unlock(thread);		/* no more references - safe */
 	(void) splx(s);
-	task_unlock(task);
+	simple_unlock(&(task)->lock);
 	pset_unlock(pset);
 	pset_deallocate(pset);
 
@@ -746,7 +746,7 @@ kern_return_t thread_terminate(
 	 *	to check termination races and prevent deadlocks.
 	 */
 	cur_task = current_task();
-	task_lock(cur_task);
+	simple_lock(&(cur_task)->lock);
 	s = splsched();
 	if ((vm_offset_t)thread < (vm_offset_t)cur_thread) {
 		thread_lock(thread);
@@ -764,13 +764,13 @@ kern_return_t thread_terminate(
 		thread_unlock(cur_thread);
 		thread_unlock(thread);
 		(void) splx(s);
-		task_unlock(cur_task);
+		simple_unlock(&(cur_task)->lock);
 		thread_terminate(cur_thread);
 		return KERN_FAILURE;
 	}
     
 	thread_unlock(cur_thread);
-	task_unlock(cur_task);
+	simple_unlock(&(cur_task)->lock);
 
 	/*
 	 *	Terminate victim thread.

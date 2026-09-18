@@ -170,7 +170,7 @@ task_set_emulation_vector_internal(
 	     * Find the current emulation vector.
 	     * See whether we can overwrite it.
 	     */
-	    task_lock(task);
+	    simple_lock(&(task)->lock);
 	    cur_eml = task->eml_dispatch;
 	    if (cur_eml != EML_DISPATCH_NULL) {
 		cur_start = cur_eml->disp_min;
@@ -252,7 +252,7 @@ task_set_emulation_vector_internal(
 	     * changed while we didn`t hold the locks.
 	     */
 
-	    task_unlock(task);
+	    simple_unlock(&(task)->lock);
 
 	    if (new_eml != EML_DISPATCH_NULL)
 		kfree((vm_offset_t)new_eml, count_to_size(new_eml->disp_count));
@@ -277,7 +277,7 @@ task_set_emulation_vector_internal(
 	       &emulation_vector[0],
 	       emulation_vector_count * sizeof(vm_offset_t));
 
-	task_unlock(task);
+	simple_unlock(&(task)->lock);
 
 	/*
 	 * Discard any old emulation vector we don`t need.
@@ -360,10 +360,10 @@ task_get_emulation_vector(
 	for(;;) {
 	    vm_size_t	size_needed;
 
-	    task_lock(task);
+	    simple_lock(&(task)->lock);
 	    eml = task->eml_dispatch;
 	    if (eml == EML_DISPATCH_NULL) {
-		task_unlock(task);
+		simple_unlock(&(task)->lock);
 		if (addr)
 		    (void) kmem_free(ipc_kernel_map, addr, size);
 		*vector_start = 0;
@@ -384,7 +384,7 @@ task_get_emulation_vector(
 	    /*
 	     * If not, unlock the task and allocate more memory.
 	     */
-	    task_unlock(task);
+	    simple_unlock(&(task)->lock);
 
 	    if (size != 0)
 		kmem_free(ipc_kernel_map, addr, size);
@@ -406,7 +406,7 @@ task_get_emulation_vector(
 	/*
 	 * Unlock the task and free any memory we did not need
 	 */
-	task_unlock(task);
+	simple_unlock(&(task)->lock);
 
     {
 	vm_size_t	size_used, size_left;
