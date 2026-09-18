@@ -49,9 +49,7 @@
 #include <vm/pmap.h>
 #include <ipc/ipc_types.h>
 
-#if	MACH_PAGEMAP
 #include <vm/vm_external.h>
-#endif	/* MACH_PAGEMAP */
 
 typedef struct ipc_port *	pager_request_t;
 #define	PAGER_REQUEST_NULL	((pager_request_t) 0)
@@ -157,9 +155,7 @@ struct vm_object {
 						 * of their can_persist value
 						 */
 	vm_offset_t		last_alloc;	/* last allocation offset */
-#if	MACH_PAGEMAP
 	vm_external_t		existence_info;
-#endif	/* MACH_PAGEMAP */
 };
 
 extern

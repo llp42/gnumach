@@ -547,10 +547,8 @@ vm_fault_return_t vm_fault_page(
 
 		look_for_page =
 			(object->pager_created)
-#if	MACH_PAGEMAP
 			&& (vm_external_state_get(object->existence_info, offset + object->paging_offset) !=
 			 VM_EXTERNAL_STATE_ABSENT)
-#endif	/* MACH_PAGEMAP */
 			 ;
 
 		if ((look_for_page || (object == first_object))

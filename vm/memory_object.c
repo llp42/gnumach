@@ -66,9 +66,7 @@
 #include <vm/vm_map.h>		/* For vm_map_pageable */
 #include <ipc/ipc_port.h>
 
-#if	MACH_PAGEMAP
 #include <vm/vm_external.h>
-#endif	/* MACH_PAGEMAP */
 
 typedef	int		memory_object_lock_result_t; /* moved from below */
 
@@ -349,9 +347,7 @@ kern_return_t memory_object_data_unavailable(
 	vm_offset_t	offset,
 	vm_size_t	size)
 {
-#if	MACH_PAGEMAP
 	vm_external_t	existence_info = VM_EXTERNAL_NULL;
-#endif	/* MACH_PAGEMAP */
 
 	if (object == VM_OBJECT_NULL)
 		return(KERN_INVALID_ARGUMENT);
@@ -359,15 +355,12 @@ kern_return_t memory_object_data_unavailable(
 	if (size != round_page(size))
 		return(KERN_INVALID_ARGUMENT);
 
-#if	MACH_PAGEMAP
 	if ((offset == 0) && (size > VM_EXTERNAL_LARGE_SIZE) &&
 	    (object->existence_info == VM_EXTERNAL_NULL)) {
 		existence_info = vm_external_create(VM_EXTERNAL_SMALL_SIZE);
 	}
-#endif	/* MACH_PAGEMAP */
 
 	vm_object_lock(object);
-#if	MACH_PAGEMAP
  	if (existence_info != VM_EXTERNAL_NULL) {
 		object->existence_info = existence_info;
 	}
@@ -376,7 +369,6 @@ kern_return_t memory_object_data_unavailable(
 		vm_object_deallocate(object);
 		return(KERN_SUCCESS);
 	}
-#endif	/* MACH_PAGEMAP */
 	offset -= object->paging_offset;
 
 	while (size != 0) {

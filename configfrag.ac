@@ -52,8 +52,6 @@ mach_machine_routines=${mach_machine_routines-0}
 AC_DEFINE_UNQUOTED([MACH_MACHINE_ROUTINES], [$mach_machine_routines],
   [MACH_MACHINE_ROUTINES])
 
-# Paged-out page map hints.
-AC_DEFINE([MACH_PAGEMAP], [1], [MACH_PAGEMAP])
 
 # Do pc sample histogram.
 [if [ $mach_ncpus -gt 1 ]; then]

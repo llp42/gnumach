@@ -165,11 +165,9 @@ vm_pageout_setup(
 		/*
 		 *	Record that this page has been written out
 		 */
-#if	MACH_PAGEMAP
 		vm_external_state_set(old_object->existence_info,
 					paging_offset,
 					VM_EXTERNAL_STATE_EXISTS);
-#endif	/* MACH_PAGEMAP */
 
 		vm_object_unlock(old_object);
 
@@ -212,11 +210,9 @@ vm_pageout_setup(
 		 *	Record that this page has been written out
 		 */
 
-#if	MACH_PAGEMAP
 		vm_external_state_set(old_object->existence_info,
 					paging_offset,
 					VM_EXTERNAL_STATE_EXISTS);
-#endif	/* MACH_PAGEMAP */
 
 		vm_object_unlock(old_object);
 

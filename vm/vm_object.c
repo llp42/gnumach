@@ -302,9 +302,7 @@ void vm_object_bootstrap(void)
 	vm_object_template.lock_restart = FALSE;
 	vm_object_template.last_alloc = (vm_offset_t) 0;
 
-#if	MACH_PAGEMAP
 	vm_object_template.existence_info = VM_EXTERNAL_NULL;
-#endif	/* MACH_PAGEMAP */
 
 		/*
 	 *	Initialize the "kernel object"
@@ -321,9 +319,7 @@ void vm_object_bootstrap(void)
 	_vm_object_setup(vm_submap_object,
 		VM_MAX_KERNEL_ADDRESS - VM_MIN_KERNEL_ADDRESS);
 
-#if	MACH_PAGEMAP
 	vm_external_module_initialize();
-#endif	/* MACH_PAGEMAP */
 }
 
 void vm_object_init(void)
@@ -645,9 +641,7 @@ void vm_object_terminate(
 		ipc_port_dealloc_kernel(object->pager_name);
 	}
 
-#if	MACH_PAGEMAP
 	vm_external_destroy(object->existence_info);
-#endif	/* MACH_PAGEMAP */
 
 	/*
 	 *	Free the space for the object.
@@ -2210,13 +2204,11 @@ void vm_object_pager_create(
 	vm_object_paging_begin(object);
 	vm_object_unlock(object);
 
-#if	MACH_PAGEMAP
 	object->existence_info = vm_external_create(
 					object->size +
 					object->paging_offset);
 	assert((object->size + object->paging_offset) >=
 		object->size);
-#endif	/* MACH_PAGEMAP */
 
 	/*
 	 *	Create the pager, and associate with it
@@ -2528,10 +2520,8 @@ void vm_object_collapse(
 					backing_object->paging_offset +
 						backing_offset;
 
-#if	MACH_PAGEMAP
 			assert(object->existence_info == VM_EXTERNAL_NULL);
 			object->existence_info = backing_object->existence_info;
-#endif	/* MACH_PAGEMAP */
 
 			/*
 			 *	Object now shadows whatever backing_object did.
