@@ -25,12 +25,19 @@ then
 fi
 
 [ -n "$GNUMACH" ] || GNUMACH=gnumach
-if grub-file --help > /dev/null 2>&1
-then grub-file --is-x86-multiboot $GNUMACH
-else
-  # `grub-file' is not available -- ignore this test.
-  exit 77
-fi
+
+# `grub-file' is the upstream name; Fedora and RHEL install it as `grub2-file'.
+for grub_file in grub-file grub2-file
+do
+  if $grub_file --help > /dev/null 2>&1
+  then
+    $grub_file --is-x86-multiboot $GNUMACH
+    exit
+  fi
+done
+
+# `grub-file' is not available -- ignore this test.
+exit 77
 
 # Local Variables:
 # mode: shell-script

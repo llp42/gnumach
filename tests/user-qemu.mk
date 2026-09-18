@@ -195,6 +195,10 @@ QEMU_OPTS += -cpu core2duo-v1
 endif
 endif
 
+# tests/test-multiboot reads this as a shell variable, so it has to reach the
+# test's environment -- defining it in the Makefile is not enough.
+export PLATFORM_XEN
+
 if enable_smp
 QEMU_OPTS += -smp 2
 endif
