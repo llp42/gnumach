@@ -85,16 +85,11 @@ extern struct kmem_cache ipc_object_caches[IOT_NUMBER];
 #define	io_free(otype, io)	\
 		kmem_cache_free(&ipc_object_caches[(otype)], (vm_offset_t) (io))
 
-#define	io_lock_init(io)	simple_lock_init(&(io)->io_lock_data)
-#define	io_lock(io)		simple_lock(&(io)->io_lock_data)
-#define	io_lock_try(io)		simple_lock_try(&(io)->io_lock_data)
-#define	io_unlock(io)		simple_unlock(&(io)->io_lock_data)
-
 #define io_check_unlock(io) 						\
 MACRO_BEGIN								\
 	ipc_object_refs_t _refs = (io)->io_references;			\
 									\
-	io_unlock(io);							\
+	simple_unlock(&(io)->io_lock_data);							\
 	if (_refs == 0)							\
 		io_free(io_otype(io), io);				\
 MACRO_END

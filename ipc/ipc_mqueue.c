@@ -474,7 +474,7 @@ ipc_mqueue_copyin(
 
 	io_reference(object);
 	simple_lock(&(mqueue)->imq_lock_data);
-	io_unlock(object);
+	simple_unlock(&(object)->io_lock_data);
 
 	*objectp = object;
 	*mqueuep = mqueue;

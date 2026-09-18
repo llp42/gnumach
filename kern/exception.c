@@ -467,7 +467,7 @@ exception_raise(
     {
 	ipc_object_t object = receiver->ith_object;
 
-	io_lock(object);
+	simple_lock(&(object)->io_lock_data);
 	io_release(object);
 	io_check_unlock(object);
     }

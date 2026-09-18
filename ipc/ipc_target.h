@@ -43,8 +43,8 @@ typedef struct ipc_target {
 void ipc_target_init(struct ipc_target *ipt, mach_port_name_t name);
 void ipc_target_terminate(struct ipc_target *ipt);
 
-#define ipt_lock(ipt)		io_lock(&(ipt)->ipt_object)
-#define ipt_unlock(ipt)		io_unlock(&(ipt)->ipt_object)
+#define ipt_lock(ipt)		simple_lock(&(&(ipt)->ipt_object)->io_lock_data)
+#define ipt_unlock(ipt)		simple_unlock(&(&(ipt)->ipt_object)->io_lock_data)
 #define ipt_reference(ipt)	io_reference(&(ipt)->ipt_object)
 #define ipt_release(ipt)	io_release(&(ipt)->ipt_object)
 #define ipt_check_unlock(ipt)	io_check_unlock(&(ipt)->ipt_object)

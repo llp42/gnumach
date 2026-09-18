@@ -591,7 +591,7 @@ mach_msg_trap(
 			io_reference(rcv_object);
 			rcv_mqueue = &reply_port->ip_messages;
 			simple_lock(&(rcv_mqueue)->imq_lock_data);
-			io_unlock(rcv_object);
+			simple_unlock(&(rcv_object)->io_lock_data);
 			goto fast_send_receive;
 
 		    abort_request_copyin:
@@ -719,7 +719,7 @@ mach_msg_trap(
 			is_write_unlock(space);
 			io_reference(rcv_object);
 			simple_lock(&(rcv_mqueue)->imq_lock_data);
-			io_unlock(rcv_object);
+			simple_unlock(&(rcv_object)->io_lock_data);
 			goto fast_send_receive;
 
 		    abort_reply_dest_copyin:
@@ -932,7 +932,7 @@ mach_msg_trap(
 		rcv_object = self->ith_object;
 
 		/* inline ipc_object_release */
-		io_lock(rcv_object);
+		simple_lock(&(rcv_object)->io_lock_data);
 		io_release(rcv_object);
 		io_check_unlock(rcv_object);
 	    }
@@ -1278,7 +1278,7 @@ mach_msg_trap(
 				io_reference(rcv_object);
 				rcv_mqueue = &reply_port->ip_messages;
 				simple_lock(&(rcv_mqueue)->imq_lock_data);
-				io_unlock(rcv_object);
+				simple_unlock(&(rcv_object)->io_lock_data);
 				goto fast_send_receive;
 			    }
 			    ip_unlock(reply_port);

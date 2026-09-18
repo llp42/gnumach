@@ -64,10 +64,10 @@ void
 ipc_object_reference(
 	ipc_object_t	object)
 {
-	io_lock(object);
+	simple_lock(&(object)->io_lock_data);
 	assert(object->io_references > 0);
 	io_reference(object);
-	io_unlock(object);
+	simple_unlock(&(object)->io_lock_data);
 }
 
 /*
@@ -80,7 +80,7 @@ void
 ipc_object_release(
 	ipc_object_t	object)
 {
-	io_lock(object);
+	simple_lock(&(object)->io_lock_data);
 	assert(object->io_references > 0);
 	io_release(object);
 	io_check_unlock(object);
@@ -124,7 +124,7 @@ ipc_object_translate(
 	object = entry->ie_object;
 	assert(object != IO_NULL);
 
-	io_lock(object);
+	simple_lock(&(object)->io_lock_data);
 	is_read_unlock(space);
 
 	*objectp = object;
@@ -264,8 +264,8 @@ ipc_object_alloc(
 	entry->ie_bits |= type | urefs;
 	entry->ie_object = object;
 
-	io_lock_init(object);
-	io_lock(object);
+	simple_lock_init(&(object)->io_lock_data);
+	simple_lock(&(object)->io_lock_data);
 	is_write_unlock(space);
 
 	object->io_references = 1; /* for entry, not caller */
@@ -337,8 +337,8 @@ ipc_object_alloc_name(
 	entry->ie_bits |= type | urefs;
 	entry->ie_object = object;
 
-	io_lock_init(object);
-	io_lock(object);
+	simple_lock_init(&(object)->io_lock_data);
+	simple_lock(&(object)->io_lock_data);
 	is_write_unlock(space);
 
 	object->io_references = 1; /* for entry, not caller */
@@ -639,9 +639,9 @@ ipc_object_copyout(
 		assert(IE_BITS_TYPE(entry->ie_bits) == MACH_PORT_TYPE_NONE);
 		assert(entry->ie_object == IO_NULL);
 
-		io_lock(object);
+		simple_lock(&(object)->io_lock_data);
 		if (!io_active(object)) {
-			io_unlock(object);
+			simple_unlock(&(object)->io_lock_data);
 			ipc_entry_dealloc(space, name, entry);
 			is_write_unlock(space);
 			return KERN_INVALID_CAPABILITY;
@@ -710,7 +710,7 @@ ipc_object_copyout_name(
 		/* object is locked and active */
 
 		if (name != oname) {
-			io_unlock(object);
+			simple_unlock(&(object)->io_lock_data);
 
 			if (IE_BITS_TYPE(entry->ie_bits)
 						== MACH_PORT_TYPE_NONE)
@@ -729,9 +729,9 @@ ipc_object_copyout_name(
 		assert(IE_BITS_TYPE(entry->ie_bits) == MACH_PORT_TYPE_NONE);
 		assert(entry->ie_object == IO_NULL);
 
-		io_lock(object);
+		simple_lock(&(object)->io_lock_data);
 		if (!io_active(object)) {
-			io_unlock(object);
+			simple_unlock(&(object)->io_lock_data);
 			ipc_entry_dealloc(space, name, entry);
 			is_write_unlock(space);
 			return KERN_INVALID_CAPABILITY;

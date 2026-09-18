@@ -2631,7 +2631,7 @@ ipc_kmsg_copyout_dest(
 
 	assert(IO_VALID(dest));
 
-	io_lock(dest);
+	simple_lock(&(dest)->io_lock_data);
 	if (io_active(dest)) {
 		ipc_object_copyout_dest(space, dest, dest_type, &dest_name);
 		/* dest is unlocked */
