@@ -205,10 +205,8 @@ void clock_interrupt(
 	int		my_cpu = cpu_number();
 	thread_t	thread = current_thread();
 
-#if	STAT_TIME
 	/*
-	 *	Increment the thread time, if using
-	 *	statistical timing.
+	 *	Increment the thread time.
 	 */
 	if (usermode) {
 	    timer_bump(&thread->user_timer, usec);
@@ -218,7 +216,6 @@ void clock_interrupt(
 	    if (thread)
 		timer_bump(&thread->system_timer, usec);
 	}
-#endif	/* STAT_TIME */
 
 	/*
 	 *	Increment the CPU time statistics.
