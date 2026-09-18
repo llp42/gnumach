@@ -53,16 +53,6 @@
 #include <mach/machine/vm_types.h>
 
 
-#ifdef	KEEP_STACKS
-/*
- *	Some obsolete architectures don't support kernel stack discarding
- *	or the thread_exception_return, thread_syscall_return continuations.
- *	For these architectures, the NOTREACHED comments below are incorrect.
- *	The exception function is expected to return.
- *	So the return statements along the slow paths are important.
- */
-#endif	/* KEEP_STACKS */
-
 /*
  *	Routine:	exception
  *	Purpose:
