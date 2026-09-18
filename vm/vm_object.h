@@ -64,9 +64,6 @@ typedef struct ipc_port *	pager_request_t;
 struct vm_object {
 	queue_head_t		memq;		/* Resident memory */
 	decl_simple_lock_data(,	Lock)		/* Synchronization */
-#if	VM_OBJECT_DEBUG
-	thread_t		LockHolder;	/* Thread holding Lock */
-#endif	/* VM_OBJECT_DEBUG */
 	vm_size_t		size;		/* Object size (only valid
 						 * if internal)
 						 */
@@ -344,42 +341,9 @@ vm_object_t vm_object_copy_delayed(
 	MACRO_END
 
 /*
- *	Object locking macros (with and without debugging)
+ *	Object locking macros
  */
 
-#if	VM_OBJECT_DEBUG
-#define vm_object_lock_init(object) \
-MACRO_BEGIN \
-	simple_lock_init(&(object)->Lock); \
-	(object)->LockHolder = 0; \
-MACRO_END
-#define vm_object_lock(object) \
-MACRO_BEGIN \
-	simple_lock(&(object)->Lock); \
-	(object)->LockHolder = current_thread(); \
-MACRO_END
-#define vm_object_unlock(object) \
-MACRO_BEGIN \
-	if ((object)->LockHolder != current_thread()) \
-	    panic("vm_object_unlock 0x%x", (object)); \
-	(object)->LockHolder = 0; \
-	simple_unlock(&(object)->Lock); \
-MACRO_END
-#define vm_object_lock_try(object) \
-	(simple_lock_try(&(object)->Lock) \
-	    ? ( ((object)->LockHolder = current_thread()) , TRUE) \
-	    : FALSE)
-#define vm_object_sleep(event, object, interruptible) \
-MACRO_BEGIN \
-	if ((object)->LockHolder != current_thread()) \
-	    panic("vm_object_sleep %#x", (object)); \
-	(object)->LockHolder = 0; \
-	thread_sleep((event_t)(event), simple_lock_addr((object)->Lock), \
-		(interruptible)); \
-MACRO_END
-#define	vm_object_lock_taken(object)	\
-		((object)->LockHolder == current_thread())
-#else	/* VM_OBJECT_DEBUG */
 #define vm_object_lock_init(object)	simple_lock_init(&(object)->Lock)
 #define vm_object_lock(object)		simple_lock(&(object)->Lock)
 #define vm_object_unlock(object)	simple_unlock(&(object)->Lock)
@@ -388,7 +352,6 @@ MACRO_END
 		thread_sleep((event_t)(event), simple_lock_addr((object)->Lock), \
 			     (interruptible))
 #define	vm_object_lock_taken(object)	simple_lock_taken(&(object)->Lock)
-#endif	/* VM_OBJECT_DEBUG */
 
 /*
  *	Page cache accounting.
