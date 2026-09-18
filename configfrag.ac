@@ -37,9 +37,6 @@ AC_DEFINE_UNQUOTED([NLPR], [$nlpr], [NLPR])
   AM_CONDITIONAL([enable_pae], [false])
 [fi]
 
-# Fixed priority threads.
-AC_DEFINE([MACH_FIXPRI], [1], [MACH_FIXPRI])
-
 # Mach host (cpu resource alloc.).
 [if [ $mach_ncpus -gt 1 ]; then]
   AC_DEFINE([MACH_HOST], [1], [MACH_HOST])

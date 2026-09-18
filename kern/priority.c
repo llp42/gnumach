@@ -147,9 +147,7 @@ void thread_quantum_update(
 			}
 			else {
 			    if (
-#if	MACH_FIXPRI
 				(thread->policy == POLICY_TIMESHARE) &&
-#endif	/* MACH_FIXPRI */
 				(thread->depress_priority < 0)) {
 				    thread_timer_delta(thread);
 				    thread->sched_usage +=
@@ -164,11 +162,8 @@ void thread_quantum_update(
 			 *	This quantum is up, give this thread another.
 			 */
 			myprocessor->first_quantum = FALSE;
-#if	MACH_FIXPRI
 			if (thread->policy == POLICY_TIMESHARE) {
-#endif	/* MACH_FIXPRI */
 				myprocessor->quantum += quantum;
-#if	MACH_FIXPRI
 			}
 			else {
 				/*
@@ -177,7 +172,6 @@ void thread_quantum_update(
 				 */
 				myprocessor->quantum += thread->sched_data;
 			}
-#endif	/* MACH_FIXPRI */
 		}
 		/*
 		 *	Recompute priority if appropriate.
@@ -190,9 +184,7 @@ void thread_quantum_update(
 		    }
 		    else {
 			if (
-#if	MACH_FIXPRI
 			    (thread->policy == POLICY_TIMESHARE) &&
-#endif	/* MACH_FIXPRI */
 			    (thread->depress_priority < 0)) {
 				thread_timer_delta(thread);
 				if (thread->sched_delta >= USAGE_THRESHOLD) {

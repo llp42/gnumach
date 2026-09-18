@@ -47,9 +47,7 @@
 
 #include <machine/spl.h>	/* for splsched */
 
-#if	MACH_FIXPRI
 #include <mach/policy.h>
-#endif	/* MACH_FIXPRI */
 
 
 volatile ast_t need_ast[NCPUS];
@@ -165,7 +163,6 @@ ast_check(void)
 		/*
 		 *	Update lazy evaluated runq->low if only timesharing.
 		 */
-#if	MACH_FIXPRI
 		if (myprocessor->processor_set->policies & POLICY_FIXEDPRI) {
 		    if (csw_needed(thread,myprocessor)) {
 			ast_on(mycpu, AST_BLOCK);
@@ -181,7 +178,6 @@ ast_check(void)
 		    }
 		}
 		else {
-#endif	/* MACH_FIXPRI			 */
 		rq = &(myprocessor->processor_set->runq);
 		if (!(myprocessor->first_quantum) && (rq->count > 0)) {
 		    queue_t 		q;
@@ -215,9 +211,7 @@ ast_check(void)
 			break;
 		    }
 		}
-#if	MACH_FIXPRI
 		}
-#endif	/* MACH_FIXPRI */
 		break;
 
 	    default:

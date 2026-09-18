@@ -43,9 +43,7 @@
 #include <kern/thread.h>
 #include <machine/spl.h>	/* for splsched */
 
-#if	MACH_FIXPRI
 #include <mach/policy.h>
-#endif	/* MACH_FIXPRI */
 
 /*
  *	swtch and swtch_pri both attempt to context switch (logic in
@@ -214,13 +212,11 @@ kern_return_t thread_switch(
 			(void) splx(s);
 			ip_unlock(port);
 			/* XXX thread might disappear on us now? */
-#if	MACH_FIXPRI
 			if (thread->policy == POLICY_FIXEDPRI) {
 			    myprocessor = current_processor();
 			    myprocessor->quantum = thread->sched_data;
 			    myprocessor->first_quantum = TRUE;
 			}
-#endif	/* MACH_FIXPRI */
 			thread_run(thread_switch_continue, thread);
 			/*
 			 *  Restore depressed priority

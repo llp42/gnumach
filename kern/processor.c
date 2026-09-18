@@ -161,9 +161,7 @@ void pset_init(
 	pset->pset_self = IP_NULL;
 	pset->pset_name_self = IP_NULL;
 	pset->max_priority = BASEPRI_SYSTEM;
-#if	MACH_FIXPRI
 	pset->policies = POLICY_TIMESHARE;
-#endif	/* MACH_FIXPRI */
 	pset->set_quantum = min_quantum;
 #if	NCPUS > 1
 	pset->quantum_adj_index = 0;
@@ -709,11 +707,7 @@ processor_set_info(
 		sched_info = (processor_set_sched_info_t) info;
 
 		pset_lock(pset);
-#if	MACH_FIXPRI
 		sched_info->policies = pset->policies;
-#else	/* MACH_FIXPRI */
-		sched_info->policies = POLICY_TIMESHARE;
-#endif	/* MACH_FIXPRI */
 		sched_info->max_priority = pset->max_priority;
 		pset_unlock(pset);
 
@@ -775,18 +769,11 @@ processor_set_policy_enable(
 	if ((pset == PROCESSOR_SET_NULL) || invalid_policy(policy))
 		return KERN_INVALID_ARGUMENT;
 
-#if	MACH_FIXPRI
 	pset_lock(pset);
 	pset->policies |= policy;
 	pset_unlock(pset);
 
 	return KERN_SUCCESS;
-#else	/* MACH_FIXPRI */
-	if (policy == POLICY_TIMESHARE)
-		return KERN_SUCCESS;
-	else
-		return KERN_FAILURE;
-#endif	/* MACH_FIXPRI */
 }
 
 /*
@@ -806,7 +793,6 @@ processor_set_policy_disable(
 	    invalid_policy(policy))
 		return KERN_INVALID_ARGUMENT;
 
-#if	MACH_FIXPRI
 	pset_lock(pset);
 
 	/*
@@ -828,7 +814,6 @@ processor_set_policy_disable(
 	    }
 	}
 	pset_unlock(pset);
-#endif	/* MACH_FIXPRI */
 
 	return KERN_SUCCESS;
 }

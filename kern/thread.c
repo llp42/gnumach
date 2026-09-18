@@ -314,10 +314,8 @@ void thread_init(void)
 	 */
 	thread_template.max_priority = BASEPRI_SYSTEM;
 /*	thread_template.sched_pri (later - compute_priority) */
-#if	MACH_FIXPRI
 	thread_template.sched_data = 0;
 	thread_template.policy = POLICY_TIMESHARE;
-#endif	/* MACH_FIXPRI */
 	thread_template.depress_priority = -1;
 	thread_template.cpu_usage = 0;
 	thread_template.sched_usage = 0;
@@ -1569,17 +1567,12 @@ kern_return_t thread_info(
 	    s = splsched();
 	    thread_lock(thread);
 
-#if	MACH_FIXPRI
 	    sched_info->policy = thread->policy;
 	    if (thread->policy == POLICY_FIXEDPRI)
 		sched_info->data = (thread->sched_data * tick)/1000;
 	    else
 		sched_info->data = 0;
 
-#else	/* MACH_FIXPRI */
-	    sched_info->policy = POLICY_TIMESHARE;
-	    sched_info->data = 0;
-#endif	/* MACH_FIXPRI */
 
 	    sched_info->base_priority = thread->priority;
 	    sched_info->max_priority = thread->max_priority;
@@ -1892,12 +1885,10 @@ Restart:
 	/*
 	 *	Reset policy and priorities if needed.
 	 */
-#if	MACH_FIXPRI
 	if ((thread->policy & new_pset->policies) == 0) {
 	    thread->policy = POLICY_TIMESHARE;
 	    recompute_pri = TRUE;
 	}
-#endif	/* MACH_FIXPRI */
 
 	if (thread->max_priority < new_pset->max_priority) {
 	    thread->max_priority = new_pset->max_priority;
@@ -2132,16 +2123,13 @@ thread_policy(
 	int		policy,
 	int		data)
 {
-#if	MACH_FIXPRI
 	kern_return_t	ret = KERN_SUCCESS;
 	int		temp;
 	spl_t		s;
-#endif	/* MACH_FIXPRI */
 
 	if ((thread == THREAD_NULL) || invalid_policy(policy))
 		return KERN_INVALID_ARGUMENT;
 
-#if	MACH_FIXPRI
 	s = splsched();
 	thread_lock(thread);
 
@@ -2186,12 +2174,6 @@ thread_policy(
 	(void) splx(s);
 
 	return ret;
-#else	/* MACH_FIXPRI */
-	if (policy == POLICY_TIMESHARE)
-		return KERN_SUCCESS;
-	else
-		return KERN_FAILURE;
-#endif	/* MACH_FIXPRI */
 }
 
 /*

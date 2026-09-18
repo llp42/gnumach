@@ -138,10 +138,8 @@ struct thread {
 	int		priority;	/* thread's priority */
 	int		max_priority;	/* maximum priority */
 	int		sched_pri;	/* scheduled (computed) priority */
-#if	MACH_FIXPRI
 	int		sched_data;	/* for use by policy */
 	int		policy;		/* scheduling policy */
-#endif	/* MACH_FIXPRI */
 	int		depress_priority; /* depressed from this priority */
 	unsigned int	cpu_usage;	/* exp. decaying cpu usage [%cpu] */
 	unsigned int	sched_usage;	/* load-weighted cpu usage [sched] */

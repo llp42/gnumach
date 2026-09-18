@@ -71,9 +71,7 @@ struct processor_set {
 	struct ipc_port	*	pset_self;	/* port for operations */
 	struct ipc_port *	pset_name_self;	/* port for information */
 	int			max_priority;	/* maximum priority */
-#if	MACH_FIXPRI
 	int			policies;	/* bit vector for policies */
-#endif	/* MACH_FIXPRI */
 	int			set_quantum;	/* current default quantum */
 #if	NCPUS > 1
 	int			quantum_adj_index; /* runtime quantum adj. */
