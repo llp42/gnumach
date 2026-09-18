@@ -77,10 +77,6 @@ typedef struct ipc_marequest_bucket {
 
 #define	IMARB_NULL	((ipc_marequest_bucket_t) 0)
 
-#define	imarb_lock_init(imarb)	simple_lock_init(&(imarb)->imarb_lock_data)
-#define	imarb_lock(imarb)	simple_lock(&(imarb)->imarb_lock_data)
-#define	imarb_unlock(imarb)	simple_unlock(&(imarb)->imarb_lock_data)
-
 ipc_marequest_bucket_t ipc_marequest_table;
 
 
@@ -130,7 +126,7 @@ ipc_marequest_init(void)
 		ipc_marequest_bucket_t bucket;
 
 		bucket = &ipc_marequest_table[i];
-		imarb_lock_init(bucket);
+		simple_lock_init(&(bucket)->imarb_lock_data);
 		bucket->imarb_head = IMAR_NULL;
 	}
 
@@ -219,12 +215,12 @@ ipc_marequest_create(
 		marequest->imar_soright = soright;
 
 		bucket = &ipc_marequest_table[IMAR_HASH(space, name)];
-		imarb_lock(bucket);
+		simple_lock(&(bucket)->imarb_lock_data);
 
 		marequest->imar_next = bucket->imarb_head;
 		bucket->imarb_head = marequest;
 
-		imarb_unlock(bucket);
+		simple_unlock(&(bucket)->imarb_lock_data);
 	} else {
 		if ((soright = ipc_port_lookup_notify(space, notify))
 								== IP_NULL) {
@@ -264,7 +260,7 @@ ipc_marequest_cancel(
 	assert(space->is_active);
 
 	bucket = &ipc_marequest_table[IMAR_HASH(space, name)];
-	imarb_lock(bucket);
+	simple_lock(&(bucket)->imarb_lock_data);
 
 	for (last = &bucket->imarb_head;
 	     (marequest = *last) != IMAR_NULL;
@@ -275,7 +271,7 @@ ipc_marequest_cancel(
 
 	assert(marequest != IMAR_NULL);
 	*last = marequest->imar_next;
-	imarb_unlock(bucket);
+	simple_unlock(&(bucket)->imarb_lock_data);
 
 	marequest->imar_name = MACH_PORT_NAME_NULL;
 }
@@ -301,7 +297,7 @@ ipc_marequest_rename(
 	assert(space->is_active);
 
 	bucket = &ipc_marequest_table[IMAR_HASH(space, old)];
-	imarb_lock(bucket);
+	simple_lock(&(bucket)->imarb_lock_data);
 
 	for (last = &bucket->imarb_head;
 	     (marequest = *last) != IMAR_NULL;
@@ -312,17 +308,17 @@ ipc_marequest_rename(
 
 	assert(marequest != IMAR_NULL);
 	*last = marequest->imar_next;
-	imarb_unlock(bucket);
+	simple_unlock(&(bucket)->imarb_lock_data);
 
 	marequest->imar_name = new;
 
 	bucket = &ipc_marequest_table[IMAR_HASH(space, new)];
-	imarb_lock(bucket);
+	simple_lock(&(bucket)->imarb_lock_data);
 
 	marequest->imar_next = bucket->imarb_head;
 	bucket->imarb_head = marequest;
 
-	imarb_unlock(bucket);
+	simple_unlock(&(bucket)->imarb_lock_data);
 }
 
 /*
@@ -351,7 +347,7 @@ ipc_marequest_destroy(ipc_marequest_t marequest)
 		ipc_marequest_t this, *last;
 
 		bucket = &ipc_marequest_table[IMAR_HASH(space, name)];
-		imarb_lock(bucket);
+		simple_lock(&(bucket)->imarb_lock_data);
 
 		for (last = &bucket->imarb_head;
 		     (this = *last) != IMAR_NULL;
@@ -362,7 +358,7 @@ ipc_marequest_destroy(ipc_marequest_t marequest)
 
 		assert(this == marequest);
 		*last = this->imar_next;
-		imarb_unlock(bucket);
+		simple_unlock(&(bucket)->imarb_lock_data);
 
 		if (space->is_active) {
 			ipc_entry_t entry;
@@ -414,12 +410,12 @@ ipc_marequest_info(
 		unsigned int bucket_count = 0;
 		ipc_marequest_t marequest;
 
-		imarb_lock(bucket);
+		simple_lock(&(bucket)->imarb_lock_data);
 		for (marequest = bucket->imarb_head;
 		     marequest != IMAR_NULL;
 		     marequest = marequest->imar_next)
 			bucket_count++;
-		imarb_unlock(bucket);
+		simple_unlock(&(bucket)->imarb_lock_data);
 
 		/* don't touch pageable memory while holding locks */
 		info[i].hib_count = bucket_count;
