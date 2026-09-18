@@ -599,9 +599,6 @@ ipc_kmsg_put_to_kernel(
 	ipc_kmsg_t		kmsg,
 	mach_msg_size_t		size)
 {
-#if	DIPC
-	assert(!KMSG_IN_DIPC(kmsg));
-#endif	/* DIPC */
 
 	memcpy(msg, &kmsg->ikm_header, size);
 
