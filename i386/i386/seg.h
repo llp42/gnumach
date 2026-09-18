@@ -173,13 +173,6 @@ static inline void lldt(unsigned short ldt_selector)
 	__asm volatile("lldt %w0" : : "r" (ldt_selector) : "memory");
 }
 
-#ifdef CODE16
-#define i16_lgdt lgdt
-#define i16_lidt lidt
-#define i16_lldt lldt
-#endif
-
-
 /* Fill a segment descriptor.  */
 static inline void
 fill_descriptor(struct real_descriptor *_desc, vm_offset_t base, vm_offset_t limit,
