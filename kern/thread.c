@@ -82,12 +82,10 @@ def_simple_lock_data(static,	reaper_lock)
 /* private */
 struct thread	thread_template;
 
-#if	MACH_DEBUG
 #define	STACK_MARKER	0xdeadbeefU
 boolean_t		stack_check_usage = FALSE;
 def_simple_lock_data(static,	stack_usage_lock)
 vm_size_t		stack_max_usage = 0;
-#endif	/* MACH_DEBUG */
 
 /*
  *	Machine-dependent code must define:
@@ -106,7 +104,6 @@ vm_size_t		stack_max_usage = 0;
  *		stack_free
  *		stack_handoff
  *		stack_collect
- *	and if MACH_DEBUG:
  *		stack_statistics
  */
 #else	/* MACHINE_STACK */
@@ -200,9 +197,7 @@ kern_return_t stack_alloc(
 	if (stack == 0) {
 		stack = kmem_cache_alloc(&thread_stack_cache);
 		assert(stack != 0);
-#if	MACH_DEBUG
 		stack_init(stack);
-#endif	/* MACH_DEBUG */
 	}
 
 	stack_attach(thread, stack, resume);
@@ -253,9 +248,7 @@ void stack_collect(void)
 		stack_unlock();
 		(void) splx(s);
 
-#if	MACH_DEBUG
 		stack_finalize(stack);
-#endif	/* MACH_DEBUG */
 		kmem_cache_free(&thread_stack_cache, stack);
 
 		s = splsched();
@@ -385,9 +378,7 @@ void thread_init(void)
 	simple_lock_init(&stack_lock_data);
 #endif	/* MACHINE_STACK */
 
-#if	MACH_DEBUG
 	simple_lock_init(&stack_usage_lock);
-#endif	/* MACH_DEBUG */
 
 	/*
 	 *	Initialize any machine-dependent
@@ -2375,8 +2366,6 @@ void consider_thread_collect(void)
 	}
 }
 
-#if	MACH_DEBUG
-
 static vm_size_t stack_usage(vm_offset_t stack)
 {
 	unsigned i;
@@ -2634,7 +2623,6 @@ thread_stats(void)
 	printf("%d total threads.\n", total);
 	printf("%d using rpc_reply.\n", rpcreply);
 }
-#endif	/* MACH_DEBUG */
 
 /*
  *	thread_set_name

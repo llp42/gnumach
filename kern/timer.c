@@ -425,8 +425,6 @@ void	thread_read_times(
 	timer_read(&thread->system_timer, system_time_p);
 }
 
-#if	MACH_DEBUG
-
 /*
  *
  * 	Db_timer_grab(): used by db_thread_read_times. An nonblocking
@@ -476,7 +474,6 @@ void	db_thread_read_times(
 	nonblocking_timer_read(&thread->user_timer, user_time_p);
 	nonblocking_timer_read(&thread->system_timer, system_time_p);
 }
-#endif  /* MACH_DEBUG */
 
 /*
  *	timer_delta takes the difference of a saved timer value

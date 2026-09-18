@@ -26,8 +26,6 @@
 
 #if MACH_KDB
 
-#if	MACH_DEBUG
-
 #include <mach/mach_types.h>	/* vm_address_t */
 #include <mach/std_types.h>	/* pointer_t */
 #include <mach/vm_param.h>
@@ -117,7 +115,5 @@ host_load_symbol_table(
 
 	return (KERN_SUCCESS);
 }
-
-#endif	/* MACH_DEBUG */
 
 #endif /* MACH_KDB */

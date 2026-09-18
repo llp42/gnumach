@@ -50,9 +50,6 @@ AC_DEFINE([FAST_TAS], [0], [FAST_TAS])
 # Cache footprint support.
 AC_DEFINE([HW_FOOTPRINT], [0], [HW_FOOTPRINT])
 
-# IPC debugging interface.
-AC_DEFINE([MACH_DEBUG], [1], [MACH_DEBUG])
-
 # Fixed priority threads.
 AC_DEFINE([MACH_FIXPRI], [1], [MACH_FIXPRI])
 

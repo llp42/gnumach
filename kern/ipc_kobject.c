@@ -59,9 +59,7 @@
 #include <kern/gnumach.server.h>
 #include <kern/experimental.server.h>
 
-#if MACH_DEBUG
 #include <kern/mach_debug.server.h>
-#endif
 
 #if	MACH_MACHINE_ROUTINES
 #include <machine/machine_routines.h>
@@ -167,9 +165,7 @@ ipc_kobject_server(ipc_kmsg_t request)
 	 || (routine = mach_host_server_routine(&request->ikm_header)) != 0
 	 || (routine = device_server_routine(&request->ikm_header)) != 0
 	 || (routine = device_pager_server_routine(&request->ikm_header)) != 0
-#if	MACH_DEBUG
 	 || (routine = mach_debug_server_routine(&request->ikm_header)) != 0
-#endif	/* MACH_DEBUG */
 	 || (routine = mach4_server_routine(&request->ikm_header)) != 0
 	 || (routine = gnumach_server_routine(&request->ikm_header)) != 0
 	 || (routine = experimental_server_routine(&request->ikm_header)) != 0
