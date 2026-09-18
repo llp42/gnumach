@@ -96,16 +96,6 @@
 
 #include <machine/spl.h>
 
-#ifdef LINUX_DEV
-extern struct device_emulation_ops linux_block_emulation_ops;
-#ifdef CONFIG_INET
-extern struct device_emulation_ops linux_net_emulation_ops;
-extern void free_skbuffs (void);
-#ifdef CONFIG_PCMCIA
-extern struct device_emulation_ops linux_pcmcia_emulation_ops;
-#endif /* CONFIG_PCMCIA */
-#endif /* CONFIG_INET */
-#endif /* LINUX_DEV */
 #ifdef MACH_HYP
 extern struct device_emulation_ops hyp_block_emulation_ops;
 extern struct device_emulation_ops hyp_net_emulation_ops;
@@ -115,15 +105,6 @@ extern struct device_emulation_ops mach_device_emulation_ops;
 /* List of emulations.  */
 static struct device_emulation_ops *emulation_list[] =
 {
-#ifdef LINUX_DEV
-  &linux_block_emulation_ops,
-#ifdef CONFIG_INET
-  &linux_net_emulation_ops,
-#ifdef CONFIG_PCMCIA
-  &linux_pcmcia_emulation_ops,
-#endif /* CONFIG_PCMCIA */
-#endif /* CONFIG_INET */
-#endif /* LINUX_DEV */
 #ifdef MACH_HYP
   &hyp_block_emulation_ops,
   &hyp_net_emulation_ops,
@@ -1562,9 +1543,6 @@ static void  __attribute__ ((noreturn)) io_done_thread_continue(void)
 	    spl_t		s;
 	    io_req_t		ior;
 
-#if defined (LINUX_DEV) && defined (CONFIG_INET)
-	    free_skbuffs ();
-#endif
 	    s = simple_lock_irq(&io_done_list_lock);
 	    while ((ior = (io_req_t)dequeue_head(&io_done_list)) != 0) {
 		simple_unlock_irq(s, &io_done_list_lock);

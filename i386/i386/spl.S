@@ -52,29 +52,11 @@ ENTRY(spl0)
 	movl	CX(EXT(curr_ipl),%edx),%eax	/* save current ipl */
 	pushl	%eax
 	cli				/* disable interrupts */
-#ifdef LINUX_DEV
-	movl	EXT(bh_active),%eax
-					/* get pending mask */
-	andl	EXT(bh_mask),%eax	/* any pending unmasked interrupts? */
-	jz	1f			/* no, skip */
-	call	EXT(spl1)		/* block further interrupts */
-	incl	EXT(intr_count)		/* set interrupt flag */
-	call	EXT(linux_soft_intr)	/* go handle interrupt */
-	decl	EXT(intr_count)		/* decrement interrupt flag */
-	cli				/* disable interrupts */
-1:
-#endif
 	cmpl	$0,softclkpending	/* softclock pending? */
 	je	1f			/* no, skip */
 	movl	$0,softclkpending	/* clear flag */
 	call	EXT(spl1)		/* block further interrupts */
-#ifdef LINUX_DEV
-	incl	EXT(intr_count)		/* set interrupt flag */
-#endif
 	call	EXT(softclock)		/* go handle interrupt */
-#ifdef LINUX_DEV
-	decl	EXT(intr_count)		/* decrement interrupt flag */
-#endif
 	cli				/* disable interrupts */
 1:
 	CPU_NUMBER(%edx)
@@ -155,29 +137,11 @@ splx_cli:
 	cli				/* disable interrupts */
 	testl	%edx,%edx		/* spl0? */
 	jnz	2f			/* no, skip */
-#ifdef LINUX_DEV
-	movl	EXT(bh_active),%eax
-					/* get pending mask */
-	andl	EXT(bh_mask),%eax	/* any pending unmasked interrupts? */
-	jz	1f			/* no, skip */
-	call	EXT(spl1)		/* block further interrupts */
-	incl	EXT(intr_count)		/* set interrupt flag */
-	call	EXT(linux_soft_intr)	/* go handle interrupt */
-	decl	EXT(intr_count)		/* decrement interrupt flag */
-	cli				/* disable interrupts */
-1:
-#endif
 	cmpl	$0,softclkpending	/* softclock pending? */
 	je	1f			/* no, skip */
 	movl	$0,softclkpending	/* clear flag */
 	call	EXT(spl1)		/* block further interrupts */
-#ifdef LINUX_DEV
-	incl	EXT(intr_count)		/* set interrupt flag */
-#endif
 	call	EXT(softclock)		/* go handle interrupt */
-#ifdef LINUX_DEV
-	decl	EXT(intr_count)		/* decrement interrupt flag */
-#endif
 	cli				/* disable interrupts */
 1:
 	xorl	%edx,%edx		/* edx = ipl 0 */

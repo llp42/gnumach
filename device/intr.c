@@ -55,7 +55,6 @@ def_simple_lock_irq_data(static, intr_lock)
 queue_head_t main_intr_queue;
 static boolean_t deliver_intr (int id, ipc_port_t dst_port);
 
-#ifndef LINUX_DEV
 #define SA_SHIRQ 0x04000000
 
 struct intr_list {
@@ -64,7 +63,6 @@ struct intr_list {
   struct intr_list *next;
 };
 static struct intr_list *user_intr_handlers[NINTR];
-#endif
 
 static user_intr_t *
 search_intr (struct irqdev *dev, ipc_port_t dst_port)
@@ -137,15 +135,9 @@ queue_intr (struct irqdev *dev, int id, user_intr_t *e)
    * disabled. Level-triggered interrupts would keep raising otherwise. */
   __disable_irq (dev->irq[id]);
 
-#ifdef LINUX_DEV /* user_irq_handler does its own locking */
-  spl_t s = simple_lock_irq(&intr_lock);
-#endif
   e->n_unacked++;
   e->interrupts++;
   dev->tot_num_intr++;
-#ifdef LINUX_DEV
-  simple_unlock_irq(s, &intr_lock);
-#endif
 
   thread_wakeup ((event_t) &intr_thread);
 }
@@ -205,8 +197,6 @@ out:
     kfree ((vm_offset_t) new, sizeof (*new));
   return ret;
 }
-
-#ifndef LINUX_DEV
 
 static void
 user_irq_handler (int id)
@@ -274,7 +264,6 @@ install_user_intr_handler (struct irqdev *dev, int id, unsigned long flags,
 
   return D_SUCCESS;
 }
-#endif
 
 void
 intr_thread (void)
@@ -352,11 +341,7 @@ intr_thread (void)
 	      e->interrupts = 0;
 
 #if 0
-#ifndef LINUX_DEV
 	      // TODO: remove from the action list
-#else
-	      // FIXME: with the Linux irq handler we don't actually control the action list
-#endif
 	      simple_unlock_irq(s, &intr_lock);
 	      kfree ((vm_offset_t) e, sizeof (*e));
 	      s = simple_lock_irq(&intr_lock);
