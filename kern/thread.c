@@ -71,7 +71,6 @@
 #include <ipc/mach_port.server.h>
 #include <machine/spl.h>		/* for splsched */
 #include <machine/pcb.h>
-#include <machine/thread.h>		/* for MACHINE_STACK */
 
 struct kmem_cache thread_cache;
 struct kmem_cache thread_stack_cache;
@@ -96,17 +95,6 @@ vm_size_t		stack_max_usage = 0;
  *	The thread->pcb field is reserved for machine-dependent code.
  */
 
-#ifdef	MACHINE_STACK
-/*
- *	Machine-dependent code must define:
- *		stack_alloc_try
- *		stack_alloc
- *		stack_free
- *		stack_handoff
- *		stack_collect
- *		stack_statistics
- */
-#else	/* MACHINE_STACK */
 /*
  *	We allocate stacks from generic kernel VM.
  *	Machine-dependent code must define:
@@ -257,7 +245,6 @@ void stack_collect(void)
 	stack_unlock();
 	(void) splx(s);
 }
-#endif	/* MACHINE_STACK */
 
 /*
  *	stack_privilege:
@@ -374,9 +361,7 @@ void thread_init(void)
 	queue_init(&reaper_queue);
 	simple_lock_init(&reaper_lock);
 
-#ifndef	MACHINE_STACK
 	simple_lock_init(&stack_lock_data);
-#endif	/* MACHINE_STACK */
 
 	simple_lock_init(&stack_usage_lock);
 
@@ -2411,7 +2396,6 @@ void stack_finalize(
 	}
 }
 
-#ifndef	MACHINE_STACK
 /*
  *	stack_statistics:
  *
@@ -2449,7 +2433,6 @@ static void stack_statistics(
 	stack_unlock();
 	(void) splx(s);
 }
-#endif	/* MACHINE_STACK */
 
 kern_return_t host_stack_usage(
 	host_t		host,
