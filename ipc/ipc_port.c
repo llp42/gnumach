@@ -385,7 +385,7 @@ ipc_port_lock_mqueue(ipc_port_t port)
 
 		ips_lock(pset);
 		if (ips_active(pset)) {
-			imq_lock(&pset->ips_messages);
+			simple_lock(&(&pset->ips_messages)->imq_lock_data);
 			ips_unlock(pset);
 			return &pset->ips_messages;
 		}
@@ -394,7 +394,7 @@ ipc_port_lock_mqueue(ipc_port_t port)
 		ips_check_unlock(pset);
 	}
 
-	imq_lock(&port->ip_messages);
+	simple_lock(&(&port->ip_messages)->imq_lock_data);
 	return &port->ip_messages;
 }
 
@@ -416,7 +416,7 @@ ipc_port_set_seqno(
 
 	mqueue = ipc_port_lock_mqueue(port);
 	port->ip_seqno = seqno;
-	imq_unlock(mqueue);
+	simple_unlock(&(mqueue)->imq_lock_data);
 }
 
 /*
@@ -435,7 +435,7 @@ ipc_port_set_protected_payload(ipc_port_t port, rpc_uintptr_t payload)
 	mqueue = ipc_port_lock_mqueue(port);
 	port->ip_protected_payload = payload;
 	ipc_port_flag_protected_payload_set(port);
-	imq_unlock(mqueue);
+	simple_unlock(&(mqueue)->imq_lock_data);
 }
 
 /*
@@ -453,7 +453,7 @@ ipc_port_clear_protected_payload(ipc_port_t port)
 
 	mqueue = ipc_port_lock_mqueue(port);
 	ipc_port_flag_protected_payload_clear(port);
-	imq_unlock(mqueue);
+	simple_unlock(&(mqueue)->imq_lock_data);
 }
 
 
@@ -483,15 +483,15 @@ ipc_port_clear_receiver(
 	} else {
 		/* Else, wake up all receivers, indicating why. */
 
-		imq_lock(&port->ip_messages);
+		simple_lock(&(&port->ip_messages)->imq_lock_data);
 		ipc_mqueue_changed(&port->ip_messages, MACH_RCV_PORT_DIED);
-		imq_unlock(&port->ip_messages);
+		simple_unlock(&(&port->ip_messages)->imq_lock_data);
 	}
 
 	ipc_port_set_mscount(port, 0);
-	imq_lock(&port->ip_messages);
+	simple_lock(&(&port->ip_messages)->imq_lock_data);
 	port->ip_seqno = 0;
-	imq_unlock(&port->ip_messages);
+	simple_unlock(&(&port->ip_messages)->imq_lock_data);
 }
 
 /*
@@ -702,12 +702,12 @@ ipc_port_destroy(
 	/* destroy any queued messages */
 
 	mqueue = &port->ip_messages;
-	imq_lock(mqueue);
+	simple_lock(&(mqueue)->imq_lock_data);
 	assert(ipc_thread_queue_empty(&mqueue->imq_threads));
 	kmqueue = &mqueue->imq_messages;
 
 	while ((kmsg = ipc_kmsg_dequeue(kmqueue)) != IKM_NULL) {
-		imq_unlock(mqueue);
+		simple_unlock(&(mqueue)->imq_lock_data);
 
 		assert(kmsg->ikm_header.msgh_remote_port ==
 						(mach_port_t) port);
@@ -716,10 +716,10 @@ ipc_port_destroy(
 		kmsg->ikm_header.msgh_remote_port = MACH_PORT_NULL;
 		ipc_kmsg_destroy(kmsg);
 
-		imq_lock(mqueue);
+		simple_lock(&(mqueue)->imq_lock_data);
 	}
 
-	imq_unlock(mqueue);
+	simple_unlock(&(mqueue)->imq_lock_data);
 
 	/* generate dead-name notifications */
 

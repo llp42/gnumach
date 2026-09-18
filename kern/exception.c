@@ -380,7 +380,7 @@ exception_raise(
 	self->ith_port = reply_port;
 
 	reply_mqueue = &reply_port->ip_messages;
-	imq_lock(reply_mqueue);
+	simple_lock(&(reply_mqueue)->imq_lock_data);
 	assert(ipc_kmsg_queue_empty(&reply_mqueue->imq_messages));
 	ip_unlock(reply_port);
 
@@ -389,13 +389,13 @@ exception_raise(
 	 */
 
 	if (!ip_lock_try(dest_port)) {
-		imq_unlock(reply_mqueue);
+		simple_unlock(&(reply_mqueue)->imq_lock_data);
 		goto slow_exception_raise;
 	}
 
 	if (!ip_active(dest_port) ||
 	    (dest_port->ip_receiver == ipc_space_kernel)) {
-		imq_unlock(reply_mqueue);
+		simple_unlock(&(reply_mqueue)->imq_lock_data);
 		ip_unlock(dest_port);
 		goto slow_exception_raise;
 	}
@@ -414,8 +414,8 @@ exception_raise(
 		dest_mqueue = &dest_pset->ips_messages;
     }
 
-	if (!imq_lock_try(dest_mqueue)) {
-		imq_unlock(reply_mqueue);
+	if (!simple_lock_try(&(dest_mqueue)->imq_lock_data)) {
+		simple_unlock(&(reply_mqueue)->imq_lock_data);
 		ip_unlock(dest_port);
 		goto slow_exception_raise;
 	}
@@ -435,8 +435,8 @@ exception_raise(
 	       (sizeof(struct mach_exception) <= receiver->ith_msize) &&
 	       ((receiver->ith_option & MACH_RCV_NOTIFY) == 0))) ||
 	    !thread_handoff(self, exception_raise_continue, receiver)) {
-		imq_unlock(reply_mqueue);
-		imq_unlock(dest_mqueue);
+		simple_unlock(&(reply_mqueue)->imq_lock_data);
+		simple_unlock(&(dest_mqueue)->imq_lock_data);
 		goto slow_exception_raise;
 	}
 
@@ -451,7 +451,7 @@ exception_raise(
 	ipc_thread_enqueue_macro(&reply_mqueue->imq_threads, self);
 	self->ith_state = MACH_RCV_IN_PROGRESS;
 	self->ith_msize = MACH_MSG_SIZE_MAX;
-	imq_unlock(reply_mqueue);
+	simple_unlock(&(reply_mqueue)->imq_lock_data);
 
 	/*
 	 *	Finish extracting receiver from dest_mqueue.
@@ -459,7 +459,7 @@ exception_raise(
 
 	ipc_thread_rmqueue_first_macro(
 		&dest_mqueue->imq_threads, receiver);
-	imq_unlock(dest_mqueue);
+	simple_unlock(&(dest_mqueue)->imq_lock_data);
 
 	/*
 	 *	Release the receiver's reference for his object.
@@ -727,7 +727,7 @@ exception_raise(
 		/*NOTREACHED*/
 	}
 
-	imq_lock(reply_mqueue);
+	simple_lock(&(reply_mqueue)->imq_lock_data);
 	ip_unlock(reply_port);
 
 	mr = ipc_mqueue_receive(reply_mqueue, MACH_MSG_OPTION_NONE,
@@ -896,7 +896,7 @@ exception_raise_continue_slow(
 			break;
 		}
 
-		imq_lock(reply_mqueue);
+		simple_lock(&(reply_mqueue)->imq_lock_data);
 		ip_unlock(reply_port);
 
 		mr = ipc_mqueue_receive(reply_mqueue, MACH_MSG_OPTION_NONE,

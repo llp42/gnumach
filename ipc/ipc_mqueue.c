@@ -62,7 +62,7 @@ void
 ipc_mqueue_init(
 	ipc_mqueue_t	mqueue)
 {
-	imq_lock_init(mqueue);
+	simple_lock_init(&(mqueue)->imq_lock_data);
 	ipc_kmsg_queue_init(&mqueue->imq_messages);
 	ipc_thread_queue_init(&mqueue->imq_threads);
 }
@@ -324,7 +324,7 @@ ipc_mqueue_send(
 	else
 		mqueue = &pset->ips_messages;
 
-	imq_lock(mqueue);
+	simple_lock(&(mqueue)->imq_lock_data);
 	receivers = &mqueue->imq_threads;
 
 	/*
@@ -348,7 +348,7 @@ ipc_mqueue_send(
 			/* no receivers; queue kmsg */
 
 			ipc_kmsg_enqueue_macro(&mqueue->imq_messages, kmsg);
-			imq_unlock(mqueue);
+			simple_unlock(&(mqueue)->imq_lock_data);
 			break;
 		}
 
@@ -361,7 +361,7 @@ ipc_mqueue_send(
 			receiver->ith_state = MACH_MSG_SUCCESS;
 			receiver->ith_kmsg = kmsg;
 			receiver->ith_seqno = port->ip_seqno++;
-			imq_unlock(mqueue);
+			simple_unlock(&(mqueue)->imq_lock_data);
 
 			thread_go(receiver);
 			break;
@@ -473,7 +473,7 @@ ipc_mqueue_copyin(
 	 */
 
 	io_reference(object);
-	imq_lock(mqueue);
+	simple_lock(&(mqueue)->imq_lock_data);
 	io_unlock(object);
 
 	*objectp = object;
@@ -543,7 +543,7 @@ ipc_mqueue_receive(
 			if (msg_usize(&kmsg->ikm_header) > max_size) {
 				* (mach_msg_size_t *) kmsgp =
 					kmsg->ikm_header.msgh_size;
-				imq_unlock(mqueue);
+				simple_unlock(&(mqueue)->imq_lock_data);
 				return MACH_RCV_TOO_LARGE;
 			}
 
@@ -557,7 +557,7 @@ ipc_mqueue_receive(
 
 		if (option & MACH_RCV_TIMEOUT) {
 			if (time_out == 0) {
-				imq_unlock(mqueue);
+				simple_unlock(&(mqueue)->imq_lock_data);
 				return MACH_RCV_TIMED_OUT;
 			}
 
@@ -569,13 +569,13 @@ ipc_mqueue_receive(
 		self->ith_state = MACH_RCV_IN_PROGRESS;
 		self->ith_msize = max_size;
 
-		imq_unlock(mqueue);
+		simple_unlock(&(mqueue)->imq_lock_data);
 		if (continuation != (void (*)(void)) 0) {
 		} else {
 		}
 		thread_block(continuation);
 	after_thread_block:
-		imq_lock(mqueue);
+		simple_lock(&(mqueue)->imq_lock_data);
 
 		/* why did we wake up? */
 
@@ -599,7 +599,7 @@ ipc_mqueue_receive(
 		    case MACH_RCV_PORT_CHANGED:
 			/* something bad happened to the port/set */
 
-			imq_unlock(mqueue);
+			simple_unlock(&(mqueue)->imq_lock_data);
 			return self->ith_state;
 
 		    case MACH_RCV_IN_PROGRESS:
@@ -615,7 +615,7 @@ ipc_mqueue_receive(
 			    case THREAD_INTERRUPTED:
 				/* receive was interrupted - give up */
 
-				imq_unlock(mqueue);
+				simple_unlock(&(mqueue)->imq_lock_data);
 				return MACH_RCV_INTERRUPTED;
 
 			    case THREAD_TIMED_OUT:
@@ -646,7 +646,7 @@ ipc_mqueue_receive(
 
 	/* we have a kmsg; unlock the msg queue */
 
-	imq_unlock(mqueue);
+	simple_unlock(&(mqueue)->imq_lock_data);
 	assert(msg_usize(&kmsg->ikm_header) <= max_size);
     }
 

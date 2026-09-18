@@ -146,20 +146,20 @@ ipc_pset_add(
 	port->ip_cur_target = &pset->ips_target;
 	ips_reference(pset);
 
-	imq_lock(&port->ip_messages);
-	imq_lock(&pset->ips_messages);
+	simple_lock(&(&port->ip_messages)->imq_lock_data);
+	simple_lock(&(&pset->ips_messages)->imq_lock_data);
 
 	/* move messages from port's queue to the port set's queue */
 
 	ipc_mqueue_move(&pset->ips_messages, &port->ip_messages, port);
-	imq_unlock(&pset->ips_messages);
+	simple_unlock(&(&pset->ips_messages)->imq_lock_data);
 	assert(ipc_kmsg_queue_empty(&port->ip_messages.imq_messages));
 
 	/* wake up threads waiting to receive from the port */
 
 	ipc_mqueue_changed(&port->ip_messages, MACH_RCV_PORT_CHANGED);
 	assert(ipc_thread_queue_empty(&port->ip_messages.imq_threads));
-	imq_unlock(&port->ip_messages);
+	simple_unlock(&(&port->ip_messages)->imq_lock_data);
 }
 
 /*
@@ -184,15 +184,15 @@ ipc_pset_remove(
 	port->ip_cur_target = &port->ip_target;
 	ips_release(pset);
 
-	imq_lock(&port->ip_messages);
-	imq_lock(&pset->ips_messages);
+	simple_lock(&(&port->ip_messages)->imq_lock_data);
+	simple_lock(&(&pset->ips_messages)->imq_lock_data);
 
 	/* move messages from port set's queue to the port's queue */
 
 	ipc_mqueue_move(&port->ip_messages, &pset->ips_messages, port);
 
-	imq_unlock(&pset->ips_messages);
-	imq_unlock(&port->ip_messages);
+	simple_unlock(&(&pset->ips_messages)->imq_lock_data);
+	simple_unlock(&(&port->ip_messages)->imq_lock_data);
 }
 
 /*
@@ -306,9 +306,9 @@ ipc_pset_destroy(
 
 	pset->ips_object.io_bits &= ~IO_BITS_ACTIVE;
 
-	imq_lock(&pset->ips_messages);
+	simple_lock(&(&pset->ips_messages)->imq_lock_data);
 	ipc_mqueue_changed(&pset->ips_messages, MACH_RCV_PORT_DIED);
-	imq_unlock(&pset->ips_messages);
+	simple_unlock(&(&pset->ips_messages)->imq_lock_data);
 
 	/* Common destruction for the IPC target.  */
 	ipc_target_terminate(&pset->ips_target);

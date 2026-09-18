@@ -1316,18 +1316,18 @@ mach_port_get_receive_status(
 			goto no_port_set;
 		} else {
 			statusp->mps_pset = pset->ips_local_name;
-			imq_lock(&pset->ips_messages);
+			simple_lock(&(&pset->ips_messages)->imq_lock_data);
 			statusp->mps_seqno = port->ip_seqno;
-			imq_unlock(&pset->ips_messages);
+			simple_unlock(&(&pset->ips_messages)->imq_lock_data);
 			ips_unlock(pset);
 			assert(MACH_PORT_NAME_VALID(statusp->mps_pset));
 		}
 	} else {
 	    no_port_set:
 		statusp->mps_pset = MACH_PORT_NULL;
-		imq_lock(&port->ip_messages);
+		simple_lock(&(&port->ip_messages)->imq_lock_data);
 		statusp->mps_seqno = port->ip_seqno;
-		imq_unlock(&port->ip_messages);
+		simple_unlock(&(&port->ip_messages)->imq_lock_data);
 	}
 
 	statusp->mps_mscount = port->ip_mscount;

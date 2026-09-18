@@ -590,7 +590,7 @@ mach_msg_trap(
 			rcv_object = (ipc_object_t) reply_port;
 			io_reference(rcv_object);
 			rcv_mqueue = &reply_port->ip_messages;
-			imq_lock(rcv_mqueue);
+			simple_lock(&(rcv_mqueue)->imq_lock_data);
 			io_unlock(rcv_object);
 			goto fast_send_receive;
 
@@ -718,7 +718,7 @@ mach_msg_trap(
 
 			is_write_unlock(space);
 			io_reference(rcv_object);
-			imq_lock(rcv_mqueue);
+			simple_lock(&(rcv_mqueue)->imq_lock_data);
 			io_unlock(rcv_object);
 			goto fast_send_receive;
 
@@ -774,10 +774,10 @@ mach_msg_trap(
 			dest_mqueue = &dest_pset->ips_messages;
 	    }
 
-		if (!imq_lock_try(dest_mqueue)) {
+		if (!simple_lock_try(&(dest_mqueue)->imq_lock_data)) {
 		    abort_send_receive:
 			ip_unlock(dest_port);
-			imq_unlock(rcv_mqueue);
+			simple_unlock(&(rcv_mqueue)->imq_lock_data);
 			ipc_object_release(rcv_object);
 			goto slow_send;
 		}
@@ -786,7 +786,7 @@ mach_msg_trap(
 		if ((receiver == ITH_NULL) ||
 		    (ipc_kmsg_queue_first(&rcv_mqueue->imq_messages)
 								!= IKM_NULL)) {
-			imq_unlock(dest_mqueue);
+			simple_unlock(&(dest_mqueue)->imq_lock_data);
 			goto abort_send_receive;
 		}
 
@@ -827,11 +827,11 @@ mach_msg_trap(
 				&rcv_mqueue->imq_threads, self);
 			self->ith_state = MACH_RCV_IN_PROGRESS;
 			self->ith_msize = MACH_MSG_SIZE_MAX;
-			imq_unlock(rcv_mqueue);
+			simple_unlock(&(rcv_mqueue)->imq_lock_data);
 
 			ipc_thread_rmqueue_first_macro(
 				&dest_mqueue->imq_threads, receiver);
-			imq_unlock(dest_mqueue);
+			simple_unlock(&(dest_mqueue)->imq_lock_data);
 
 			exception_raise_continue_fast(dest_port, kmsg);
 			/*NOTREACHED*/
@@ -860,14 +860,14 @@ mach_msg_trap(
 					&rcv_mqueue->imq_threads, self);
 				self->ith_state = MACH_RCV_IN_PROGRESS;
 				self->ith_msize = MACH_MSG_SIZE_MAX;
-				imq_unlock(rcv_mqueue);
+				simple_unlock(&(rcv_mqueue)->imq_lock_data);
 
 				ipc_thread_rmqueue_first_macro(
 					&dest_mqueue->imq_threads, receiver);
 				receiver->ith_state = MACH_MSG_SUCCESS;
 				receiver->ith_kmsg = kmsg;
 				receiver->ith_seqno = dest_port->ip_seqno++;
-				imq_unlock(dest_mqueue);
+				simple_unlock(&(dest_mqueue)->imq_lock_data);
 
 				/*
 				 *	Call the receiver's continuation.
@@ -884,7 +884,7 @@ mach_msg_trap(
 			 *	or we can't switch to the receiver.
 			 */
 
-			imq_unlock(dest_mqueue);
+			simple_unlock(&(dest_mqueue)->imq_lock_data);
 			goto abort_send_receive;
 		}
 
@@ -905,7 +905,7 @@ mach_msg_trap(
 		ipc_thread_enqueue_macro(&rcv_mqueue->imq_threads, self);
 		self->ith_state = MACH_RCV_IN_PROGRESS;
 		self->ith_msize = MACH_MSG_SIZE_MAX;
-		imq_unlock(rcv_mqueue);
+		simple_unlock(&(rcv_mqueue)->imq_lock_data);
 
 		/*
 		 *	Finish extracting receiver from dest_mqueue.
@@ -914,7 +914,7 @@ mach_msg_trap(
 		ipc_thread_rmqueue_first_macro(
 			&dest_mqueue->imq_threads, receiver);
 		kmsg->ikm_header.msgh_seqno = dest_port->ip_seqno++;
-		imq_unlock(dest_mqueue);
+		simple_unlock(&(dest_mqueue)->imq_lock_data);
 
 		/*
 		 *	We don't have to do any post-dequeue processing of
@@ -1277,7 +1277,7 @@ mach_msg_trap(
 				rcv_object = (ipc_object_t) reply_port;
 				io_reference(rcv_object);
 				rcv_mqueue = &reply_port->ip_messages;
-				imq_lock(rcv_mqueue);
+				simple_lock(&(rcv_mqueue)->imq_lock_data);
 				io_unlock(rcv_object);
 				goto fast_send_receive;
 			    }
@@ -1336,7 +1336,7 @@ mach_msg_trap(
 		}
 
 		rcv_mqueue = &reply_port->ip_messages;
-		imq_lock(rcv_mqueue);
+		simple_lock(&(rcv_mqueue)->imq_lock_data);
 		/* keep port locked, and don`t change ref count yet */
 
 		/*
@@ -1349,7 +1349,7 @@ mach_msg_trap(
 		    (ipc_kmsg_queue_first(&rcv_mqueue->imq_messages)
 			!= IKM_NULL))
 		{
-			imq_unlock(rcv_mqueue);
+			simple_unlock(&(rcv_mqueue)->imq_lock_data);
 			ip_unlock(reply_port);
 			ipc_mqueue_send_always(kmsg);
 			goto slow_get_rcv_port;
@@ -1370,7 +1370,7 @@ mach_msg_trap(
 
 		dest_port = reply_port;
 		kmsg->ikm_header.msgh_seqno = dest_port->ip_seqno++;
-		imq_unlock(rcv_mqueue);
+		simple_unlock(&(rcv_mqueue)->imq_lock_data);
 
 		/*
 		 * inline ipc_object_release.
@@ -1683,7 +1683,7 @@ mach_msg_interrupt(thread_t thread)
 	       (thread->swap_func == mach_msg_receive_continue));
 
 	mqueue = thread->ith_mqueue;
-	imq_lock(mqueue);
+	simple_lock(&(mqueue)->imq_lock_data);
 	if (thread->ith_state != MACH_RCV_IN_PROGRESS) {
 		/*
 		 *	The thread is no longer waiting for a message.
@@ -1691,11 +1691,11 @@ mach_msg_interrupt(thread_t thread)
 		 *	We can't clean this up.
 		 */
 
-		imq_unlock(mqueue);
+		simple_unlock(&(mqueue)->imq_lock_data);
 		return FALSE;
 	}
 	ipc_thread_rmqueue(&mqueue->imq_threads, thread);
-	imq_unlock(mqueue);
+	simple_unlock(&(mqueue)->imq_lock_data);
 
 	ipc_object_release(thread->ith_object);
 
