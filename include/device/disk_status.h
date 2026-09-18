@@ -86,7 +86,7 @@ struct disklabel {
 	 * as found in /usr/mdec.  These are returned when using
 	 * getdiskbyname(3) to retrieve the values from /etc/disktab.
 	 */
-#if defined(MACH_KERNEL) || defined(STANDALONE)
+#if defined(MACH_KERNEL)
 	char	d_packname[16];			/* pack identifier */
 #else
 	union {
@@ -99,7 +99,7 @@ struct disklabel {
 #define d_packname	d_un.un_d_packname
 #define d_boot0		d_un.un_b.un_d_boot0
 #define d_boot1		d_un.un_b.un_d_boot1
-#endif	/* ! MACH_KERNEL or STANDALONE */
+#endif	/* ! MACH_KERNEL */
 			/* disk geometry: */
 	unsigned int	d_secsize;		/* # of bytes per sector */
 	unsigned int	d_nsectors;		/* # of data sectors per track */
