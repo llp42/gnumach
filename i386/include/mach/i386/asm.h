@@ -120,25 +120,11 @@
 
 
 
-#ifdef GPROF
-
-#define MCOUNT		.data; gLB(9) .long 0; .text; lea LBb(x, 9),%edx; call mcount
-#define	ENTRY(x)	.globl EXT(x); .type EXT(x), @function; .p2align TEXT_ALIGN; LEXT(x) ; \
-			pushl %ebp; movl %esp, %ebp; MCOUNT; popl %ebp;
-#define	ENTRY2(x,y)	.globl EXT(x); .type EXT(x), @function; .globl EXT(y); .type EXT(y), @function; \
-			.p2align TEXT_ALIGN; LEXT(x) LEXT(y)
-#define	ASENTRY(x) 	.globl x; .type x, @function; .p2align TEXT_ALIGN; gLB(x) ; \
-  			pushl %ebp; movl %esp, %ebp; MCOUNT; popl %ebp;
-#define	END(x)		.size x,.-x
-#else	/* GPROF */
-
-#define MCOUNT
 #define	ENTRY(x)	.globl EXT(x); .type EXT(x), @function; .p2align TEXT_ALIGN; LEXT(x)
 #define	ENTRY2(x,y)	.globl EXT(x); .type EXT(x), @function; .globl EXT(y); .type EXT(y), @function; \
 			.p2align TEXT_ALIGN; LEXT(x) LEXT(y)
 #define	ASENTRY(x)	.globl x; .type x, @function; .p2align TEXT_ALIGN; gLB(x)
 #define	END(x)		.size x,.-x
-#endif	/* GPROF */
 
 #define	Entry(x)	.globl EXT(x); .type EXT(x), @function; .p2align TEXT_ALIGN; LEXT(x)
 #define	DATA(x)		.globl EXT(x); .p2align DATA_ALIGN; LEXT(x)
