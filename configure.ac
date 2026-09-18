@@ -127,27 +127,6 @@ AC_CHECK_PROG([PATCH], [patch], [patch], [patch-not-found])
 # configure fragments.
 #
 
-# Default set of device drivers.
-AC_ARG_ENABLE([device-drivers],
-  AS_HELP_STRING([--enable-device-drivers=WHICH], [specify WHICH (on `ix86-at'
-    one of `default', `qemu', `none') to preset a certain subset of all
-    available device drivers, as indicated by the below-metioned ``enabled
-    ...'' comments; you can then still use further `--enable-*' or
-    `--disable-*' options to refine the selection of drivers to include in
-    order to choose only those you actually want to have enabled]))
-[case $enable_device_drivers in
-  '')
-    enable_device_drivers=default;;
-  no)
-    enable_device_drivers=none;;
-  default | none | qemu)
-    :;;
-  *)]
-    AC_MSG_ERROR([invalid choice of]
-      [`--enable-device-drivers=$enable_device_drivers'.])
-    [;;
-esac]
-
 AC_ARG_ENABLE([user32],
 AS_HELP_STRING([--enable-user32], [enable 32-bit user space on a 64-bit kernel]))
 [if [ x"$enable_user32" = xyes ]; then]
