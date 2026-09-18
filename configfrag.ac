@@ -72,18 +72,10 @@ AC_DEFINE([MACH_IPC_DEBUG], [1], [MACH_IPC_DEBUG])
 # Sanity-check locking.
 AC_DEFINE([MACH_LDEBUG], [0], [MACH_LDEBUG])
 
-# MP lock monitoring.  Registers use of locks, contention.  Depending on
-# hardware also records time spent with locks held.  Used in `kern/lock_mon.c'.
-AC_DEFINE([MACH_LOCK_MON], [0], [MACH_LOCK_MON])
-
 # Does the architecture provide machine-specific interfaces?
 mach_machine_routines=${mach_machine_routines-0}
 AC_DEFINE_UNQUOTED([MACH_MACHINE_ROUTINES], [$mach_machine_routines],
   [MACH_MACHINE_ROUTINES])
-
-# MP debugging.  Use alternate locking routines to detect deadlocks.  Used in
-# `kern/lock_mon.c'.
-AC_DEFINE([MACH_MP_DEBUG], [0], [MACH_MP_DEBUG])
 
 # Paged-out page map hints.
 AC_DEFINE([MACH_PAGEMAP], [1], [MACH_PAGEMAP])

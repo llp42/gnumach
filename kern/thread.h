@@ -235,10 +235,6 @@ struct thread {
 	processor_t	last_processor; /* processor this last ran on */
 #endif	/* NCPUS > 1 */
 
-#if	MACH_LOCK_MON
-	unsigned lock_stack;
-#endif
-
 	char	name[THREAD_NAME_SIZE];
 };
 

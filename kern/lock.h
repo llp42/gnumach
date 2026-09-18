@@ -60,15 +60,9 @@
 
 #include <machine/lock.h>/*XXX*/
 #if NCPUS > 1
-#if MACH_LOCK_MON == 0
 #define simple_lock_nocheck	_simple_lock
 #define simple_lock_try_nocheck	_simple_lock_try
 #define simple_unlock_nocheck	_simple_unlock
-#else
-#define simple_lock_nocheck	simple_lock
-#define simple_lock_try_nocheck	simple_lock_try
-#define simple_unlock_nocheck	simple_unlock
-#endif
 #endif
 
 #define MACH_SLOCKS	((NCPUS > 1) || MACH_LDEBUG)
@@ -265,8 +259,6 @@ extern unsigned long in_interrupt[NCPUS];
 #endif	/* MACH_LDEBUG */
 #define have_lock(l)		(have_read_lock(l) || have_write_lock(l))
 
-/* These are defined elsewhere with lock monitoring */
-#if MACH_LOCK_MON == 0
 #define simple_lock(l)		\
 MACRO_BEGIN \
 	lock_check_no_interrupts(); \
@@ -279,7 +271,6 @@ MACRO_END
 MACRO_BEGIN \
 	simple_unlock_nocheck(l); \
 MACRO_END
-#endif
 
 /* _irq variants */
 
@@ -311,7 +302,5 @@ MACRO_END
 #if	MACH_KDB
 extern void db_show_all_slocks(void);
 #endif	/* MACH_KDB */
-
-extern void lip(void);
 
 #endif	/* _KERN_LOCK_H_ */
