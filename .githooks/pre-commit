@@ -30,8 +30,11 @@ if [ "${SKIP_TESTS:-}" = 1 ]; then
 fi
 
 # Is anything staged that could change the build or the tests?
+# D is in the filter on purpose: removing a source file changes the build as
+# surely as adding one, and a deletion-only commit would otherwise look like
+# nothing to test.
 code=
-for f in $(git diff --cached --name-only --diff-filter=ACMR); do
+for f in $(git diff --cached --name-only --diff-filter=ACMRD); do
 	case "$f" in
 	*.c|*.h|*.S|*.s|*.ac|*.am|*.mk|*.defs|*.srv|*.cli|*.in|mise.toml)
 		code=1
