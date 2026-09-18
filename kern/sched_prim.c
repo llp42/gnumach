@@ -1653,11 +1653,10 @@ static void __attribute__((noreturn)) idle_thread_continue(void)
 			}
 
 			/*
-			 * No architectural idle here: this cpu spins
-			 * until a thread becomes runnable.  Putting it
-			 * to sleep (machine_idle, i.e. hlt) is left for
-			 * later.
+			 * machine_idle is a machine dependent function,
+			 * to conserve power.
 			 */
+			machine_idle(mycpu);
 		}
 
 #ifdef	MARK_CPU_ACTIVE
