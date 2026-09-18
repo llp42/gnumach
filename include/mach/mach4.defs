@@ -40,67 +40,22 @@ subsystem
 #include <mach/mach_types.defs>
 
 
-#ifdef MACH_PCSAMPLE
-type sampled_pc_flavor_t = unsigned;
+/*
+ * Message ids 0-9 are reserved: they carried the pc_sampling routines,
+ * removed along with MACH_PCSAMPLE.  The skips stay so that the ids of
+ * every routine declared after them are unchanged.
+ */
+skip;	/* was task_enable_pc_sampling */
+skip;	/* was task_disable_pc_sampling */
+skip;	/* was task_get_sampled_pcs */
+skip;	/* was thread_enable_pc_sampling */
+skip;	/* was thread_disable_pc_sampling */
+skip;	/* was thread_get_sampled_pcs */
 
-type sampled_pc_t 	= struct {
-   rpc_vm_offset_t id;
-   rpc_vm_offset_t pc;
-   sampled_pc_flavor_t sampletype;
-};
-
-type sampled_pc_array_t = array[*:512] of sampled_pc_t;
-type sampled_pc_seqno_t = unsigned;
-
-routine task_enable_pc_sampling(
-		host          : task_t;
-		out tick      : int;     /* sample frequency in usecs	*/
-		flavor	      : sampled_pc_flavor_t );
-
-routine task_disable_pc_sampling(
-		host          : task_t;
-		out samplecnt : int);
-				 
-routine task_get_sampled_pcs(
-		host	        : task_t;
-		inout seqno     : sampled_pc_seqno_t;
-		out sampled_pcs : sampled_pc_array_t);
-
-routine thread_enable_pc_sampling(
-		host          : thread_t;
-		out tick      : int;     /* sample frequency in	usecs*/
-		flavor	      : sampled_pc_flavor_t );		
-
-routine thread_disable_pc_sampling(
-		host          : thread_t;
-		out samplecnt : int);
-				 
-routine thread_get_sampled_pcs(
-		host	        : thread_t;
-		inout seqno     : sampled_pc_seqno_t;
-		out sampled_pcs : sampled_pc_array_t);
-
-
-skip	/* pc_sampling reserved 1*/;
-skip	/* pc_sampling reserved 2*/;
-skip	/* pc_sampling reserved 3*/;
-skip	/* pc_sampling reserved 4*/;
-
-#else
-
-skip;	/* task_enable_pc_sampling */
-skip;	/* task_disable_pc_sampling */
-skip;	/* task_get_sampled_pcs */
-skip;	/* thread_enable_pc_sampling */
-skip;	/* thread_disable_pc_sampling */
-skip;	/* thread_get_sampled_pcs */
-
-skip	/* pc_sampling reserved 1*/;
-skip	/* pc_sampling reserved 2*/;
-skip	/* pc_sampling reserved 3*/;
-skip	/* pc_sampling reserved 4*/;
-
-#endif
+skip	/* was pc_sampling reserved 1 */;
+skip	/* was pc_sampling reserved 2 */;
+skip	/* was pc_sampling reserved 3 */;
+skip	/* was pc_sampling reserved 4 */;
 
 
 /* Create a new proxy memory object from [START;START+LEN) in the

@@ -59,10 +59,6 @@
 #include <machine/spl.h>
 #include <machine/model_dep.h>
 
-#if MACH_PCSAMPLE
-#include <kern/pc_sample.h>
-#endif
-
 #define MICROSECONDS_IN_ONE_SECOND 1000000
 
 /* See Costello & Varghese 1995: https://doi.org/10.7936/K7VM49H5 */
@@ -239,21 +235,6 @@ void clock_interrupt(
 
 	    thread_quantum_update(my_cpu, thread, 1, state);
 	}
-
-#if 	MACH_PCSAMPLE
-	/*
-	 * Take a sample of pc for the user if required.
-	 * This had better be MP safe.  It might be interesting
-	 * to keep track of cpu in the sample.
-	 */
-#ifndef MACH_KERNSAMPLE
-	if (usermode)
-#endif
-	{
-	    if (thread)
-		take_pc_sample_macro(thread, SAMPLED_PC_PERIODIC, usermode, pc);
-	}
-#endif /* MACH_PCSAMPLE */
 
 	/*
 	 *	Time-of-day and time-out list are updated only

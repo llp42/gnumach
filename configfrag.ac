@@ -48,23 +48,6 @@ AC_DEFINE_UNQUOTED([NLPR], [$nlpr], [NLPR])
 AC_DEFINE([MACH_LDEBUG], [0], [MACH_LDEBUG])
 
 
-# Do pc sample histogram.
-[if [ $mach_ncpus -gt 1 ]; then]
-  # Apparently not MP-safe yet.
-  AC_DEFINE([MACH_PCSAMPLE], [0], [MACH_PCSAMPLE])
-[else]
-  AC_DEFINE([MACH_PCSAMPLE], [1], [MACH_PCSAMPLE])
-[fi]
-
-# Sample kernel too.
-AC_ARG_ENABLE([kernsample],
-  AS_HELP_STRING([--enable-kernsample], [enable sampling kernel]))
-[if [ x"$enable_kernsample" = xyes ]; then]
-  AC_DEFINE([MACH_KERNSAMPLE], [1], [MACH_KERNSAMPLE])
-[else]
-  AC_DEFINE([MACH_KERNSAMPLE], [0], [MACH_KERNSAMPLE])
-[fi]
-
 
 #
 # Options.

@@ -190,12 +190,6 @@ task_create_kernel(
 	new_task->assign_active = FALSE;
 	new_task->essential = FALSE;
 
-#if	MACH_PCSAMPLE
-	new_task->pc_sample.buffer = 0;
-	new_task->pc_sample.seqno = 0;
-	new_task->pc_sample.sampletypes = 0;
-#endif	/* MACH_PCSAMPLE */
-
 	if (parent_task == TASK_NULL)
 		snprintf (new_task->name, sizeof new_task->name, "%p",
 			  new_task);

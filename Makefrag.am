@@ -112,8 +112,6 @@ libkernel_a_SOURCES += \
 	kern/machine.c \
 	kern/machine.h \
 	kern/macros.h \
-	kern/pc_sample.c \
-	kern/pc_sample.h \
 	kern/printf.c \
 	kern/printf.h \
 	kern/priority.c \
@@ -335,7 +333,6 @@ include_mach_HEADERS = \
 	include/mach/message.h \
 	include/mach/mig_errors.h \
 	include/mach/notify.h \
-	include/mach/pc_sample.h \
 	include/mach/policy.h \
 	include/mach/port.h \
 	include/mach/processor_info.h \

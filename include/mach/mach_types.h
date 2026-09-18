@@ -39,7 +39,6 @@
 #include <mach/machine.h>
 #include <mach/machine/vm_types.h>
 #include <mach/memory_object.h>
-#include <mach/pc_sample.h>
 #include <mach/port.h>
 #include <mach/processor_info.h>
 #include <mach/task_info.h>

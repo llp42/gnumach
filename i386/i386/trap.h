@@ -35,8 +35,6 @@
 
 char *trap_name(unsigned int trapnum);
 
-unsigned int interrupted_pc(thread_t);
-
 void
 i386_exception(
 	int	exc,

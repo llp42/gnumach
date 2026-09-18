@@ -44,7 +44,6 @@
 #include <kern/ast.h>
 #include <kern/mach_clock.h>
 #include <kern/queue.h>
-#include <kern/pc_sample.h>
 #include <kern/processor.h>
 #include <kern/sched_prim.h>	/* event_t, continuation_t */
 #include <kern/timer.h>
@@ -221,8 +220,6 @@ struct thread {
 	/* Processor data structures */
 	processor_set_t	processor_set;	/* assigned processor set */
 	processor_t	bound_processor;	/* bound to processor ?*/
-
-	sample_control_t pc_sample;
 
 #if	MACH_HOST
 	boolean_t	may_assign;	/* may assignment change? */

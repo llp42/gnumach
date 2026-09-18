@@ -543,21 +543,6 @@ i386_exception(
 	/*NOTREACHED*/
 }
 
-#if	MACH_PCSAMPLE > 0
-/*
- * return saved state for interrupted user thread
- */
-unsigned
-interrupted_pc(const thread_t t)
-{
-	struct i386_saved_state *iss;
-
- 	iss = USER_REGS(t);
- 	return iss->eip;
-}
-#endif	/* MACH_PCSAMPLE > 0 */
-
-
 void handle_double_fault(struct i386_saved_state *regs)
 {
   dump_ss(regs);

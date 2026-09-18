@@ -502,13 +502,6 @@ kern_return_t thread_create(
 	 *	switch code will set it before it can be used.
 	 */
 
-#if	MACH_PCSAMPLE
-	new_thread->pc_sample.seqno = 0;
-	new_thread->pc_sample.sampletypes = 0;
-#endif	/* MACH_PCSAMPLE */
-
-	new_thread->pc_sample.buffer = 0;
-
 	/* Inherit the task name as the thread name. */
 	memcpy (new_thread->name, parent_task->name, THREAD_NAME_SIZE);
 
