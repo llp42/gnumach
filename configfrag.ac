@@ -88,9 +88,6 @@ AC_ARG_ENABLE([kernsample],
   AC_DEFINE([MACH_KERNSAMPLE], [0], [MACH_KERNSAMPLE])
 [fi]
 
-# Mach-dep power conservation.
-AC_DEFINE([POWER_SAVE], [1], [POWER_SAVE])
-
 
 #
 # Options.
