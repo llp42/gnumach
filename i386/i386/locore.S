@@ -583,35 +583,10 @@ _kret_iret:
  * Trap from kernel mode.  No need to switch stacks.
  */
 trap_from_kernel:
-#if	MACH_KDB
-	movl	%esp,%ebx		/* save current stack */
-	movl	%esp,%edx		/* on an interrupt stack? */
-
-	CPU_NUMBER(%ecx)
-	and	$(~(INTSTACK_SIZE-1)),%edx
-	cmpl	CX(EXT(int_stack_base),%ecx),%edx
-	je	1f			/* OK if so */
-
-	movl	%ecx,%edx
-	cmpl	CX(EXT(kernel_stack),%edx),%esp
-					/* already on kernel stack? */
-	ja	0f
-	cmpl	MY(ACTIVE_STACK),%esp
-	ja	1f			/* switch if not */
-0:
-	movl	CX(EXT(kernel_stack),%edx),%esp
-1:
-	pushl	%ebx			/* save old stack */
-	pushl	%ebx			/* pass as parameter */
-	call	EXT(kernel_trap)	/* to kernel trap routine */
-	addl	$4,%esp			/* pop parameter */
-	popl	%esp			/* return to old stack */
-#else	/* MACH_KDB */
 
 	pushl	%esp			/* pass parameter */
 	call	EXT(kernel_trap)	/* to kernel trap routine */
 	addl	$4,%esp			/* pop parameter */
-#endif	/* MACH_KDB */
 
 	jmp	_return_from_kernel
 
@@ -786,7 +761,7 @@ ENTRY(all_intrs)
 #endif
 
 	call	EXT(interrupt)		/* call generic interrupt routine */
-	.globl	EXT(return_to_iret)	/* ( label for kdb_kintr and hardclock */
+	.globl	EXT(return_to_iret)	/* ( label for hardclock */
 LEXT(return_to_iret)			/* to find the return from calling interrupt) */
 
 	CPU_NUMBER(%edx)
@@ -821,7 +796,6 @@ int_from_intstack:
 	cmpl	CX(EXT(int_stack_base),%edx),%esp /* seemingly looping? */
 	jb	stack_overflowed	/* if not: */
 	call	EXT(interrupt)		/* call interrupt routine */
-_return_to_iret_i:			/* ( label for kdb_kintr) */
 					/* must have been on kernel segs */
 	POP_SEGMENTS_ISR		/* restore segment regs */
 	POP_AREGS_ISR			/* restore registers */
@@ -865,135 +839,6 @@ ast_from_interrupt:
 	popl	%esp			/* back to PCB stack */
 	jmp	_return_from_trap	/* return */
 
-#if	MACH_KDB
-/*
- * kdb_kintr:	enter kdb from keyboard interrupt.
- * Chase down the stack frames until we find one whose return
- * address is the interrupt handler.   At that point, we have:
- *
- * frame->	saved %ebp
- *		return address in interrupt handler
- * #ifndef MACH_XEN
- *		1st parameter iunit
- *		2nd parameter saved SPL
- *		3th parameter return address
- *		4th parameter registers
- *		saved SPL
- *		saved IRQ
- * #endif
- *		return address == return_to_iret_i
- *		saved %edx
- *		saved %ecx
- *		saved %eax
- *		saved %eip
- *		saved %cs
- *		saved %efl
- *
- * OR:
- * frame->	saved %ebp
- *		return address in interrupt handler
- * #ifndef MACH_XEN
- *		iunit
- *		saved SPL
- *		irq
- * #endif
- *		return address == return_to_iret
- *		pointer to save area on old stack
- *	      [ saved %ebx, if accurate timing ]
- *
- * old stack:	saved %gs
- *		saved %fs
- *		saved %es
- *		saved %ds
- *		saved %edx
- *		saved %ecx
- *		saved %eax
- *		saved %eip
- *		saved %cs
- *		saved %efl
- *
- * Call kdb, passing it that register save area.
- */
-
-#ifdef	MACH_XEN
-#define	RET_OFFSET	8
-#else	/* MACH_XEN */
-#define	RET_OFFSET	32
-#endif	/* MACH_XEN */
-
-ENTRY(kdb_kintr)
-	movl	%ebp,%eax		/* save caller`s frame pointer */
-	movl	$EXT(return_to_iret),%ecx	/* interrupt return address 1 */
-	movl	$_return_to_iret_i,%edx	/* interrupt return address 2 */
-
-0:	cmpl	RET_OFFSET(%eax),%ecx	/* does this frame return to */
-					/* interrupt handler (1)? */
-	je	1f
-	cmpl	RET_OFFSET(%eax),%edx	/* interrupt handler (2)? */
-	je	2f			/* if not: */
-	movl	(%eax),%eax		/* try next frame */
-	testl	%eax,%eax
-	jnz	0b
-	ud2				/* oops, didn't find frame, fix me :/ */
-
-1:	movl	$kdb_from_iret,RET_OFFSET(%eax)
-	ret				/* returns to kernel/user stack */
-
-2:	movl	$kdb_from_iret_i,RET_OFFSET(%eax)
-					/* returns to interrupt stack */
-	ret
-
-/*
- * On return from keyboard interrupt, we will execute
- * kdb_from_iret_i
- *	if returning to an interrupt on the interrupt stack
- * kdb_from_iret
- *	if returning to an interrupt on the user or kernel stack
- */
-kdb_from_iret:
-					/* save regs in known locations */
-#if	STAT_TIME
-	pushl	%ebx			/* caller`s %ebx is in reg */
-#else
-	movl	4(%esp),%eax		/* get caller`s %ebx */
-	pushl	%eax			/* push on stack */
-#endif
-	pushl	%ebp
-	pushl	%esi
-	pushl	%edi
-	pushl	%esp			/* pass regs */
-	call	EXT(kdb_kentry)		/* to kdb */
-	addl	$4,%esp			/* pop parameters */
-	popl	%edi			/* restore registers */
-	popl	%esi
-	popl	%ebp
-#if	STAT_TIME
-	popl	%ebx
-#else
-	popl	%eax
-	movl	%eax,4(%esp)
-#endif
-	jmp	EXT(return_to_iret)	/* normal interrupt return */
-
-kdb_from_iret_i:			/* on interrupt stack */
-	pop	%edx			/* restore saved registers */
-	pop	%ecx
-	pop	%eax
-	pushl	$0			/* zero error code */
-	pushl	$0			/* zero trap number */
-	pusha				/* save general registers */
-	PUSH_SEGMENTS			/* save segment registers */
-	pushl	%esp			/* pass regs, */
-	pushl	$0			/* code, */
-	pushl	$-1			/* type to kdb */
-	call	EXT(kdb_trap)
-	addl	$12,%esp		/* remove parameters */
-	POP_SEGMENTS			/* restore segment registers */
-	popa				/* restore general registers */
-	addl	$8,%esp
-	iret
-
-#endif	/* MACH_KDB */
 
 
 /*

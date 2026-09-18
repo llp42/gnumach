@@ -109,13 +109,6 @@ static void hypcnintr(int unit, spl_t spl, void *ret_addr, void *regs) {
 		int c = hyp_ring_cell(console->in, console->in_cons);
 		mb();
 		console->in_cons++;
-#if	MACH_KDB
-		if (c == (char)0xA3) {
-			printf("pound pressed\n");
-			kdb_kintr();
-			continue;
-		}
-#endif	/* MACH_KDB */
 		if ((tp->t_state & (TS_ISOPEN|TS_WOPEN)))
 			(*linesw[tp->t_line].l_rint)(c, tp);
 	}

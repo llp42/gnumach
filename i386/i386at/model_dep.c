@@ -92,17 +92,6 @@
 
 /* Location of the kernel's symbol table.
    Both of these are 0 if none is available.  */
-#if MACH_KDB
-#include <ddb/db_sym.h>
-#include <i386/db_interface.h>
-
-/* ELF section header */
-static unsigned elf_shdr_num;
-static vm_size_t elf_shdr_size;
-static vm_offset_t elf_shdr_addr;
-static unsigned elf_shdr_shndx;
-
-#endif /* MACH_KDB */
 
 #define RESERVED_BIOS 0x10000
 
@@ -542,23 +531,6 @@ void c_boot_entry(vm_offset_t bi)
 #endif
 #else	/* MACH_XEN */
 
-#if	MACH_KDB
-	/*
-	 * Locate the kernel's symbol table, if the boot loader provided it.
-	 * We need to do this before i386at_init()
-	 * so that the symbol table's memory won't be stomped on.
-	 */
-	if ((boot_info.flags & MULTIBOOT_ELF_SHDR)
-	    && boot_info.shdr_num)
-	{
-		elf_shdr_num = boot_info.shdr_num;
-		elf_shdr_size = boot_info.shdr_size;
-		elf_shdr_addr = (vm_offset_t)phystokv(boot_info.shdr_addr);
-		elf_shdr_shndx = boot_info.shdr_strndx;
-
-		printf("ELF section header table at %08" PRIxPTR "\n", elf_shdr_addr);
-	}
-#endif	/* MACH_KDB */
 #endif	/* MACH_XEN */
 
 	cpu_type = discover_x86_cpu_type ();
@@ -568,17 +540,6 @@ void c_boot_entry(vm_offset_t bi)
 	 */
 	i386at_init();
 
-#if	MACH_KDB
-	/*
-	 * Initialize the kernel debugger's kernel symbol table.
-	 */
-	if (elf_shdr_num)
-	{
-		elf_db_sym_init(elf_shdr_num,elf_shdr_size,
-				elf_shdr_addr, elf_shdr_shndx,
-				"mach", NULL);
-	}
-#endif	/* MACH_KDB */
 
 	machine_slot[0].is_cpu = TRUE;
 	machine_slot[0].cpu_subtype = CPU_SUBTYPE_AT386;

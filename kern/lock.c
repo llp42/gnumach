@@ -42,11 +42,6 @@
 #include <kern/lock.h>
 #include <kern/thread.h>
 #include <kern/sched_prim.h>
-#if	MACH_KDB
-#include <machine/db_machdep.h>
-#include <ddb/db_output.h>
-#include <ddb/db_sym.h>
-#endif
 
 
 #if	NCPUS > 1
@@ -661,25 +656,3 @@ void lock_clear_recursive(
 	simple_unlock(&l->interlock);
 }
 
-#if	MACH_KDB
-#if	MACH_SLOCKS && NCPUS == 1
-void db_show_all_slocks(void)
-{
-	int i;
-	struct simple_locks_info *info;
-	simple_lock_t l;
-
-	for (i = 0; i < simple_locks_taken; i++) {
-		info = &simple_locks_info[i];
-		db_printf("%d: %s (", i, info->expr);
-		db_printsym((uintptr_t) info->l, DB_STGY_ANY);
-		db_printf(") locked by %s\n", info->loc);
-	}
-}
-#else	/* MACH_SLOCKS && NCPUS == 1 */
-void db_show_all_slocks(void)
-{
-	db_printf("simple lock info not available\n");
-}
-#endif	/* MACH_SLOCKS && NCPUS == 1 */
-#endif	/* MACH_KDB */

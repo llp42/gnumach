@@ -123,15 +123,6 @@ libkernel_a_SOURCES += \
 endif
 endif
 
-#
-# KDB support.
-#
-
-if enable_kdb
-libkernel_a_SOURCES += \
-	i386/i386/_setjmp.S
-endif
-
 
 #
 # Files from the generic sources that we want.

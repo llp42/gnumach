@@ -71,11 +71,6 @@ comsetstat(
 	dev_status_t	data,
 	mach_msg_type_number_t	count);
 
-#if MACH_KDB
-extern void kdb_kintr(void);
-extern void compr_addr(vm_offset_t addr);
-extern int compr(int unit);
-#endif /* MACH_KDB */
 
 extern io_return_t comopen(dev_t dev, int flag, io_req_t ior);
 extern void comclose(dev_t dev, int flag);

@@ -100,18 +100,6 @@ AC_DEFINE([STAT_TIME], [1], [STAT_TIME])
 
 AC_HEADER_ASSERT()
 
-AC_ARG_ENABLE([kdb],
-  AS_HELP_STRING([--enable-kdb], [enable use of in-kernel debugger]))
-[if [ x"$enable_kdb" = xyes ]; then]
-  AC_DEFINE([MACH_KDB], [1], [Use the in-kernel debugger?])
-  AM_CONDITIONAL([enable_kdb], [true])
-[else]
-  # We need to be long winded here: bogus/mach_kdb.h made it default to zero,
-  # unless overridden.
-  AC_DEFINE([MACH_KDB], [0], [Use the in-kernel debugger?])
-  AM_CONDITIONAL([enable_kdb], [false])
-[fi]
-
 
 AC_ARG_ENABLE([kmsg],
   AS_HELP_STRING([--disable-kmsg], [disable use of kmsg device]))

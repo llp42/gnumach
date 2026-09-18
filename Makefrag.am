@@ -15,63 +15,6 @@
 # USE OF THIS SOFTWARE.
 
 #
-# DDB support --- eventually to die.  Please.
-#
-
-# Do we want the icky kernel debugger?
-if enable_kdb
-libkernel_a_SOURCES += \
-	ddb/db_access.c \
-	ddb/db_access.h \
-	ddb/db_elf.c \
-	ddb/db_elf.h \
-	ddb/db_break.c \
-	ddb/db_break.h \
-	ddb/db_command.c \
-	ddb/db_command.h \
-	ddb/db_cond.c \
-	ddb/db_cond.h \
-	ddb/db_examine.c \
-	ddb/db_examine.h \
-	ddb/db_expr.c \
-	ddb/db_expr.h \
-	ddb/db_ext_symtab.c \
-	ddb/db_input.c \
-	ddb/db_input.h \
-	ddb/db_lex.c \
-	ddb/db_lex.h \
-	ddb/db_macro.c \
-	ddb/db_macro.h \
-	ddb/db_mp.c \
-	ddb/db_mp.h \
-	ddb/db_output.c \
-	ddb/db_output.h \
-	ddb/db_print.c \
-	ddb/db_print.h \
-	ddb/db_run.c \
-	ddb/db_run.h \
-	ddb/db_sym.c \
-	ddb/db_sym.h \
-	ddb/db_task_thread.c \
-	ddb/db_task_thread.h \
-	ddb/db_trap.c \
-	ddb/db_trap.h \
-	ddb/db_variables.c \
-	ddb/db_variables.h \
-	ddb/db_watch.c \
-	ddb/db_watch.h \
-	ddb/db_write_cmd.c \
-	ddb/db_write_cmd.h \
-	ddb/nlist.h \
-	ddb/stab.h \
-	ddb/tr.h
-
-# We need frame pointers for trace to work properly.
-AM_CFLAGS += -fno-omit-frame-pointer -fno-optimize-sibling-calls
-endif
-
-
-#
 # IPC implementation.
 #
 
@@ -262,7 +205,6 @@ libkernel_a_SOURCES += \
 	vm/vm_page.h \
 	vm/vm_pageout.c \
 	vm/vm_pageout.h \
-	vm/vm_print.h \
 	vm/vm_resident.c \
 	vm/vm_resident.h \
 	vm/vm_types.h \
@@ -451,10 +393,6 @@ install-data-hook:
 #
 # Building a distribution.
 #
-
-# Enable all available features.
-DISTCHECK_CONFIGURE_FLAGS += \
-	--enable-kdb
 
 # Instead of listing each file individually...
 EXTRA_DIST += \

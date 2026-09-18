@@ -518,13 +518,6 @@ comintr(int unit)
 						continue;
 					}
 
-#if MACH_KDB
-					if (escape && c == 'D'-('A'-1))
-						/* ctrl-alt-d pressed,
-						   invoke debugger */
-						kdb_kintr();
-					else
-#endif /* MACH_KDB */
 					if (escape) {
 						ttyinput(0x1b, tp);
 						ttyinput(c, tp);

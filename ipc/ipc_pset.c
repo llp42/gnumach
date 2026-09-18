@@ -46,10 +46,6 @@
 #include <ipc/ipc_right.h>
 #include <ipc/ipc_space.h>
 
-#if	MACH_KDB
-#include <ddb/db_output.h>
-#include <ipc/ipc_print.h>
-#endif	/* MACH_KDB */
 
 
 /*
@@ -322,29 +318,3 @@ ipc_pset_destroy(
 }
 
 
-#if	MACH_KDB
-#define	printf	kdbprintf
-
-/*
- *	Routine:	ipc_pset_print
- *	Purpose:
- *		Pretty-print a port set for kdb.
- */
-
-void
-ipc_pset_print(
-	const ipc_pset_t pset)
-{
-	printf("pset 0x%x\n", pset);
-
-	indent += 2;
-
-	ipc_object_print(&pset->ips_object);
-	iprintf("local_name = 0x%x\n", pset->ips_local_name);
-	iprintf("kmsgs = 0x%x", pset->ips_messages.imq_messages.ikmq_base);
-	printf(",rcvrs = 0x%x\n", pset->ips_messages.imq_threads.ithq_base);
-
-	indent -= 2;
-}
-
-#endif	/* MACH_KDB */

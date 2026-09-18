@@ -345,45 +345,6 @@ short	font_byte_width	= 0;		/* num bytes in 1 scan line of font */
  */
 int	kd_pollc = 0;
 
-#if MACH_KDB
-static void
-pause(void)
-{
-	int i;
-
-	for (i = 0; i < 50000; ++i)
-		;
-}
-
-/*
- * feep:
- *
- *	Ring the bell for a short time.
- *	Warning: uses outb(). You may prefer to use kd_debug_put.
- */
-void
-feep(void)
-{
-	kd_bellon();
-	pause();
-	kd_belloff(NULL);
-}
-
-/*
- * Put a debugging character on the screen.
- * LOC=0 means put it in the bottom right corner, LOC=1 means put it
- * one column to the left, etc.
- */
-void
-kd_debug_put(
-	int	loc,
-	char	c)
-{
-	csrpos_t pos = ONE_PAGE - (loc+1) * ONE_SPACE;
-
-	(*kd_dput)(pos, c, KA_NORMAL);
-}
-#endif /* MACH_KDB */
 
 
 extern boolean_t	mouse_in_use;
@@ -969,23 +930,6 @@ kdcheckmagic(Scancode scancode)
 
 	if ((magic_state&(KS_CTLED|KS_ALTED)) == (KS_CTLED|KS_ALTED)) {
 		switch (scancode) {
-#if	MACH_KDB
-		case K_dSC:		/*  ctl-alt-d */
-			kdb_kintr();	/* invoke debugger */
-			/* Returned from debugger, so reset kbd state. */
-			(void)SPLKD();
-			magic_state = KS_NORMAL;
-			if (kb_mode == KB_ASCII)
-				kd_state = KS_NORMAL;
-				/* setting leds kills kbd */
-			else {
-				kd_enqsc(K_ALTSC | K_UP);
-				kd_enqsc(K_CTLSC | K_UP);
-				kd_enqsc(K_dSC | K_UP);
-			}
-			return(TRUE);
-			break;
-#endif	/* MACH_KDB */
 		case K_DELSC:		/* ctl-alt-del */
 			/* if rebootflag is on, reboot the system */
 			if (rebootflag)

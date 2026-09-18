@@ -48,9 +48,6 @@
 #include <kern/printf.h>
 #include <kern/slab.h>
 
-#if	MACH_KDB
-#include <ddb/db_output.h>
-#endif	/* MACH_KDB */
 
 
 struct kmem_cache ipc_object_caches[IOT_NUMBER];
@@ -906,65 +903,3 @@ ipc_object_rename(
 	return kr;
 }
 
-#if	MACH_KDB
-#define	printf	kdbprintf
-
-/*
- *	Routine:	ipc_object_print
- *	Purpose:
- *		Pretty-print an object for kdb.
- */
-
-char *ikot_print_array[IKOT_MAX_TYPE] = {
-	"(NONE)             ",
-	"(THREAD)           ",
-	"(TASK)             ",
-	"(HOST)             ",
-	"(HOST_PRIV)        ",
-	"(PROCESSOR)        ",
-	"(PSET)             ",
-	"(PSET_NAME)        ",
-	"(PAGER)            ",
-	"(PAGER_REQUEST)    ",
-	"(DEVICE)           ",	/* 10 */
-	"(XMM_OBJECT)       ",
-	"(XMM_PAGER)        ",
-	"(XMM_KERNEL)       ",
-	"(XMM_REPLY)        ",
-	"(PAGER_TERMINATING)",
-	"(PAGING_NAME)      ",
-	"(HOST_SECURITY)    ",
-	"(LEDGER)           ",
-	"(MASTER_DEVICE)    ",
-	"(ACTIVATION)       ",	/* 20 */
-	"(SUBSYSTEM)        ",
-	"(IO_DONE_QUEUE)    ",
-	"(SEMAPHORE)        ",
-	"(LOCK_SET)         ",
-	"(CLOCK)            ",
-	"(CLOCK_CTRL)       ",
-	"(PAGER_PROXY)      ",	/* 27 */
-	"(USER_DEVICE)      ",	/* 28 */
-				/* << new entries here	*/
-	"(UNKNOWN)     "	/* magic catchall	*/
-};	/* Please keep in sync with kern/ipc_kobject.h	*/
-
-void
-ipc_object_print(
-	const ipc_object_t object)
-{
-	int kotype;
-
-	iprintf("%s", io_active(object) ? "active" : "dead");
-	printf(", refs=%d", object->io_references);
-	printf(", otype=%d", io_otype(object));
-	kotype = io_kotype(object);
-	if (kotype >= 0 && kotype < IKOT_MAX_TYPE)
-		printf(", kotype=%d %s\n", io_kotype(object),
-		       ikot_print_array[kotype]);
-	else
-		printf(", kotype=0x%x %s\n", io_kotype(object),
-		       ikot_print_array[IKOT_UNKNOWN]);
-}
-
-#endif	/* MACH_KDB */

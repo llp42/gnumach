@@ -370,10 +370,8 @@ thread_depress_abort(thread_t thread)
  *	This system call is meant as a debugging tool useful to circumvent
  *	messaging altogether.
  */
-#ifdef MACH_KDB
 void
 mach_print(const char *s)
 {
 	printf("%s", s);
 }
-#endif /* MACH_KDB */

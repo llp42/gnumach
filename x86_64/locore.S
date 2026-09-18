@@ -733,35 +733,10 @@ _kret_iret:
  * Trap from kernel mode.  No need to switch stacks.
  */
 trap_from_kernel:
-#if	MACH_KDB
-	movq	%rsp,%rbx		/* save current stack */
-	movq	%rsp,%rdx		/* on an interrupt stack? */
-
-	CPU_NUMBER(%ecx)
-	and	$(~(INTSTACK_SIZE-1)),%rdx
-	cmpq	CX8(EXT(int_stack_base),%rcx),%rdx
-	je	1f			/* OK if so */
-
-	movq	%rcx,%rdx
-	cmpq	CX8(EXT(kernel_stack),%rdx),%rsp
-					/* already on kernel stack? */
-	ja	0f
-	cmpq	MY(ACTIVE_STACK),%rsp
-	ja	1f			/* switch if not */
-0:
-	movq	CX8(EXT(kernel_stack),%rdx),%rsp
-1:
-	pushq	%rbx			/* save old stack */
-	movq	%rbx,%rdi		/* pass as parameter */
-	call	EXT(kernel_trap)	/* to kernel trap routine */
-
-	popq	%rsp			/* return to old stack */
-#else	/* MACH_KDB */
 
 	movq	%rsp,%rdi		/* pass parameter */
 	call	EXT(kernel_trap)	/* to kernel trap routine */
 
-#endif	/* MACH_KDB */
 
 	jmp	_return_from_kernel
 
@@ -942,7 +917,7 @@ ENTRY(all_intrs)
 #endif
 
 	call	EXT(interrupt)		/* call generic interrupt routine */
-	.globl	EXT(return_to_iret)	/* ( label for kdb_kintr and hardclock */
+	.globl	EXT(return_to_iret)	/* ( label for hardclock */
 LEXT(return_to_iret)			/* to find the return from calling interrupt) */
 
 	CPU_NUMBER(%edx)
@@ -980,7 +955,6 @@ int_from_intstack:
 	cmpq	CX8(EXT(int_stack_base),%rdx),%rsp /* seemingly looping? */
 	jb	stack_overflowed	/* if not: */
 	call	EXT(interrupt)		/* call interrupt routine */
-_return_to_iret_i:			/* ( label for kdb_kintr) */
 	SWAPGS_EXIT_IF_NEEDED_R12
 	POP_SEGMENTS_ISR(%rdx)
 	POP_AREGS_ISR			/* restore registers */
@@ -1024,131 +998,6 @@ ast_from_interrupt:
 	movq	$RETURN_TO_USER, %r12	/* definitely returning to user mode */
 	jmp	_return_from_trap	/* return */
 
-#if	MACH_KDB
-/*
- * kdb_kintr:	enter kdb from keyboard interrupt.
- * Chase down the stack frames until we find one whose return
- * address is the interrupt handler.   At that point, we have:
- *
- * frame->	saved %rbp
- *		return address in interrupt handler
- *		saved SPL
- *		saved IRQ
- *		return address == return_to_iret_i
- *		saved %r12
- *		saved %r11
- *		saved %r10
- *		saved %r9
- *		saved %r8
- *		saved %rdx
- *		saved %rcx
- *		saved %rax
- *		saved %rip
- *		saved %cs
- *		saved %rfl
- *
- * OR:
- * frame->	saved %rbp
- *		return address in interrupt handler
- *		return address == return_to_iret
- *		pointer to save area on old stack
- *	      [ saved %ebx, if accurate timing ]
- *
- * old stack:	saved %gs
- *		saved %fs
- *		saved %es
- *		saved %ds
- *		saved %r12
- *		saved %r11
- *		saved %r10
- *		saved %r9
- *		saved %r8
- *		saved %rdi
- *		saved %rsi
- *		saved %rdx
- *		saved %rcx
- *		saved %eax
- *		saved %rip
- *		saved %cs
- *		saved %rfl
- *
- * Call kdb, passing it that register save area.
- */
-
-#define	RET_OFFSET	32
-
-
-ENTRY(kdb_kintr)
-	movq	%rbp,%rax		/* save caller`s frame pointer */
-	movq	$EXT(return_to_iret),%rcx	/* interrupt return address 1 */
-	movq	$_return_to_iret_i,%rdx	/* interrupt return address 2 */
-
-0:	cmpq	RET_OFFSET(%rax),%rcx	/* does this frame return to */
-					/* interrupt handler (1)? */
-	je	1f
-	cmpq	RET_OFFSET(%rax),%rdx	/* interrupt handler (2)? */
-	je	2f			/* if not: */
-	movq	(%rax),%rax		/* try next frame */
-	testq	%rax,%rax
-	jnz	0b
-	ud2				/* oops, didn't find frame, fix me :/ */
-
-1:	movq	$kdb_from_iret,RET_OFFSET(%rax)
-	ret				/* returns to kernel/user stack */
-
-2:	movq	$kdb_from_iret_i,RET_OFFSET(%rax)
-					/* returns to interrupt stack */
-	ret
-
-/*
- * On return from keyboard interrupt, we will execute
- * kdb_from_iret_i
- *	if returning to an interrupt on the interrupt stack
- * kdb_from_iret
- *	if returning to an interrupt on the user or kernel stack
- */
-kdb_from_iret:
-					/* save regs in known locations */
-#if	STAT_TIME
-	pushq	%rbx			/* caller`s %ebx is in reg */
-#else
-	movq	8(%rsp),%rax		/* get caller`s %ebx */
-	pushq	%rax			/* push on stack */
-#endif
-	pushq	%rbp
-	movq	%rsp,%rdi		/* pass regs */
-	call	EXT(kdb_kentry)		/* to kdb */
-	popq	%rbp
-#if	STAT_TIME
-	popq	%rbx
-#else
-	popq	%rax
-	movq	%rax,8(%rsp)
-#endif
-	jmp	EXT(return_to_iret)	/* normal interrupt return */
-
-kdb_from_iret_i:			/* on interrupt stack */
-	pop	%rdx			/* restore saved registers */
-	pop	%rcx
-	pop	%rax
-	pushq	$0			/* zero error code */
-	pushq	$0			/* zero trap number */
-	pusha				/* save general registers */
-	PUSH_SEGMENTS(%rdx)		/* save segment registers */
-	movq	%rsp,%rdx		/* pass regs, */
-	movq	$0,%rsi			/* code, */
-	movq	$-1,%rdi		/* type to kdb */
-	call	EXT(kdb_trap)
-	POP_SEGMENTS(%rdx)		/* restore segment registers */
-	popa				/* restore general registers */
-	addq	$16,%rsp
-
-// TODO: test it before dropping ud2
-movq (%rsp),%rax
-ud2
-	iretq
-
-#endif	/* MACH_KDB */
 
 
 #ifdef USER32

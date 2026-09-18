@@ -56,9 +56,6 @@
 #include <vm/vm_page.h>
 #include <vm/vm_pageout.h>
 
-#if	MACH_KDB
-#include <ddb/db_output.h>
-#endif	/* MACH_KDB */
 
 void memory_object_release(
 	ipc_port_t	pager,
@@ -2964,93 +2961,3 @@ vm_object_page_map(
 }
 
 
-#if	MACH_KDB
-#include <vm/vm_print.h>
-#define printf	kdbprintf
-
-boolean_t	vm_object_print_pages = FALSE;
-
-/*
- *	vm_object_print:	[ debug ]
- */
-void vm_object_print_part(
-	vm_object_t	object,
-	vm_offset_t	offset,
-	vm_size_t	size)
-{
-	vm_page_t	p;
-
-	int 		count, count2;
-
-	if (object == VM_OBJECT_NULL)
-		return;
-
-	iprintf("Object 0x%X: size=0x%X, %d references",
-		(vm_offset_t) object, (vm_offset_t) object->size,
-		object->ref_count);
-	printf("\n");
-	iprintf("%lu resident pages,", object->resident_page_count);
-	 printf(" %d absent pages,", object->absent_count);
-	 printf(" %d paging ops\n", object->paging_in_progress);
-	indent += 1;
-	iprintf("memory object=0x%X (offset=0x%X),",
-		 (vm_offset_t) object->pager, (vm_offset_t) object->paging_offset);
-	 printf("control=0x%X, name=0x%X\n",
-	 	(vm_offset_t) object->pager_request, (vm_offset_t) object->pager_name);
-	iprintf("%s%s",
-	 	object->pager_ready ? " ready" : "",
-	 	object->pager_created ? " created" : "");
-	 printf("%s,%s ",
-	 	object->pager_initialized ? "" : "uninitialized",
-		object->temporary ? "temporary" : "permanent");
-	 printf("%s%s,",
-		object->internal ? "internal" : "external",
-	 	object->can_persist ? " cacheable" : "");
-	 printf("copy_strategy=%d\n", (vm_offset_t)object->copy_strategy);
-	iprintf("shadow=0x%X (offset=0x%X),",
-		(vm_offset_t) object->shadow, (vm_offset_t) object->shadow_offset);
-	 printf("copy=0x%X\n", (vm_offset_t) object->copy);
-
-	count = 0;
-	count2 = 0;
-	p = (vm_page_t) queue_first(&object->memq);
-	while (!queue_end(&object->memq, (queue_entry_t) p)) {
-		if (p->offset >= offset && p->offset + PAGE_SIZE <= size) {
-			if (p->wire_count)
-				count++;
-			count2++;
-		}
-		p = (vm_page_t) queue_next(&p->listq);
-	}
-	iprintf("wired: %d/%d\n", count, count2);
-
-	indent += 1;
-
-	if (vm_object_print_pages) {
-		count = 0;
-		p = (vm_page_t) queue_first(&object->memq);
-		while (!queue_end(&object->memq, (queue_entry_t) p)) {
-			if (p->offset >= offset && p->offset + PAGE_SIZE <= size) {
-				if (count == 0) iprintf("memory:=");
-				else if (count == 4) {printf("\n"); iprintf(" ..."); count = 0;}
-				else printf(",");
-				count++;
-
-				printf("(off=0x%X,page=0x%X)", p->offset, (vm_offset_t) p);
-			}
-
-			p = (vm_page_t) queue_next(&p->listq);
-		}
-		if (count != 0)
-			printf("\n");
-	}
-	indent -= 2;
-}
-
-void vm_object_print(
-	vm_object_t	object)
-{
-	vm_object_print_part(object, 0, UINTPTR_MAX);
-}
-
-#endif	/* MACH_KDB */

@@ -30,7 +30,6 @@
  *
  * On entry, %eax contains the irq number.
  *
- * Note: kdb_kintr needs to know our stack usage
  */
 
 #define S_REGS 24(%rsp)

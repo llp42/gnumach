@@ -189,26 +189,3 @@ ipc_entry_alloc_name(
 	return KERN_SUCCESS;
 }
 
-#if	MACH_KDB
-#include <ddb/db_output.h>
-#include <kern/task.h>
-
-#define	printf	kdbprintf
-
-ipc_entry_t
-db_ipc_object_by_name(
-	const task_t	task,
-	mach_port_name_t	name)
-{
-        ipc_space_t space = task->itk_space;
-        ipc_entry_t entry;
- 
-        entry = ipc_entry_lookup(space, name);
-        if(entry != IE_NULL) {
-                iprintf("(task 0x%x, name 0x%x) ==> object 0x%x",
-			entry->ie_object);
-                return (ipc_entry_t) entry->ie_object;
-        }
-        return entry;
-}
-#endif	/* MACH_KDB */

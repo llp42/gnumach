@@ -53,10 +53,6 @@
 #include <vm/pmap.h>
 #include <device/device_port.h>
 
-#if	MACH_KDB
-#include <machine/db_machdep.h>
-#include <ddb/db_sym.h>
-#endif
 
 #if OSKIT_MACH
 #include <stddef.h>
@@ -440,10 +436,6 @@ static void get_compat_strings(char *flags_str, char *root_str)
  * Copy boot_data (executable) to the user portion of this task.
  */
 static boolean_t	load_protect_text = TRUE;
-#if MACH_KDB
-		/* if set, fault in the text segment */
-static boolean_t	load_fault_in_text = TRUE;
-#endif
 
 static vm_offset_t
 boot_map(
@@ -536,39 +528,6 @@ static void copy_bootstrap(void *e, exec_info_t *boot_exec_info)
 	if ((err = exec_load(boot_read, read_exec, e, boot_exec_info)))
 		panic("Cannot load user-bootstrap image: error code %d", err);
 
-#if	MACH_KDB
-	/*
-	 * Enter the bootstrap symbol table.
-	 */
-
-#if 0 /*XXX*/
-	if (load_bootstrap_symbols)
-	(void) X_db_sym_init(
-		(char*) boot_start+lp->sym_offset,
-		(char*) boot_start+lp->sym_offset+lp->sym_size,
-		"bootstrap",
-		(char *) user_map);
-#endif
-
-#if 0 /*XXX*/
-	if (load_fault_in_text)
-	  {
-	    vm_offset_t lenp = round_page(lp->text_start+lp->text_size) -
-	      		     trunc_page(lp->text_start);
-	    vm_offset_t i = 0;
-
-	    while (i < lenp)
-	      {
-		vm_fault(user_map, text_page_start +i,
-		        load_protect_text ?
-			 VM_PROT_READ|VM_PROT_EXECUTE :
-			 VM_PROT_READ|VM_PROT_EXECUTE | VM_PROT_WRITE,
-			 0,0,0);
-		i = round_page (i+1);
-	      }
-	  }
-#endif
-#endif	/* MACH_KDB */
 }
 
 /*
@@ -881,18 +840,12 @@ boot_script_task_resume (struct cmd *cmd)
 int
 boot_script_prompt_task_resume (struct cmd *cmd)
 {
-#if ! MACH_KDB
   char xx[5];
-#endif
 
   printf ("Pausing for %s...\n", cmd->path);
 
-#if ! MACH_KDB
   printf ("Hit <return> to resume bootstrap.");
   safe_gets (xx, sizeof xx);
-#else
-  SoftDebugger("Hit `c<return>' to resume bootstrap.");
-#endif
 
   return boot_script_task_resume (cmd);
 }

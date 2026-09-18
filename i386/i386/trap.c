@@ -57,34 +57,12 @@
 #include <kern/sched_prim.h>
 #include <kern/exception.h>
 
-#if MACH_KDB
-#include <ddb/db_break.h>
-#include <ddb/db_run.h>
-#include <ddb/db_watch.h>
-#endif
 
 #include "debug.h"
 
 /* Called from assembly (locore.S) */
 void handle_double_fault(struct i386_saved_state *regs);
 
-#if	MACH_KDB
-boolean_t	debug_all_traps_with_kdb = FALSE;
-extern struct db_watchpoint *db_watchpoint_list;
-extern boolean_t db_watchpoints_inserted;
-
-void
-thread_kdb_return(void)
-{
-	thread_t thread = current_thread();
-	struct i386_saved_state *regs = USER_REGS(thread);
-
-	if (kdb_trap(regs->trapno, regs->err, regs)) {
-		thread_exception_return();
-		/*NOTREACHED*/
-	}
-}
-#endif	/* MACH_KDB */
 
 
 static void
@@ -94,26 +72,10 @@ user_page_fault_continue(kern_return_t kr)
 	struct i386_saved_state *regs = USER_REGS(thread);
 
 	if (kr == KERN_SUCCESS) {
-#if	MACH_KDB
-		if (db_watchpoint_list &&
-		    db_watchpoints_inserted &&
-		    (regs->err & T_PF_WRITE) &&
-		    db_find_watchpoint(thread->task->map,
-				       (vm_offset_t)regs->cr2,
-				       regs))
-			kdb_trap(T_WATCHPOINT, 0, regs);
-#endif	/* MACH_KDB */
 		thread_exception_return();
 		/*NOTREACHED*/
 	}
 
-#if	MACH_KDB
-	if (debug_all_traps_with_kdb &&
-	    kdb_trap(regs->trapno, regs->err, regs)) {
-		thread_exception_return();
-		/*NOTREACHED*/
-	}
-#endif	/* MACH_KDB */
 
 	i386_exception(EXC_BAD_ACCESS, kr, regs->cr2);
 	/*NOTREACHED*/
@@ -245,18 +207,6 @@ dump_ss(regs);
 				  FALSE,
 				  FALSE,
 				  vm_fault_no_continuation);
-#if	MACH_KDB
-		if (result == KERN_SUCCESS) {
-		    /* Look for watchpoints */
-		    if (db_watchpoint_list &&
-			db_watchpoints_inserted &&
-			(code & T_PF_WRITE) &&
-			db_find_watchpoint(map,
-				(vm_offset_t)subcode, regs))
-			kdb_trap(T_WATCHPOINT, 0, regs);
-		}
-		else
-#endif	/* MACH_KDB */
 #if (__i386__ && !(__i486__ || __i586__ || __i686__))
 		if ((code & T_PF_WRITE) == 0 &&
 		    result == KERN_PROTECTION_FAILURE)
@@ -335,10 +285,6 @@ dump_ss(regs);
 		else
 			printf("trap %ld", type);
 		printf(", eip 0x%lx, code %lx, cr2 %lx\n", regs->eip, code, regs->cr2);
-#if	MACH_KDB
-		if (kdb_trap(type, code, regs))
-		    return;
-#endif	/* MACH_KDB */
 		splhigh();
 		printf("kernel trap, type %ld, code = %lx\n",
 			type, code);
@@ -387,12 +333,6 @@ int user_trap(struct i386_saved_state *regs)
 		break;
 
 	    case T_DEBUG:
-#if	MACH_KDB
-		if (db_in_single_step()) {
-		    if (kdb_trap(type, regs->err, regs))
-			return 0;
-		}
-#endif /* MACH_KDB */
 		/* Make the content of the debug status register (DR6)
 		   available to user space.  */
 		if (thread->pcb)
@@ -403,16 +343,6 @@ int user_trap(struct i386_saved_state *regs)
 		break;
 
 	    case T_INT3:
-#if	MACH_KDB
-	    {
-		if (db_find_breakpoint_here(
-			(current_thread())? current_thread()->task: TASK_NULL,
-			regs->eip - 1)) {
-		    if (kdb_trap(type, regs->err, regs))
-			return 0;
-		}
-	    }
-#endif /* MACH_KDB */
 		exc = EXC_BREAKPOINT;
 		code = EXC_I386_BPT;
 		break;
@@ -535,10 +465,6 @@ int user_trap(struct i386_saved_state *regs)
 		return 0;
 
 	    default:
-#if	MACH_KDB
-		if (kdb_trap(type, regs->err, regs))
-		    return 0;
-#endif	/* MACH_KDB */
 		splhigh();
 		printf("user trap, type %ld, code = %lx\n",
 		       type, regs->err);
@@ -547,11 +473,6 @@ int user_trap(struct i386_saved_state *regs)
 		return 0;
 	}
 
-#if	MACH_KDB
-	if ((debug_all_traps_with_kdb || thread->task->essential) &&
-	    kdb_trap(type, regs->err, regs))
-		return 0;
-#endif	/* MACH_KDB */
 
 	i386_exception(exc, code, subcode);
 	/*NOTREACHED*/
@@ -636,15 +557,6 @@ interrupted_pc(const thread_t t)
 }
 #endif	/* MACH_PCSAMPLE > 0 */
 
-#if	MACH_KDB
-
-void
-db_debug_all_traps (boolean_t enable)
-{
-	debug_all_traps_with_kdb = enable;
-}
-
-#endif	/* MACH_KDB */
 
 void handle_double_fault(struct i386_saved_state *regs)
 {

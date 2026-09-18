@@ -1455,12 +1455,3 @@ mach_port_set_ktype(
 	return kr;
 }
 
-#if	MACH_KDB
-
-void
-db_debug_port_references (boolean_t enable)
-{
-	mach_port_deallocate_debug = enable;
-}
-
-#endif	/* MACH_KDB */

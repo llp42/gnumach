@@ -52,10 +52,6 @@
 #include <ipc/ipc_mqueue.h>
 #include <ipc/ipc_notify.h>
 
-#if	MACH_KDB
-#include <ddb/db_output.h>
-#include <ipc/ipc_print.h>
-#endif	/* MACH_KDB */
 
 
 def_simple_lock_data(, ipc_port_multiple_lock_data)
@@ -1240,52 +1236,3 @@ ipc_port_dealloc_special(
 	ipc_port_destroy(port);
 }
 
-#if	MACH_KDB
-#define	printf	kdbprintf
-
-/*
- *	Routine:	ipc_port_print
- *	Purpose:
- *		Pretty-print a port for kdb.
- */
-
-void
-ipc_port_print(const ipc_port_t port)
-{
-	printf("port 0x%x\n", port);
-
-	indent += 2;
-
-	iprintf("flags ");
-	printf("has_protected_payload=%d",
-	       ipc_port_flag_protected_payload(port));
-	printf("\n");
-
-	ipc_object_print(&port->ip_object);
-	iprintf("receiver=0x%x", port->ip_receiver);
-	printf(", receiver_name=0x%x\n", port->ip_receiver_name);
-
-	iprintf("mscount=%d", port->ip_mscount);
-	printf(", srights=%d", port->ip_srights);
-	printf(", sorights=%d\n", port->ip_sorights);
-
-	iprintf("nsrequest=0x%x", port->ip_nsrequest);
-	printf(", pdrequest=0x%x", port->ip_pdrequest);
-	printf(", dnrequests=0x%x\n", port->ip_dnrequests);
-
-	iprintf("pset=0x%x", port->ip_pset);
-	printf(", seqno=%d", port->ip_seqno);
-	printf(", msgcount=%d", port->ip_msgcount);
-	printf(", qlimit=%d\n", port->ip_qlimit);
-
-	iprintf("kmsgs=0x%x", port->ip_messages.imq_messages.ikmq_base);
-	printf(", rcvrs=0x%x", port->ip_messages.imq_threads.ithq_base);
-	printf(", sndrs=0x%x", port->ip_blocked.ithq_base);
-	printf(", kobj=0x%x\n", port->ip_kobject);
-
-	iprintf("protected_payload=%p\n", (void *) (vm_offset_t) port->ip_protected_payload);
-
-	indent -= 2;
-}
-
-#endif	/* MACH_KDB */

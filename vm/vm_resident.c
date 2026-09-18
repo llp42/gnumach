@@ -56,10 +56,6 @@
 #include <mach_debug/hash_info.h>
 #include <vm/vm_user.h>
 
-#if	MACH_KDB
-#include <ddb/db_output.h>
-#include <vm/vm_print.h>
-#endif	/* MACH_KDB */
 
 
 /*
@@ -1099,42 +1095,3 @@ vm_page_info(
 }
 
 
-#if	MACH_KDB
-#define	printf	kdbprintf
-
-/*
- *	Routine:	vm_page_print [exported]
- */
-void		vm_page_print(const vm_page_t	p)
-{
-	iprintf("Page 0x%X: object 0x%X,", (vm_offset_t) p, (vm_offset_t) p->object);
-	 printf(" offset 0x%X", p->offset);
-	 printf(" wire_count %d,", p->wire_count);
-	 printf(" %s",
-		(p->active ? "active" : (p->inactive ? "inactive" : "loose")));
-	 printf("%s",
-		(p->free ? " free" : ""));
-	 printf("%s ",
-		(p->laundry ? " laundry" : ""));
-	 printf("%s",
-		(p->dirty ? "dirty" : "clean"));
-	 printf("%s",
-	 	(p->busy ? " busy" : ""));
-	 printf("%s",
-	 	(p->absent ? " absent" : ""));
-	 printf("%s",
-	 	(p->error ? " error" : ""));
-	 printf("%s",
-		(p->fictitious ? " fictitious" : ""));
-	 printf("%s",
-		(p->private ? " private" : ""));
-	 printf("%s",
-		(p->wanted ? " wanted" : ""));
-	 printf("%s,",
-		(p->tabled ? "" : "not_tabled"));
-	 printf("phys_addr = 0x%X, lock = 0x%X, unlock_request = 0x%X\n",
-		p->phys_addr,
-		(vm_offset_t) p->page_lock,
-		(vm_offset_t) p->unlock_request);
-}
-#endif	/* MACH_KDB */
