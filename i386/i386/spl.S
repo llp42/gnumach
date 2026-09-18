@@ -29,22 +29,6 @@
 #define mb
 #endif
 
-/*
- * Program XEN evt masks from %eax.
- */
-#define XEN_SETMASK()				\
-	pushl	%ebx;				\
-	movl	%eax,%ebx;			\
-	xchgl	%eax,hyp_shared_info+EVTMASK;	\
-	notl	%ebx;				\
-	andl	%eax,%ebx;			/* Get unmasked events */ \
-	testl	hyp_shared_info+PENDING, %ebx;	\
-	popl	%ebx;				\
-	jz	9f;				/* Check whether there was some pending */ \
-lock	orl	$1,hyp_shared_info+CPU_PENDING_SEL; /* Yes, activate it */ \
-	movb	$1,hyp_shared_info+CPU_PENDING; \
-9:
-
 ENTRY(spl0)
 	mb;
 	CPU_NUMBER(%edx)

@@ -58,9 +58,6 @@ void biosmem_register_boot_data(phys_addr_t start, phys_addr_t end,
  * This function uses the memory map provided by the boot loader along
  * with the registered boot data addresses to set up a heap of free pages
  * of physical memory.
- *
- * Note that on Xen, this function registers all the Xen boot information
- * as boot data itself.
  */
 void biosmem_bootstrap(const struct multiboot_raw_info *mbi);
 

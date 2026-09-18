@@ -682,8 +682,6 @@ void pmap_bootstrap(void)
 	/*
 	 * Allocate and clear a kernel page directory.
 	 */
-	/* Note: initial Xen mapping holds at least 512kB free mapped page.
-	 * We use that for directly building our linear mapping. */
 #if PAE
 	pmap_bootstrap_pae();
 #else	/* PAE */
