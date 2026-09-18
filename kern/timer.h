@@ -48,13 +48,6 @@
 #define TIMER_HIGH_UNIT	TIMER_RATE
 
 /*
- *	TIMER_ADJUST is used to adjust the value of a timer after it has been
- *	copied into a time_value64_t.  No adjustment is needed if high_bits is in
- *	seconds.
- */
-#undef	TIMER_ADJUST
-
-/*
  *	Definitions for accurate timers.  high_bits_check is a copy of
  *	high_bits that allows reader to verify that values read are ok.
  */

@@ -156,12 +156,6 @@ timer_read(
 	timer_save_data_t	temp;
 
 	timer_grab(timer,&temp);
-	/*
-	 *	Normalize the result
-	 */
-#ifdef	TIMER_ADJUST
-	TIMER_ADJUST(&temp);
-#endif	/* TIMER_ADJUST */
 	TIMER_TO_TIME_VALUE64(tv, &temp);
 }
 
@@ -207,12 +201,6 @@ nonblocking_timer_read(
 	timer_save_data_t	temp;
 
 	db_timer_grab(timer, &temp);
-	/*
-	 *	Normalize the result
-	 */
-#ifdef	TIMER_ADJUST
-	TIMER_ADJUST(&temp);
-#endif	/* TIMER_ADJUST */
 	TIMER_TO_TIME_VALUE64(tv, &temp);
 }
 
