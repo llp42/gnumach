@@ -1,0 +1,92 @@
+#!/bin/sh
+#
+# Pre-commit guard: the test suite has to pass before anything is committed.
+#
+# Enable it in your clone with:
+#
+#     git config core.hooksPath .githooks
+#
+# It runs the project's own `make check' on x86_64 and i386, which boots every
+# tests/module-* under qemu -- a few minutes.  It is skipped when nothing
+# build-relevant is staged, so committing a README costs nothing.
+#
+# Bypass it deliberately with either:
+#
+#     git commit --no-verify
+#     SKIP_TESTS=1 git commit ...
+#
+# Copyright (C) 2026 Free Software Foundation, Inc.
+#
+# This program is free software; you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the
+# Free Software Foundation; either version 2, or (at your option) any later
+# version.
+
+set -u
+
+if [ "${SKIP_TESTS:-}" = 1 ]; then
+	echo "pre-commit: SKIP_TESTS=1 -- not running the test suite." >&2
+	exit 0
+fi
+
+# Is anything staged that could change the build or the tests?
+code=
+for f in $(git diff --cached --name-only --diff-filter=ACMR); do
+	case "$f" in
+	*.c|*.h|*.S|*.s|*.ac|*.am|*.mk|*.defs|*.srv|*.cli|*.in|mise.toml)
+		code=1
+		break
+		;;
+	esac
+done
+
+if [ -z "$code" ]; then
+	echo "pre-commit: nothing build-relevant staged -- skipping the tests."
+	exit 0
+fi
+
+run_tests() {
+	if command -v mise >/dev/null 2>&1 && [ -f mise.toml ]; then
+		mise run test
+		return $?
+	fi
+
+	# No mise: fall back to whatever build directories already exist.
+	grub=${GRUB_MKRESCUE:-$(command -v grub-mkrescue || command -v grub2-mkrescue || true)}
+	found=
+	for b in build-64 build-32; do
+		[ -d "$b" ] || continue
+		found=1
+		( cd "$b" && make GRUB_MKRESCUE="$grub" check ) || return 1
+	done
+	[ -n "$found" ] && return 0
+
+	echo "pre-commit: no mise.toml/mise and no build-64 or build-32 to test." >&2
+	return 2
+}
+
+echo "pre-commit: running the test suite on x86_64 and i386 -- a few minutes." >&2
+log=$(mktemp)
+
+run_tests >"$log" 2>&1
+rc=$?
+
+if [ "$rc" -eq 0 ]; then
+	grep -E '^(PASS|FAIL|SKIP):|^# (TOTAL|PASS|FAIL|SKIP|ERROR)' "$log" | tail -30 >&2
+	echo "pre-commit: test suite passed." >&2
+	rm -f "$log"
+	exit 0
+fi
+
+echo >&2
+if [ "$rc" -eq 2 ]; then
+	echo "pre-commit: REFUSING TO COMMIT -- could not run the test suite." >&2
+else
+	echo "pre-commit: REFUSING TO COMMIT -- the test suite FAILED." >&2
+fi
+echo >&2
+sed -n '1,200p' "$log" >&2
+echo >&2
+echo "Full output: $log" >&2
+echo "Fix the failure and commit again, or bypass with 'git commit --no-verify'." >&2
+exit 1
