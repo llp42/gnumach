@@ -26,15 +26,5 @@ _start:
         movq    %rsp,%rdi
         callq   c_start
 #endif /* __x86_64__ */
-#ifdef __aarch64__
-        /*
-         * Kernel hands us argc/argv/envp on the stack (sysv-style);
-         * pass sp through x0 as c_start's first argument (per AAPCS).
-         * bl rather than a tail-call keeps the saved-LR contract
-         * intact in case anything unwinds.
-         */
-        mov     x0, sp
-        bl      c_start
-#endif /* __aarch64__ */
 
 	.section .note.GNU-stack,"",%progbits

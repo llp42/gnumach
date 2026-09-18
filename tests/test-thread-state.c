@@ -25,9 +25,6 @@
 #if defined(__x86_64__) || defined(__i386__)
 #define THREAD_STATE_FLAVOR	i386_THREAD_STATE
 #define THREAD_STATE_COUNT	i386_THREAD_STATE_COUNT
-#elif defined(__aarch64__)
-#define THREAD_STATE_FLAVOR	AARCH64_THREAD_STATE
-#define THREAD_STATE_COUNT	AARCH64_THREAD_STATE_COUNT
 #else
 #error "Don't know which state to use on this platform"
 #endif
@@ -85,8 +82,6 @@ kern_return_t catch_exception_raise(
 	vm_offset_t			off;
 #if defined(__x86_64__) || defined(__i386__)
 	struct i386_thread_state	state;
-#elif defined(__aarch64__)
-	struct aarch64_thread_state	state;
 #else
 #error "Don't know which state to use on this platform"
 #endif
@@ -137,20 +132,6 @@ kern_return_t catch_exception_raise(
 	*(vm_offset_t *) (off - 8) = (vm_offset_t) subcode;
 	state.uesp = off - 12;
 	state.eip = (vm_offset_t) fault_handler;
-#elif defined(__aarch64__)
-	/*
-	 *	Place a copy of the state on the thread's stack.
-	 */
-	off = (state.sp - sizeof(state)) & ~15UL;
-	memcpy((void *) off, &state, sizeof(state));
-
-	/*
-	 *	Make it call fault_handler(subcode, off).
-	 */
-	state.sp = off;
-	state.pc = (vm_offset_t) fault_handler;
-	state.x[0] = (vm_offset_t) subcode;
-	state.x[1] = off;
 #else
 #error "Don't know how to manipulate state to use on this platform"
 #endif
