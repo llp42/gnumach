@@ -266,187 +266,11 @@ LEXT(retry_table_end)			;\
 /*
  * Timing routines.
  */
-#if	STAT_TIME
-
 #define	TIME_TRAP_UENTRY
 #define	TIME_TRAP_SENTRY
 #define	TIME_TRAP_UEXIT
 #define	TIME_INT_ENTRY
 #define	TIME_INT_EXIT
-
-#else	/* microsecond timing */
-
-/*
- * Microsecond timing.
- * Assumes a free-running microsecond counter.
- * no TIMER_MAX check needed.
- */
-
-/*
- * There is only one current time-stamp per CPU, since only
- * the time-stamp in the current timer is used.
- * To save time, we allocate the current time-stamps here.
- */
-	.comm	EXT(current_tstamp), 4*NCPUS
-
-/*
- * Update time on user trap entry.
- * 11 instructions (including cli on entry)
- * Assumes CPU number in %rdx.
- * Uses %rax, %rbx, %rcx.
- */
-#define	TIME_TRAP_UENTRY \
-	pushf					/* Save flags */	;\
-	cli					/* block interrupts */	;\
-	movl	VA_ETC,%ebx			/* get timer value */	;\
-	movl	CX(EXT(current_tstamp),%rdx),%ecx	/* get old time stamp */;\
-	movl	%ebx,CX(EXT(current_tstamp),%rdx)	/* set new time stamp */;\
-	subl	%ecx,%ebx			/* elapsed = new-old */	;\
-	movq	CX8(EXT(current_timer),%rdx),%rcx	/* get current timer */	;\
-	addl	%ebx,LOW_BITS(%rcx)		/* add to low bits */	;\
-	jns	0f				/* if overflow, */	;\
-	call	timer_normalize			/* normalize timer */	;\
-0:	addq	$(TH_SYSTEM_TIMER-TH_USER_TIMER),%rcx			;\
-						/* switch to sys timer */;\
-	movq	%rcx,CX8(EXT(current_timer),%rdx)	/* make it current */	;\
-	popf					/* allow interrupts */
-
-/*
- * Update time on system call entry.
- * 11 instructions (including cli on entry)
- * Assumes CPU number in %rdx.
- * Uses %rbx, %rcx.
- * Same as TIME_TRAP_UENTRY, but preserves %rax.
- */
-#define	TIME_TRAP_SENTRY \
-	pushf					/* Save flags */	;\
-	cli					/* block interrupts */	;\
-	movl	VA_ETC,%ebx			/* get timer value */	;\
-	movl	CX(EXT(current_tstamp),%rdx),%ecx	/* get old time stamp */;\
-	movl	%ebx,CX(EXT(current_tstamp),%rdx)	/* set new time stamp */;\
-	subl	%ecx,%ebx			/* elapsed = new-old */	;\
-	movq	CX8(EXT(current_timer),%rdx),%rcx	/* get current timer */	;\
-	addl	%ebx,LOW_BITS(%rcx)		/* add to low bits */	;\
-	jns	0f				/* if overflow, */	;\
-	pushq	%rax				/* save %rax */		;\
-	call	timer_normalize			/* normalize timer */	;\
-	popq	%rax				/* restore %rax */	;\
-0:	addq	$(TH_SYSTEM_TIMER-TH_USER_TIMER),%rcx			;\
-						/* switch to sys timer */;\
-	movq	%rcx,CX8(EXT(current_timer),%rdx)	/* make it current */	;\
-	popf					/* allow interrupts */
-
-/*
- * update time on user trap exit.
- * 10 instructions.
- * Assumes CPU number in %rdx.
- * Uses %rbx, %rcx.
- */
-#define	TIME_TRAP_UEXIT \
-	cli					/* block interrupts */	;\
-	movl	VA_ETC,%ebx			/* get timer */		;\
-	movl	CX(EXT(current_tstamp),%rdx),%ecx	/* get old time stamp */;\
-	movl	%ebx,CX(EXT(current_tstamp),%rdx)	/* set new time stamp */;\
-	subl	%ecx,%ebx			/* elapsed = new-old */	;\
-	movq	CX8(EXT(current_timer),%rdx),%rcx	/* get current timer */	;\
-	addl	%ebx,LOW_BITS(%rcx)		/* add to low bits */	;\
-	jns	0f				/* if overflow,	*/	;\
-	call	timer_normalize			/* normalize timer */	;\
-0:	addq	$(TH_USER_TIMER-TH_SYSTEM_TIMER),%rcx			;\
-						/* switch to user timer	*/;\
-	movq	%rcx,CX8(EXT(current_timer),%rdx)	/* make it current */
-
-/*
- * update time on interrupt entry.
- * 9 instructions.
- * Assumes CPU number in %rdx.
- * Leaves old timer in %rbx.
- * Uses %rcx.
- */
-#define	TIME_INT_ENTRY \
-	movl	VA_ETC,%ecx			/* get timer */		;\
-	movl	CX(EXT(current_tstamp),%rdx),%ebx	/* get old time stamp */;\
-	movl	%ecx,CX(EXT(current_tstamp),%rdx)	/* set new time stamp */;\
-	subl	%ebx,%ecx			/* elapsed = new-old */	;\
-	movq	CX8(EXT(current_timer),%rdx),%rbx	/* get current timer */	;\
-	addl	%ecx,LOW_BITS(%rbx)		/* add to low bits */	;\
-	leaq	CX(0,%rdx),%rcx			/* timer is 16 bytes: CX(CX( = 4*4 */ ;\
-	leaq	CX(EXT(kernel_timer),%rcx),%rcx	/* get interrupt timer*/;\
-	movq	%rcx,CX8(EXT(current_timer),%rdx)	/* set timer */
-
-/*
- * update time on interrupt exit.
- * 11 instructions
- * Assumes CPU number in %rdx, old timer in %rbx.
- * Uses %rax, %rcx.
- */
-#define	TIME_INT_EXIT \
-	movl	VA_ETC,%eax			/* get timer */		;\
-	movl	CX(EXT(current_tstamp),%rdx),%ecx	/* get old time stamp */;\
-	movl	%eax,CX(EXT(current_tstamp),%rdx)	/* set new time stamp */;\
-	subl	%ecx,%eax			/* elapsed = new-old */	;\
-	movq	CX8(EXT(current_timer),%rdx),%rcx	/* get current timer */	;\
-	addl	%eax,LOW_BITS(%rcx)		/* add to low bits */	;\
-	jns	0f				/* if overflow, */	;\
-	call	timer_normalize			/* normalize timer */	;\
-0:	testb	$0x80,LOW_BITS+3(%rbx)		/* old timer overflow? */;\
-	jz	0f				/* if overflow, */	;\
-	movq	%rbx,%rcx			/* get old timer */	;\
-	call	timer_normalize			/* normalize timer */	;\
-0:	movq	%rbx,CX8(EXT(current_timer),%rdx)	/* set timer */
-
-
-/*
- * Normalize timer in %rcx.
- * Preserves %rdx; clobbers %rax.
- */
-	.align	2
-timer_high_unit:
-	.long	TIMER_HIGH_UNIT			/* div has no immediate opnd */
-
-timer_normalize:
-	pushq	%rdx				/* save register */
-	xorl	%edx,%edx			/* clear divisor high */
-	movl	LOW_BITS(%rcx),%eax		/* get divisor low */
-	divl	timer_high_unit,%eax		/* quotient in eax */
-						/* remainder in edx */
-	addl	%eax,HIGH_BITS_CHECK(%rcx)	/* add high_inc to check  */
-	movl	%edx,LOW_BITS(%rcx)		/* remainder to low_bits  */
-	addl	%eax,HIGH_BITS(%rcx)		/* add high_inc to high bits */
-	popq	%rdx				/* restore register  */
-	ret
-
-/*
- * Switch to a new timer.
- */
-ENTRY(timer_switch)
-	CPU_NUMBER(%edx)			/* get this CPU  */
-	movl	VA_ETC,%ecx			/* get timer */
-	movl	CX(EXT(current_tstamp),%rdx),%eax	/* get old time stamp  */
-	movl	%ecx,CX(EXT(current_tstamp),%rdx)	/* set new time stamp */
-	subl	%ecx,%eax			/* elapsed = new - old */
-	movq	CX8(EXT(current_timer),%rdx),%rcx	/* get current timer */
-	addl	%eax,LOW_BITS(%rcx)		/* add to low bits */
-	jns	0f				/* if overflow, */
-	call	timer_normalize			/* normalize timer */
-0:
-	movq	S_ARG0,%rcx			/* get new timer */
-	movq	%rcx,CX8(EXT(current_timer),%rdx)	/* set timer */
-	ret
-
-/*
- * Initialize the first timer for a CPU.
- */
-ENTRY(start_timer)
-	CPU_NUMBER(%edx)			/* get this CPU */
-	movl	VA_ETC,%ecx			/* get timer */
-	movl	%ecx,CX(EXT(current_tstamp),%rdx)	/* set initial time stamp */
-	movq	S_ARG0,%rcx			/* get timer */
-	movq	%rcx,CX8(EXT(current_timer),%rdx)	/* set initial timer */
-	ret
-
-#endif	/* accurate timing */
-
 /**/
 
 /*
@@ -903,14 +727,7 @@ ENTRY(all_intrs)
 
 	xchgq	%rcx,%rsp		/* switch to interrupt stack */
 
-#if	STAT_TIME
 	pushq	%rcx			/* save pointer to old stack */
-#else
-	pushq	%rbx			/* save %ebx - out of the way */
-					/* so stack looks the same */
-	pushq	%rcx			/* save pointer to old stack */
-	TIME_INT_ENTRY			/* do timing */
-#endif
 
 #ifdef MACH_LDEBUG
 	incq	CX8(EXT(in_interrupt),%rdx)
@@ -923,12 +740,6 @@ LEXT(return_to_iret)			/* to find the return from calling interrupt) */
 	CPU_NUMBER(%edx)
 #ifdef MACH_LDEBUG
 	decq	CX8(EXT(in_interrupt),%rdx)
-#endif
-
-#if	STAT_TIME
-#else
-	TIME_INT_EXIT			/* do timing */
-	movq	8(%rsp),%rbx		/* restore the extra reg we saved */
 #endif
 
 	popq	%rsp			/* switch back to old stack */
