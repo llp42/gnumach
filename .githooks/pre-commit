@@ -61,8 +61,10 @@ run_tests() {
 	done
 	[ -n "$found" ] && return 0
 
+	# 3, not 2: `make' itself exits 2 on any error, so reusing that would
+	# make a failing build look like an unrunnable test suite.
 	echo "pre-commit: no mise.toml/mise and no build-64 or build-32 to test." >&2
-	return 2
+	return 3
 }
 
 echo "pre-commit: running the test suite on x86_64 and i386 -- a few minutes." >&2
@@ -79,10 +81,10 @@ if [ "$rc" -eq 0 ]; then
 fi
 
 echo >&2
-if [ "$rc" -eq 2 ]; then
+if [ "$rc" -eq 3 ]; then
 	echo "pre-commit: REFUSING TO COMMIT -- could not run the test suite." >&2
 else
-	echo "pre-commit: REFUSING TO COMMIT -- the test suite FAILED." >&2
+	echo "pre-commit: REFUSING TO COMMIT -- the test suite FAILED (status $rc)." >&2
 fi
 echo >&2
 sed -n '1,200p' "$log" >&2
