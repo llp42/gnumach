@@ -137,7 +137,6 @@ ipc_kmsg_rmqueue(
 		next->ikm_prev = prev;
 		prev->ikm_next = next;
 	}
-	ikm_mark_bogus (kmsg);
 }
 
 /*

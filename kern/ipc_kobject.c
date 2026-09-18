@@ -184,10 +184,6 @@ ipc_kobject_server(ipc_kmsg_t request)
 		&reply->ikm_header))) {
 		((mig_reply_header_t *) &reply->ikm_header)->RetCode
 		    = MIG_BAD_ID;
-#if	MACH_IPC_TEST
-		printf("ipc_kobject_server: bogus kernel message, id=%d\n",
-		       request->ikm_header.msgh_id);
-#endif	/* MACH_IPC_TEST */
 	    } else {
 		kernel_task->messages_received++;
 	    }

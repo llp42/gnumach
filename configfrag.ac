@@ -69,9 +69,6 @@ AC_DEFINE([MACH_FIXPRI], [1], [MACH_FIXPRI])
 # IPC debugging calls.
 AC_DEFINE([MACH_IPC_DEBUG], [1], [MACH_IPC_DEBUG])
 
-# Testing code/printfs.
-AC_DEFINE([MACH_IPC_TEST], [0], [MACH_IPC_TEST])
-
 # Sanity-check locking.
 AC_DEFINE([MACH_LDEBUG], [0], [MACH_LDEBUG])
 
