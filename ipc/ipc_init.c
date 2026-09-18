@@ -67,9 +67,9 @@ ipc_bootstrap(void)
 {
 	kern_return_t kr;
 
-	ipc_port_multiple_lock_init();
+	simple_lock_init(&ipc_port_multiple_lock_data);
 
-	ipc_port_timestamp_lock_init();
+	simple_lock_init(&ipc_port_timestamp_lock_data);
 	ipc_port_timestamp_data = 0;
 
 	kmem_cache_init(&ipc_space_cache, "ipc_space",

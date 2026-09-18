@@ -70,9 +70,9 @@ ipc_port_timestamp(void)
 {
 	ipc_port_timestamp_t timestamp;
 
-	ipc_port_timestamp_lock();
+	simple_lock(&ipc_port_timestamp_lock_data);
 	timestamp = ipc_port_timestamp_data++;
-	ipc_port_timestamp_unlock();
+	simple_unlock(&ipc_port_timestamp_lock_data);
 
 	return timestamp;
 }
@@ -803,7 +803,7 @@ ipc_port_check_circularity(
 	}
 	ip_unlock(port);
 
-	ipc_port_multiple_lock(); /* massive serialization */
+	simple_lock(&ipc_port_multiple_lock_data); /* massive serialization */
 
 	/*
 	 *	Search for the end of the chain (a port not in transit),
@@ -826,7 +826,7 @@ ipc_port_check_circularity(
 	if (port == base) {
 		/* circularity detected! */
 
-		ipc_port_multiple_unlock();
+		simple_unlock(&ipc_port_multiple_lock_data);
 
 		/* port (== base) is in limbo */
 
@@ -857,7 +857,7 @@ ipc_port_check_circularity(
 	 */
 
 	ip_lock(port);
-	ipc_port_multiple_unlock();
+	simple_unlock(&ipc_port_multiple_lock_data);
 
     not_circular:
 

@@ -157,15 +157,6 @@ typedef struct ipc_port_request {
 
 decl_simple_lock_data(extern, ipc_port_multiple_lock_data)
 
-#define	ipc_port_multiple_lock_init()					\
-		simple_lock_init(&ipc_port_multiple_lock_data)
-
-#define	ipc_port_multiple_lock()					\
-		simple_lock(&ipc_port_multiple_lock_data)
-
-#define	ipc_port_multiple_unlock()					\
-		simple_unlock(&ipc_port_multiple_lock_data)
-
 /*
  *	The port timestamp facility provides timestamps
  *	for port destruction.  It is used to serialize
@@ -174,15 +165,6 @@ decl_simple_lock_data(extern, ipc_port_multiple_lock_data)
 
 decl_simple_lock_data(extern, ipc_port_timestamp_lock_data)
 extern ipc_port_timestamp_t ipc_port_timestamp_data;
-
-#define	ipc_port_timestamp_lock_init()					\
-		simple_lock_init(&ipc_port_timestamp_lock_data)
-
-#define	ipc_port_timestamp_lock()					\
-		simple_lock(&ipc_port_timestamp_lock_data)
-
-#define	ipc_port_timestamp_unlock()					\
-		simple_unlock(&ipc_port_timestamp_lock_data)
 
 extern ipc_port_timestamp_t
 ipc_port_timestamp(void);
