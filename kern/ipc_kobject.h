@@ -60,7 +60,6 @@ typedef unsigned int ipc_kobject_type_t;
 #define	IKOT_PAGER		8
 #define	IKOT_PAGING_REQUEST	9
 #define	IKOT_DEVICE		10
-#define	IKOT_XMM_PAGER		12
 #define	IKOT_XMM_KERNEL		13
 #define	IKOT_XMM_REPLY		14
 #define	IKOT_PAGER_TERMINATING	15
