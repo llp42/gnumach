@@ -30,7 +30,6 @@
 
 #include <kern/assert.h> /*XXX*/
 
-#ifndef NDEBUG
 
 #define here() printf("@ %s:%d\n", __FILE__, __LINE__)
 #define message(args) ({ printf("@ %s:%d: ", __FILE__, __LINE__); printf args; printf("\n"); })
@@ -46,16 +45,6 @@
 			__FILE__, __LINE__, (p), (id), (p->struct_id)); \
 	})
 
-#else /* NDEBUG */
-
-#define otsan()
-
-#define struct_id_decl
-#define struct_id_init(p,id)
-#define struct_id_denit(p)
-#define struct_id_verify(p,id)
-
-#endif /* NDEBUG */
 
 extern void log (int level, const char *fmt, ...);
 

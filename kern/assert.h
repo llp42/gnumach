@@ -31,11 +31,7 @@
 
 #include <kern/macros.h>
 
-#ifndef NDEBUG
-#define MACH_ASSERT 1
-#endif
 
-#if	MACH_ASSERT
 extern void Assert(const char *exp, const char *filename, int line,
 		   const char *fun) __attribute__ ((noreturn));
 
@@ -46,9 +42,5 @@ extern void Assert(const char *exp, const char *filename, int line,
 
 #define	assert_static(x)	assert(x)
 
-#else	/* MACH_ASSERT */
-#define assert(ex)
-#define assert_static(ex)
-#endif	/* MACH_ASSERT */
 
 #endif	/* _KERN_ASSERT_H_ */

@@ -534,11 +534,7 @@ ipc_right_clean(
 	    }
 
 	    default:
-#if MACH_ASSERT
 		assert(!"ipc_right_clean: strange type");
-#else
-		panic("ipc_right_clean: strange type");
-#endif
 	}
 }
 
@@ -671,11 +667,7 @@ ipc_right_destroy(
 	    }
 
 	    default:
-#if MACH_ASSERT
 		assert(!"ipc_right_destroy: strange type");
-#else
-		panic("ipc_right_destroy: strange type");
-#endif
 	}
 
 	return KERN_SUCCESS;
@@ -1156,11 +1148,7 @@ ipc_right_delta(
 	    }
 
 	    default:
-#if MACH_ASSERT
 		assert(!"ipc_right_delta: strange right");
-#else
-		panic("ipc_right_delta: strange right");
-#endif
 	}
 
 	return KERN_SUCCESS;
@@ -1291,11 +1279,7 @@ ipc_right_copyin_check(
 	    }
 
 	    default:
-#if MACH_ASSERT
 		assert(!"ipc_right_copyin_check: strange rights");
-#else
-		panic("ipc_right_copyin_check: strange rights");
-#endif
 	}
 
 	return TRUE;
@@ -1601,11 +1585,7 @@ ipc_right_copyin(
 	    }
 
 	    default:
-#if MACH_ASSERT
 		assert(!"ipc_right_copyin: strange rights");
-#else
-		panic("ipc_right_copyin: strange rights");
-#endif
 	}
 
 	return KERN_SUCCESS;
@@ -1968,11 +1948,7 @@ ipc_right_copyout(
 	    }
 
 	    default:
-#if MACH_ASSERT
 		assert(!"ipc_right_copyout: strange rights");
-#else
-		panic("ipc_right_copyout: strange rights");
-#endif
 	}
 
 	return KERN_SUCCESS;
@@ -2099,11 +2075,7 @@ ipc_right_rename(
 		break;
 
 	    default:
-#if MACH_ASSERT
 		assert(!"ipc_right_rename: strange rights");
-#else
-		panic("ipc_right_rename: strange rights");
-#endif
 	}
 
 	assert(oentry->ie_request == 0);
