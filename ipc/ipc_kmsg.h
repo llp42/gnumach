@@ -88,7 +88,7 @@ MACRO_BEGIN								\
 	ipc_kmsg_t __kmsg = ikm_cache();				\
 	if (__kmsg != IKM_NULL) {					\
 		ikm_cache() = IKM_NULL;					\
-		ikm_check_initialized(__kmsg, IKM_SAVED_KMSG_SIZE);	\
+		ikm_check_initialized(__kmsg, PAGE_SIZE);		\
 	}								\
 	__kmsg;								\
 MACRO_END
@@ -116,7 +116,7 @@ MACRO_END
 
 #define ikm_cache_free(kmsg)						\
 MACRO_BEGIN								\
-	if (((kmsg)->ikm_size == IKM_SAVED_KMSG_SIZE) &&		\
+	if (((kmsg)->ikm_size == PAGE_SIZE) &&				\
 	    (ikm_cache() == IKM_NULL))					\
 		ikm_cache() = (kmsg);					\
 	else								\
@@ -125,14 +125,13 @@ MACRO_END
 
 /*
  *	The size of the kernel message buffers that will be cached.
- *	IKM_SAVED_KMSG_SIZE includes overhead; IKM_SAVED_MSG_SIZE doesn't.
+ *	The buffer includes overhead, so IKM_SAVED_MSG_SIZE doesn't.
  *
- *	We use the page size for IKM_SAVED_KMSG_SIZE to make sure the
- *	page is pinned to a single processor.
+ *	The buffer is a page, to make sure the page is pinned to a single
+ *	processor.
  */
 
-#define	IKM_SAVED_KMSG_SIZE	PAGE_SIZE
-#define	IKM_SAVED_MSG_SIZE	ikm_less_overhead(IKM_SAVED_KMSG_SIZE)
+#define	IKM_SAVED_MSG_SIZE	ikm_less_overhead(PAGE_SIZE)
 
 #define	ikm_alloc(size)							\
 		((ipc_kmsg_t) kalloc(ikm_plus_overhead(size)))

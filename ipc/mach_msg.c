@@ -1134,7 +1134,7 @@ mach_msg_trap(
 
 		ikm_check_initialized(kmsg, kmsg->ikm_size);
 
-		if ((kmsg->ikm_size != IKM_SAVED_KMSG_SIZE) ||
+		if ((kmsg->ikm_size != PAGE_SIZE) ||
 		    copyoutmsg(&kmsg->ikm_header, msg,
 			       reply_size))
 			goto slow_put;
