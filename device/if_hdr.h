@@ -109,7 +109,6 @@ struct ifnet {
 #define	IFF_BROADCAST	0x0002		/* interface can broadcast */
 #define	IFF_POINTOPOINT	0x0010		/* point-to-point link */
 #define	IFF_RUNNING	0x0040		/* resources allocated */
-#define	IFF_SNAP	0x0200		/* support extended sap header */
 
 /* internal flags only: */
 #define	IFF_CANTCHANGE	(IFF_BROADCAST | IFF_POINTOPOINT | IFF_RUNNING)
