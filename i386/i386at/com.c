@@ -576,7 +576,7 @@ comparam(int unit)
 	outb(BAUD_LSB(addr), divisorreg[tp->t_ispeed] & 0xff);
 	outb(BAUD_MSB(addr), divisorreg[tp->t_ispeed] >> 8);
 
-	if (tp->t_flags & (TF_LITOUT|TF_LITOUT|TF_LITOUT))
+	if (tp->t_flags & TF_LITOUT)
 		mode = i8BITS;
 	else
 		mode = i7BITS | iPEN;
