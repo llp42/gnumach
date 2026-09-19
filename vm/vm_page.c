@@ -782,7 +782,7 @@ static void
 vm_page_seg_add_active_page(struct vm_page_seg *seg, struct vm_page *page)
 {
     assert(simple_lock_taken(&seg->lock));
-    assert(vm_page_locked_queues());
+    assert(simple_lock_taken(&vm_page_queue_lock));
     assert(page->object != NULL);
     assert(page->seg_index == vm_page_seg_index(seg));
     assert(page->type != VM_PT_FREE);
@@ -799,7 +799,7 @@ static void
 vm_page_seg_remove_active_page(struct vm_page_seg *seg, struct vm_page *page)
 {
     assert(simple_lock_taken(&seg->lock));
-    assert(vm_page_locked_queues());
+    assert(simple_lock_taken(&vm_page_queue_lock));
     assert(page->object != NULL);
     assert(page->seg_index == vm_page_seg_index(seg));
     assert(page->type != VM_PT_FREE);
@@ -815,7 +815,7 @@ static void
 vm_page_seg_add_inactive_page(struct vm_page_seg *seg, struct vm_page *page)
 {
     assert(simple_lock_taken(&seg->lock));
-    assert(vm_page_locked_queues());
+    assert(simple_lock_taken(&vm_page_queue_lock));
     assert(page->object != NULL);
     assert(page->seg_index == vm_page_seg_index(seg));
     assert(page->type != VM_PT_FREE);
@@ -831,7 +831,7 @@ static void
 vm_page_seg_remove_inactive_page(struct vm_page_seg *seg, struct vm_page *page)
 {
     assert(simple_lock_taken(&seg->lock));
-    assert(vm_page_locked_queues());
+    assert(simple_lock_taken(&vm_page_queue_lock));
     assert(page->object != NULL);
     assert(page->seg_index == vm_page_seg_index(seg));
     assert(page->type != VM_PT_FREE);
@@ -1121,7 +1121,7 @@ vm_page_seg_balance_page(struct vm_page_seg *seg,
     vm_offset_t offset;
     boolean_t was_active;
 
-    vm_page_lock_queues();
+    simple_lock(&vm_page_queue_lock);
     simple_lock(&vm_page_queue_free_lock);
     vm_page_seg_double_lock(seg, remote_seg);
 
@@ -1209,14 +1209,14 @@ vm_page_seg_balance_page(struct vm_page_seg *seg,
         vm_page_deactivate(dest);
     }
 
-    vm_page_unlock_queues();
+    simple_unlock(&vm_page_queue_lock);
 
     return TRUE;
 
 error:
     vm_page_seg_double_unlock(seg, remote_seg);
     simple_unlock(&vm_page_queue_free_lock);
-    vm_page_unlock_queues();
+    simple_unlock(&vm_page_queue_lock);
     return FALSE;
 }
 
@@ -1266,7 +1266,7 @@ vm_page_evict_one(boolean_t external, boolean_t active, boolean_t alloc_paused)
     double_paging = FALSE;
 
 restart:
-    vm_page_lock_queues();
+    simple_lock(&vm_page_queue_lock);
 
     if (page != NULL) {
         simple_lock(&seg->lock);
@@ -1298,7 +1298,7 @@ restart:
         vm_object_unlock(object);
         vm_stat.reactivations++;
         current_task()->reactivations++;
-        vm_page_unlock_queues();
+        simple_unlock(&vm_page_queue_lock);
         seg = NULL;
         page = NULL;
         object = NULL;
@@ -1352,13 +1352,13 @@ out:
         simple_unlock(&seg->lock);
 
     if (object == NULL) {
-        vm_page_unlock_queues();
+        simple_unlock(&vm_page_queue_lock);
         return FALSE;
     }
 
     if (reclaim) {
         vm_page_free(page);
-        vm_page_unlock_queues();
+        simple_unlock(&vm_page_queue_lock);
 
         if (vm_object_collectable(object)) {
             vm_object_collect(object);
@@ -1369,7 +1369,7 @@ out:
         return TRUE;
     }
 
-    vm_page_unlock_queues();
+    simple_unlock(&vm_page_queue_lock);
 
     /*
      * If there is no memory object for the page, create one and hand it
@@ -1934,7 +1934,7 @@ vm_page_mem_free(void)
 void
 vm_page_wire(struct vm_page *page)
 {
-    assert(vm_page_locked_queues());
+    assert(simple_lock_taken(&vm_page_queue_lock));
     assert(vm_object_lock_taken(page->object));
 
     VM_PAGE_CHECK(page);
@@ -1960,7 +1960,7 @@ vm_page_unwire(struct vm_page *page)
 {
     struct vm_page_seg *seg;
 
-    assert(vm_page_locked_queues());
+    assert(simple_lock_taken(&vm_page_queue_lock));
     assert(vm_object_lock_taken(page->object));
 
     VM_PAGE_CHECK(page);
@@ -1995,7 +1995,7 @@ vm_page_deactivate(struct vm_page *page)
 {
     struct vm_page_seg *seg;
 
-    assert(vm_page_locked_queues());
+    assert(simple_lock_taken(&vm_page_queue_lock));
 
     VM_PAGE_CHECK(page);
 
@@ -2036,7 +2036,7 @@ vm_page_activate(struct vm_page *page)
 {
     struct vm_page_seg *seg;
 
-    assert(vm_page_locked_queues());
+    assert(simple_lock_taken(&vm_page_queue_lock));
 
     VM_PAGE_CHECK(page);
 
@@ -2063,7 +2063,7 @@ vm_page_queues_remove(struct vm_page *page)
 {
     struct vm_page_seg *seg;
 
-    assert(vm_page_locked_queues());
+    assert(simple_lock_taken(&vm_page_queue_lock));
 
     assert(!page->active || !page->inactive);
 
@@ -2213,9 +2213,9 @@ vm_page_evict(boolean_t *should_wait)
     alloc_paused = vm_page_alloc_paused;
     simple_unlock(&vm_page_queue_free_lock);
 
-    vm_page_lock_queues();
+    simple_lock(&vm_page_queue_lock);
     pause = (vm_page_laundry_count >= VM_PAGE_MAX_LAUNDRY);
-    vm_page_unlock_queues();
+    simple_unlock(&vm_page_queue_lock);
 
     if (pause) {
         simple_lock(&vm_page_queue_free_lock);
@@ -2271,13 +2271,13 @@ vm_page_refill_inactive(void)
 {
     unsigned int i;
 
-    vm_page_lock_queues();
+    simple_lock(&vm_page_queue_lock);
 
     for (i = 0; i < vm_page_segs_size; i++) {
         vm_page_seg_refill_inactive(vm_page_seg_get(i));
     }
 
-    vm_page_unlock_queues();
+    simple_unlock(&vm_page_queue_lock);
 }
 
 void

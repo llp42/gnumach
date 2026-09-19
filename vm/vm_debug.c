@@ -380,7 +380,7 @@ _mach_vm_object_pages(
 			p->dirty = TRUE;
 		}
 
-		vm_page_lock_queues();
+		simple_lock(&vm_page_queue_lock);
 		if (p->inactive)
 			state |= VPI_STATE_INACTIVE;
 		if (p->active)
@@ -397,7 +397,7 @@ _mach_vm_object_pages(
 			state |= VPI_STATE_REFERENCE;
 			p->reference = TRUE;
 		}
-		vm_page_unlock_queues();
+		simple_unlock(&vm_page_queue_lock);
 
 		if (phys)
 			info_phys->vpi_state = state;

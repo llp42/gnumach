@@ -320,7 +320,7 @@ void vm_page_insert(
 {
 	vm_page_bucket_t *bucket;
 
-	assert(vm_page_locked_queues());
+	assert(simple_lock_taken(&vm_page_queue_lock));
 	assert(vm_object_lock_taken(object));
 
 	VM_PAGE_CHECK(mem);
@@ -401,7 +401,7 @@ void vm_page_replace(
 {
 	vm_page_bucket_t *bucket;
 
-	assert(vm_page_locked_queues());
+	assert(simple_lock_taken(&vm_page_queue_lock));
 	assert(vm_object_lock_taken(object));
 
 	VM_PAGE_CHECK(mem);
@@ -504,7 +504,7 @@ void vm_page_remove(
 
 	assert(mem->tabled);
 
-	assert(vm_page_locked_queues());
+	assert(simple_lock_taken(&vm_page_queue_lock));
 	assert(vm_object_lock_taken(mem->object));
 
 	VM_PAGE_CHECK(mem);
@@ -607,10 +607,10 @@ void vm_page_rename(
 
 	assert(vm_object_lock_taken(new_object));
 
-	vm_page_lock_queues();
+	simple_lock(&vm_page_queue_lock);
     	vm_page_remove(mem);
 	vm_page_insert(mem, new_object, new_offset);
-	vm_page_unlock_queues();
+	simple_unlock(&vm_page_queue_lock);
 }
 
 static void vm_page_init_template(vm_page_t m)
@@ -753,7 +753,7 @@ boolean_t vm_page_convert(struct vm_page **mp)
 	object = fict_m->object;
 	assert(vm_object_lock_taken(object));
 	offset = fict_m->offset;
-	vm_page_lock_queues();
+	simple_lock(&vm_page_queue_lock);
 	vm_page_remove(fict_m);
 
 	memcpy(&real_m->vm_page_header,
@@ -762,7 +762,7 @@ boolean_t vm_page_convert(struct vm_page **mp)
 	real_m->fictitious = FALSE;
 
 	vm_page_insert(real_m, object, offset);
-	vm_page_unlock_queues();
+	simple_unlock(&vm_page_queue_lock);
 
 	assert(real_m->phys_addr != vm_page_fictitious_addr);
 	assert(fict_m->fictitious);
@@ -960,9 +960,9 @@ vm_page_t vm_page_alloc_flags(
 	if (mem == VM_PAGE_NULL)
 		return VM_PAGE_NULL;
 
-	vm_page_lock_queues();
+	simple_lock(&vm_page_queue_lock);
 	vm_page_insert(mem, object, offset);
-	vm_page_unlock_queues();
+	simple_unlock(&vm_page_queue_lock);
 
 	return mem;
 }
@@ -992,7 +992,7 @@ void vm_page_free(
 		vm_page_remove(mem);
 	}
 
-	assert(vm_page_locked_queues());
+	assert(simple_lock_taken(&vm_page_queue_lock));
 	if (mem->absent)
 		assert(vm_object_lock_taken(mem->object));
 

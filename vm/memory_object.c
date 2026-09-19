@@ -216,7 +216,7 @@ retry_lookup:
 		data_m->unlock_request = VM_PROT_NONE;
 		data_m->precious = precious;
 
-		vm_page_lock_queues();
+		simple_lock(&vm_page_queue_lock);
 		vm_page_insert(data_m, object, offset);
 
 		if (was_absent)
@@ -224,7 +224,7 @@ retry_lookup:
 		else
 			vm_page_deactivate(data_m);
 
-		vm_page_unlock_queues();
+		simple_unlock(&vm_page_queue_lock);
 
 		/*
 		 *	Null out this page list entry, and advance to next
@@ -328,9 +328,9 @@ kern_return_t memory_object_data_error(
 
 			PAGE_WAKEUP_DONE(m);
 
-			vm_page_lock_queues();
+			simple_lock(&vm_page_queue_lock);
 			vm_page_activate(m);
-			vm_page_unlock_queues();
+			simple_unlock(&vm_page_queue_lock);
 		}
 
 		size -= PAGE_SIZE;
@@ -386,9 +386,9 @@ kern_return_t memory_object_data_unavailable(
 		if ((m != VM_PAGE_NULL) && m->busy && m->absent) {
 			PAGE_WAKEUP_DONE(m);
 
-			vm_page_lock_queues();
+			simple_lock(&vm_page_queue_lock);
 			vm_page_activate(m);
-			vm_page_unlock_queues();
+			simple_unlock(&vm_page_queue_lock);
 		}
 		size -= PAGE_SIZE;
 		offset += PAGE_SIZE;
@@ -547,9 +547,9 @@ static memory_object_lock_result_t memory_object_lock_page(
 			 *	maps now.
 			 */
 
-			vm_page_lock_queues();
+			simple_lock(&vm_page_queue_lock);
 			VM_PAGE_QUEUES_REMOVE(m);
-			vm_page_unlock_queues();
+			simple_unlock(&vm_page_queue_lock);
 
 			if (!should_flush)
 				pmap_page_protect(m->phys_addr,
@@ -586,9 +586,9 @@ static memory_object_lock_result_t memory_object_lock_page(
 
 		if (vm_page_deactivate_hint &&
 		    (should_return != MEMORY_OBJECT_RETURN_NONE)) {
-			vm_page_lock_queues();
+			simple_lock(&vm_page_queue_lock);
 			vm_page_deactivate(m);
-			vm_page_unlock_queues();
+			simple_unlock(&vm_page_queue_lock);
 		}
 	}
 

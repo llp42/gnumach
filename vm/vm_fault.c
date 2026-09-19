@@ -222,10 +222,10 @@ vm_fault_return_t vm_fault_page(
 #define RELEASE_PAGE(m)					\
 	MACRO_BEGIN					\
 	PAGE_WAKEUP_DONE(m);				\
-	vm_page_lock_queues();				\
+	simple_lock(&vm_page_queue_lock);				\
 	if (!m->active && !m->inactive)			\
 		vm_page_activate(m);			\
-	vm_page_unlock_queues();			\
+	simple_unlock(&vm_page_queue_lock);			\
 	MACRO_END
 
 	if (vm_fault_dirty_handling
@@ -400,9 +400,9 @@ vm_fault_return_t vm_fault_page(
 
 					VM_PAGE_FREE(m);
 					assert(real_m->busy);
-					vm_page_lock_queues();
+					simple_lock(&vm_page_queue_lock);
 					vm_page_insert(real_m, object, offset);
-					vm_page_unlock_queues();
+					simple_unlock(&vm_page_queue_lock);
 					m = real_m;
 
 					/*
@@ -436,9 +436,9 @@ vm_fault_return_t vm_fault_page(
 						vm_object_absent_release(object);
 						m->busy = TRUE;
 
-						vm_page_lock_queues();
+						simple_lock(&vm_page_queue_lock);
 						VM_PAGE_QUEUES_REMOVE(m);
-						vm_page_unlock_queues();
+						simple_unlock(&vm_page_queue_lock);
 					}
 					vm_object_lock(next_object);
 					vm_object_unlock(object);
@@ -498,14 +498,14 @@ vm_fault_return_t vm_fault_page(
 			 */
 
 			if (!software_reference_bits) {
-				vm_page_lock_queues();
+				simple_lock(&vm_page_queue_lock);
 				if (m->inactive)  {
 					vm_stat.reactivations++;
 					current_task()->reactivations++;
 				}
 
 				VM_PAGE_QUEUES_REMOVE(m);
-				vm_page_unlock_queues();
+				simple_unlock(&vm_page_queue_lock);
 			}
 
 			assert(!m->busy);
@@ -533,9 +533,9 @@ vm_fault_return_t vm_fault_page(
 				return(VM_FAULT_FICTITIOUS_SHORTAGE);
 			}
 
-			vm_page_lock_queues();
+			simple_lock(&vm_page_queue_lock);
 			vm_page_insert(m, object, offset);
-			vm_page_unlock_queues();
+			simple_unlock(&vm_page_queue_lock);
 		}
 
 		if (look_for_page && !must_be_resident) {
@@ -786,10 +786,10 @@ vm_fault_return_t vm_fault_page(
 			 *	avoid the pmap_page_protect() call.
 			 */
 
-			vm_page_lock_queues();
+			simple_lock(&vm_page_queue_lock);
 			vm_page_deactivate(m);
 			pmap_page_protect(m->phys_addr, VM_PROT_NONE);
-			vm_page_unlock_queues();
+			simple_unlock(&vm_page_queue_lock);
 
 			/*
 			 *	We no longer need the old page or object.
@@ -808,9 +808,9 @@ vm_fault_return_t vm_fault_page(
 			VM_PAGE_FREE(first_m);
 			first_m = VM_PAGE_NULL;
 			assert(copy_m->busy);
-			vm_page_lock_queues();
+			simple_lock(&vm_page_queue_lock);
 			vm_page_insert(copy_m, object, offset);
-			vm_page_unlock_queues();
+			simple_unlock(&vm_page_queue_lock);
 			m = copy_m;
 
 			/*
@@ -925,10 +925,10 @@ vm_fault_return_t vm_fault_page(
 			 *	pmaps use it.)
 			 */
 
-			vm_page_lock_queues();
+			simple_lock(&vm_page_queue_lock);
 			pmap_page_protect(m->phys_addr, VM_PROT_NONE);
 			copy_m->dirty = TRUE;
-			vm_page_unlock_queues();
+			simple_unlock(&vm_page_queue_lock);
 
 			/*
 			 *	If there's a pager, then immediately
@@ -937,9 +937,9 @@ vm_fault_return_t vm_fault_page(
 			 */
 
 		 	if (!copy_object->pager_created) {
-				vm_page_lock_queues();
+				simple_lock(&vm_page_queue_lock);
 				vm_page_activate(copy_m);
-				vm_page_unlock_queues();
+				simple_unlock(&vm_page_queue_lock);
 				PAGE_WAKEUP_DONE(copy_m);
 			} else {
 				/*
@@ -1295,10 +1295,10 @@ kern_return_t vm_fault(
 #define RELEASE_PAGE(m)					\
 	MACRO_BEGIN					\
 	PAGE_WAKEUP_DONE(m);				\
-	vm_page_lock_queues();				\
+	simple_lock(&vm_page_queue_lock);				\
 	if (!m->active && !m->inactive)			\
 		vm_page_activate(m);			\
-	vm_page_unlock_queues();			\
+	simple_unlock(&vm_page_queue_lock);			\
 	MACRO_END
 
 	/*
@@ -1397,7 +1397,7 @@ kern_return_t vm_fault(
 	 *	pageout daemon can find it.
 	 */
 	vm_object_lock(m->object);
-	vm_page_lock_queues();
+	simple_lock(&vm_page_queue_lock);
 	if (change_wiring) {
 		if (wired)
 			vm_page_wire(m);
@@ -1410,7 +1410,7 @@ kern_return_t vm_fault(
 	} else {
 		vm_page_activate(m);
 	}
-	vm_page_unlock_queues();
+	simple_unlock(&vm_page_queue_lock);
 
 	/*
 	 *	Unlock everything, and return
@@ -1529,9 +1529,9 @@ void vm_fault_unwire(
 			if (result != VM_FAULT_SUCCESS)
 				panic("vm_fault_unwire: failure");
 
-			vm_page_lock_queues();
+			simple_lock(&vm_page_queue_lock);
 			vm_page_unwire(result_page);
-			vm_page_unlock_queues();
+			simple_unlock(&vm_page_queue_lock);
 			PAGE_WAKEUP_DONE(result_page);
 
 			vm_fault_cleanup(result_page->object, top_page);
@@ -1587,9 +1587,9 @@ kern_return_t vm_fault_wire_fast(
 #define RELEASE_PAGE(m)					\
 MACRO_BEGIN						\
 	PAGE_WAKEUP_DONE(m);				\
-	vm_page_lock_queues();				\
+	simple_lock(&vm_page_queue_lock);				\
 	vm_page_unwire(m);				\
-	vm_page_unlock_queues();			\
+	simple_unlock(&vm_page_queue_lock);			\
 MACRO_END
 
 
@@ -1670,9 +1670,9 @@ MACRO_END
 	 *	point must unwire the page.
 	 */
 
-	vm_page_lock_queues();
+	simple_lock(&vm_page_queue_lock);
 	vm_page_wire(m);
-	vm_page_unlock_queues();
+	simple_unlock(&vm_page_queue_lock);
 
 	/*
 	 *	Mark page busy for other threads.
@@ -1728,10 +1728,10 @@ static void vm_fault_copy_cleanup(
 
 	vm_object_lock(object);
 	PAGE_WAKEUP_DONE(page);
-	vm_page_lock_queues();
+	simple_lock(&vm_page_queue_lock);
 	if (!page->active && !page->inactive)
 		vm_page_activate(page);
-	vm_page_unlock_queues();
+	simple_unlock(&vm_page_queue_lock);
 	vm_fault_cleanup(object, top_page);
 }
 

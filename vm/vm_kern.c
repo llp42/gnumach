@@ -779,9 +779,9 @@ kmem_alloc_pages(
 	    /*
 	     *	Wire it down
 	     */
-	    vm_page_lock_queues();
+	    simple_lock(&vm_page_queue_lock);
 	    vm_page_wire(mem);
-	    vm_page_unlock_queues();
+	    simple_unlock(&vm_page_queue_lock);
 	    vm_object_unlock(object);
 
 	    /*
@@ -831,9 +831,9 @@ kmem_remap_pages(
 	    /*
 	     *	Wire it down (again)
 	     */
-	    vm_page_lock_queues();
+	    simple_lock(&vm_page_queue_lock);
 	    vm_page_wire(mem);
-	    vm_page_unlock_queues();
+	    simple_unlock(&vm_page_queue_lock);
 	    vm_object_unlock(object);
 
 	    /*

@@ -270,9 +270,9 @@ extern unsigned int	vm_page_info(
 
 #define VM_PAGE_FREE(p) 			\
 		MACRO_BEGIN			\
-		vm_page_lock_queues();		\
+		simple_lock(&vm_page_queue_lock);		\
 		vm_page_free(p);		\
-		vm_page_unlock_queues();	\
+		simple_unlock(&vm_page_queue_lock);	\
 		MACRO_END
 
 /*
@@ -291,10 +291,6 @@ extern unsigned int	vm_page_info(
 		MACRO_END
 
 #define	VM_PAGE_WAIT(continuation)	vm_page_wait(continuation)
-
-#define vm_page_lock_queues()	simple_lock(&vm_page_queue_lock)
-#define vm_page_unlock_queues()	simple_unlock(&vm_page_queue_lock)
-#define vm_page_locked_queues()	simple_lock_taken(&vm_page_queue_lock)
 
 #define VM_PAGE_QUEUES_REMOVE(mem) vm_page_queues_remove(mem)
 

@@ -578,9 +578,9 @@ void vm_object_terminate(
 
 		VM_PAGE_CHECK(p);
 
-		vm_page_lock_queues();
+		simple_lock(&vm_page_queue_lock);
 		VM_PAGE_QUEUES_REMOVE(p);
-		vm_page_unlock_queues();
+		simple_unlock(&vm_page_queue_lock);
 
 		if (p->absent || p->private) {
 
@@ -614,9 +614,9 @@ void vm_object_terminate(
 	if (!object->internal) {
 		assert(object->resident_page_count == 0);
 
-		vm_page_lock_queues();
+		simple_lock(&vm_page_queue_lock);
 		vm_object_external_count--;
-		vm_page_unlock_queues();
+		simple_unlock(&vm_page_queue_lock);
 	}
 
 	/*
@@ -1133,12 +1133,12 @@ kern_return_t vm_object_copy_slowly(
 					vm_object_lock(result_page->object);
 					PAGE_WAKEUP_DONE(result_page);
 
-					vm_page_lock_queues();
+					simple_lock(&vm_page_queue_lock);
 					if (!result_page->active &&
 					    !result_page->inactive)
 						vm_page_activate(result_page);
 					vm_page_activate(new_page);
-					vm_page_unlock_queues();
+					simple_unlock(&vm_page_queue_lock);
 
 					/*
 					 *	Release paging references and
@@ -2940,9 +2940,9 @@ vm_object_page_map(
 	    m->phys_addr = addr;
 	    m->private = TRUE;		/* don`t free page */
 	    m->wire_count = 1;
-	    vm_page_lock_queues();
+	    simple_lock(&vm_page_queue_lock);
 	    vm_page_insert(m, object, offset);
-	    vm_page_unlock_queues();
+	    simple_unlock(&vm_page_queue_lock);
 
 	    PAGE_WAKEUP_DONE(m);
 	    vm_object_unlock(object);

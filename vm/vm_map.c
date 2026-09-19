@@ -1005,10 +1005,10 @@ vm_map_pmap_enter(
 
 		vm_object_lock(object);
 		PAGE_WAKEUP_DONE(m);
-		vm_page_lock_queues();
+		simple_lock(&vm_page_queue_lock);
 		if (!m->active && !m->inactive)
 		    vm_page_activate(m);
-		vm_page_unlock_queues();
+		simple_unlock(&vm_page_queue_lock);
 		vm_object_paging_end(object);
 		vm_object_unlock(object);
 
@@ -2290,10 +2290,10 @@ vm_map_copy_steal_pages(vm_map_copy_t copy)
 
 		object = m->object;
 		vm_object_lock(object);
-		vm_page_lock_queues();
+		simple_lock(&vm_page_queue_lock);
 		if (!m->active && !m->inactive)
 			vm_page_activate(m);
-		vm_page_unlock_queues();
+		simple_unlock(&vm_page_queue_lock);
 		PAGE_WAKEUP_DONE(m);
 		vm_object_paging_end(object);
 		vm_object_unlock(object);
@@ -2333,10 +2333,10 @@ void vm_map_copy_page_discard(vm_map_copy_t copy)
 				object = m->object;
 
 				vm_object_lock(object);
-				vm_page_lock_queues();
+				simple_lock(&vm_page_queue_lock);
 				if (!m->active && !m->inactive)
 					vm_page_activate(m);
-				vm_page_unlock_queues();
+				simple_unlock(&vm_page_queue_lock);
 
 				PAGE_WAKEUP_DONE(m);
 				vm_object_paging_end(object);
@@ -3344,7 +3344,7 @@ insert_pages:
 	old_last_offset = last->offset
 	    + (start - last->vme_start);
 
-	vm_page_lock_queues();
+	simple_lock(&vm_page_queue_lock);
 
 	for (offset = 0; offset < size; offset += PAGE_SIZE) {
 		m = *page_list;
@@ -3381,7 +3381,7 @@ insert_pages:
 			 *	marked in_transition.
 			 */
 			cont_invoked = TRUE;
-			vm_page_unlock_queues();
+			simple_unlock(&vm_page_queue_lock);
 			vm_object_unlock(object);
 			vm_map_unlock(dst_map);
 			vm_map_copy_invoke_cont(copy, &new_copy, &result);
@@ -3416,11 +3416,11 @@ insert_pages:
 
 			vm_map_lock(dst_map);
 			vm_object_lock(object);
-			vm_page_lock_queues();
+			simple_lock(&vm_page_queue_lock);
 		}
 	}
 
-	vm_page_unlock_queues();
+	simple_unlock(&vm_page_queue_lock);
 	vm_object_unlock(object);
 
 	*dst_addr = start + dst_offset;
@@ -4418,7 +4418,7 @@ retry:
 				 *	to zero is vm_page_unwire without
 				 *	activating the page.
   				 */
-				vm_page_lock_queues();
+				simple_lock(&vm_page_queue_lock);
 	 			vm_page_remove(m);
 				if (m->wire_count > 0) {
 				    m->wire_count = 0;
@@ -4426,7 +4426,7 @@ retry:
 				} else {
 				    VM_PAGE_QUEUES_REMOVE(m);
 				}
-				vm_page_unlock_queues();
+				simple_unlock(&vm_page_queue_lock);
 			}
 			else {
 			        /*

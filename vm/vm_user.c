@@ -659,7 +659,7 @@ kern_return_t vm_allocate_contiguous(
 	}
 
 	vm_object_lock(object);
-	vm_page_lock_queues();
+	simple_lock(&vm_page_queue_lock);
 
 	for (i = 0; i < vm_page_atop(size); i++) {
 		/*
@@ -672,7 +672,7 @@ kern_return_t vm_allocate_contiguous(
 		vm_page_wire(&pages[i]);
 	}
 
-	vm_page_unlock_queues();
+	simple_unlock(&vm_page_queue_lock);
 	vm_object_unlock(object);
 
 	for (i = vm_page_atop(size); i < npages; i++) {
@@ -699,10 +699,10 @@ kern_return_t vm_allocate_contiguous(
 	}
 
 	vm_object_lock(object);
-	vm_page_lock_queues();
+	simple_lock(&vm_page_queue_lock);
 	for (i = 0; i < vm_page_atop(size); i++)
 		vm_page_unwire(&pages[i]);
-	vm_page_unlock_queues();
+	simple_unlock(&vm_page_queue_lock);
 	vm_object_unlock(object);
 
 	*result_vaddr = vaddr;

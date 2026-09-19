@@ -119,10 +119,10 @@ intel_read_fault(
 #define RELEASE_PAGE(m)					\
 	MACRO_BEGIN					\
 	PAGE_WAKEUP_DONE(m);				\
-	vm_page_lock_queues();				\
+	simple_lock(&vm_page_queue_lock);				\
 	if (!m->active && !m->inactive)			\
 		vm_page_activate(m);			\
-	vm_page_unlock_queues();			\
+	simple_unlock(&vm_page_queue_lock);			\
 	MACRO_END
 
 	/*
@@ -160,11 +160,11 @@ intel_read_fault(
 	PMAP_ENTER(map->pmap, vaddr, m, VM_PROT_READ|VM_PROT_WRITE, wired);
 
 	vm_object_lock(m->object);
-	vm_page_lock_queues();
+	simple_lock(&vm_page_queue_lock);
 	if (!m->active && !m->inactive)
 		vm_page_activate(m);
 	m->reference = TRUE;
-	vm_page_unlock_queues();
+	simple_unlock(&vm_page_queue_lock);
 
 	vm_map_verify_done(map, &version);
 	PAGE_WAKEUP_DONE(m);

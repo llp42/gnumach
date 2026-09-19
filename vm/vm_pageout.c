@@ -153,14 +153,14 @@ vm_pageout_setup(
 			vm_page_more_fictitious();
 
 		vm_object_lock(old_object);
-		vm_page_lock_queues();
+		simple_lock(&vm_page_queue_lock);
 		vm_page_remove(m);
-		vm_page_unlock_queues();
+		simple_unlock(&vm_page_queue_lock);
 		PAGE_WAKEUP_DONE(m);
 
-		vm_page_lock_queues();
+		simple_lock(&vm_page_queue_lock);
 		vm_page_insert(holding_page, old_object, m->offset);
-		vm_page_unlock_queues();
+		simple_unlock(&vm_page_queue_lock);
 
 		/*
 		 *	Record that this page has been written out
@@ -177,9 +177,9 @@ vm_pageout_setup(
 		 *	Move this page into the new object
 		 */
 
-		vm_page_lock_queues();
+		simple_lock(&vm_page_queue_lock);
 		vm_page_insert(m, new_object, new_offset);
-		vm_page_unlock_queues();
+		simple_unlock(&vm_page_queue_lock);
 
 		m->dirty = TRUE;
 		m->precious = FALSE;
@@ -200,9 +200,9 @@ vm_pageout_setup(
 		/*
 		 *	Deactivate old page.
 		 */
-		vm_page_lock_queues();
+		simple_lock(&vm_page_queue_lock);
 		vm_page_deactivate(m);
-		vm_page_unlock_queues();
+		simple_unlock(&vm_page_queue_lock);
 
 		PAGE_WAKEUP_DONE(m);
 
@@ -237,7 +237,7 @@ vm_pageout_setup(
 	 *	this page, rather than reusing it.
 	 */
 
-	vm_page_lock_queues();
+	simple_lock(&vm_page_queue_lock);
 	vm_stat.pageouts++;
 	if (m->laundry) {
 
@@ -270,7 +270,7 @@ vm_pageout_setup(
 
 		vm_page_activate(m);
 	}
-	vm_page_unlock_queues();
+	simple_unlock(&vm_page_queue_lock);
 
 	/*
 	 *	Since IPC operations may block, we drop locks now.
