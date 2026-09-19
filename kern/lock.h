@@ -95,15 +95,8 @@ class	simple_lock_irq_data_t	name = { SIMPLE_LOCK_INITIALIZER(&name.lock) };
 #define	simple_lock_irq_addr(l)	(simple_lock_irq_assert(&(l)),	\
 				&(l)->lock)
 
-/*
- *	The single-CPU debugging routines are not valid
- *	on a multiprocessor.
- */
 #define	simple_lock_taken(lock)		(simple_lock_assert(lock),	\
 					 1)	/* always succeeds */
-#define check_simple_locks()
-#define check_simple_locks_enable()
-#define check_simple_locks_disable()
 
 
 /*

@@ -29,7 +29,6 @@ void kmutex_init (struct kmutex *mtxp)
 
 kern_return_t kmutex_lock (struct kmutex *mtxp, boolean_t interruptible)
 {
-  check_simple_locks ();
 
   if (atomic_cas_acq (&mtxp->state, KMUTEX_AVAIL, KMUTEX_LOCKED))
     /* Unowned mutex - We're done. */

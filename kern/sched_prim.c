@@ -840,8 +840,6 @@ void thread_block(
 	thread_t new_thread;
 	spl_t s;
 
-	check_simple_locks();
-
 	s = splsched();
 
 	ast_off(cpu_number(), AST_BLOCK);
@@ -872,8 +870,6 @@ void thread_run(
 	thread_t thread = current_thread();
 	processor_t myprocessor = cpu_to_processor(cpu_number());
 	spl_t s;
-
-	check_simple_locks();
 
 	s = splsched();
 
