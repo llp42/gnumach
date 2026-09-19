@@ -187,7 +187,6 @@ extern boolean_t tty_portdeath(
 #define	EVENP		TF_EVENP
 #define	LITOUT		TF_LITOUT
 
-#define	ECHO		TF_ECHO
 #define	CRMOD		TF_CRMOD
 #define	XTABS		TF_XTABS
 
