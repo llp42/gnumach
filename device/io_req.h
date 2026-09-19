@@ -100,9 +100,6 @@ struct io_req {
  * Shall be taken at splio only
  */
 
-#define ior_lock(ior)	simple_lock(&(ior)->io_req_lock)
-#define ior_unlock(ior)	simple_unlock(&(ior)->io_req_lock)
-
 /*
  * Flags and operations
  */

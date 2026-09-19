@@ -1506,10 +1506,10 @@ void iodone(io_req_t ior)
 	 */
 	s = splio();
 	if ((ior->io_op & IO_CALL) == 0) {
-	    ior_lock(ior);
+	    simple_lock(&(ior)->io_req_lock);
 	    ior->io_op |= IO_DONE;
 	    ior->io_op &= ~IO_WANTED;
-	    ior_unlock(ior);
+	    simple_unlock(&(ior)->io_req_lock);
 	    thread_wakeup((event_t)ior);
 	} else {
 	    ior->io_op |= IO_DONE;
@@ -1605,14 +1605,14 @@ void iowait(io_req_t ior)
     spl_t s;
 
     s = splio();
-    ior_lock(ior);
+    simple_lock(&(ior)->io_req_lock);
     while ((ior->io_op&IO_DONE)==0) {
 	assert_wait((event_t)ior, FALSE);
-	ior_unlock(ior);
+	simple_unlock(&(ior)->io_req_lock);
 	thread_block((void (*)()) 0);
-        ior_lock(ior);
+        simple_lock(&(ior)->io_req_lock);
     }
-    ior_unlock(ior);
+    simple_unlock(&(ior)->io_req_lock);
     splx(s);
 }
 
