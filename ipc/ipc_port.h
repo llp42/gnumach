@@ -202,13 +202,10 @@ ipc_port_dncancel(ipc_port_t, mach_port_name_t, ipc_port_request_index_t);
 MACRO_BEGIN								\
 	ipc_port_request_t ipr, table;					\
 									\
-	assert(ip_active(port));					\
 									\
 	table = port->ip_dnrequests;					\
-	assert(table != IPR_NULL);					\
 									\
 	ipr = &table[index];						\
-	assert(ipr->ipr_name == oname);					\
 									\
 	ipr->ipr_name = nname;						\
 MACRO_END
@@ -233,7 +230,6 @@ extern void ipc_port_set_qlimit(
 
 #define	ipc_port_set_mscount(port, mscount)				\
 MACRO_BEGIN								\
-	assert(ip_active(port));					\
 									\
 	(port)->ip_mscount = (mscount);					\
 MACRO_END

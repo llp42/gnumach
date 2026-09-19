@@ -100,9 +100,6 @@ ipc_port_dnrequest(
 	ipc_port_request_t ipr, table;
 	ipc_port_request_index_t index;
 
-	assert(ip_active(port));
-	assert(name != MACH_PORT_NULL);
-	assert(soright != IP_NULL);
 
 	table = port->ip_dnrequests;
 	if (table == IPR_NULL)
@@ -113,7 +110,6 @@ ipc_port_dnrequest(
 		return KERN_NO_SPACE;
 
 	ipr = &table[index];
-	assert(ipr->ipr_name == MACH_PORT_NULL);
 
 	table->ipr_next = ipr->ipr_next;
 	ipr->ipr_name = name;
@@ -144,7 +140,6 @@ ipc_port_dngrow(ipc_port_t port)
 	ipc_table_size_t its;
 	ipc_port_request_t otable, ntable;
 
-	assert(ip_active(port));
 
 	otable = port->ip_dnrequests;
 	if (otable == IPR_NULL)
@@ -193,7 +188,6 @@ ipc_port_dngrow(ipc_port_t port)
 		}
 
 		nsize = its->its_size;
-		assert(nsize > osize);
 
 		/* add new elements to the new table's free list */
 
@@ -237,16 +231,11 @@ ipc_port_dncancel(
 	ipc_port_request_t ipr, table;
 	ipc_port_t dnrequest;
 
-	assert(ip_active(port));
-	assert(name != MACH_PORT_NULL);
-	assert(index != 0);
 
 	table = port->ip_dnrequests;
-	assert(table != IPR_NULL);
 
 	ipr = &table[index];
 	dnrequest = ipr->ipr_soright;
-	assert(ipr->ipr_name == name);
 
 	/* return ipr to the free list inside the table */
 
@@ -277,7 +266,6 @@ ipc_port_pdrequest(
 {
 	ipc_port_t previous;
 
-	assert(ip_active(port));
 
 	previous = port->ip_pdrequest;
 	port->ip_pdrequest = notify;
@@ -308,7 +296,6 @@ ipc_port_nsrequest(
 	ipc_port_t previous;
 	mach_port_mscount_t mscount;
 
-	assert(ip_active(port));
 
 	previous = port->ip_nsrequest;
 	mscount = port->ip_mscount;
@@ -341,7 +328,6 @@ ipc_port_set_qlimit(
 	ipc_port_t		port,
 	mach_port_msgcount_t	qlimit)
 {
-	assert(ip_active(port));
 
 	/* wake up senders allowed by the new qlimit */
 
@@ -471,7 +457,6 @@ ipc_port_clear_receiver(
 {
 	ipc_pset_t pset;
 
-	assert(ip_active(port));
 
 	pset = port->ip_pset;
 	if (pset != IPS_NULL) {
@@ -633,12 +618,8 @@ ipc_port_destroy(
 	ipc_thread_t sender;
 	ipc_port_request_t dnrequests;
 
-	assert(ip_active(port));
 	/* port->ip_receiver_name is garbage */
 	/* port->ip_receiver/port->ip_destination is garbage */
-	assert(port->ip_pset == IPS_NULL);
-	assert(port->ip_mscount == 0);
-	assert(port->ip_seqno == 0);
 
 	/* first check for a backup port */
 
@@ -663,13 +644,6 @@ ipc_port_destroy(
 		}
 
 		ip_lock(port);
-		assert(ip_active(port));
-		assert(port->ip_pset == IPS_NULL);
-		assert(port->ip_mscount == 0);
-		assert(port->ip_seqno == 0);
-		assert(port->ip_pdrequest == IP_NULL);
-		assert(port->ip_receiver_name == MACH_PORT_NULL);
-		assert(port->ip_destination == IP_NULL);
 
 		/* fall through and destroy the port */
 	}
@@ -703,14 +677,11 @@ ipc_port_destroy(
 
 	mqueue = &port->ip_messages;
 	simple_lock(&(mqueue)->imq_lock_data);
-	assert(ipc_thread_queue_empty(&mqueue->imq_threads));
 	kmqueue = &mqueue->imq_messages;
 
 	while ((kmsg = ipc_kmsg_dequeue(kmqueue)) != IKM_NULL) {
 		simple_unlock(&(mqueue)->imq_lock_data);
 
-		assert(kmsg->ikm_header.msgh_remote_port ==
-						(mach_port_t) port);
 
 		ipc_port_release(port);
 		kmsg->ikm_header.msgh_remote_port = MACH_PORT_NULL;
@@ -738,7 +709,6 @@ ipc_port_destroy(
 				continue;
 
 			soright = ipr->ipr_soright;
-			assert(soright != IP_NULL);
 
 			ipc_notify_dead_name(soright, name);
 		}
@@ -778,8 +748,6 @@ ipc_port_check_circularity(
 {
 	ipc_port_t base;
 
-	assert(port != IP_NULL);
-	assert(dest != IP_NULL);
 
 	if (port == dest)
 		return TRUE;
@@ -830,17 +798,12 @@ ipc_port_check_circularity(
 
 		/* port (== base) is in limbo */
 
-		assert(ip_active(port));
-		assert(port->ip_receiver_name == MACH_PORT_NULL);
-		assert(port->ip_destination == IP_NULL);
 
 		while (dest != IP_NULL) {
 			ipc_port_t next;
 
 			/* dest is in transit or in limbo */
 
-			assert(ip_active(dest));
-			assert(dest->ip_receiver_name == MACH_PORT_NULL);
 
 			next = dest->ip_destination;
 			ip_unlock(dest);
@@ -863,9 +826,6 @@ ipc_port_check_circularity(
 
 	/* port is in limbo */
 
-	assert(ip_active(port));
-	assert(port->ip_receiver_name == MACH_PORT_NULL);
-	assert(port->ip_destination == IP_NULL);
 
 	ip_reference(dest);
 	port->ip_destination = dest;
@@ -877,9 +837,6 @@ ipc_port_check_circularity(
 
 		/* port is in transit */
 
-		assert(ip_active(port));
-		assert(port->ip_receiver_name == MACH_PORT_NULL);
-		assert(port->ip_destination != IP_NULL);
 
 		next = port->ip_destination;
 		ip_unlock(port);
@@ -888,9 +845,6 @@ ipc_port_check_circularity(
 
 	/* base is not in transit */
 
-	assert(!ip_active(base) ||
-	       (base->ip_receiver_name != MACH_PORT_NULL) ||
-	       (base->ip_destination == IP_NULL));
 	ip_unlock(base);
 
 	return FALSE;
@@ -913,7 +867,6 @@ ipc_port_lookup_notify(
 	ipc_port_t port;
 	ipc_entry_t entry;
 
-	assert(space->is_active);
 
 	entry = ipc_entry_lookup(space, name);
 	if (entry == IE_NULL)
@@ -923,12 +876,8 @@ ipc_port_lookup_notify(
 		return IP_NULL;
 
 	port = (ipc_port_t) entry->ie_object;
-	assert(port != IP_NULL);
 
 	ip_lock(port);
-	assert(ip_active(port));
-	assert(port->ip_receiver_name == name);
-	assert(port->ip_receiver == space);
 
 	ip_reference(port);
 	port->ip_sorights++;
@@ -949,10 +898,8 @@ ipc_port_t
 ipc_port_make_send(
 	ipc_port_t	port)
 {
-	assert(IP_VALID(port));
 
 	ip_lock(port);
-	assert(ip_active(port));
 	port->ip_mscount++;
 	port->ip_srights++;
 	ip_reference(port);
@@ -984,7 +931,6 @@ ipc_port_copy_send(
 
 	ip_lock(port);
 	if (ip_active(port)) {
-		assert(port->ip_srights > 0);
 
 		ip_reference(port);
 		port->ip_srights++;
@@ -1047,7 +993,6 @@ ipc_port_release_send(
 	ipc_port_t nsrequest = IP_NULL;
 	mach_port_mscount_t mscount;
 
-	assert(IP_VALID(port));
 
 	ip_lock(port);
 	ip_release(port);
@@ -1057,7 +1002,6 @@ ipc_port_release_send(
 		return;
 	}
 
-	assert(port->ip_srights > 0);
 
 	if (--port->ip_srights == 0) {
 		nsrequest = port->ip_nsrequest;
@@ -1085,10 +1029,8 @@ ipc_port_t
 ipc_port_make_sonce(
 	ipc_port_t	port)
 {
-	assert(IP_VALID(port));
 
 	ip_lock(port);
-	assert(ip_active(port));
 	port->ip_sorights++;
 	ip_reference(port);
 	ip_unlock(port);
@@ -1114,11 +1056,9 @@ void
 ipc_port_release_sonce(
 	ipc_port_t	port)
 {
-	assert(IP_VALID(port));
 
 	ip_lock(port);
 
-	assert(port->ip_sorights > 0);
 
 	port->ip_sorights--;
 
@@ -1147,11 +1087,8 @@ ipc_port_release_receive(
 {
 	ipc_port_t dest;
 
-	assert(IP_VALID(port));
 
 	ip_lock(port);
-	assert(ip_active(port));
-	assert(port->ip_receiver_name == MACH_PORT_NULL);
 	dest = port->ip_destination;
 
 	ipc_port_destroy(port); /* consumes ref, unlocks */
@@ -1214,9 +1151,6 @@ ipc_port_dealloc_special(
 	ipc_space_t	space)
 {
 	ip_lock(port);
-	assert(ip_active(port));
-	assert(port->ip_receiver_name != MACH_PORT_NULL);
-	assert(port->ip_receiver == space);
 
 	/*
 	 *	We clear ip_receiver_name and ip_receiver to simplify

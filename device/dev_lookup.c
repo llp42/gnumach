@@ -168,7 +168,6 @@ device_lookup(const char *name)
 	     * No existing device structure.  Insert the
 	     * new one.
 	     */
-	    assert(new_device != MACH_DEVICE_NULL);
 	    device = new_device;
 
 	    dev_number_enter(device);

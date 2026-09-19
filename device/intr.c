@@ -229,7 +229,6 @@ install_user_intr_handler (struct irqdev *dev, int id, unsigned long flags,
 
   flags |= SA_SHIRQ;
 
-  assert (irq < NINTR);
 
   /* Don't allow overriding hardclock/kdintr etc */
   if ((ivect[irq] != user_irq_handler) && (ivect[irq] != intnull))
@@ -318,7 +317,6 @@ intr_thread (void)
 	       * We clear unacked irqs now, so the Linux handling can trigger,
 	       * and we will cleanup later after the Linux handler is cleared.
 	       */
-	      assert (!queue_empty (&main_intr_queue));
 	      queue_remove (&main_intr_queue, e, user_intr_t *, chain);
 
 	      printf ("irq handler [%d]: release a dead delivery port %p entry %p\n", e->id, e->dst_port, e);

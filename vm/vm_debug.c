@@ -146,7 +146,6 @@ mach_vm_region_info(
 	}
 
 
-	assert(entry->vme_start < entry->vme_end);
 
 	regionp->vri_start = entry->vme_start;
 	regionp->vri_end = entry->vme_end;
@@ -439,7 +438,6 @@ _mach_vm_object_pages(
 
 		kr = vm_map_copyin(ipc_kernel_map, addr, rsize_used,
 				   TRUE, &copy);
-		assert(kr == KERN_SUCCESS);
 
 		*pagesp = (void *) copy;
 		*countp = actual;
@@ -534,7 +532,6 @@ host_virtual_physical_table_info(const host_t host,
 
 		kr = vm_map_copyin(ipc_kernel_map, addr, used,
 				   TRUE, &copy);
-		assert(kr == KERN_SUCCESS);
 
 		*infop = (hash_info_bucket_t *) copy;
 		*countp = actual;

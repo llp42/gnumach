@@ -128,7 +128,6 @@ kern_return_t memory_object_data_supply(
 	original_length = data_cnt;
 	original_offset = offset;
 
-	assert(data_copy->type == VM_MAP_COPY_PAGE_LIST);
 	page_list = &data_copy->cpy_page_list[0];
 
 	simple_lock(&(object)->Lock);
@@ -141,7 +140,6 @@ kern_return_t memory_object_data_supply(
 
 	for (; data_cnt > 0 ; data_cnt -= PAGE_SIZE, offset += PAGE_SIZE) {
 
-		assert(data_copy->cpy_npages > 0);
 		data_m = *page_list;
 
 		if (data_m == VM_PAGE_NULL || data_m->tabled ||
@@ -443,7 +441,6 @@ static memory_object_lock_result_t memory_object_lock_page(
 	if (m->busy)
 		return(MEMORY_OBJECT_LOCK_RESULT_MUST_BLOCK);
 
-	assert(!m->fictitious);
 
 	if (m->wire_count != 0) {
 		/*

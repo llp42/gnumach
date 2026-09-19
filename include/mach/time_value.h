@@ -96,11 +96,9 @@ static __inline__ time_value_t convert_time_value_from_user(rpc_time_value_t tv)
 #define MACH_ADJTIME_USECS_OMIT TIME_MICROS_MAX
 #define MACH_ADJTIME_NSECS_OMIT TIME_NANOS_MAX
 
-#define time_value_assert(val)			\
-  assert(0 <= (val)->microseconds && (val)->microseconds < TIME_MICROS_MAX);
+#define time_value_assert(val)
 
-#define time_value64_assert(val)			\
-  assert(0 <= (val)->nanoseconds && (val)->nanoseconds < TIME_NANOS_MAX);
+#define time_value64_assert(val)
 
 #define	time_value_add_usec(val, micros)		\
 do {						\

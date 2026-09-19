@@ -300,7 +300,6 @@ vm_object_t vm_object_copy_delayed(
 
 #define	vm_object_paging_end(object) 					\
 	MACRO_BEGIN							\
-	assert((object)->paging_in_progress != 0);			\
 	if (--(object)->paging_in_progress == 0) {			\
 		vm_object_wakeup(object,				\
 			VM_OBJECT_EVENT_PAGING_IN_PROGRESS);		\

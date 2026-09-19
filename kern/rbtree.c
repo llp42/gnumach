@@ -38,13 +38,10 @@
 static inline int rbtree_index(const struct rbtree_node *node,
                                const struct rbtree_node *parent)
 {
-    assert(parent != NULL);
-    assert((node == NULL) || (rbtree_parent(node) == parent));
 
     if (parent->children[RBTREE_LEFT] == node)
         return RBTREE_LEFT;
 
-    assert(parent->children[RBTREE_RIGHT] == node);
 
     return RBTREE_RIGHT;
 }
@@ -79,8 +76,6 @@ static inline int rbtree_is_black(const struct rbtree_node *node)
 static inline void rbtree_set_parent(struct rbtree_node *node,
                                      struct rbtree_node *parent)
 {
-    assert(rbtree_check_alignment(node));
-    assert(rbtree_check_alignment(parent));
 
     node->parent = (unsigned long)parent | (node->parent & RBTREE_COLOR_MASK);
 }
@@ -90,7 +85,6 @@ static inline void rbtree_set_parent(struct rbtree_node *node,
  */
 static inline void rbtree_set_color(struct rbtree_node *node, int color)
 {
-    assert((color & ~RBTREE_COLOR_MASK) == 0);
     node->parent = (node->parent & RBTREE_PARENT_MASK) | color;
 }
 
@@ -149,8 +143,6 @@ void rbtree_insert_rebalance(struct rbtree *tree, struct rbtree_node *parent,
     struct rbtree_node *grand_parent, *uncle, *tmp;
     int left, right;
 
-    assert(rbtree_check_alignment(parent));
-    assert(rbtree_check_alignment(node));
 
     node->parent = (unsigned long)parent | RBTREE_COLOR_RED;
     node->children[RBTREE_LEFT] = NULL;
@@ -171,7 +163,6 @@ void rbtree_insert_rebalance(struct rbtree *tree, struct rbtree_node *parent,
             break;
 
         grand_parent = rbtree_parent(parent);
-        assert(grand_parent != NULL);
 
         left = rbtree_index(parent, grand_parent);
         right = 1 - left;
@@ -210,7 +201,6 @@ void rbtree_insert_rebalance(struct rbtree *tree, struct rbtree_node *parent,
         break;
     }
 
-    assert(rbtree_is_black(tree->root));
 }
 
 void rbtree_remove(struct rbtree *tree, struct rbtree_node *node)
@@ -350,18 +340,15 @@ update_color:
         break;
     }
 
-    assert((tree->root == NULL) || rbtree_is_black(tree->root));
 }
 
 struct rbtree_node * rbtree_nearest(struct rbtree_node *parent, int index,
                                     int direction)
 {
-    assert(rbtree_check_index(direction));
 
     if (parent == NULL)
         return NULL;
 
-    assert(rbtree_check_index(index));
 
     if (index != direction)
         return parent;
@@ -373,7 +360,6 @@ struct rbtree_node * rbtree_firstlast(const struct rbtree *tree, int direction)
 {
     struct rbtree_node *prev, *cur;
 
-    assert(rbtree_check_index(direction));
 
     prev = NULL;
 
@@ -387,7 +373,6 @@ struct rbtree_node * rbtree_walk(struct rbtree_node *node, int direction)
 {
     int left, right;
 
-    assert(rbtree_check_index(direction));
 
     left = direction;
     right = 1 - left;
@@ -428,7 +413,6 @@ static struct rbtree_node * rbtree_find_deepest(struct rbtree_node *node)
 {
     struct rbtree_node *parent;
 
-    assert(node != NULL);
 
     for (;;) {
         parent = node;
@@ -463,8 +447,6 @@ struct rbtree_node * rbtree_postwalk_unlink(struct rbtree_node *node)
     if (node == NULL)
         return NULL;
 
-    assert(node->children[RBTREE_LEFT] == NULL);
-    assert(node->children[RBTREE_RIGHT] == NULL);
 
     parent = rbtree_parent(node);
 

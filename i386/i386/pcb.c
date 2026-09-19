@@ -140,7 +140,6 @@ void switch_ktss(pcb_t pcb)
 #endif
 
 #ifdef __x86_64__
-	assert((pcb_stack_top & 0xF) == 0);
 #endif
 
 #ifdef __x86_64__
@@ -909,8 +908,6 @@ set_user_regs(vm_offset_t stack_base, /* low address */
 	vm_offset_t	arg_addr;
 	struct i386_saved_state *saved_state;
 
-	assert(P2ALIGNED(stack_size, USER_STACK_ALIGN));
-	assert(P2ALIGNED(stack_base, USER_STACK_ALIGN));
 	arg_size = P2ROUND(arg_size, USER_STACK_ALIGN);
 	arg_addr = stack_base + stack_size - arg_size;
 

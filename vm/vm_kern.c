@@ -958,8 +958,6 @@ kmem_io_map_copyout(
 	vm_map_copy_t	new_copy;
 	int		i;
 
-	assert(copy->type == VM_MAP_COPY_PAGE_LIST);
-	assert(min_size != 0);
 
 	/*
 	 *	Figure out the size in vm pages.

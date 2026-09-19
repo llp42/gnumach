@@ -122,7 +122,6 @@ static inline uint64_t convert_vm_from_user(uint32_t uaddr)
 }
 static inline uint32_t convert_vm_to_user(uint64_t kaddr)
 {
-    assert(kaddr <= 0xFFFFFFFF);
     return (uint32_t)kaddr;
 }
 
@@ -135,7 +134,6 @@ static inline int64_t convert_long_integer_from_user(int32_t i)
 }
 static inline int32_t convert_long_integer_to_user(int64_t i)
 {
-    assert(i <= 0x7FFFFFFF);
 	return (int32_t)i;
 }
 typedef uint32_t rpc_long_natural_t;

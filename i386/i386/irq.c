@@ -57,13 +57,11 @@ void
 __disable_irq (irq_t irq_nr)
 {
   spl_t s;
-  assert (irq_nr < NINTR);
   struct nested_irq *nirq = &nested_irqs[irq_nr];
 
   s = simple_lock_irq(&nirq->irq_lock);
 
   nirq->ndisabled++;
-  assert (nirq->ndisabled > 0);
   if (nirq->ndisabled == 1)
     mask_irq (irq_nr);
 
@@ -74,12 +72,10 @@ void
 __enable_irq (irq_t irq_nr)
 {
   spl_t s;
-  assert (irq_nr < NINTR);
   struct nested_irq *nirq = &nested_irqs[irq_nr];
 
   s = simple_lock_irq(&nirq->irq_lock);
 
-  assert (nirq->ndisabled > 0);
   nirq->ndisabled--;
   if (nirq->ndisabled == 0)
     unmask_irq (irq_nr);

@@ -95,7 +95,6 @@ ipc_task_init(
 			task->itk_registered[i] = IP_NULL;
 	} else {
 		simple_lock(&(parent)->itk_lock_data);
-		assert(parent->itk_self != IP_NULL);
 
 		/* inherit registered ports */
 
@@ -301,7 +300,6 @@ ipc_thread_terminate(thread_t thread)
 	thread->ith_self = IP_NULL;
 	simple_unlock(&(thread)->ith_lock_data);
 
-	assert(ipc_kmsg_queue_empty(&thread->ith_messages));
 
 	/* release the naked send rights */
 
@@ -331,7 +329,6 @@ retrieve_task_self(task)
 {
 	ipc_port_t port;
 
-	assert(task != TASK_NULL);
 
 	simple_lock(&(task)->itk_lock_data);
 	if (task->itk_self != IP_NULL)
@@ -358,7 +355,6 @@ retrieve_thread_self(thread)
 {
 	ipc_port_t port;
 
-	assert(thread != ITH_NULL);
 
 	simple_lock(&(thread)->ith_lock_data);
 	if (thread->ith_self != IP_NULL)
@@ -389,16 +385,13 @@ retrieve_task_self_fast(
 {
 	ipc_port_t port;
 
-	assert(task == current_task());
 
 	simple_lock(&(task)->itk_lock_data);
-	assert(task->itk_self != IP_NULL);
 
 	if ((port = task->itk_sself) == task->itk_self) {
 		/* no interposing */
 
 		ip_lock(port);
-		assert(ip_active(port));
 		ip_reference(port);
 		port->ip_srights++;
 		ip_unlock(port);
@@ -426,16 +419,13 @@ retrieve_thread_self_fast(thread_t thread)
 {
 	ipc_port_t port;
 
-	assert(thread == current_thread());
 
 	simple_lock(&(thread)->ith_lock_data);
-	assert(thread->ith_self != IP_NULL);
 
 	if ((port = thread->ith_sself) == thread->ith_self) {
 		/* no interposing */
 
 		ip_lock(port);
-		assert(ip_active(port));
 		ip_reference(port);
 		port->ip_srights++;
 		ip_unlock(port);
@@ -462,7 +452,6 @@ retrieve_task_exception(task)
 {
 	ipc_port_t port;
 
-	assert(task != TASK_NULL);
 
 	simple_lock(&(task)->itk_lock_data);
 	if (task->itk_self != IP_NULL)
@@ -489,7 +478,6 @@ retrieve_thread_exception(thread)
 {
 	ipc_port_t port;
 
-	assert(thread != ITH_NULL);
 
 	simple_lock(&(thread)->ith_lock_data);
 	if (thread->ith_self != IP_NULL)

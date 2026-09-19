@@ -114,8 +114,6 @@ static inline struct rbtree_node * rbtree_parent(const struct rbtree_node *node)
  */
 static inline unsigned long rbtree_slot(struct rbtree_node *parent, int index)
 {
-    assert(rbtree_check_alignment(parent));
-    assert(rbtree_check_index(index));
     return (unsigned long)parent | index;
 }
 

@@ -166,7 +166,6 @@ static void thread_timeout(
 	void *_thread)
 {
 	thread_t thread = _thread;
-	assert(!(thread->timer.set & TIMEOUT_PENDING));
 
 	clear_wait(thread, THREAD_TIMED_OUT, FALSE);
 }
@@ -895,7 +894,6 @@ void thread_dispatch(
 	simple_lock_nocheck(&(thread)->lock);
 
 	if (thread->swap_func != thread_no_continuation) {
-		assert((thread->state & TH_SWAP_STATE) == 0);
 		thread->state |= TH_SWAPPED;
 		stack_free(thread);
 	}
@@ -1060,7 +1058,6 @@ void update_priority(
 
 	ticks = sched_tick - thread->sched_stamp;
 
-	assert(ticks != 0);
 
 	/*
 	 *	If asleep for more than 30 seconds forget all
@@ -1181,7 +1178,6 @@ void thread_setrun(
 		update_priority(th);
 	}
 
-	assert(th->runq == RUN_QUEUE_NULL);
 
 	/*
 	 *	Try to dispatch the thread directly onto an idle processor.

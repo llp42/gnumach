@@ -122,7 +122,6 @@ vm_pageout_setup(
 	vm_page_t	holding_page = 0; /*'=0'to quiet gcc warnings*/
 	vm_page_t	new_m;
 
-	assert(m->busy && !m->absent && !m->fictitious);
 
 	/*
 	 *	If we are not flushing the page, allocate a
@@ -223,7 +222,6 @@ vm_pageout_setup(
 		 */
 		m = new_m;
 		m->dirty = TRUE;
-		assert(!m->precious);
 		PAGE_WAKEUP_DONE(m);
 	}
 
@@ -247,7 +245,6 @@ vm_pageout_setup(
 		 *	pager.
 		 */
 
-		assert(!old_object->internal);
 		m->laundry = FALSE;
 	} else if (old_object->internal ||
 		   memory_manager_default_port(old_object->pager)) {
@@ -322,7 +319,6 @@ vm_pageout_page(
 	kern_return_t		rc;
 	boolean_t		precious_clean;
 
-	assert(m->busy);
 
 	/*
 	 *	Cleaning but not flushing a clean precious page is a
@@ -369,7 +365,6 @@ vm_pageout_page(
 				flush);		/* flush */
 
 	rc = vm_map_copyin_object(new_object, 0, PAGE_SIZE, &copy);
-	assert(rc == KERN_SUCCESS);
 
 	if (initial) {
 		rc = memory_object_data_initialize(

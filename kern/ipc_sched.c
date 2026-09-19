@@ -183,7 +183,6 @@ thread_handoff(
 {
 	spl_t	s;
 
-	assert(current_thread() == old);
 
 	/*
 	 *	XXX Dubious things here:

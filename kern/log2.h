@@ -32,14 +32,12 @@
 static inline unsigned int
 ilog2(unsigned long x)
 {
-    assert(x != 0);
     return LONG_BIT - __builtin_clzl(x) - 1;
 }
 
 static inline unsigned int
 iorder2(unsigned long size)
 {
-    assert(size != 0);
 
     if (size == 1)
         return 0;

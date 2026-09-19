@@ -323,8 +323,6 @@ void vm_page_insert(
 
 	VM_PAGE_CHECK(mem);
 
-	assert(!mem->active && !mem->inactive);
-	assert(!mem->external);
 
 	if (!object->internal) {
 		mem->external = TRUE;
@@ -363,7 +361,6 @@ void vm_page_insert(
 	 */
 
 	object->resident_page_count++;
-	assert(object->resident_page_count != 0);
 
 	/*
 	 *	Detect sequential access and inactivate previous page.
@@ -402,8 +399,6 @@ void vm_page_replace(
 
 	VM_PAGE_CHECK(mem);
 
-	assert(!mem->active && !mem->inactive);
-	assert(!mem->external);
 
 	if (!object->internal) {
 		mem->external = TRUE;
@@ -479,7 +474,6 @@ void vm_page_replace(
 	 */
 
 	object->resident_page_count++;
-	assert(object->resident_page_count != 0);
 }
 
 /*
@@ -498,7 +492,6 @@ void vm_page_remove(
 	vm_page_bucket_t	*bucket;
 	vm_page_t		this;
 
-	assert(mem->tabled);
 
 
 	VM_PAGE_CHECK(mem);
@@ -663,7 +656,6 @@ vm_page_t vm_page_grab_fictitious(void)
 	} else {
 		m = list_first_entry(&vm_page_queue_fictitious,
 				     struct vm_page, node);
-		assert(m->fictitious);
 		list_remove(&m->node);
 		m->free = FALSE;
 		vm_page_fictitious_count--;
@@ -733,10 +725,6 @@ boolean_t vm_page_convert(struct vm_page **mp)
 
 	fict_m = *mp;
 
-	assert(fict_m->fictitious);
-	assert(fict_m->phys_addr == vm_page_fictitious_addr);
-	assert(!fict_m->active);
-	assert(!fict_m->inactive);
 
 	real_m = vm_page_grab(VM_PAGE_HIGHMEM);
 	if (real_m == VM_PAGE_NULL)
@@ -755,9 +743,6 @@ boolean_t vm_page_convert(struct vm_page **mp)
 	vm_page_insert(real_m, object, offset);
 	simple_unlock(&vm_page_queue_lock);
 
-	assert(real_m->phys_addr != vm_page_fictitious_addr);
-	assert(fict_m->fictitious);
-	assert(fict_m->phys_addr == vm_page_fictitious_addr);
 
 	vm_page_release_fictitious(fict_m);
 	*mp = real_m;
@@ -983,7 +968,6 @@ void vm_page_free(
 	}
 
 
-	assert(!mem->active && !mem->inactive);
 
 	if (mem->wire_count != 0) {
 		if (!mem->private && !mem->fictitious)

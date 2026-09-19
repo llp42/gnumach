@@ -161,7 +161,6 @@ rdxtree_node_create(struct rdxtree_node **nodep, unsigned int height)
     if (node == NULL)
         return ERR_NOMEM;
 
-    assert(rdxtree_check_alignment(node));
     node->parent = NULL;
     node->height = height;
     node->nr_entries = 0;
@@ -195,7 +194,6 @@ rdxtree_node_link(struct rdxtree_node *node, struct rdxtree_node *parent,
 static inline void
 rdxtree_node_unlink(struct rdxtree_node *node)
 {
-    assert(node->parent != NULL);
     node->parent = NULL;
 }
 
@@ -215,8 +213,6 @@ static inline void
 rdxtree_node_insert(struct rdxtree_node *node, unsigned int index,
                     void *entry)
 {
-    assert(index < ARRAY_SIZE(node->entries));
-    assert(node->entries[index] == NULL);
 
     node->nr_entries++;
     llsync_assign_ptr(node->entries[index], entry);
@@ -232,8 +228,6 @@ rdxtree_node_insert_node(struct rdxtree_node *node, unsigned int index,
 static inline void
 rdxtree_node_remove(struct rdxtree_node *node, unsigned int index)
 {
-    assert(index < ARRAY_SIZE(node->entries));
-    assert(node->entries[index] != NULL);
 
     node->nr_entries--;
     llsync_assign_ptr(node->entries[index], NULL);
@@ -426,8 +420,6 @@ rdxtree_insert_common(struct rdxtree *tree, rdxtree_key_t key,
     unsigned int height, shift, index = 0;
     int error;
 
-    assert(ptr != NULL);
-    assert(rdxtree_check_alignment(ptr));
 
     if (unlikely(key > rdxtree_max_key(tree->height))) {
         error = rdxtree_grow(tree, key);
@@ -503,8 +495,6 @@ rdxtree_insert_alloc_common(struct rdxtree *tree, void *ptr,
     rdxtree_key_t key;
     int error;
 
-    assert(ptr != NULL);
-    assert(rdxtree_check_alignment(ptr));
 
     height = tree->height;
 
@@ -679,12 +669,8 @@ rdxtree_replace_slot(void **slot, void *ptr)
 {
     void *old;
 
-    assert(ptr != NULL);
-    assert(rdxtree_check_alignment(ptr));
 
     old = *slot;
-    assert(old != NULL);
-    assert(rdxtree_check_alignment(old));
     llsync_assign_ptr(*slot, ptr);
     return old;
 }

@@ -854,7 +854,6 @@ processor_set_things(
 		if (size != 0)
 			kfree(addr, size);
 
-		assert(size_needed > 0);
 		size = size_needed;
 
 		addr = kalloc(size);
@@ -876,7 +875,6 @@ processor_set_things(
 			task_reference(task);
 			tasks[i] = task;
 		}
-		assert(queue_end(&pset->tasks, (queue_entry_t) task));
 		break;
 	    }
 
@@ -892,7 +890,6 @@ processor_set_things(
 			thread_reference(thread);
 			threads[i] = thread;
 		}
-		assert(queue_end(&pset->threads, (queue_entry_t) thread));
 		break;
 	    }
 	}

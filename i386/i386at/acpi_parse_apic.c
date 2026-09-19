@@ -317,7 +317,6 @@ acpi_get_apic(struct acpi_rsdt *rsdt, int acpi_rsdt_n)
         check_signature = acpi_check_signature(descr_header->signature, ACPI_HPET_SIG, 4*sizeof(uint8_t));
         if (check_signature == ACPI_SUCCESS) {
             map_addr = ((struct acpi_hpet *)descr_header)->address.addr64;
-            assert (map_addr != 0);
             hpet_addr = (uint32_t *)kmem_map_aligned_table(map_addr, 1024, VM_PROT_READ | VM_PROT_WRITE);
             printf("HPET at physical address 0x%llx\n", map_addr);
         }
@@ -357,7 +356,6 @@ acpi_get_apic2(struct acpi_xsdt *xsdt, int acpi_xsdt_n)
         check_signature = acpi_check_signature(descr_header->signature, ACPI_HPET_SIG, 4*sizeof(uint8_t));
         if (check_signature == ACPI_SUCCESS) {
             map_addr = ((struct acpi_hpet *)descr_header)->address.addr64;
-            assert (map_addr != 0);
             hpet_addr = (uint32_t *)kmem_map_aligned_table(map_addr, 1024, VM_PROT_READ | VM_PROT_WRITE);
             printf("HPET at physical address 0x%llx\n", map_addr);
         }

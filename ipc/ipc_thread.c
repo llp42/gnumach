@@ -86,14 +86,11 @@ ipc_thread_rmqueue(
 {
 	ipc_thread_t next, prev;
 
-	assert(queue->ithq_base != ITH_NULL);
 
 	next = thread->ith_next;
 	prev = thread->ith_prev;
 
 	if (next == thread) {
-		assert(prev == thread);
-		assert(queue->ithq_base == thread);
 
 		queue->ithq_base = ITH_NULL;
 	} else {

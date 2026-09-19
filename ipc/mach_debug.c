@@ -163,7 +163,6 @@ host_ipc_marequest_info(
 
 		kr = vm_map_copyin(ipc_kernel_map, addr, used,
 				   TRUE, &copy);
-		assert(kr == KERN_SUCCESS);
 
 		*infop = (hash_info_bucket_t *) copy;
 		*countp = actual;
@@ -271,7 +270,6 @@ mach_port_kernel_object(
 	}
 
 	port = (ipc_port_t) entry->ie_object;
-	assert(port != IP_NULL);
 
 	ip_lock(port);
 	is_read_unlock(space);

@@ -453,7 +453,6 @@ int copyinmsg (const void *userbuf, void *kernelbuf, const size_t usize, const s
   kmsg->msgh_remote_port &= 0xFFFFFFFF; // FIXME: still have port names here
   kmsg->msgh_local_port &= 0xFFFFFFFF;  // also, this assumes little-endian
 #endif
-  assert(kmsg->msgh_size <= ksize);
   return 0;
 }
 

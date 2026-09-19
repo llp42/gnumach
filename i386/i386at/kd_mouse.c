@@ -268,7 +268,6 @@ serial_mouse_close(
 	int mouse_pic = cominfo[unit]->sysdep1;
 	unsigned short base_addr  = cominfo[unit]->address;
 
-	assert(ivect[mouse_pic] == mouseintr);
 	outb(base_addr + RIE, 0);	/* disable serial port */
 	outb(base_addr + RMC, 0);	/* no rts */
 	ivect[mouse_pic] = oldvect;

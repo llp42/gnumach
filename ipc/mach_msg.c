@@ -141,7 +141,6 @@ mach_msg_send(
 	if (mr != MACH_MSG_SUCCESS) {
 		mr |= ipc_kmsg_copyout_pseudo(kmsg, space, map);
 
-		assert(kmsg->ikm_marequest == IMAR_NULL);
 		(void) ipc_kmsg_put(msg, kmsg, kmsg->ikm_header.msgh_size);
 	}
 
@@ -218,7 +217,6 @@ mach_msg_receive(
 				mach_msg_size_t real_size =
 					(mach_msg_size_t) (vm_offset_t) kmsg;
 
-				assert(real_size > rcv_size);
 
 				(void) copyout(&real_size,
 					       &msg->msgh_size,
@@ -229,7 +227,6 @@ mach_msg_receive(
 		}
 
 		kmsg->ikm_header.msgh_seqno = seqno;
-		assert(kmsg->ikm_header.msgh_size <= rcv_size);
 	} else {
 		mr = ipc_mqueue_receive(mqueue, option & MACH_RCV_TIMEOUT,
 					MACH_MSG_SIZE_MAX, time_out,
@@ -309,7 +306,6 @@ mach_msg_receive_continue(void)
 				mach_msg_size_t real_size =
 					(mach_msg_size_t) (vm_offset_t) kmsg;
 
-				assert(real_size > rcv_size);
 
 				(void) copyout(&real_size,
 					       &msg->msgh_size,
@@ -321,7 +317,6 @@ mach_msg_receive_continue(void)
 		}
 
 		kmsg->ikm_header.msgh_seqno = seqno;
-		assert(msg_usize(&kmsg->ikm_header) <= rcv_size);
 	} else {
 		mr = ipc_mqueue_receive(mqueue, option & MACH_RCV_TIMEOUT,
 					MACH_MSG_SIZE_MAX, time_out,
@@ -489,7 +484,6 @@ mach_msg_trap(
 				goto slow_copyin;
 
 			is_read_lock(space);
-			assert(space->is_active);
 
 			ipc_entry_t entry;
 			entry = ipc_entry_lookup (space, reply_name);
@@ -499,7 +493,6 @@ mach_msg_trap(
 				goto abort_request_copyin;
 			}
 			reply_port = (ipc_port_t) entry->ie_object;
-			assert(reply_port != IP_NULL);
 		    }
 
 		    {
@@ -520,10 +513,8 @@ mach_msg_trap(
 			if (IE_BITS_TYPE (bits) != MACH_PORT_TYPE_SEND)
 				goto abort_request_copyin;
 
-			assert(IE_BITS_UREFS(bits) > 0);
 
 			dest_port = (ipc_port_t) entry->ie_object;
-			assert(dest_port != IP_NULL);
 		    }
 
 			/*
@@ -542,14 +533,9 @@ mach_msg_trap(
 			}
 			is_read_unlock(space);
 
-			assert(dest_port->ip_srights > 0);
 			dest_port->ip_srights++;
 			ip_reference(dest_port);
 
-			assert(ip_active(reply_port));
-			assert(reply_port->ip_receiver_name ==
-			       kmsg->ikm_header.msgh_local_port);
-			assert(reply_port->ip_receiver == space);
 
 			reply_port->ip_sorights++;
 			ip_reference(reply_port);
@@ -574,7 +560,6 @@ mach_msg_trap(
 				 */
 				ip_unlock(reply_port);
 
-				assert(ip_active(dest_port));
 				ip_unlock(dest_port);
 				goto kernel_send;
 			}
@@ -616,7 +601,6 @@ mach_msg_trap(
 		    }
 
 			is_write_lock(space);
-			assert(space->is_active);
 
 		    {
 			ipc_entry_t entry;
@@ -637,16 +621,11 @@ mach_msg_trap(
 
 			/* optimized ipc_right_copyin */
 
-			assert(IE_BITS_TYPE(entry->ie_bits) ==
-						MACH_PORT_TYPE_SEND_ONCE);
-			assert(IE_BITS_UREFS(entry->ie_bits) == 1);
-			assert((entry->ie_bits & IE_BITS_MAREQUEST) == 0);
 
 			if (entry->ie_request != 0)
 				goto abort_reply_dest_copyin;
 
 			dest_port = (ipc_port_t) entry->ie_object;
-			assert(dest_port != IP_NULL);
 
 			ip_lock(dest_port);
 			if (!ip_active(dest_port)) {
@@ -654,7 +633,6 @@ mach_msg_trap(
 				goto abort_reply_dest_copyin;
 			}
 
-			assert(dest_port->ip_sorights > 0);
 			entry->ie_object = IO_NULL;
 			ipc_entry_dealloc (space, dest_name, entry);
 		    }
@@ -667,7 +645,6 @@ mach_msg_trap(
 
 			/* make sure we can queue to the destination */
 
-			assert(dest_port->ip_receiver != ipc_space_kernel);
 
 			/* optimized ipc_mqueue_copyin */
 
@@ -688,10 +665,8 @@ mach_msg_trap(
 				ipc_pset_t rcv_pset;
 
 				rcv_pset = (ipc_pset_t) entry->ie_object;
-				assert(rcv_pset != IPS_NULL);
 
 				ips_lock(rcv_pset);
-				assert(ips_active(rcv_pset));
 
 				rcv_object = (ipc_object_t) rcv_pset;
 				rcv_mqueue = &rcv_pset->ips_messages;
@@ -699,11 +674,9 @@ mach_msg_trap(
 				ipc_port_t rcv_port;
 
 				rcv_port = (ipc_port_t) entry->ie_object;
-				assert(rcv_port != IP_NULL);
 
 				if (!ip_lock_try(rcv_port))
 					goto abort_reply_rcv_copyin;
-				assert(ip_active(rcv_port));
 
 				if (rcv_port->ip_pset != IPS_NULL) {
 					ip_unlock(rcv_port);
@@ -752,13 +725,6 @@ mach_msg_trap(
 		 *	and not abort when we try to lock dest_mqueue.
 		 */
 
-		assert(ip_active(dest_port));
-		assert(dest_port->ip_receiver != ipc_space_kernel);
-		assert((dest_port->ip_msgcount < dest_port->ip_qlimit) ||
-		       (MACH_MSGH_BITS_REMOTE(kmsg->ikm_header.msgh_bits) ==
-						MACH_MSG_TYPE_PORT_SEND_ONCE));
-		assert((kmsg->ikm_header.msgh_bits &
-						MACH_MSGH_BITS_CIRCULAR) == 0);
 
 	    {
 		ipc_mqueue_t dest_mqueue;
@@ -803,7 +769,6 @@ mach_msg_trap(
 
 		if ((receiver->swap_func == mach_msg_continue) &&
 		    thread_handoff(self, mach_msg_continue, receiver)) {
-			assert(current_thread() == receiver);
 
 			/*
 			 *	We can use the optimized receive code,
@@ -812,7 +777,6 @@ mach_msg_trap(
 		} else if ((receiver->swap_func ==
 				exception_raise_continue) &&
 			   thread_handoff(self, mach_msg_continue, receiver)) {
-			assert(current_thread() == receiver);
 
 			/*
 			 *	We are a reply message coming back through
@@ -838,7 +802,6 @@ mach_msg_trap(
 			return MACH_MSG_SUCCESS;
 		} else if ((send_size <= receiver->ith_msize) &&
 			   thread_handoff(self, mach_msg_continue, receiver)) {
-			assert(current_thread() == receiver);
 
 			if ((receiver->swap_func ==
 				mach_msg_receive_continue) &&
@@ -945,8 +908,6 @@ mach_msg_trap(
 		 *	ipc_kmsg_copyout/ipc_kmsg_put.
 		 */
 
-		assert((ipc_port_t) kmsg->ikm_header.msgh_remote_port
-						== dest_port);
 
 		reply_size = kmsg->ikm_header.msgh_size;
 		if (rcv_size < msg_usize(&kmsg->ikm_header))
@@ -968,7 +929,6 @@ mach_msg_trap(
 				goto slow_copyout;
 
 			is_write_lock(space);
-			assert(space->is_active);
 
 			/*
 			 *	To do an atomic copyout, need simultaneous
@@ -988,7 +948,6 @@ mach_msg_trap(
 				goto abort_request_copyout;
 			}
 
-			assert(reply_port->ip_sorights > 0);
 			ip_unlock(reply_port);
 
 		    {
@@ -997,12 +956,10 @@ mach_msg_trap(
 			kr = ipc_entry_get (space, &reply_name, &entry);
 			if (kr)
 				goto abort_request_copyout;
-			assert (entry != NULL);
 
 		    {
 			mach_port_gen_t gen;
 
-			assert((entry->ie_bits &~ IE_BITS_GEN_MASK) == 0);
 			gen = entry->ie_bits + IE_BITS_GEN_ONE;
 
 			/* optimized ipc_right_copyout */
@@ -1010,14 +967,12 @@ mach_msg_trap(
 			entry->ie_bits = gen | (MACH_PORT_TYPE_SEND_ONCE | 1);
 		    }
 
-			assert(MACH_PORT_NAME_VALID(reply_name));
 			entry->ie_object = (ipc_object_t) reply_port;
 			is_write_unlock(space);
 		    }
 
 			/* optimized ipc_object_copyout_dest */
 
-			assert(dest_port->ip_srights > 0);
 			ip_release(dest_port);
 
 			if (dest_port->ip_receiver == space)
@@ -1075,7 +1030,6 @@ mach_msg_trap(
 
 			/* optimized ipc_object_copyout_dest */
 
-			assert(dest_port->ip_sorights > 0);
 
 			payload = dest_port->ip_protected_payload;
 
@@ -1120,7 +1074,6 @@ mach_msg_trap(
 
 			/* optimized ipc_object_copyout_dest */
 
-			assert(dest_port->ip_sorights > 0);
 
 			payload = dest_port->ip_protected_payload;
 
@@ -1243,11 +1196,9 @@ mach_msg_trap(
 			goto slow_send;
 
 		dest_port = (ipc_port_t) kmsg->ikm_header.msgh_remote_port;
-		assert(IP_VALID(dest_port));
 
 		ip_lock(dest_port);
 		if (dest_port->ip_receiver == ipc_space_kernel) {
-			assert(ip_active(dest_port));
 			ip_unlock(dest_port);
 			goto kernel_send;
 		}
@@ -1364,9 +1315,6 @@ mach_msg_trap(
 		 * no threads blocked waiting to send.
 		 */
 
-		assert(kmsg->ikm_marequest == IMAR_NULL);
-		assert(ipc_thread_queue_first(&reply_port->ip_blocked)
-				== ITH_NULL);
 
 		dest_port = reply_port;
 		kmsg->ikm_header.msgh_seqno = dest_port->ip_seqno++;
@@ -1395,7 +1343,6 @@ mach_msg_trap(
 			mr |= ipc_kmsg_copyout_pseudo(kmsg, space,
 						      current_map());
 
-			assert(kmsg->ikm_marequest == IMAR_NULL);
 			(void) ipc_kmsg_put(msg, kmsg,
 					    kmsg->ikm_header.msgh_size);
 			thread_syscall_return(mr);
@@ -1511,7 +1458,6 @@ mach_msg_trap(
 		if (mr != MACH_MSG_SUCCESS) {
 			mr |= ipc_kmsg_copyout_pseudo(kmsg, space, map);
 
-			assert(kmsg->ikm_marequest == IMAR_NULL);
 			(void) ipc_kmsg_put(msg, kmsg,
 					    kmsg->ikm_header.msgh_size);
 		}
@@ -1679,8 +1625,6 @@ mach_msg_interrupt(thread_t thread)
 {
 	ipc_mqueue_t mqueue;
 
-	assert((thread->swap_func == mach_msg_continue) ||
-	       (thread->swap_func == mach_msg_receive_continue));
 
 	mqueue = thread->ith_mqueue;
 	simple_lock(&(mqueue)->imq_lock_data);

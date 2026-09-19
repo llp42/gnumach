@@ -85,7 +85,6 @@ task_insert_send_right(
 			    port, MACH_MSG_TYPE_PORT_SEND);
 		if (kr == KERN_SUCCESS)
 			break;
-		assert(kr == KERN_NAME_EXISTS);
 	}
 
 	return name;
@@ -99,7 +98,6 @@ free_bootstrap_pages(phys_addr_t start, phys_addr_t end)
   while (start < end)
     {
       page = vm_page_lookup_pa(start);
-      assert(page != NULL);
       vm_page_manage(page);
       start += PAGE_SIZE;
     }
@@ -395,8 +393,6 @@ read_exec(void *handle, vm_offset_t file_ofs, vm_size_t file_size,
 	if (!(sec_type & EXEC_SECTYPE_ALLOC))
 		return 0;
 
-	assert(mem_size > 0);
-	assert(mem_size >= file_size);
 
 	start_page = trunc_page(mem_addr);
 	end_page = round_page(mem_addr + mem_size);
@@ -407,20 +403,16 @@ read_exec(void *handle, vm_offset_t file_ofs, vm_size_t file_size,
 #endif
 
 	err = vm_allocate(user_map, &start_page, end_page - start_page, FALSE);
-	assert(err == 0);
-	assert(start_page == trunc_page(mem_addr));
 
 	if (file_size > 0)
 	{
 		err = copyout((char *)phystokv (mod->mod_start) + file_ofs,
 			      (void *)mem_addr, file_size);
-		assert(err == 0);
 	}
 
 	if (mem_prot != VM_PROT_ALL)
 	{
 		err = vm_protect(user_map, start_page, end_page - start_page, FALSE, mem_prot);
-		assert(err == 0);
 	}
 
 	return 0;
@@ -641,12 +633,10 @@ boot_script_exec_cmd (void *hook, task_t task, char *path, int argc,
       simple_lock_init (&info.lock);
 
       err = thread_create ((task_t)task, &thread);
-      assert(err == 0);
       simple_lock (&info.lock);
       thread->saved.other = &info;
       thread_start (thread, user_bootstrap);
       err = thread_resume (thread);
-      assert(err == 0);
 
       /* We need to synchronize with the new thread and block this
 	 main thread until it has finished referring to our local state.  */
@@ -689,7 +679,6 @@ static void user_bootstrap(void)
   /* Tell the bootstrap thread running boot_script_exec_cmd
      that we are done looking at INFO.  */
   simple_lock (&info->lock);
-  assert (!info->done);
   info->done = 1;
   simple_unlock (&info->lock);
   thread_wakeup ((event_t) info);

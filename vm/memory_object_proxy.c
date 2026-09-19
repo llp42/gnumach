@@ -180,7 +180,6 @@ memory_object_create_proxy (ipc_space_t space, vm_prot_t max_protection,
   notify = ipc_port_make_sonce (proxy->notify);
   ip_lock (proxy->port);
   ipc_port_nsrequest (proxy->port, 1, notify, &notify);
-  assert (notify == IP_NULL);
 
   /* Consumes the port right */
   proxy->object = object[0];

@@ -708,8 +708,6 @@ kern_return_t vm_allocate_contiguous(
 	*result_vaddr = vaddr;
 	*result_paddr = pages->phys_addr;
 
-	assert(*result_paddr >= pmin);
-	assert(*result_paddr + size <= pmax);
 
 	return KERN_SUCCESS;
 }
@@ -806,7 +804,6 @@ kern_return_t vm_pages_phys(
 		vm_map_copy_t copy;
 		kr = vm_map_copyin(ipc_kernel_map, (vm_offset_t) pagesp,
 				   count * sizeof(pagesp[0]), TRUE, &copy);
-		assert(kr == KERN_SUCCESS);
 		*pagespp = (rpc_phys_addr_array_t) copy;
 	}
 

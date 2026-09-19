@@ -127,7 +127,6 @@ ipc_entry_alloc_name(
 	kern_return_t kr;
 	ipc_entry_t entry, e, *prevp;
 	void **slot;
-	assert(MACH_PORT_NAME_VALID(name));
 
 	if (!space->is_active) {
 		return KERN_INVALID_TASK;
@@ -180,8 +179,6 @@ ipc_entry_alloc_name(
 	space->is_free_list_size -= 1;
 
 	entry->ie_bits = 0;
-	assert(entry->ie_object == IO_NULL);
-	assert(entry->ie_name == name);
 	entry->ie_request = 0;
 
 	space->is_size += 1;

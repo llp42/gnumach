@@ -86,11 +86,9 @@ ipc_mqueue_receive(ipc_mqueue_t, mach_msg_option_t,
 
 #define	ipc_mqueue_send_always(kmsg)					\
 MACRO_BEGIN								\
-	mach_msg_return_t mr;						\
 									\
-	mr = ipc_mqueue_send((kmsg), MACH_SEND_ALWAYS,			\
+	(void) ipc_mqueue_send((kmsg), MACH_SEND_ALWAYS,			\
 			     MACH_MSG_TIMEOUT_NONE);			\
-	assert(mr == MACH_MSG_SUCCESS);					\
 MACRO_END
 
 

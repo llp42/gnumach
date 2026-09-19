@@ -258,8 +258,6 @@ static void * kmem_buf_verify(void *buf, uint64_t pattern, vm_size_t size)
 {
     uint64_t *ptr, *end;
 
-    assert(P2ALIGNED((unsigned long)buf, sizeof(uint64_t)));
-    assert(P2ALIGNED(size, sizeof(uint64_t)));
 
     end = buf + size;
 
@@ -274,8 +272,6 @@ static void kmem_buf_fill(void *buf, uint64_t pattern, size_t size)
 {
     uint64_t *ptr, *end;
 
-    assert(P2ALIGNED((unsigned long)buf, sizeof(uint64_t)));
-    assert(P2ALIGNED(size, sizeof(uint64_t)));
 
     end = buf + size;
 
@@ -288,8 +284,6 @@ static void * kmem_buf_verify_fill(void *buf, uint64_t old, uint64_t new,
 {
     uint64_t *ptr, *end;
 
-    assert(P2ALIGNED((unsigned long)buf, sizeof(uint64_t)));
-    assert(P2ALIGNED(size, sizeof(uint64_t)));
 
     end = buf + size;
 
@@ -326,7 +320,6 @@ kmem_pagealloc_physmem(vm_size_t size)
 {
     struct vm_page *page;
 
-    assert(size == PAGE_SIZE);
 
     for (;;) {
         page = vm_page_grab(VM_PAGE_DIRECTMAP);
@@ -345,9 +338,7 @@ kmem_pagefree_physmem(vm_offset_t addr, vm_size_t size)
 {
     struct vm_page *page;
 
-    assert(size == PAGE_SIZE);
     page = vm_page_lookup_pa(kvtophys(addr));
-    assert(page != NULL);
     vm_page_release(page, FALSE, FALSE);
 }
 
@@ -357,7 +348,6 @@ kmem_pagealloc_virtual(vm_size_t size, vm_size_t align)
     vm_offset_t addr;
     kern_return_t kr;
 
-    assert(size > PAGE_SIZE);
     size = vm_page_round(size);
 
     if (align <= PAGE_SIZE)
@@ -377,7 +367,6 @@ kmem_pagefree_virtual(vm_offset_t addr, vm_size_t size)
     if (addr < kernel_virtual_start || addr + size > kernel_virtual_end)
 	panic("kmem_pagefree_virtual(%lx-%lx) falls in physical memory area!\n",
 		(unsigned long) addr, (unsigned long) addr + size);
-    assert(size > PAGE_SIZE);
     size = vm_page_round(size);
     kmem_free(kernel_map, addr, size);
 }
@@ -385,7 +374,6 @@ kmem_pagefree_virtual(vm_offset_t addr, vm_size_t size)
 static vm_offset_t
 kmem_pagealloc(vm_size_t size, vm_size_t align, int flags)
 {
-    assert(align <= size);
     return (flags & KMEM_CF_PHYSMEM)
            ? kmem_pagealloc_physmem(size)
            : kmem_pagealloc_virtual(size, align);
@@ -450,7 +438,6 @@ static struct kmem_slab * kmem_slab_create(struct kmem_cache *cache,
             struct vm_page *page;
 
             page = vm_page_lookup_pa(kvtophys(slab_buf));
-            assert(page != NULL);
             vm_page_set_priv(page, slab);
         }
     } else {
@@ -514,8 +501,6 @@ static void kmem_slab_destroy(struct kmem_slab *slab, struct kmem_cache *cache)
 {
     vm_offset_t slab_buf;
 
-    assert(slab->nr_refs == 0);
-    assert(slab->first_free != NULL);
 
     if (cache->flags & KMEM_CF_VERIFY)
         kmem_slab_destroy_verify(slab, cache);
@@ -528,7 +513,6 @@ static void kmem_slab_destroy(struct kmem_slab *slab, struct kmem_cache *cache)
 
             /* Not strictly needed, but let's increase safety */
             page = vm_page_lookup_pa(kvtophys(slab_buf));
-            assert(page != NULL);
             vm_page_set_priv(page, NULL);
         }
 
@@ -685,8 +669,6 @@ void kmem_cache_init(struct kmem_cache *cache, const char *name,
     if (align < KMEM_ALIGN_MIN)
         align = KMEM_ALIGN_MIN;
 
-    assert(obj_size > 0);
-    assert(ISP2(align));
 
     buf_size = P2ROUND(obj_size, align);
 
@@ -808,7 +790,6 @@ static void * kmem_cache_alloc_from_slab(struct kmem_cache *cache)
         return NULL;
 
     bufctl = slab->first_free;
-    assert(bufctl != NULL);
     slab->first_free = bufctl->next;
     slab->nr_refs++;
     cache->nr_objs++;
@@ -847,31 +828,22 @@ static void kmem_cache_free_to_slab(struct kmem_cache *cache, void *buf)
     union kmem_bufctl *bufctl;
 
     if (cache->flags & KMEM_CF_DIRECT) {
-        assert(cache->slab_size == PAGE_SIZE);
         slab = (struct kmem_slab *)P2END((unsigned long)buf, cache->slab_size)
                - 1;
     } else if (cache->flags & KMEM_CF_USE_PAGE) {
         struct vm_page *page;
 
         page = vm_page_lookup_pa(kvtophys((vm_offset_t)buf));
-        assert(page != NULL);
         slab = vm_page_get_priv(page);
     } else {
         struct rbtree_node *node;
 
-        assert(cache->flags & KMEM_CF_USE_TREE);
         node = rbtree_lookup_nearest(&cache->active_slabs, buf,
                                      kmem_slab_cmp_lookup, RBTREE_LEFT);
-        assert(node != NULL);
         slab = rbtree_entry(node, struct kmem_slab, tree_node);
     }
 
-    assert((unsigned long)buf >= (unsigned long)slab->addr);
-    assert(((unsigned long)buf + cache->buf_size)
-           <= vm_page_trunc((unsigned long)slab->addr + cache->slab_size));
 
-    assert(slab->nr_refs >= 1);
-    assert(slab->nr_refs <= cache->bufs_per_slab);
     bufctl = kmem_buf_to_bufctl(buf, cache);
     bufctl->next = slab->first_free;
     slab->first_free = bufctl;
@@ -961,7 +933,6 @@ static void kmem_cache_free_verify(struct kmem_cache *cache, void *buf)
     unsigned char *redzone_byte;
     unsigned long slabend;
 
-    assert(cache->flags & KMEM_CF_USE_TREE);
 
     simple_lock(&cache->lock);
     node = rbtree_lookup_nearest(&cache->active_slabs, buf,
@@ -1056,7 +1027,6 @@ void slab_collect(void)
 void slab_bootstrap(void)
 {
     /* Make sure a bufctl can always be stored in a buffer */
-    assert(sizeof(union kmem_bufctl) <= KMEM_ALIGN_MIN);
 
     list_init(&kmem_cache_list);
     simple_lock_init(&kmem_cache_list_lock);
@@ -1091,7 +1061,6 @@ void kalloc_init(void)
  */
 static inline size_t kalloc_get_index(unsigned long size)
 {
-    assert(size != 0);
 
     size = (size - 1) >> KALLOC_FIRST_SHIFT;
 
@@ -1106,7 +1075,6 @@ static void kalloc_verify(struct kmem_cache *cache, void *buf, size_t size)
     size_t redzone_size;
     void *redzone;
 
-    assert(size <= cache->obj_size);
 
     redzone = buf + size;
     redzone_size = cache->obj_size - size;
@@ -1144,7 +1112,6 @@ static void kfree_verify(struct kmem_cache *cache, void *buf, size_t size)
 {
     unsigned char *redzone_byte, *redzone_end;
 
-    assert(size <= cache->obj_size);
 
     redzone_byte = buf + size;
     redzone_end = buf + cache->obj_size;
@@ -1302,7 +1269,6 @@ retry:
                    0, total_size - info_size);
 
         kr = vm_map_copyin(ipc_kernel_map, info_addr, info_size, TRUE, &copy);
-        assert(kr == KERN_SUCCESS);
         *infop = (cache_info_t *)copy;
     }
 

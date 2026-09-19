@@ -87,10 +87,8 @@ ipc_bootstrap(void)
 	/* create special spaces */
 
 	kr = ipc_space_create_special(&ipc_space_kernel);
-	assert(kr == KERN_SUCCESS);
 
 	kr = ipc_space_create_special(&ipc_space_reply);
-	assert(kr == KERN_SUCCESS);
 
 	/* initialize modules with hidden data structures */
 

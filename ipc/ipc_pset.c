@@ -138,9 +138,6 @@ ipc_pset_add(
 	ipc_pset_t	pset,
 	ipc_port_t	port)
 {
-	assert(ips_active(pset));
-	assert(ip_active(port));
-	assert(port->ip_pset == IPS_NULL);
 
 	port->ip_pset = pset;
 	port->ip_cur_target = &pset->ips_target;
@@ -153,12 +150,10 @@ ipc_pset_add(
 
 	ipc_mqueue_move(&pset->ips_messages, &port->ip_messages, port);
 	simple_unlock(&(&pset->ips_messages)->imq_lock_data);
-	assert(ipc_kmsg_queue_empty(&port->ip_messages.imq_messages));
 
 	/* wake up threads waiting to receive from the port */
 
 	ipc_mqueue_changed(&port->ip_messages, MACH_RCV_PORT_CHANGED);
-	assert(ipc_thread_queue_empty(&port->ip_messages.imq_threads));
 	simple_unlock(&(&port->ip_messages)->imq_lock_data);
 }
 
@@ -177,8 +172,6 @@ ipc_pset_remove(
 	ipc_pset_t	pset,
 	ipc_port_t	port)
 {
-	assert(ip_active(port));
-	assert(port->ip_pset == pset);
 
 	port->ip_pset = IPS_NULL;
 	port->ip_cur_target = &port->ip_target;
@@ -225,7 +218,6 @@ ipc_pset_move(
 	 */
 
 	ip_lock(port);
-	assert(ip_active(port));
 
 	oset = port->ip_pset;
 
@@ -237,7 +229,6 @@ ipc_pset_move(
 		/* just add port to the new set */
 
 		ips_lock(nset);
-		assert(ips_active(nset));
 		is_read_unlock(space);
 
 		ipc_pset_add(nset, port);
@@ -269,7 +260,6 @@ ipc_pset_move(
 		}
 
 		is_read_unlock(space);
-		assert(ips_active(nset));
 
 		ipc_pset_remove(oset, port);
 		ipc_pset_add(nset, port);
@@ -302,7 +292,6 @@ void
 ipc_pset_destroy(
 	ipc_pset_t	pset)
 {
-	assert(ips_active(pset));
 
 	pset->ips_object.io_bits &= ~IO_BITS_ACTIVE;
 

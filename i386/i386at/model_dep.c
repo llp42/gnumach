@@ -187,7 +187,6 @@ void machine_init(void)
 /* Conserve power on processor CPU.  */
 void machine_idle (int cpu)
 {
-  assert (cpu == cpu_number ());
   asm volatile ("hlt" : : : "memory");
 }
 

@@ -258,7 +258,6 @@ void vm_map_lock(struct vm_map *map)
 
 	if (current_thread()) {
 		current_thread()->vm_privilege++;
-		assert(current_thread()->vm_privilege != 0);
 	}
 
 	map->timestamp++;
@@ -487,10 +486,8 @@ vm_map_gap_remove_single(struct vm_map_header *hdr, struct vm_map_entry *entry)
 	}
 
 	tmp = list_first_entry(&entry->gap_list, struct vm_map_entry, gap_list);
-	assert(tmp->gap_size == entry->gap_size);
 	list_remove(&tmp->gap_list);
 	list_set_head(&tmp->gap_list, &entry->gap_list);
-	assert(!tmp->in_gap_tree);
 	rbtree_insert(&hdr->gap_tree, &tmp->gap_node,
 		      vm_map_entry_gap_cmp_insert);
 	tmp->in_gap_tree = 1;
@@ -707,7 +704,6 @@ vm_map_find_entry_anywhere(struct vm_map *map,
 	vm_offset_t start, end;
 	vm_offset_t max;
 
-	assert(size != 0);
 
 	max = map->max_offset;
 	if (((mask + 1) & mask) != 0) {
@@ -786,19 +782,14 @@ restart:
 	}
 
 	entry = rbtree_entry(node, struct vm_map_entry, gap_node);
-	assert(entry->in_gap_tree);
 
 	if (!list_empty(&entry->gap_list)) {
 		entry = list_last_entry(&entry->gap_list,
 					struct vm_map_entry, gap_list);
 	}
 
-	assert(entry->gap_size >= max_size);
 	start = (entry->vme_end + mask) & ~mask;
-	assert(start >= entry->vme_end);
 	end = start + size;
-	assert(end > start);
-	assert(end <= (entry->vme_end + entry->gap_size));
 	if (end > max) {
 		/* Does not respect the allowed maximum */
 		printf("%lx does not respect %lx\n", (unsigned long) end, (unsigned long) max);
@@ -1657,7 +1648,6 @@ static void vm_map_pageable_scan(
 		     (entry != vm_map_to_entry(map)) &&
 		     (entry->vme_end <= end);
 		     entry = entry->vme_next) {
-			assert(!entry->in_transition);
 			entry->in_transition = TRUE;
 			entry->needs_wakeup = FALSE;
 		}
@@ -1690,14 +1680,12 @@ static void vm_map_pageable_scan(
 		     (entry != vm_map_to_entry(map)) &&
 		     (entry->vme_end <= end);
 		     entry = entry->vme_next) {
-			assert(entry->in_transition);
 			entry->in_transition = FALSE;
 			/*
 			 *	Nothing should've tried to access
 			 *	this VM region while we had the map
 			 *	unlocked.
 			 */
-			assert(!entry->needs_wakeup);
 		}
 	} else {
 		vm_map_lock_clear_recursive(map);
@@ -2163,7 +2151,6 @@ kern_return_t vm_map_delete(
 	/*
 	 *	Must be called with map lock taken unless refcount is zero
 	 */
-	assert((map->ref_count > 0 && have_lock(&map->lock)) || (map->ref_count == 0));
 
 	/*
 	 *	Find the start of the region, and clip it
@@ -2560,7 +2547,6 @@ kern_return_t vm_map_copy_overwrite(
 	 *      support page lists LATER.
 	 */
 
-	assert(copy->type == VM_MAP_COPY_ENTRY_LIST);
 
 	/*
 	 *	Currently this routine only handles page-aligned
@@ -2704,7 +2690,6 @@ start_pass_1:
 			vm_map_unlock(dst_map);
 			return(KERN_INVALID_ADDRESS);
 		}
-		assert(entry != vm_map_to_entry(dst_map));
 
 		/*
 		 *	Check protection again
@@ -2734,9 +2719,6 @@ start_pass_1:
 			copy_size = size;
 		}
 
-		assert((entry->vme_end - entry->vme_start) == size);
-		assert((tmp_entry->vme_end - tmp_entry->vme_start) == size);
-		assert((copy_entry->vme_end - copy_entry->vme_start) == size);
 
 		/*
 		 *	If the destination contains temporary unshared memory,
@@ -2887,7 +2869,6 @@ vm_map_copy_insert(struct vm_map *map, struct vm_map_entry *where,
 {
 	struct vm_map_entry *entry;
 
-	assert(copy->type == VM_MAP_COPY_ENTRY_LIST);
 
 	for (;;) {
 		entry = vm_map_copy_first_entry(copy);
@@ -3348,7 +3329,6 @@ insert_pages:
 
 	for (offset = 0; offset < size; offset += PAGE_SIZE) {
 		m = *page_list;
-		assert(m && !m->tabled);
 
 		/*
 		 *	Must clear busy bit in page before inserting it.
@@ -3357,7 +3337,6 @@ insert_pages:
 		 *	The page is dirty in its new object.
 		 */
 
-		assert(!m->wanted);
 
 		m->busy = FALSE;
 		m->dirty = TRUE;
@@ -3436,7 +3415,6 @@ error:
 		 *	be waiting.
 		 */
 		last->in_transition = FALSE;
-		assert(!last->needs_wakeup);
 		needs_wakeup = FALSE;
 	}
 	else {
@@ -3449,7 +3427,6 @@ error:
                  */
                 while((entry != vm_map_to_entry(dst_map)) &&
                       (entry->vme_start < end)) {
-                        assert(entry->in_transition);
                         entry->in_transition = FALSE;
                         if(entry->needs_wakeup) {
                                 entry->needs_wakeup = FALSE;
@@ -3710,7 +3687,6 @@ kern_return_t vm_map_copyin(
 		 *	release the map lock(s).
 		 */
 
-		assert(src_object != VM_OBJECT_NULL);
 		vm_object_reference(src_object);
 
 		/*
@@ -4373,7 +4349,6 @@ retry:
 				page_vaddr = src_start + (i * PAGE_SIZE);
 				if (m->wire_count > 0) {
 
-				    assert(m->wire_count == 1);
 				    /*
 				     *	In order to steal a wired
 				     *	page, we have to unwire it
@@ -4396,7 +4371,6 @@ retry:
 				    	vm_map_clip_end(src_map, src_entry,
 						src_start + src_size);
 
-					assert(src_entry->wired_count > 0);
 					vm_map_entry_reset_wired(src_map, src_entry);
 					unwire_end = src_entry->vme_end;
 				        pmap_pageable(vm_map_pmap(src_map),
@@ -4557,15 +4531,12 @@ vm_map_t vm_map_fork(vm_map_t old_map)
 							old_entry->vme_start));
 				old_entry->offset = 0;
 				old_entry->object.vm_object = object;
-				assert(!old_entry->needs_copy);
 			}
 			else if (old_entry->needs_copy || object->shadowed ||
 			    (object->temporary && !old_entry->is_shared &&
 			     object->size > (vm_size_t)(old_entry->vme_end -
 						old_entry->vme_start))) {
 
-			    assert(object->temporary);
-			    assert(!(object->shadowed && old_entry->is_shared));
 			    vm_object_shadow(
 			        &old_entry->object.vm_object,
 			        &old_entry->offset,
@@ -5165,7 +5136,6 @@ vm_map_coalesce_entry(
 
 	prev_size = prev->vme_end - prev->vme_start;
 	entry_size = entry->vme_end - entry->vme_start;
-	assert(prev->gap_size == 0);
 
 	/*
 	 *	See if we can coalesce the two objects.

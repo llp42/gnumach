@@ -171,7 +171,6 @@ task_create_kernel(
 		new_task->priority = parent_task->priority;
 		new_task->max_priority = parent_task->max_priority;
 		/* at this point max_priority/priority must be valid */
-		assert(new_task->priority >= new_task->max_priority);
 		simple_unlock(&(parent_task)->lock);
 	}
 	else {
@@ -465,7 +464,6 @@ void task_hold_locked(
 	queue_head_t	*list;
 	thread_t	thread, cur_thread;
 
-	assert(task->active);
 
 	cur_thread = current_thread();
 
@@ -633,7 +631,6 @@ kern_return_t task_threads(
 		if (size != 0)
 			kfree(addr, size);
 
-		assert(size_needed > 0);
 		size = size_needed;
 
 		addr = kalloc(size);
@@ -652,7 +649,6 @@ kern_return_t task_threads(
 		thread_reference(thread);
 		threads[i] = thread;
 	}
-	assert(queue_end(&task->thread_list, (queue_entry_t) thread));
 
 	/* can unlock task now that we've got the thread refs */
 	simple_unlock(&(task)->lock);

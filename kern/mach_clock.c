@@ -385,7 +385,6 @@ void softclock(void)
 				else
 					t->set &= ~TIMEOUT_PENDING;
 				simple_unlock_irq(s, &twheel_lock);
-				assert(t_fcn != 0);
 				t_fcn(t_arg); /* call function at elapsed */
 				s = simple_lock_irq(&twheel_lock);
 				steps = 0;
@@ -419,7 +418,6 @@ void set_timeout(
 
 	s = simple_lock_irq(&twheel_lock);
 
-	assert (!(t->set & (TIMEOUT_ACTIVE | TIMEOUT_PENDING)));
 
 	t->set |= TIMEOUT_ACTIVE | TIMEOUT_PENDING;
 
@@ -451,7 +449,6 @@ boolean_t reset_timeout(timeout_t t)
 	if (nextsoftcheck == t)
 		nextsoftcheck = (timeout_t)queue_next(&t->chain);
 
-	assert (!queue_empty(spoke));
 
 	queue_remove(spoke, t, timeout_t, chain);
 	t->chain.prev = t->chain.next = NULL;

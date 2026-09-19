@@ -138,7 +138,6 @@ no_senders (mach_no_senders_notification_t *notification)
   io_perm = convert_port_to_io_perm
     ((ipc_port_t) notification->not_header.msgh_remote_port);
 
-  assert (io_perm != IO_PERM_NULL);
 
   ipc_kobject_set (io_perm->port, IKO_NULL, IKOT_NONE);
   ipc_port_dealloc_kernel (io_perm->port);
@@ -225,7 +224,6 @@ i386_io_perm_create (const ipc_port_t master_port, io_port_t from, io_port_t to,
   notify = ipc_port_make_sonce(io_perm->port);
   ip_lock(io_perm->port);
   ipc_port_nsrequest(io_perm->port, 1, notify, &notify);
-  assert(notify == IP_NULL);
 
   *new = io_perm;
 

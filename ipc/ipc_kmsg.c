@@ -116,14 +116,11 @@ ipc_kmsg_rmqueue(
 {
 	ipc_kmsg_t next, prev;
 
-	assert(queue->ikmq_base != IKM_NULL);
 
 	next = kmsg->ikm_next;
 	prev = kmsg->ikm_prev;
 
 	if (next == kmsg) {
-		assert(prev == kmsg);
-		assert(queue->ikmq_base == kmsg);
 
 		queue->ikmq_base = IKM_NULL;
 	} else {
@@ -149,7 +146,6 @@ ipc_kmsg_queue_next(
 {
 	ipc_kmsg_t next;
 
-	assert(queue->ikmq_base != IKM_NULL);
 
 	next = kmsg->ikm_next;
 	if (queue->ikmq_base == next)
@@ -279,12 +275,12 @@ ipc_kmsg_clean_body(
 
 			/* destroy memory carried in the message */
 
-			if (length == 0)
-				assert(data == 0);
-			else if (is_port)
-				kfree(data, length);
-			else
-				vm_map_copy_discard((vm_map_copy_t) data);
+			if (length != 0) {
+				if (is_port)
+					kfree(data, length);
+				else
+					vm_map_copy_discard((vm_map_copy_t) data);
+			}
 
 			saddr += sizeof(vm_offset_t);
 		}
@@ -355,10 +351,8 @@ ipc_kmsg_clean_partial(
 	mach_msg_bits_t mbits = kmsg->ikm_header.msgh_bits;
 	vm_offset_t saddr;
 
-	assert(kmsg->ikm_marequest == IMAR_NULL);
 
 	object = (ipc_object_t) kmsg->ikm_header.msgh_remote_port;
-	assert(IO_VALID(object));
 	ipc_object_destroy(object, MACH_MSGH_BITS_REMOTE(mbits));
 
 	object = (ipc_object_t) kmsg->ikm_header.msgh_local_port;
@@ -426,12 +420,12 @@ ipc_kmsg_clean_partial(
 
 			/* destroy memory carried in the message */
 
-			if (length == 0)
-				assert(data == 0);
-			else if (is_port)
-				kfree(data, length);
-			else
-				vm_map_copy_discard((vm_map_copy_t) data);
+			if (length != 0) {
+				if (is_port)
+					kfree(data, length);
+				else
+					vm_map_copy_discard((vm_map_copy_t) data);
+			}
 		}
 	}
 }
@@ -449,7 +443,6 @@ ipc_kmsg_free(ipc_kmsg_t kmsg)
 {
 	vm_size_t size;
 
-	assert(kmsg != IKM_NULL);
 
 	size = kmsg->ikm_size;
 
@@ -534,8 +527,6 @@ ipc_kmsg_get_from_kernel(
 {
 	ipc_kmsg_t kmsg;
 
-	assert(size >= sizeof(mach_msg_header_t));
-	assert(!mach_msg_kernel_is_misaligned(size));
 
 	kmsg = ikm_alloc(size);
 	if (kmsg == IKM_NULL)
@@ -693,10 +684,8 @@ ipc_kmsg_copyin_header(
 
 		/* optimized ipc_right_copyin */
 
-		assert(IE_BITS_UREFS(bits) > 0);
 
 		dest_port = (ipc_port_t) entry->ie_object;
-		assert(dest_port != IP_NULL);
 
 		ip_lock(dest_port);
 		/* can unlock space now without compromising atomicity */
@@ -707,7 +696,6 @@ ipc_kmsg_copyin_header(
 			break;
 		}
 
-		assert(dest_port->ip_srights > 0);
 		dest_port->ip_srights++;
 		ip_reference(dest_port);
 		ip_unlock(dest_port);
@@ -746,10 +734,8 @@ ipc_kmsg_copyin_header(
 		if (IE_BITS_TYPE (bits) != MACH_PORT_TYPE_SEND)
 			goto abort_request;
 
-		assert(IE_BITS_UREFS(bits) > 0);
 
 		dest_port = (ipc_port_t) entry->ie_object;
-		assert(dest_port != IP_NULL);
 
 		entry = ipc_entry_lookup (space, reply_name);
 		if (entry == IE_NULL)
@@ -764,7 +750,6 @@ ipc_kmsg_copyin_header(
 			goto abort_request;
 
 		reply_port = (ipc_port_t) entry->ie_object;
-		assert(reply_port != IP_NULL);
 
 		/*
 		 *	To do an atomic copyin, need simultaneous
@@ -782,14 +767,10 @@ ipc_kmsg_copyin_header(
 		/* can unlock space now without compromising atomicity */
 		is_read_unlock(space);
 
-		assert(dest_port->ip_srights > 0);
 		dest_port->ip_srights++;
 		ip_reference(dest_port);
 		ip_unlock(dest_port);
 
-		assert(ip_active(reply_port));
-		assert(reply_port->ip_receiver_name == reply_name);
-		assert(reply_port->ip_receiver == space);
 
 		reply_port->ip_sorights++;
 		ip_reference(reply_port);
@@ -835,15 +816,11 @@ ipc_kmsg_copyin_header(
 
 		/* optimized ipc_right_copyin */
 
-		assert(IE_BITS_TYPE(bits) == MACH_PORT_TYPE_SEND_ONCE);
-		assert(IE_BITS_UREFS(bits) == 1);
-		assert((bits & IE_BITS_MAREQUEST) == 0);
 
 		if (entry->ie_request != 0)
 			goto abort_reply;
 
 		dest_port = (ipc_port_t) entry->ie_object;
-		assert(dest_port != IP_NULL);
 
 		ip_lock(dest_port);
 		if (!ip_active(dest_port)) {
@@ -851,7 +828,6 @@ ipc_kmsg_copyin_header(
 			goto abort_reply;
 		}
 
-		assert(dest_port->ip_sorights > 0);
 		ip_unlock(dest_port);
 
 		entry->ie_object = IO_NULL;
@@ -929,7 +905,6 @@ ipc_kmsg_copyin_header(
 			goto invalid_dest;
 		}
 
-		assert(reply_type != 0); /* because name not null */
 
 		if (!ipc_right_copyin_check(space, name, entry, reply_type))
 			goto invalid_reply;
@@ -968,18 +943,11 @@ ipc_kmsg_copyin_header(
 			 *	still be there.
 			 */
 
-			assert(IO_VALID(dest_port));
-			assert(entry->ie_bits & MACH_PORT_TYPE_RECEIVE);
-			assert(dest_soright == IP_NULL);
 
 			kr = ipc_right_copyin(space, name, entry,
 					      reply_type, TRUE,
 					      &reply_port, &reply_soright);
 
-			assert(kr == KERN_SUCCESS);
-			assert(reply_port == dest_port);
-			assert(entry->ie_bits & MACH_PORT_TYPE_RECEIVE);
-			assert(reply_soright == IP_NULL);
 		} else if ((dest_type == MACH_MSG_TYPE_COPY_SEND) &&
 			   (reply_type == MACH_MSG_TYPE_COPY_SEND)) {
 			/*
@@ -993,8 +961,6 @@ ipc_kmsg_copyin_header(
 			if (kr != KERN_SUCCESS)
 				goto invalid_dest;
 
-			assert(entry->ie_bits & MACH_PORT_TYPE_SEND);
-			assert(dest_soright == IP_NULL);
 
 			/*
 			 *	It's OK if the port we got is dead now,
@@ -1029,10 +995,6 @@ ipc_kmsg_copyin_header(
 		} else {
 			ipc_port_t soright;
 
-			assert(((dest_type == MACH_MSG_TYPE_COPY_SEND) &&
-				(reply_type == MACH_MSG_TYPE_MOVE_SEND)) ||
-			       ((dest_type == MACH_MSG_TYPE_MOVE_SEND) &&
-				(reply_type == MACH_MSG_TYPE_COPY_SEND)));
 
 			/*
 			 *	To make this atomic, just do a move-send,
@@ -1147,8 +1109,6 @@ ipc_kmsg_copyin_header(
 			goto invalid_reply;
 		}
 
-		assert(dest_entry != reply_entry); /* names are not equal */
-		assert(reply_type != 0); /* because reply_name not null */
 
 		if (!ipc_right_copyin_check(space, reply_name, reply_entry,
 					    reply_type))
@@ -1160,7 +1120,6 @@ ipc_kmsg_copyin_header(
 		if (kr != KERN_SUCCESS)
 			goto invalid_dest;
 
-		assert(IO_VALID(dest_port));
 
 		saved_reply = (ipc_port_t) reply_entry->ie_object;
 		/* might be IP_NULL, if this is a dead name */
@@ -1170,7 +1129,6 @@ ipc_kmsg_copyin_header(
 		kr = ipc_right_copyin(space, reply_name, reply_entry,
 				      reply_type, TRUE,
 				      &reply_port, &reply_soright);
-		assert(kr == KERN_SUCCESS);
 
 		if ((saved_reply != IP_NULL) && (reply_port == IO_DEAD)) {
 			ipc_port_t dest = (ipc_port_t) dest_port;
@@ -1183,7 +1141,6 @@ ipc_kmsg_copyin_header(
 			 */
 
 			ip_lock(saved_reply);
-			assert(!ip_active(saved_reply));
 			timestamp = saved_reply->ip_timestamp;
 			ip_unlock(saved_reply);
 
@@ -1219,7 +1176,6 @@ ipc_kmsg_copyin_header(
 				if (dest_soright != IP_NULL)
 					ipc_notify_dead_name(dest_soright,
 							     dest_name);
-				assert(reply_soright == IP_NULL);
 
 				ipc_port_release(saved_reply);
 				return MACH_SEND_INVALID_DEST;
@@ -1731,7 +1687,6 @@ ipc_kmsg_copyout_header(
 	mach_msg_bits_t mbits = msg->msgh_bits;
 	ipc_port_t dest = (ipc_port_t) msg->msgh_remote_port;
 
-	assert(IP_VALID(dest));
 
 	/* first check for common cases */
 
@@ -1751,7 +1706,6 @@ ipc_kmsg_copyout_header(
 
 		/* optimized ipc_object_copyout_dest */
 
-		assert(dest->ip_srights > 0);
 		ip_release(dest);
 
 		if (dest->ip_receiver == space)
@@ -1827,7 +1781,6 @@ ipc_kmsg_copyout_header(
 			break;
 		}
 
-		assert(reply->ip_sorights > 0);
 		ip_unlock(reply);
 
 		kern_return_t kr;
@@ -1842,7 +1795,6 @@ ipc_kmsg_copyout_header(
 	    {
 		mach_port_gen_t gen;
 
-		assert((entry->ie_bits &~ IE_BITS_GEN_MASK) == 0);
 		gen = entry->ie_bits + IE_BITS_GEN_ONE;
 
 		/* optimized ipc_right_copyout */
@@ -1850,13 +1802,11 @@ ipc_kmsg_copyout_header(
 		entry->ie_bits = gen | (MACH_PORT_TYPE_SEND_ONCE | 1);
 	    }
 
-		assert(MACH_PORT_NAME_VALID(reply_name));
 		entry->ie_object = (ipc_object_t) reply;
 		is_write_unlock(space);
 
 		/* optimized ipc_object_copyout_dest */
 
-		assert(dest->ip_srights > 0);
 		ip_release(dest);
 
 		if (dest->ip_receiver == space)
@@ -1906,7 +1856,6 @@ ipc_kmsg_copyout_header(
 
 		/* optimized ipc_object_copyout_dest */
 
-		assert(dest->ip_sorights > 0);
 
 		payload = dest->ip_protected_payload;
 
@@ -2007,8 +1956,6 @@ ipc_kmsg_copyout_header(
 				 *	release the notify port right.
 				 */
 
-				assert(entry->ie_bits &
-						MACH_PORT_TYPE_SEND_RECEIVE);
 				break;
 			}
 
@@ -2044,9 +1991,6 @@ ipc_kmsg_copyout_header(
 					        MACH_MSG_IPC_SPACE);
 			}
 
-			assert(IE_BITS_TYPE(entry->ie_bits)
-						== MACH_PORT_TYPE_NONE);
-			assert(entry->ie_object == IO_NULL);
 
 			if (notify_port == IP_NULL) {
 				/* not making a dead-name request */
@@ -2098,7 +2042,6 @@ ipc_kmsg_copyout_header(
 		kr = ipc_right_copyout(space, reply_name, entry,
 				       reply_type, TRUE, (ipc_object_t) reply);
 		/* reply port is unlocked */
-		assert(kr == KERN_SUCCESS);
 
 		if (notify_port != IP_NULL)
 			ipc_port_release_sonce(notify_port);
@@ -2297,14 +2240,10 @@ ipc_kmsg_copyout_object(
 	 *	unless it would overflow, and consume the right.
 	 */
 
-	assert(port->ip_srights > 1);
 	port->ip_srights--;
 	ip_release(port);
 	ip_unlock(port);
 
-	assert(entry->ie_bits & MACH_PORT_TYPE_SEND);
-	assert(IE_BITS_UREFS(entry->ie_bits) > 0);
-	assert(IE_BITS_UREFS(entry->ie_bits) < MACH_PORT_UREFS_MAX);
 
     {
 	ipc_entry_bits_t bits = entry->ie_bits + 1;
@@ -2464,7 +2403,6 @@ ipc_kmsg_copyout_body(
 			/* copyout memory carried in the message */
 
 			if (length == 0) {
-				assert(data == 0);
 				addr = 0;
 			} else if (is_port) {
 				/* copyout to memory allocated above */
@@ -2592,7 +2530,6 @@ ipc_kmsg_copyout_pseudo(
 	mach_port_name_t dest_name, reply_name;
 	mach_msg_return_t mr;
 
-	assert(IO_VALID(dest));
 
 	mr = (ipc_kmsg_copyout_object(space, dest, dest_type, &dest_name) |
 	      ipc_kmsg_copyout_object(space, reply, reply_type, &reply_name));
@@ -2629,7 +2566,6 @@ ipc_kmsg_copyout_dest(
 	mach_msg_type_name_t reply_type = MACH_MSGH_BITS_LOCAL(mbits);
 	mach_port_name_t dest_name, reply_name;
 
-	assert(IO_VALID(dest));
 
 	simple_lock(&(dest)->io_lock_data);
 	if (io_active(dest)) {

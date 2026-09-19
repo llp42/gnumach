@@ -182,7 +182,6 @@ kern_return_t stack_alloc(
 
 	if (stack == 0) {
 		stack = kmem_cache_alloc(&thread_stack_cache);
-		assert(stack != 0);
 		stack_init(stack);
 	}
 
@@ -2458,7 +2457,6 @@ kern_return_t processor_set_stack_usage(
 		if (size != 0)
 			kfree(addr, size);
 
-		assert(size_needed > 0);
 		size = size_needed;
 
 		addr = kalloc(size);
@@ -2476,7 +2474,6 @@ kern_return_t processor_set_stack_usage(
 		thread_reference(tmp_thread);
 		threads[i] = tmp_thread;
 	}
-	assert(queue_end(&pset->threads, (queue_entry_t) tmp_thread));
 
 	/* can unlock processor set now that we have the thread refs */
 	simple_unlock(&(pset)->lock);

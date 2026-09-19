@@ -376,7 +376,6 @@ ds_notify (mach_msg_header_t *msg)
 
       ns = (mach_no_senders_notification_t *) msg;
       dev = dev_port_lookup((ipc_port_t) ns->not_header.msgh_remote_port);
-      assert(dev);
       if (dev->emul_ops->no_senders)
 	(*dev->emul_ops->no_senders) (ns);
       return TRUE;
@@ -552,7 +551,6 @@ device_open(const ipc_port_t	reply_port,
 	notify = ipc_port_make_sonce(device->port);
 	ip_lock(device->port);
 	ipc_port_nsrequest(device->port, 1, notify, &notify);
-	assert(notify == IP_NULL);
 
 	/*
 	 * Open the device.
@@ -900,7 +898,6 @@ device_write_get(
 	 * Inband case.
 	 */
 	if (ior->io_op & IO_INBAND) {
-	    assert(ior->io_count <= sizeof (io_buf_ptr_inband_t));
 	    new_addr = kmem_cache_alloc(&io_inband_cache);
 	    memcpy((void*)new_addr, ior->io_data, ior->io_count);
 	    ior->io_data = (io_buf_ptr_t)new_addr;
@@ -944,8 +941,6 @@ device_write_get(
 		 *	Operation has to be split.  Reset io_count for how
 		 *	much we can do this time.
 		 */
-		assert(vm_map_copy_has_cont(io_copy));
-		assert(ior->io_count == io_copy->size);
 		ior->io_count = ior->io_alloc_size -
 			(ior->io_data - ((char *)new_addr));
 

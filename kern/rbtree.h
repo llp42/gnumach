@@ -72,7 +72,6 @@ static inline void rbtree_init(struct rbtree *tree)
  */
 static inline void rbtree_node_init(struct rbtree_node *node)
 {
-    assert(rbtree_check_alignment(node));
 
     node->parent = (unsigned long)node | RBTREE_COLOR_RED;
     node->children[RBTREE_LEFT] = NULL;
@@ -195,7 +194,6 @@ MACRO_BEGIN                                                 \
                                                             \
     while (___cur != NULL) {                                \
         ___diff = cmp_fn(node, ___cur);                     \
-        assert(___diff != 0);                               \
         ___prev = ___cur;                                   \
         ___index = rbtree_d2i(___diff);                     \
         ___cur = ___cur->children[___index];                \

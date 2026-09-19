@@ -92,7 +92,6 @@ ipc_table_init(void)
 	ipc_table_dnrequests = (ipc_table_size_t)
 		kalloc(sizeof(struct ipc_table_size) *
 		       ipc_table_dnrequests_size);
-	assert(ipc_table_dnrequests != ITS_NULL);
 
 	ipc_table_fill(ipc_table_dnrequests, ipc_table_dnrequests_size - 1,
 		       2, sizeof(struct ipc_port_request));

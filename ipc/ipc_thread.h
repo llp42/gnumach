@@ -73,11 +73,9 @@ MACRO_END
 MACRO_BEGIN								\
 	ipc_thread_t _next;						\
 									\
-	assert((queue)->ithq_base == (thread));				\
 									\
 	_next = (thread)->ith_next;					\
 	if (_next == (thread)) {					\
-		assert((thread)->ith_prev == (thread));			\
 		(queue)->ithq_base = ITH_NULL;				\
 	} else {							\
 		ipc_thread_t _prev = (thread)->ith_prev;		\
@@ -95,8 +93,6 @@ MACRO_BEGIN								\
 									\
 	if (_first == ITH_NULL) {					\
 		(queue)->ithq_base = (thread);				\
-		assert((thread)->ith_next == (thread));			\
-		assert((thread)->ith_prev == (thread));			\
 	} else {							\
 		ipc_thread_t _last = _first->ith_prev;			\
 									\

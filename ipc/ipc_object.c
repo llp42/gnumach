@@ -65,7 +65,6 @@ ipc_object_reference(
 	ipc_object_t	object)
 {
 	simple_lock(&(object)->io_lock_data);
-	assert(object->io_references > 0);
 	io_reference(object);
 	simple_unlock(&(object)->io_lock_data);
 }
@@ -81,7 +80,6 @@ ipc_object_release(
 	ipc_object_t	object)
 {
 	simple_lock(&(object)->io_lock_data);
-	assert(object->io_references > 0);
 	io_release(object);
 	io_check_unlock(object);
 }
@@ -122,7 +120,6 @@ ipc_object_translate(
 	}
 
 	object = entry->ie_object;
-	assert(object != IO_NULL);
 
 	simple_lock(&(object)->io_lock_data);
 	is_read_unlock(space);
@@ -161,7 +158,6 @@ ipc_object_alloc_dead(
 
 	/* null object, MACH_PORT_TYPE_DEAD_NAME, 1 uref */
 
-	assert(entry->ie_object == IO_NULL);
 	entry->ie_bits |= MACH_PORT_TYPE_DEAD_NAME | 1;
 
 	is_write_unlock(space);
@@ -201,7 +197,6 @@ ipc_object_alloc_dead_name(
 
 	/* null object, MACH_PORT_TYPE_DEAD_NAME, 1 uref */
 
-	assert(entry->ie_object == IO_NULL);
 	entry->ie_bits |= MACH_PORT_TYPE_DEAD_NAME | 1;
 
 	is_write_unlock(space);
@@ -235,10 +230,6 @@ ipc_object_alloc(
 	ipc_entry_t entry;
 	kern_return_t kr;
 
-	assert(otype < IOT_NUMBER);
-	assert((type & MACH_PORT_TYPE_ALL_RIGHTS) == type);
-	assert(type != MACH_PORT_TYPE_NONE);
-	assert(urefs <= MACH_PORT_UREFS_MAX);
 
 	object = io_alloc(otype);
 	if (object == IO_NULL)
@@ -302,10 +293,6 @@ ipc_object_alloc_name(
 	ipc_entry_t entry;
 	kern_return_t kr;
 
-	assert(otype < IOT_NUMBER);
-	assert((type & MACH_PORT_TYPE_ALL_RIGHTS) == type);
-	assert(type != MACH_PORT_TYPE_NONE);
-	assert(urefs <= MACH_PORT_UREFS_MAX);
 
 	object = io_alloc(otype);
 	if (object == IO_NULL)
@@ -461,16 +448,12 @@ ipc_object_copyin_from_kernel(
 	ipc_object_t		object,
 	mach_msg_type_name_t	msgt_name)
 {
-	assert(IO_VALID(object));
 
 	switch (msgt_name) {
 	    case MACH_MSG_TYPE_MOVE_RECEIVE: {
 		ipc_port_t port = (ipc_port_t) object;
 
 		ip_lock(port);
-		assert(ip_active(port));
-		assert(port->ip_receiver_name != MACH_PORT_NULL);
-		assert(port->ip_receiver == ipc_space_kernel);
 
 		/* relevant part of ipc_port_clear_receiver */
 		ipc_port_set_mscount(port, 0);
@@ -487,7 +470,6 @@ ipc_object_copyin_from_kernel(
 
 		ip_lock(port);
 		if (ip_active(port)) {
-			assert(port->ip_srights > 0);
 			port->ip_srights++;
 		}
 		ip_reference(port);
@@ -499,9 +481,6 @@ ipc_object_copyin_from_kernel(
 		ipc_port_t port = (ipc_port_t) object;
 
 		ip_lock(port);
-		assert(ip_active(port));
-		assert(port->ip_receiver_name != MACH_PORT_NULL);
-		assert(port->ip_receiver == ipc_space_kernel);
 
 		ip_reference(port);
 		port->ip_mscount++;
@@ -518,9 +497,6 @@ ipc_object_copyin_from_kernel(
 		ipc_port_t port = (ipc_port_t) object;
 
 		ip_lock(port);
-		assert(ip_active(port));
-		assert(port->ip_receiver_name != MACH_PORT_NULL);
-		assert(port->ip_receiver == ipc_space_kernel);
 
 		ip_reference(port);
 		port->ip_sorights++;
@@ -553,8 +529,6 @@ ipc_object_destroy(
 	ipc_object_t		object,
 	mach_msg_type_name_t	msgt_name)
 {
-	assert(IO_VALID(object));
-	assert(io_otype(object) == IOT_PORT);
 
 	switch (msgt_name) {
 	    case MACH_MSG_TYPE_PORT_SEND:
@@ -603,8 +577,6 @@ ipc_object_copyout(
 	ipc_entry_t entry;
 	kern_return_t kr;
 
-	assert(IO_VALID(object));
-	assert(io_otype(object) == IOT_PORT);
 
 	is_write_lock(space);
 
@@ -618,7 +590,6 @@ ipc_object_copyout(
 		    ipc_right_reverse(space, object, &name, &entry)) {
 			/* object is locked and active */
 
-			assert(entry->ie_bits & MACH_PORT_TYPE_SEND_RECEIVE);
 			break;
 		}
 
@@ -628,8 +599,6 @@ ipc_object_copyout(
 			return kr;
 		}
 
-		assert(IE_BITS_TYPE(entry->ie_bits) == MACH_PORT_TYPE_NONE);
-		assert(entry->ie_object == IO_NULL);
 
 		simple_lock(&(object)->io_lock_data);
 		if (!io_active(object)) {
@@ -687,8 +656,6 @@ ipc_object_copyout_name(
 	ipc_entry_t entry;
 	kern_return_t kr;
 
-	assert(IO_VALID(object));
-	assert(io_otype(object) == IOT_PORT);
 
 	is_write_lock(space);
 	kr = ipc_entry_alloc_name(space, name, &entry);
@@ -712,14 +679,10 @@ ipc_object_copyout_name(
 			return KERN_RIGHT_EXISTS;
 		}
 
-		assert(entry == oentry);
-		assert(entry->ie_bits & MACH_PORT_TYPE_SEND_RECEIVE);
 	} else {
 		if (ipc_right_inuse(space, name, entry))
 			return KERN_NAME_EXISTS;
 
-		assert(IE_BITS_TYPE(entry->ie_bits) == MACH_PORT_TYPE_NONE);
-		assert(entry->ie_object == IO_NULL);
 
 		simple_lock(&(object)->io_lock_data);
 		if (!io_active(object)) {
@@ -763,8 +726,6 @@ ipc_object_copyout_dest(
 {
 	mach_port_name_t name;
 
-	assert(IO_VALID(object));
-	assert(io_active(object));
 
 	io_release(object);
 
@@ -781,7 +742,6 @@ ipc_object_copyout_dest(
 		ipc_port_t nsrequest = IP_NULL;
 		mach_port_mscount_t mscount = 0; /* '=0' to shut up lint */
 
-		assert(port->ip_srights > 0);
 		if (--port->ip_srights == 0) {
 			nsrequest = port->ip_nsrequest;
 			if (nsrequest != IP_NULL) {
@@ -806,7 +766,6 @@ ipc_object_copyout_dest(
 	    case MACH_MSG_TYPE_PORT_SEND_ONCE: {
 		ipc_port_t port = (ipc_port_t) object;
 
-		assert(port->ip_sorights > 0);
 
 		if (port->ip_receiver == space) {
 			/* quietly consume the send-once right */

@@ -48,7 +48,6 @@
 void
 pmap_zero_page(phys_addr_t p)
 {
-	assert(p != vm_page_fictitious_addr);
 	vm_offset_t v;
 	pmap_mapwindow_t *map;
 	boolean_t mapped = p >= VM_PAGE_DIRECTMAP_LIMIT;
@@ -80,8 +79,6 @@ pmap_copy_page(
 	pmap_mapwindow_t *dst_map;
 	boolean_t src_mapped = src >= VM_PAGE_DIRECTMAP_LIMIT;
 	boolean_t dst_mapped = dst >= VM_PAGE_DIRECTMAP_LIMIT;
-	assert(src != vm_page_fictitious_addr);
-	assert(dst != vm_page_fictitious_addr);
 
 	if (src_mapped)
 	{
@@ -121,8 +118,6 @@ copy_to_phys(
 	vm_offset_t dst_addr_v;
 	pmap_mapwindow_t *dst_map;
 	boolean_t mapped = dst_addr_p >= VM_PAGE_DIRECTMAP_LIMIT;
-	assert(dst_addr_p != vm_page_fictitious_addr);
-	assert(pa_to_pte(dst_addr_p + count-1) == pa_to_pte(dst_addr_p));
 
 	if (mapped)
 	{
@@ -153,8 +148,6 @@ copy_from_phys(
 	vm_offset_t src_addr_v;
 	pmap_mapwindow_t *src_map;
 	boolean_t mapped = src_addr_p >= VM_PAGE_DIRECTMAP_LIMIT;
-	assert(src_addr_p != vm_page_fictitious_addr);
-	assert(pa_to_pte(src_addr_p + count-1) == pa_to_pte(src_addr_p));
 
 	if (mapped)
 	{

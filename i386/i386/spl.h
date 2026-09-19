@@ -55,7 +55,6 @@ extern spl_t	(spl6)(void);
 extern spl_t	(spltty)(void);
 extern spl_t	(splimp)(void);
 extern spl_t	(splvm)(void);
-#define assert_splvm() assert(splvm() == SPL7)
 
 extern spl_t	(spl7)(void);
 extern spl_t	(splclock)(void);

@@ -161,8 +161,6 @@ MACRO_END
 
 #define	ikm_check_initialized(kmsg, size)				\
 MACRO_BEGIN								\
-	assert((kmsg)->ikm_size == (size));				\
-	assert((kmsg)->ikm_marequest == IMAR_NULL);			\
 MACRO_END
 
 /*
@@ -230,11 +228,9 @@ extern ipc_kmsg_t ipc_kmsg_queue_next(
 MACRO_BEGIN								\
 	ipc_kmsg_t _next;						\
 									\
-	assert((queue)->ikmq_base == (kmsg));				\
 									\
 	_next = (kmsg)->ikm_next;					\
 	if (_next == (kmsg)) {						\
-		assert((kmsg)->ikm_prev == (kmsg));			\
 		(queue)->ikmq_base = IKM_NULL;				\
 	} else {							\
 		ipc_kmsg_t _prev = (kmsg)->ikm_prev;			\

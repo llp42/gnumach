@@ -118,7 +118,6 @@ ipc_marequest_init(void)
 	ipc_marequest_table = (ipc_marequest_bucket_t)
 		kalloc((vm_size_t) (ipc_marequest_size *
 				    sizeof(struct ipc_marequest_bucket)));
-	assert(ipc_marequest_table != IMARB_NULL);
 
 	/* and initialize it */
 
@@ -191,8 +190,6 @@ ipc_marequest_create(
 		ip_unlock(port);
 		bits = entry->ie_bits;
 
-		assert(port == (ipc_port_t) entry->ie_object);
-		assert(bits & MACH_PORT_TYPE_SEND_RECEIVE);
 
 		if (bits & IE_BITS_MAREQUEST) {
 			is_write_unlock(space);
@@ -257,7 +254,6 @@ ipc_marequest_cancel(
 	ipc_marequest_bucket_t bucket;
 	ipc_marequest_t marequest, *last;
 
-	assert(space->is_active);
 
 	bucket = &ipc_marequest_table[IMAR_HASH(space, name)];
 	simple_lock(&(bucket)->imarb_lock_data);
@@ -269,7 +265,6 @@ ipc_marequest_cancel(
 		    (marequest->imar_name == name))
 			break;
 
-	assert(marequest != IMAR_NULL);
 	*last = marequest->imar_next;
 	simple_unlock(&(bucket)->imarb_lock_data);
 
@@ -294,7 +289,6 @@ ipc_marequest_rename(
 	ipc_marequest_bucket_t bucket;
 	ipc_marequest_t marequest, *last;
 
-	assert(space->is_active);
 
 	bucket = &ipc_marequest_table[IMAR_HASH(space, old)];
 	simple_lock(&(bucket)->imarb_lock_data);
@@ -306,7 +300,6 @@ ipc_marequest_rename(
 		    (marequest->imar_name == old))
 			break;
 
-	assert(marequest != IMAR_NULL);
 	*last = marequest->imar_next;
 	simple_unlock(&(bucket)->imarb_lock_data);
 
@@ -356,7 +349,6 @@ ipc_marequest_destroy(ipc_marequest_t marequest)
 			    (this->imar_name == name))
 				break;
 
-		assert(this == marequest);
 		*last = this->imar_next;
 		simple_unlock(&(bucket)->imarb_lock_data);
 
@@ -364,9 +356,6 @@ ipc_marequest_destroy(ipc_marequest_t marequest)
 			ipc_entry_t entry;
 
 			entry = ipc_entry_lookup(space, name);
-			assert(entry != IE_NULL);
-			assert(entry->ie_bits & IE_BITS_MAREQUEST);
-			assert(entry->ie_bits & MACH_PORT_TYPE_SEND_RECEIVE);
 
 			entry->ie_bits &= ~IE_BITS_MAREQUEST;
 
@@ -379,7 +368,6 @@ ipc_marequest_destroy(ipc_marequest_t marequest)
 
 	imar_free(marequest);
 
-	assert(soright != IP_NULL);
 	ipc_notify_msg_accepted(soright, name);
 }
 

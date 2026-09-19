@@ -543,16 +543,9 @@ kern_return_t device_pager_init_pager(
 		printf("(device_pager)init: pager=%p, request=%p, name=%p\n",
 		       pager, pager_request, pager_name);
 
-	assert(pager_page_size == PAGE_SIZE);
-	assert(IP_VALID(pager_request));
-	assert(IP_VALID(pager_name));
 
 	ds = dev_pager_hash_lookup(pager);
-	assert(ds != DEV_PAGER_NULL);
 
-	assert(ds->client_count == 0);
-	assert(ds->pager_request == IP_NULL);
-	assert(ds->pager_name == IP_NULL);
 
 	ds->client_count = 1;
 
@@ -587,15 +580,9 @@ kern_return_t device_pager_terminate(
 {
 	dev_pager_t	ds;
 
-	assert(IP_VALID(pager_request));
-	assert(IP_VALID(pager_name));
 
 	ds = dev_pager_hash_lookup(pager);
-	assert(ds != DEV_PAGER_NULL);
 
-	assert(ds->client_count == 1);
-	assert(ds->pager_request == pager_request);
-	assert(ds->pager_name == pager_name);
 
 	dev_pager_hash_delete(ds->pager);
 	dev_device_hash_delete(ds->device, ds->offset);

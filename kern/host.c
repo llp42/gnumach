@@ -271,7 +271,6 @@ host_processor_sets(
 		if (size != 0)
 			kfree(addr, size);
 
-		assert(size_needed > 0);
 		size = size_needed;
 
 		addr = kalloc(size);
@@ -290,7 +289,6 @@ host_processor_sets(
 		pset_reference(pset);
 		psets[i] = pset;
 	}
-	assert(queue_end(&all_psets, (queue_entry_t) pset));
 
 	/* can unlock now that we've got the pset refs */
 	simple_unlock(&all_psets_lock);
@@ -299,7 +297,6 @@ host_processor_sets(
 	 *	Always have default port.
 	 */
 
-	assert(actual > 0);
 
 	/* if we allocated too much, must copy */
 

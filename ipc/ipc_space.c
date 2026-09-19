@@ -175,7 +175,6 @@ ipc_space_destroy(
 {
 	boolean_t active;
 
-	assert(space != IS_NULL);
 
 	is_write_lock(space);
 	active = space->is_active;

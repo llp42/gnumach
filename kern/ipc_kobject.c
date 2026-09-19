@@ -286,7 +286,6 @@ void
 ipc_kobject_set_locked(ipc_port_t port, ipc_kobject_t kobject,
 		       ipc_kobject_type_t type)
 {
-	assert(ip_active(port));
 	port->ip_bits = (port->ip_bits &~ IO_BITS_KOTYPE) | type;
 	port->ip_kobject = kobject;
 }

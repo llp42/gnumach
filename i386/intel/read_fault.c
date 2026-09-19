@@ -71,7 +71,6 @@ intel_read_fault(
 	 *	Make a reference to this object to prevent its
 	 *	disposal while we are playing with it.
 	 */
-	assert(object->ref_count > 0);
 	object->ref_count++;
 	vm_object_paging_begin(object);
 

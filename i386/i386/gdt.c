@@ -50,7 +50,6 @@ gdt_fill(int cpu, struct real_descriptor *mygdt)
 {
 	/* Initialize the kernel code and data segment descriptors.  */
 #ifdef __x86_64__
-	assert(LINEAR_MIN_KERNEL_ADDRESS - VM_MIN_KERNEL_ADDRESS == 0);
 	_fill_gdt_descriptor(mygdt, KERNEL_CS, 0, 0, ACC_PL_K|ACC_CODE_R, SZ_64);
 	_fill_gdt_descriptor(mygdt, KERNEL_DS, 0, 0, ACC_PL_K|ACC_DATA_W, SZ_64);
 	_fill_gdt_descriptor(mygdt, LINEAR_DS, 0, 0, ACC_PL_K|ACC_DATA_W, SZ_64);

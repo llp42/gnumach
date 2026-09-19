@@ -172,7 +172,6 @@ mach_msg(
 			mr = ipc_mqueue_send(kmsg, MACH_MSG_OPTION_NONE,
 					     MACH_MSG_TIMEOUT_NONE);
 		while (mr == MACH_SEND_INTERRUPTED);
-		assert(mr == MACH_MSG_SUCCESS);
 	}
 
 	if (option & MACH_RCV_MSG) {
@@ -322,7 +321,6 @@ MACRO_BEGIN								\
 	ipc_entry_t entry;						\
 									\
 	is_read_lock(space);						\
-	assert(space->is_active);					\
 									\
 	entry = ipc_entry_lookup (space, name);				\
 	if (entry == IE_NULL) {						\
@@ -336,7 +334,6 @@ MACRO_BEGIN								\
 	}								\
 									\
 	port = (ipc_port_t) entry->ie_object;				\
-	assert(port != IP_NULL);					\
 									\
 	ip_lock(port);							\
 	/* can safely unlock space now that port is locked */		\
@@ -399,7 +396,6 @@ port_name_to_thread(mach_port_name_t name)
 		thread_t thread;
 
 		thread = (thread_t) port->ip_kobject;
-		assert(thread != THREAD_NULL);
 
 		/* thread referencing is a bit complicated,
 		   so don't bother to expand inline */
@@ -444,7 +440,6 @@ port_name_to_task(mach_port_name_t name)
 		task_t task;
 
 		task = (task_t) port->ip_kobject;
-		assert(task != TASK_NULL);
 
 		simple_lock(&(task)->lock);
 		/* can safely unlock port now that task is locked */
@@ -492,7 +487,6 @@ port_name_to_map(
 		vm_map_t map;
 
 		map = ((task_t) port->ip_kobject)->map;
-		assert(map != VM_MAP_NULL);
 
 		simple_lock(&map->ref_lock);
 		/* can safely unlock port now that map is locked */
@@ -539,7 +533,6 @@ port_name_to_space(mach_port_name_t name)
 		ipc_space_t space;
 
 		space = ((task_t) port->ip_kobject)->itk_space;
-		assert(space != IS_NULL);
 
 		simple_lock(&space->is_ref_lock_data);
 		/* can safely unlock port now that space is locked */
