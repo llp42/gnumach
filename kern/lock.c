@@ -44,8 +44,6 @@
 #include <kern/sched_prim.h>
 
 
-#if	NCPUS > 1
-
 /*
  *	Module:		lock
  *	Function:
@@ -63,42 +61,6 @@
  *	to the machine-dependent code.
  */
 
-#ifdef	notdef
-/*
- *	A sample implementation of simple locks.
- *	assumes:
- *		boolean_t test_and_set(boolean_t *)
- *			indivisibly sets the boolean to TRUE
- *			and returns its old value
- *		and that setting a boolean to FALSE is indivisible.
- */
-/*
- *	simple_lock_init initializes a simple lock.  A simple lock
- *	may only be used for exclusive locks.
- */
-
-void simple_lock_init(simple_lock_t l)
-{
-	*(boolean_t *)l = FALSE;
-}
-
-void simple_lock(simple_lock_t l)
-{
-	while (test_and_set((boolean_t *)l))
-		cpu_pause();
-}
-
-void simple_unlock(simple_lock_t l)
-{
-	*(boolean_t *)l = FALSE;
-}
-
-boolean_t simple_lock_try(simple_lock_t l)
-{
-    	return (!test_and_set((boolean_t *)l));
-}
-#endif	/* notdef */
-#endif	/* NCPUS > 1 */
 
 #if	NCPUS > 1
 static int lock_wait_time = 100;
