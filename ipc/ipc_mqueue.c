@@ -271,7 +271,7 @@ ipc_mqueue_send(
 		 *	the wait was interrupted.
 		 */
 
-		switch (self->ith_wait_result) {
+		switch (self->wait_result) {
 		    case THREAD_INTERRUPTED:
 			/* send was interrupted - give up */
 
@@ -591,7 +591,7 @@ ipc_mqueue_receive(
 
 			ipc_thread_rmqueue(&mqueue->imq_threads, self);
 
-			switch (self->ith_wait_result) {
+			switch (self->wait_result) {
 			    case THREAD_INTERRUPTED:
 				/* receive was interrupted - give up */
 

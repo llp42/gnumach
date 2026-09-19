@@ -234,7 +234,6 @@ typedef struct thread_shuttle	*thread_shuttle_t;
 
 #define	ith_msize	data.msize
 #define	ith_kmsg	data.kmsg
-#define	ith_wait_result	wait_result
 
 #define	ith_msg		saved.receive.msg
 #define	ith_option	saved.receive.option
