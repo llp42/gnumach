@@ -71,15 +71,6 @@ typedef	struct queue_entry	queue_chain_t;
 typedef	struct queue_entry	*queue_entry_t;
 
 /*
- *	enqueue puts "elt" on the "queue".
- *	dequeue returns the first element in the "queue".
- *	remqueue removes the specified "elt" from the specified "queue".
- */
-
-#define enqueue(queue,elt)	enqueue_tail(queue, elt)
-#define	dequeue(queue)		dequeue_head(queue)
-
-/*
  * These six are written in Rust, in rust/src/kern/queue.rs, and reach
  * the kernel through libmach-rs.a.  The macros below stay here and
  * operate on the same struct queue_entry layout.
@@ -129,16 +120,6 @@ void		insque(queue_entry_t, queue_entry_t);
  *			queue_t qc;
  */
 #define	queue_next(qc)	(queue_assert(qc), (qc)->next)
-
-/*
- *	Macro:		queue_last
- *	Function:
- *		Returns the last entry in the queue.
- *	Header:
- *		queue_entry_t queue_last(q)
- *			queue_t	q;		 *IN*
- */
-#define	queue_last(q)	(queue_assert(q), (q)->prev)
 
 /*
  *	Macro:		queue_prev
@@ -240,15 +221,6 @@ MACRO_BEGIN							\
 MACRO_END
 
 /*
- *	Macro:		queue_field [internal use only]
- *	Function:
- *		Find the queue_chain_t (or queue_t) for the
- *		given element (thing) in the given queue (head)
- */
-#define	queue_field(head, thing, type, field)			\
-		(((head) == (thing)) ? (head) : &((type)(thing))->field)
-
-/*
  *	Macro:		queue_remove
  *	Function:
  *		Remove an arbitrary item from the queue.
@@ -274,68 +246,6 @@ MACRO_BEGIN							\
 		(head)->next = next;				\
 	else							\
 		((type)prev)->field.next = next;		\
-MACRO_END
-
-/*
- *	Macro:		queue_remove_first
- *	Function:
- *		Remove and return the entry at the head of
- *		the queue.
- *	Header:
- *		queue_remove_first(head, entry, type, field)
- *		entry is returned by reference
- */
-#define	queue_remove_first(head, entry, type, field)		\
-MACRO_BEGIN							\
-	queue_assert(head);					\
-	queue_assert(&(entry)->field);				\
-	queue_entry_t	next;					\
-								\
-	(entry) = (type) ((head)->next);			\
-	next = (entry)->field.next;				\
-								\
-	if ((head) == next)					\
-		(head)->prev = (head);				\
-	else							\
-		((type)(next))->field.prev = (head);		\
-	(head)->next = next;					\
-MACRO_END
-
-/*
- *	Macro:		queue_remove_last
- *	Function:
- *		Remove and return the entry at the tail of
- *		the queue.
- *	Header:
- *		queue_remove_last(head, entry, type, field)
- *		entry is returned by reference
- */
-#define	queue_remove_last(head, entry, type, field)		\
-MACRO_BEGIN							\
-	queue_assert(head);					\
-	queue_assert(&(entry)->field);				\
-	queue_entry_t	prev;					\
-								\
-	(entry) = (type) ((head)->prev);			\
-	prev = (entry)->field.prev;				\
-								\
-	if ((head) == prev)					\
-		(head)->next = (head);				\
-	else							\
-		((type)(prev))->field.next = (head);		\
-	(head)->prev = prev;					\
-MACRO_END
-
-/*
- *	Macro:		queue_assign
- */
-#define	queue_assign(to, from, type, field)			\
-MACRO_BEGIN							\
-	queue_assert(&(to)->field);				\
-	queue_assert(&(from)->field);				\
-	((type)((from)->prev))->field.next = (to);		\
-	((type)((from)->next))->field.prev = (to);		\
-	*to = *from;						\
 MACRO_END
 
 /*
@@ -368,8 +278,6 @@ struct mpqueue_head {
 };
 
 typedef struct mpqueue_head	mpqueue_head_t;
-
-#define	round_mpq(size)		(size)
 
 #define mpqueue_init(q) \
 	MACRO_BEGIN \
