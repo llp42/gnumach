@@ -66,11 +66,6 @@ struct rdxtree;
  */
 struct rdxtree_iter;
 
-/*
- * Static tree initializer.
- */
-#define RDXTREE_INITIALIZER { 0, NULL }
-
 #include "rdxtree_i.h"
 
 /*
