@@ -229,7 +229,6 @@ struct thread {
 
 /* typedef of thread_t is in kern/kern_types.h */
 typedef struct thread_shuttle	*thread_shuttle_t;
-#define THREAD_NULL		((thread_t) 0)
 #define THREAD_SHUTTLE_NULL	((thread_shuttle_t)0)
 
 #define	ith_msize	data.msize
