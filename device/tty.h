@@ -185,9 +185,7 @@ extern boolean_t tty_portdeath(
 
 #define	LITOUT		TF_LITOUT
 
-
-/* these are here only to let old code compile - they are never set */
-#define	RAW		LITOUT
+/* this is here only to let old code compile - it is never set */
 #define	PASS8		LITOUT
 
 /*
