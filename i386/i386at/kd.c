@@ -411,7 +411,7 @@ kdopen(
 		 *	Special support for boot-time rc scripts, which don't
 		 *	stty the console.
 		 */
-		tp->t_oproc = kdstart;
+		tp->t_start = kdstart;
 		tp->t_stop = kdstop;
 		tp->t_ospeed = tp->t_ispeed = B115200;
 		tp->t_flags = TF_ODDP|TF_EVENP|TF_ECHO|TF_CRMOD|TF_XTABS|TF_LITOUT;

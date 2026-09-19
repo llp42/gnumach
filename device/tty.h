@@ -51,7 +51,6 @@ struct tty {
 	int		t_dev;		/* device number */
 	void		(*t_start)(struct tty *);
 					/* routine to start output */
-#define	t_oproc	t_start
 	void		(*t_stop)(struct tty *, int);
 					/* routine to stop output */
 	int		(*t_mctl)(struct tty *, int, int);

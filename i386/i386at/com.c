@@ -351,7 +351,7 @@ io_return_t comopen(
 		ttychars(tp);
 		tp->t_addr = (char *)isai->address;
 		tp->t_dev = dev;
-		tp->t_oproc = comstart;
+		tp->t_start = comstart;
 		tp->t_stop = comstop;
 		tp->t_mctl = commctl;
 		tp->t_getstat = comgetstat;
