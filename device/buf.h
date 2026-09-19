@@ -43,7 +43,6 @@
 /*
  * Redefine flags
  */
-#define	B_WRITE		IO_WRITE
 #define	B_READ		IO_READ
 #define	B_OPEN		IO_OPEN
 #define	B_DONE		IO_DONE
