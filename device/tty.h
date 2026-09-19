@@ -125,8 +125,6 @@ extern void tty_queue_completion(
 extern void ttychars(
 	struct tty *	tp);
 
-#define	TTMINBUF	90
-
 extern short	tthiwat[NSPEEDS], ttlowat[NSPEEDS];
 #define	TTHIWAT(tp)	tthiwat[(tp)->t_ospeed]
 #define	TTLOWAT(tp)	ttlowat[(tp)->t_ospeed]
