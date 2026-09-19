@@ -263,7 +263,6 @@ vm_object_t vm_object_copy_delayed(
 #define	VM_OBJECT_EVENT_PAGER_READY		1
 #define	VM_OBJECT_EVENT_PAGING_IN_PROGRESS	2
 #define	VM_OBJECT_EVENT_ABSENT_COUNT		3
-#define	VM_OBJECT_EVENT_LOCK_IN_PROGRESS	4
 
 #define	vm_object_wait(object, event, interruptible)			\
 	MACRO_BEGIN							\
