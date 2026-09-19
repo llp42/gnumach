@@ -157,6 +157,4 @@ MACRO_BEGIN \
 	(ifq)->ifq_drops = 0; \
 MACRO_END
 
-#define	IFNET_SLOWHZ	1		/* granularity is 1 second */
-
 #endif	/* _IF_HDR_ */
