@@ -40,7 +40,6 @@
 /* XXX */
 #define CHAR_BIT	8U
 #define ERR_SUCCESS	KERN_SUCCESS
-#define ERR_BUSY	KERN_INVALID_ARGUMENT
 #define ERR_NOMEM	KERN_RESOURCE_SHORTAGE
 
 /*
@@ -432,7 +431,7 @@ rdxtree_insert_common(struct rdxtree *tree, rdxtree_key_t key,
 
     if (unlikely(height == 0)) {
         if (tree->root != NULL)
-            return ERR_BUSY;
+            return KERN_INVALID_ARGUMENT;
 
         llsync_assign_ptr(tree->root, ptr);
 
@@ -475,7 +474,7 @@ rdxtree_insert_common(struct rdxtree *tree, rdxtree_key_t key,
     } while (height > 0);
 
     if (unlikely(node != NULL))
-        return ERR_BUSY;
+        return KERN_INVALID_ARGUMENT;
 
     rdxtree_node_insert(prev, index, ptr);
     rdxtree_insert_bm_clear(prev, index);
