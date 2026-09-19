@@ -43,7 +43,6 @@
 /*
  * Redefine fields for drivers using old names
  */
-#define	b_blkno		io_recnum
 #define	b_resid		io_residual
 #define	b_un		io_un
 #define	b_addr		data
