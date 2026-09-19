@@ -171,7 +171,6 @@ MACRO_END
  *	It frees kmsgs of all varieties.
  */
 
-#define	IKM_SIZE_NORMA		0
 #define	IKM_SIZE_NETWORK	-1
 
 #define	ikm_free(kmsg)							\
