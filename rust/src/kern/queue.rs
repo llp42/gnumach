@@ -1,0 +1,320 @@
+// SPDX-License-Identifier: BSD-2-Clause
+// Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+
+//! The Mach queue package, which `kern/queue.c` used to define.
+//!
+//! A circular, doubly linked list whose head is a sentinel: an empty
+//! queue's head points at itself.  `QueueEntry` is layout-identical to
+//! `struct queue_entry` in <kern/queue.h>, so the C macros there and
+//! the code here operate on the same queues.
+
+use core::ptr;
+use core::ptr::NonNull;
+
+/// A queue head or chain link, layout-identical to `struct
+/// queue_entry` in <kern/queue.h>.
+///
+/// The list invariant: following `next` from the head walks the queue
+/// and returns to the head, and every entry's `next` and `prev` point
+/// at entries of the same list.
+#[repr(C)]
+pub struct QueueEntry {
+    next: *mut QueueEntry,
+    prev: *mut QueueEntry,
+}
+
+// The C struct is two pointers and nothing else; the layouts must
+// agree or the queue.h macros would corrupt Rust-side queues.
+const _: () =
+    assert!(size_of::<QueueEntry>() == 2 * size_of::<*mut QueueEntry>());
+const _: () =
+    assert!(align_of::<QueueEntry>() == align_of::<*mut QueueEntry>());
+
+impl QueueEntry {
+    /// Self-link this entry, making it an empty queue head.
+    /// `queue_init()` in C.
+    ///
+    /// # Safety
+    ///
+    /// The entry must not be linked into a queue -- its links are
+    /// overwritten -- and must not be moved afterwards, because they
+    /// point at its own address.
+    pub unsafe fn init_head(&mut self) {
+        let this: *mut QueueEntry = self;
+        self.next = this;
+        self.prev = this;
+    }
+
+    /// Whether this head's queue is empty.  `queue_empty()` in C.
+    pub fn is_empty(&self) -> bool {
+        ptr::eq(self.next, self)
+    }
+
+    /// The first entry, or `None` when the queue is empty.
+    /// `queue_first()` in C.
+    pub fn first(&self) -> Option<NonNull<QueueEntry>> {
+        NonNull::new(self.next).filter(|p| !ptr::eq(p.as_ptr(), self))
+    }
+
+    /// The last entry, or `None` when the queue is empty.
+    /// `queue_last()` in C.
+    pub fn last(&self) -> Option<NonNull<QueueEntry>> {
+        NonNull::new(self.prev).filter(|p| !ptr::eq(p.as_ptr(), self))
+    }
+
+    /// Insert `elt` at the front of the queue, right after this head.
+    /// `enqueue_head()` in C.
+    ///
+    /// # Safety
+    ///
+    /// `elt` must be valid and not linked into a queue, and nothing
+    /// else may access the queue during the call -- the C callers hold
+    /// the queue's lock.
+    pub unsafe fn push_front(&mut self, elt: NonNull<QueueEntry>) {
+        let elt = elt.as_ptr();
+        let this: *mut QueueEntry = self;
+        // SAFETY: the list invariant puts a valid entry at
+        // `(*this).next`, and the caller promises `elt` is valid and
+        // unlinked.
+        unsafe {
+            (*elt).next = (*this).next;
+            (*elt).prev = this;
+            (*(*this).next).prev = elt;
+            (*this).next = elt;
+        }
+    }
+
+    /// Insert `elt` at the tail of the queue, just before this head.
+    /// `enqueue_tail()` in C.
+    ///
+    /// # Safety
+    ///
+    /// Same contract as `push_front()`.
+    pub unsafe fn push_back(&mut self, elt: NonNull<QueueEntry>) {
+        let elt = elt.as_ptr();
+        let this: *mut QueueEntry = self;
+        // SAFETY: the list invariant puts a valid entry at
+        // `(*this).prev`, and the caller promises `elt` is valid and
+        // unlinked.
+        unsafe {
+            (*elt).next = this;
+            (*elt).prev = (*this).prev;
+            (*(*this).prev).next = elt;
+            (*this).prev = elt;
+        }
+    }
+
+    /// Remove and return the first entry, or `None` when the queue is
+    /// empty.  `dequeue_head()` in C, including its quirk of leaving
+    /// the removed entry's links stale.
+    ///
+    /// # Safety
+    ///
+    /// The queue must satisfy the list invariant, and nothing else may
+    /// access it during the call.
+    pub unsafe fn pop_front(&mut self) -> Option<NonNull<QueueEntry>> {
+        let elt = self.first()?;
+        let this: *mut QueueEntry = self;
+        // SAFETY: the list invariant puts a valid entry after `elt`.
+        let next = unsafe { (*elt.as_ptr()).next };
+        // SAFETY: `next` is valid per the invariant.
+        unsafe {
+            (*next).prev = this;
+            (*this).next = next;
+        }
+        Some(elt)
+    }
+
+    /// Remove and return the last entry, or `None` when the queue is
+    /// empty.  `dequeue_tail()` in C, stale links included.
+    ///
+    /// # Safety
+    ///
+    /// Same contract as `pop_front()`.
+    pub unsafe fn pop_back(&mut self) -> Option<NonNull<QueueEntry>> {
+        let elt = self.last()?;
+        let this: *mut QueueEntry = self;
+        // SAFETY: the list invariant puts a valid entry before `elt`.
+        let prev = unsafe { (*elt.as_ptr()).prev };
+        // SAFETY: `prev` is valid per the invariant.
+        unsafe {
+            (*prev).next = this;
+            (*this).prev = prev;
+        }
+        Some(elt)
+    }
+
+    /// Remove `elt` from whatever queue it is linked into.
+    /// `remqueue()` in C: no membership check, and the removed entry's
+    /// links are left stale.
+    ///
+    /// # Safety
+    ///
+    /// `elt` must be linked into a queue, and nothing else may access
+    /// that queue during the call.
+    pub unsafe fn remove(elt: NonNull<QueueEntry>) {
+        let elt = elt.as_ptr();
+        // SAFETY: the caller promises `elt` is linked into a queue, so
+        // its links are valid entries of that list.
+        unsafe {
+            (*(*elt).next).prev = (*elt).prev;
+            (*(*elt).prev).next = (*elt).next;
+        }
+    }
+
+    /// Insert `elt` right after `pred` in its queue.  `insque()` in C.
+    ///
+    /// # Safety
+    ///
+    /// `pred` must be linked into a queue, `elt` must be valid and not
+    /// linked, and nothing else may access the queue during the call.
+    pub unsafe fn insert_after(
+        pred: NonNull<QueueEntry>,
+        elt: NonNull<QueueEntry>,
+    ) {
+        let pred = pred.as_ptr();
+        let elt = elt.as_ptr();
+        // SAFETY: the caller promises `pred` is linked, so
+        // `(*pred).next` is valid, and `elt` is valid and unlinked.
+        unsafe {
+            (*elt).next = (*pred).next;
+            (*elt).prev = pred;
+            (*(*pred).next).prev = elt;
+            (*pred).next = elt;
+        }
+    }
+
+    /// Walk the queue from front to back.  `queue_iterate()` in C,
+    /// with the same caveat: unlinking the yielded entry invalidates
+    /// the iterator.
+    pub fn iter(&self) -> QueueIter {
+        QueueIter {
+            head: NonNull::from(self),
+            // SAFETY: the list invariant keeps `next` non-null: on an
+            // empty queue it is the head itself.
+            next: unsafe { NonNull::new_unchecked(self.next) },
+        }
+    }
+}
+
+/// An iterator over a queue, front to back; see `QueueEntry::iter()`.
+pub struct QueueIter {
+    head: NonNull<QueueEntry>,
+    next: NonNull<QueueEntry>,
+}
+
+impl Iterator for QueueIter {
+    type Item = NonNull<QueueEntry>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.next == self.head {
+            return None;
+        }
+        let cur = self.next;
+        // SAFETY: the list invariant puts a valid entry after `cur`,
+        // and the head itself is never null.
+        self.next = unsafe { NonNull::new_unchecked(cur.as_ref().next) };
+        Some(cur)
+    }
+}
+
+/// Insert `elt` at the head of `que`.
+///
+/// # Safety
+///
+/// `que` must be an initialized queue head and `elt` a valid, unlinked
+/// entry; nothing else may access the queue during the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn enqueue_head(
+    que: *mut QueueEntry,
+    elt: *mut QueueEntry,
+) {
+    // SAFETY: the caller promises both are valid and non-null.
+    let (que, elt) = unsafe { (&mut *que, NonNull::new_unchecked(elt)) };
+    // SAFETY: same as above.
+    unsafe { que.push_front(elt) };
+}
+
+/// Insert `elt` at the tail of `que`.
+///
+/// # Safety
+///
+/// Same contract as `enqueue_head()`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn enqueue_tail(
+    que: *mut QueueEntry,
+    elt: *mut QueueEntry,
+) {
+    // SAFETY: the caller promises both are valid and non-null.
+    let (que, elt) = unsafe { (&mut *que, NonNull::new_unchecked(elt)) };
+    // SAFETY: same as above.
+    unsafe { que.push_back(elt) };
+}
+
+/// Remove and return the head entry of `que`, or null when empty.
+///
+/// # Safety
+///
+/// `que` must be an initialized queue head, and nothing else may
+/// access the queue during the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dequeue_head(
+    que: *mut QueueEntry,
+) -> *mut QueueEntry {
+    // SAFETY: the caller promises `que` is a valid head.
+    let que = unsafe { &mut *que };
+    // SAFETY: same as above.
+    unsafe { que.pop_front() }.map_or(ptr::null_mut(), NonNull::as_ptr)
+}
+
+/// Remove and return the tail entry of `que`, or null when empty.
+///
+/// # Safety
+///
+/// Same contract as `dequeue_head()`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dequeue_tail(
+    que: *mut QueueEntry,
+) -> *mut QueueEntry {
+    // SAFETY: the caller promises `que` is a valid head.
+    let que = unsafe { &mut *que };
+    // SAFETY: same as above.
+    unsafe { que.pop_back() }.map_or(ptr::null_mut(), NonNull::as_ptr)
+}
+
+/// Remove `elt` from its queue; `que` is unused, as in C.
+///
+/// # Safety
+///
+/// `elt` must be linked into a queue, and nothing else may access that
+/// queue during the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn remqueue(
+    _que: *mut QueueEntry,
+    elt: *mut QueueEntry,
+) {
+    // SAFETY: the caller promises `elt` is linked into a queue.
+    let elt = unsafe { NonNull::new_unchecked(elt) };
+    // SAFETY: same as above.
+    unsafe { QueueEntry::remove(elt) };
+}
+
+/// Insert `entry` right after `pred` in its queue.
+///
+/// # Safety
+///
+/// `pred` must be linked into a queue and `entry` valid and unlinked;
+/// nothing else may access the queue during the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn insque(
+    entry: *mut QueueEntry,
+    pred: *mut QueueEntry,
+) {
+    // SAFETY: the caller promises both are valid and non-null, with
+    // `pred` linked.
+    let (entry, pred) = unsafe {
+        (NonNull::new_unchecked(entry), NonNull::new_unchecked(pred))
+    };
+    // SAFETY: same as above.
+    unsafe { QueueEntry::insert_after(pred, entry) };
+}

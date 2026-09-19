@@ -20,10 +20,16 @@ So far the string routines have moved: all of `i386/i386/strings.c` and
 `kern/strings.c` — `memcpy()`, `memmove()`, `memcmp()`, `memset()` and the
 `str*()` family.  Both C files are gone, so the kernel's own calls and the
 ones the C compiler inserts for struct and array copies land in Rust now.
+The Mach queue package followed: `kern/queue.c` is gone too, replaced by
+`src/kern/queue.rs` — an idiomatic module (NonNull, Option, an iterator)
+behind six `extern "C"` wrappers keeping the old symbols.  `QueueEntry`
+is `#[repr(C)]`-identical to `struct queue_entry`, so the `kern/queue.h`
+macros keep working on the same layout.
 
 **Next:** work outward from the string routines.  A good candidate is a
 leaf, needs no allocation, and has a C definition that can be deleted in
-the same commit.
+the same commit.  The audited list of self-contained translation units
+lives in `MIGRATE.md` at the top of the tree.
 
 ## Rules
 
@@ -87,6 +93,7 @@ without a file-extension filter.
 ## Where things go
 
 - `src/utils/` — code that is the same on every machine.
+- `src/kern/` — machine-independent kernel facilities, mirroring `kern/`.
 - `src/arch/<arch>/` — code that has to be written twice, for i686 and x86_64.
 - `src/glue.rs` — the C functions Rust calls, declared with the C signature
   exactly.  A C *macro* cannot come through here: it needs a shim written in

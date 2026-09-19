@@ -10,6 +10,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod glue;
+pub mod kern;
 pub mod utils;
 
 mod panic;
