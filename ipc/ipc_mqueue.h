@@ -47,8 +47,6 @@ typedef struct ipc_mqueue {
 	struct ipc_thread_queue imq_threads;
 } *ipc_mqueue_t;
 
-#define	IMQ_NULL		((ipc_mqueue_t) 0)
-
 extern void
 ipc_mqueue_init(ipc_mqueue_t);
 
