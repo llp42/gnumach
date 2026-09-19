@@ -70,7 +70,7 @@ static struct bus_device *comcndev;
 extern char *kernel_cmdline;
 
 #define ISPEED	B115200
-#define IFLAGS	(EVENP|ODDP|TF_ECHO|TF_CRMOD|TF_XTABS|LITOUT)
+#define IFLAGS	(EVENP|TF_ODDP|TF_ECHO|TF_CRMOD|TF_XTABS|LITOUT)
 
 u_short divisorreg[] = {
 	0,	2304,	1536,	1047,		/*     0,    50,    75,   110*/
@@ -538,8 +538,8 @@ comintr(int unit)
 			line_stat = inb(LINE_STAT(addr));
 
 			if ((line_stat & iPE) &&
-			    ((tp->t_flags&(EVENP|ODDP)) == EVENP ||
-			     (tp->t_flags&(EVENP|ODDP)) == ODDP)) {
+			    ((tp->t_flags&(EVENP|TF_ODDP)) == EVENP ||
+			     (tp->t_flags&(EVENP|TF_ODDP)) == TF_ODDP)) {
 				/* parity error */;
 			} else 	if (line_stat&iOR && !comoverrun) {
 				printf("com%d: overrun\n", unit);

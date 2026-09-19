@@ -183,7 +183,6 @@ extern boolean_t tty_portdeath(
 
 /* flags - old names defined in terms of new ones */
 
-#define	ODDP		TF_ODDP
 #define	EVENP		TF_EVENP
 #define	LITOUT		TF_LITOUT
 
