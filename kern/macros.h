@@ -78,7 +78,6 @@
 #define barrier()           asm volatile("" : : : "memory")
 #endif /* barrier */
 
-#define __noreturn          __attribute__((noreturn))
 #define __aligned(x)        __attribute__((aligned(x)))
 #define __always_inline     inline __attribute__((always_inline))
 #ifndef __section
