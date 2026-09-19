@@ -206,12 +206,6 @@ extern boolean_t tty_portdeath(
 #define	PASS8		LITOUT
 
 /*
- * Hardware bits.
- * SHOULD NOT BE HERE.
- */
-#define	IENABLE	0100
-
-/*
  * Modem control commands.
  */
 #define	DMSET		0
