@@ -43,8 +43,6 @@
 /*
  * Redefine fields for driver request list heads, using old names.
  */
-#define	b_bufsize	io_alloc_size
-
 /*
  * Redefine flags
  */
