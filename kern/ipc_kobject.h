@@ -66,9 +66,7 @@ typedef unsigned int ipc_kobject_type_t;
 #define	IKOT_USER_DEVICE	28
 #define IKOT_PROCESSOR_NAME	29
 					/* << new entries here	*/
-#define	IKOT_UNKNOWN		30	/* magic catchall	*/
 #define	IKOT_MAX_TYPE		31	/* # of IKOT_ types	*/
- /* Please keep ipc/ipc_object.c:ikot_print_array up to date	*/
 
 #define is_ipc_kobject(ikot)	(ikot != IKOT_NONE)
 
