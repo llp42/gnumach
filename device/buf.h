@@ -43,7 +43,6 @@
 /*
  * Redefine fields for drivers using old names
  */
-#define	b_un		io_un
 #define	b_addr		data
 #define	av_forw		io_next
 #define	av_back		io_prev
