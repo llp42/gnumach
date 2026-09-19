@@ -91,14 +91,6 @@ queue_entry_t	queue_prev(queue_entry_t);
 boolean_t	queue_end(queue_t, queue_entry_t);
 boolean_t	queue_empty(queue_t);
 
-/*
- *	Macro:		queue_assert
- *	Function:
- *		Used by macros to assert that the given argument is a
- *		queue.
- */
-#define queue_assert(q)	(void) ((void) (q)->next, (q)->prev)
-
 /*----------------------------------------------------------------*/
 /*
  * Macros that operate on generic structures.  The queue
@@ -119,8 +111,6 @@ boolean_t	queue_empty(queue_t);
  */
 #define queue_enter(head, elt, type, field)			\
 MACRO_BEGIN							\
-	queue_assert(head);					\
-	queue_assert(&(elt)->field);				\
 	queue_entry_t prev;					\
 								\
 	prev = (head)->prev;					\
@@ -148,8 +138,6 @@ MACRO_END
  */
 #define queue_enter_first(head, elt, type, field)		\
 MACRO_BEGIN							\
-	queue_assert(head);					\
-	queue_assert(&(elt)->field);				\
 	queue_entry_t next;					\
 								\
 	next = (head)->next;					\
@@ -174,8 +162,6 @@ MACRO_END
  */
 #define	queue_remove(head, elt, type, field)			\
 MACRO_BEGIN							\
-	queue_assert(head);					\
-	queue_assert(&(elt)->field);				\
 	queue_entry_t	next, prev;				\
 								\
 	next = (elt)->field.next;				\
