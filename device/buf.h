@@ -43,7 +43,6 @@
 /*
  * Redefine fields for drivers using old names
  */
-#define	av_back		io_prev
 #define b_physblock     io_physrec
 #define b_blocktotal    io_rectotal
 
