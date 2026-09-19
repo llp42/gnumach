@@ -87,9 +87,6 @@ extern struct processor_set	default_pset;
 extern struct processor_set	*slave_pset;
 #endif
 
-#define pset_idle_lock()	simple_lock_nocheck(&pset->idle_lock)
-#define pset_idle_unlock()	simple_unlock_nocheck(&pset->idle_lock)
-
 struct processor {
 	struct run_queue runq;		/* local runq for this processor */
 		/* XXX want to do this round robin eventually */

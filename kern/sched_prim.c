@@ -1204,7 +1204,7 @@ void thread_setrun(
 	    pset = th->processor_set;
 
 	    if (pset->idle_count > 0) {
-		pset_idle_lock();
+		simple_lock_nocheck(&pset->idle_lock);
 		if (pset->idle_count > 0) {
 		    processor = (processor_t) queue_first(&pset->idle_queue);
 		    queue_remove(&(pset->idle_queue), processor, processor_t,
@@ -1212,12 +1212,12 @@ void thread_setrun(
 		    pset->idle_count--;
 		    processor->next_thread = th;
 		    processor->state = PROCESSOR_DISPATCHING;
-		    pset_idle_unlock();
+		    simple_unlock_nocheck(&pset->idle_lock);
 		    if (processor != current_processor())
 			cause_ast_check(processor);
 		    return;
 		}
-		pset_idle_unlock();
+		simple_unlock_nocheck(&pset->idle_lock);
 	    }
 	    rq = &(pset->runq);
 	    run_queue_enqueue(rq,th);
@@ -1244,20 +1244,20 @@ void thread_setrun(
 	    if (processor != PROCESSOR_NULL && processor->state == PROCESSOR_IDLE) {
 		simple_lock(&(processor)->lock);
 		pset = processor->processor_set;
-		pset_idle_lock();
+		simple_lock_nocheck(&pset->idle_lock);
 		if (processor->state == PROCESSOR_IDLE) {
 		    queue_remove(&pset->idle_queue, processor,
 			processor_t, processor_queue);
 		    pset->idle_count--;
 		    processor->next_thread = th;
 		    processor->state = PROCESSOR_DISPATCHING;
-		    pset_idle_unlock();
+		    simple_unlock_nocheck(&pset->idle_lock);
 		    simple_unlock(&(processor)->lock);
 		    if (processor != current_processor())
 			cause_ast_check(processor);
 		    return;
 		}
-		pset_idle_unlock();
+		simple_unlock_nocheck(&pset->idle_lock);
 		simple_unlock(&(processor)->lock);
 	    }
 	    rq = &(processor->runq);
@@ -1503,7 +1503,7 @@ thread_t choose_pset_thread(
 	 *	was running.  If it was in an assignment or shutdown,
 	 *	leave it alone.  Return its idle thread.
 	 */
-	pset_idle_lock();
+	simple_lock_nocheck(&pset->idle_lock);
 	if (myprocessor->state == PROCESSOR_RUNNING) {
 	    myprocessor->state = PROCESSOR_IDLE;
 	    /*
@@ -1521,7 +1521,7 @@ thread_t choose_pset_thread(
 
 	    pset->idle_count++;
 	}
-	pset_idle_unlock();
+	simple_unlock_nocheck(&pset->idle_lock);
 
 	return myprocessor->idle_thread;
 }
@@ -1639,12 +1639,12 @@ retry:
 			processor_set_t pset;
 
 			pset = myprocessor->processor_set;
-			pset_idle_lock();
+			simple_lock_nocheck(&pset->idle_lock);
 			if (myprocessor->state != PROCESSOR_IDLE) {
 				/*
 				 *	Something happened, try again.
 				 */
-				pset_idle_unlock();
+				simple_unlock_nocheck(&pset->idle_lock);
 				goto retry;
 			}
 			/*
@@ -1656,7 +1656,7 @@ retry:
 			queue_remove(&pset->idle_queue, myprocessor,
 				processor_t, processor_queue);
 			myprocessor->state = PROCESSOR_RUNNING;
-			pset_idle_unlock();
+			simple_unlock_nocheck(&pset->idle_lock);
 			thread_block(idle_thread_continue);
 		}
 		else if ((state == PROCESSOR_ASSIGN) ||
