@@ -36,6 +36,7 @@
 #define	_KERN_QUEUE_H_
 
 #include <kern/lock.h>
+#include <mach/boolean.h>
 
 /*
  *	Queue of abstract objects.  Queue is maintained
@@ -71,9 +72,9 @@ typedef	struct queue_entry	queue_chain_t;
 typedef	struct queue_entry	*queue_entry_t;
 
 /*
- * These six are written in Rust, in rust/src/kern/queue.rs, and reach
- * the kernel through libmach-rs.a.  The macros below stay here and
- * operate on the same struct queue_entry layout.
+ * These twelve are written in Rust, in rust/src/kern/queue.rs, and
+ * reach the kernel through libmach-rs.a.  The macros below stay here
+ * and operate on the same struct queue_entry layout.
  */
 
 void		enqueue_head(queue_t, queue_entry_t);
@@ -83,6 +84,13 @@ queue_entry_t	dequeue_tail(queue_t);
 void		remqueue(queue_t, queue_entry_t);
 void		insque(queue_entry_t, queue_entry_t);
 
+void		queue_init(queue_t);
+queue_entry_t	queue_first(queue_t);
+queue_entry_t	queue_next(queue_entry_t);
+queue_entry_t	queue_prev(queue_entry_t);
+boolean_t	queue_end(queue_t, queue_entry_t);
+boolean_t	queue_empty(queue_t);
+
 /*
  *	Macro:		queue_assert
  *	Function:
@@ -90,70 +98,6 @@ void		insque(queue_entry_t, queue_entry_t);
  *		queue.
  */
 #define queue_assert(q)	(void) ((void) (q)->next, (q)->prev)
-
-/*
- *	Macro:		queue_init
- *	Function:
- *		Initialize the given queue.
- *	Header:
- *		void queue_init(q)
- *			queue_t		q;	*MODIFIED*
- */
-#define	queue_init(q)	((q)->next = (q)->prev = q)
-
-/*
- *	Macro:		queue_first
- *	Function:
- *		Returns the first entry in the queue,
- *	Header:
- *		queue_entry_t queue_first(q)
- *			queue_t	q;		*IN*
- */
-#define	queue_first(q)	(queue_assert(q), (q)->next)
-
-/*
- *	Macro:		queue_next
- *	Function:
- *		Returns the entry after an item in the queue.
- *	Header:
- *		queue_entry_t queue_next(qc)
- *			queue_t qc;
- */
-#define	queue_next(qc)	(queue_assert(qc), (qc)->next)
-
-/*
- *	Macro:		queue_prev
- *	Function:
- *		Returns the entry before an item in the queue.
- *	Header:
- *		queue_entry_t queue_prev(qc)
- *			queue_t qc;
- */
-#define	queue_prev(qc)	(queue_assert(qc), (qc)->prev)
-
-/*
- *	Macro:		queue_end
- *	Function:
- *		Tests whether a new entry is really the end of
- *		the queue.
- *	Header:
- *		boolean_t queue_end(q, qe)
- *			queue_t q;
- *			queue_entry_t qe;
- */
-#define	queue_end(q, qe)	(queue_assert(q), queue_assert(qe), \
-				 (q) == (qe))
-
-/*
- *	Macro:		queue_empty
- *	Function:
- *		Tests whether a queue is empty.
- *	Header:
- *		boolean_t queue_empty(q)
- *			queue_t q;
- */
-#define	queue_empty(q)		queue_end((q), queue_first(q))
-
 
 /*----------------------------------------------------------------*/
 /*

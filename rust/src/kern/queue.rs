@@ -8,6 +8,7 @@
 //! `struct queue_entry` in <kern/queue.h>, so the C macros there and
 //! the code here operate on the same queues.
 
+use core::ffi::c_int;
 use core::ptr;
 use core::ptr::NonNull;
 
@@ -317,4 +318,79 @@ pub unsafe extern "C" fn insque(
     };
     // SAFETY: same as above.
     unsafe { QueueEntry::insert_after(pred, entry) };
+}
+
+/// Initialize `q` as an empty queue head.  `queue_init()` in C.
+///
+/// # Safety
+///
+/// `q` must be valid and not linked into a queue, and must not be
+/// moved afterwards: the links point at its own address.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn queue_init(q: *mut QueueEntry) {
+    // SAFETY: the caller promises `q` is valid and unlinked.
+    unsafe { (*q).init_head() };
+}
+
+/// The raw link after `q`: the first entry, or `q` itself when the
+/// queue is empty -- unlike `QueueEntry::first()`, which maps the
+/// sentinel to `None`.  `queue_first()` in C.
+///
+/// # Safety
+///
+/// `q` must be a valid queue entry.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn queue_first(q: *mut QueueEntry) -> *mut QueueEntry {
+    // SAFETY: the caller promises `q` is a valid queue entry.
+    unsafe { (*q).next }
+}
+
+/// The raw link after `qc`, with the same sentinel semantics as
+/// `queue_first()`.  `queue_next()` in C.
+///
+/// # Safety
+///
+/// `qc` must be a valid queue entry.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn queue_next(qc: *mut QueueEntry) -> *mut QueueEntry {
+    // SAFETY: the caller promises `qc` is a valid queue entry.
+    unsafe { (*qc).next }
+}
+
+/// The raw link before `qc`, with the same sentinel semantics as
+/// `queue_first()`.  `queue_prev()` in C.
+///
+/// # Safety
+///
+/// `qc` must be a valid queue entry.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn queue_prev(qc: *mut QueueEntry) -> *mut QueueEntry {
+    // SAFETY: the caller promises `qc` is a valid queue entry.
+    unsafe { (*qc).prev }
+}
+
+/// Whether `qe` is the head `q` itself, as a C boolean.
+/// `queue_end()` in C.
+///
+/// # Safety
+///
+/// `q` and `qe` must be valid queue entries.  (Only addresses are
+/// compared; nothing is dereferenced.)
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn queue_end(
+    q: *mut QueueEntry,
+    qe: *mut QueueEntry,
+) -> c_int {
+    c_int::from(q == qe)
+}
+
+/// Whether `q`'s queue is empty, as a C boolean.  `queue_empty()` in C.
+///
+/// # Safety
+///
+/// `q` must be a valid queue head.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn queue_empty(q: *mut QueueEntry) -> c_int {
+    // SAFETY: the caller promises `q` is a valid queue head.
+    c_int::from(unsafe { &*q }.is_empty())
 }
