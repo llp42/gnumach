@@ -68,7 +68,6 @@ typedef unsigned int ipc_kobject_type_t;
 #define IKOT_PAGING_NAME	16
 #define IKOT_HOST_SECURITY	17
 #define	IKOT_LEDGER		18
-#define IKOT_CLOCK		25
 #define IKOT_CLOCK_CTRL		26
 #define	IKOT_PAGER_PROXY	27
 #define	IKOT_USER_DEVICE	28
