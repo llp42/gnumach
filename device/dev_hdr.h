@@ -127,12 +127,6 @@ typedef boolean_t (*dev_map_fn)(mach_device_t, mach_port_t);
 boolean_t	dev_map(dev_map_fn, mach_port_t);
 
 /*
- * To lock and unlock state and open-count
- */
-#define	device_lock(device)	simple_lock(&(device)->lock)
-#define	device_unlock(device)	simple_unlock(&(device)->lock)
-
-/*
  * device name lookup
  */
 extern boolean_t dev_name_lookup(

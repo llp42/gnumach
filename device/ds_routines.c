@@ -450,14 +450,14 @@ mach_convert_device_to_port (mach_device_t device)
   if (! device)
     return IP_NULL;
 
-  device_lock(device);
+  simple_lock(&(device)->lock);
 
   if (device->state == DEV_STATE_OPEN)
     port = ipc_port_make_send(device->port);
   else
     port = IP_NULL;
 
-  device_unlock(device);
+  simple_unlock(&(device)->lock);
 
   mach_device_deallocate(device);
 
@@ -487,12 +487,12 @@ device_open(const ipc_port_t	reply_port,
 	 * If the device is being opened or closed,
 	 * wait for that operation to finish.
 	 */
-	device_lock(device);
+	simple_lock(&(device)->lock);
 	while (device->state == DEV_STATE_OPENING ||
 		device->state == DEV_STATE_CLOSING) {
 	    device->io_wait = TRUE;
 	    thread_sleep((event_t)device, simple_lock_addr(device->lock), TRUE);
-	    device_lock(device);
+	    simple_lock(&(device)->lock);
 	}
 
 	/*
@@ -505,13 +505,13 @@ device_open(const ipc_port_t	reply_port,
 		/*
 		 * Cannot open a second time.
 		 */
-		device_unlock(device);
+		simple_unlock(&(device)->lock);
 		mach_device_deallocate(device);
 		return (D_ALREADY_OPEN);
 	    }
 
 	    device->open_count++;
-	    device_unlock(device);
+	    simple_unlock(&(device)->lock);
 	    *device_p = &device->dev;
 	    return (D_SUCCESS);
 	    /*
@@ -525,21 +525,21 @@ device_open(const ipc_port_t	reply_port,
 	 * opening it.
 	 */
 	device->state = DEV_STATE_OPENING;
-	device_unlock(device);
+	simple_unlock(&(device)->lock);
 
 	/*
 	 * Allocate port, keeping a reference for it.
 	 */
 	device->port = ipc_port_alloc_kernel();
 	if (device->port == IP_NULL) {
-	    device_lock(device);
+	    simple_lock(&(device)->lock);
 	    device->state = DEV_STATE_INIT;
 	    device->port = IP_NULL;
 	    if (device->io_wait) {
 		device->io_wait = FALSE;
 		thread_wakeup((event_t)device);
 	    }
-	    device_unlock(device);
+	    simple_unlock(&(device)->lock);
 	    mach_device_deallocate(device);
 	    return (KERN_RESOURCE_SHORTAGE);
 	}
@@ -600,13 +600,13 @@ ds_open_done(const io_req_t ior)
 	    ipc_port_dealloc_kernel(device->port);
 	    device->port = IP_NULL;
 
-	    device_lock(device);
+	    simple_lock(&(device)->lock);
 	    device->state = DEV_STATE_INIT;
 	    if (device->io_wait) {
 		device->io_wait = FALSE;
 		thread_wakeup((event_t)device);
 	    }
-	    device_unlock(device);
+	    simple_unlock(&(device)->lock);
 
 	    mach_device_deallocate(device);
 	    device = MACH_DEVICE_NULL;
@@ -615,14 +615,14 @@ ds_open_done(const io_req_t ior)
 	    /*
 	     * Open succeeded.
 	     */
-	    device_lock(device);
+	    simple_lock(&(device)->lock);
 	    device->state = DEV_STATE_OPEN;
 	    device->open_count = 1;
 	    if (device->io_wait) {
 		device->io_wait = FALSE;
 		thread_wakeup((event_t)device);
 	    }
-	    device_unlock(device);
+	    simple_unlock(&(device)->lock);
 
 	    /* donate device reference to get port */
 	}
@@ -647,13 +647,13 @@ device_close(void *dev)
 {
 	mach_device_t device = dev;
 
-	device_lock(device);
+	simple_lock(&(device)->lock);
 
 	/*
 	 * If device will remain open, do nothing.
 	 */
 	if (--device->open_count > 0) {
-	    device_unlock(device);
+	    simple_unlock(&(device)->lock);
 	    return (D_SUCCESS);
 	}
 
@@ -661,7 +661,7 @@ device_close(void *dev)
 	 * If device is being closed, do nothing.
 	 */
 	if (device->state == DEV_STATE_CLOSING) {
-	    device_unlock(device);
+	    simple_unlock(&(device)->lock);
 	    return (D_SUCCESS);
 	}
 
@@ -670,7 +670,7 @@ device_close(void *dev)
 	 * Outstanding IO will still be in progress.
 	 */
 	device->state = DEV_STATE_CLOSING;
-	device_unlock(device);
+	simple_unlock(&(device)->lock);
 
 	/*
 	 * ? wait for IO to end ?
@@ -692,13 +692,13 @@ device_close(void *dev)
 	 * Finally mark it closed.  If someone else is trying
 	 * to open it, the open can now proceed.
 	 */
-	device_lock(device);
+	simple_lock(&(device)->lock);
 	device->state = DEV_STATE_INIT;
 	if (device->io_wait) {
 	    device->io_wait = FALSE;
 	    thread_wakeup((event_t)device);
 	}
-	device_unlock(device);
+	simple_unlock(&(device)->lock);
 
 	return (D_SUCCESS);
 }
