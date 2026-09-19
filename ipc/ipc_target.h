@@ -37,9 +37,6 @@ typedef struct ipc_target {
 
 } *ipc_target_t;
 
-#define IPT_TYPE_MESSAGE_RPC	1
-#define IPT_TYPE_MIGRATE_RPC	2
-
 void ipc_target_init(struct ipc_target *ipt, mach_port_name_t name);
 void ipc_target_terminate(struct ipc_target *ipt);
 
