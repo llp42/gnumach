@@ -35,6 +35,8 @@
 #ifndef	_KERN_QUEUE_H_
 #define	_KERN_QUEUE_H_
 
+#include <stddef.h>
+
 #include <kern/macros.h>
 #include <mach/boolean.h>
 
@@ -72,7 +74,7 @@ typedef	struct queue_entry	queue_chain_t;
 typedef	struct queue_entry	*queue_entry_t;
 
 /*
- * These twelve are written in Rust, in rust/src/kern/queue.rs, and
+ * These fifteen are written in Rust, in rust/src/kern/queue.rs, and
  * reach the kernel through libmach-rs.a.  The macros below stay here
  * and operate on the same struct queue_entry layout.
  */
@@ -90,6 +92,10 @@ queue_entry_t	queue_next(queue_entry_t);
 queue_entry_t	queue_prev(queue_entry_t);
 boolean_t	queue_end(queue_t, queue_entry_t);
 boolean_t	queue_empty(queue_t);
+
+void		queue_enter_tail(queue_t, void *, size_t);
+void		queue_enter_head(queue_t, void *, size_t);
+void		queue_remove_generic(queue_t, void *, size_t);
 
 /*----------------------------------------------------------------*/
 /*
@@ -109,21 +115,9 @@ boolean_t	queue_empty(queue_t);
  *			<type> is what's in our queue
  *			<field> is the chain field in (*<type>)
  */
-#define queue_enter(head, elt, type, field)			\
-MACRO_BEGIN							\
-	queue_entry_t prev;					\
-								\
-	prev = (head)->prev;					\
-	if ((head) == prev) {					\
-		(head)->next = (queue_entry_t) (elt);		\
-	}							\
-	else {							\
-		((type)prev)->field.next = (queue_entry_t)(elt);\
-	}							\
-	(elt)->field.prev = prev;				\
-	(elt)->field.next = head;				\
-	(head)->prev = (queue_entry_t) elt;			\
-MACRO_END
+#define queue_enter(head, elt, type, field)				\
+	queue_enter_tail((head), (elt),					\
+	    __builtin_offsetof(typeof(*(elt)), field))
 
 /*
  *	Macro:		queue_enter_first
@@ -136,21 +130,9 @@ MACRO_END
  *			<type> is what's in our queue
  *			<field> is the chain field in (*<type>)
  */
-#define queue_enter_first(head, elt, type, field)		\
-MACRO_BEGIN							\
-	queue_entry_t next;					\
-								\
-	next = (head)->next;					\
-	if ((head) == next) {					\
-		(head)->prev = (queue_entry_t) (elt);		\
-	}							\
-	else {							\
-		((type)next)->field.prev = (queue_entry_t)(elt);\
-	}							\
-	(elt)->field.next = next;				\
-	(elt)->field.prev = head;				\
-	(head)->next = (queue_entry_t) elt;			\
-MACRO_END
+#define queue_enter_first(head, elt, type, field)				\
+	queue_enter_head((head), (elt),					\
+	    __builtin_offsetof(typeof(*(elt)), field))
 
 /*
  *	Macro:		queue_remove
@@ -160,23 +142,9 @@ MACRO_END
  *		void queue_remove(q, qe, type, field)
  *			arguments as in queue_enter
  */
-#define	queue_remove(head, elt, type, field)			\
-MACRO_BEGIN							\
-	queue_entry_t	next, prev;				\
-								\
-	next = (elt)->field.next;				\
-	prev = (elt)->field.prev;				\
-								\
-	if ((head) == next)					\
-		(head)->prev = prev;				\
-	else							\
-		((type)next)->field.prev = prev;		\
-								\
-	if ((head) == prev)					\
-		(head)->next = next;				\
-	else							\
-		((type)prev)->field.next = next;		\
-MACRO_END
+#define queue_remove(head, elt, type, field)				\
+	queue_remove_generic((head), (elt),					\
+	    __builtin_offsetof(typeof(*(elt)), field))
 
 /*
  *	Macro:		queue_iterate

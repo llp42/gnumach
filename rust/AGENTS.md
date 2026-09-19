@@ -22,13 +22,16 @@ So far the string routines have moved: all of `i386/i386/strings.c` and
 ones the C compiler inserts for struct and array copies land in Rust now.
 The Mach queue package followed: `kern/queue.c` is gone too, replaced by
 `src/kern/queue.rs` — an idiomatic module (NonNull, Option, an iterator)
-behind twelve `extern "C"` wrappers keeping the old symbols: the six
-routines of `kern/queue.c` plus the former accessor macros `queue_init()`,
+behind fifteen `extern "C"` wrappers keeping the old symbols: the six
+routines of `kern/queue.c`, the former accessor macros `queue_init()`,
 `queue_first()`, `queue_next()`, `queue_prev()`, `queue_end()` and
-`queue_empty()`.  `QueueEntry` is `#[repr(C)]`-identical to `struct
-queue_entry`, so what remains in `kern/queue.h` — the generic `(type,
-field)` macros — keeps working on the same layout.  (`mpqueue` is gone
-altogether: its only user was the dead `#if 0` profiling facility.)
+`queue_empty()`, and the generic `queue_enter()`, `queue_enter_first()`
+and `queue_remove()` operations themselves, which take the chain-field
+offset as a value.  `QueueEntry` is `#[repr(C)]`-identical to `struct
+queue_entry`, so what remains in `kern/queue.h` — three one-line
+`offsetof` wrappers and `queue_iterate()` — keeps working on the same
+layout.  (`mpqueue` is gone altogether: its only user was the dead
+`#if 0` profiling facility.)
 
 **Next:** work outward from the string routines.  A good candidate is a
 leaf, needs no allocation, and has a C definition that can be deleted in

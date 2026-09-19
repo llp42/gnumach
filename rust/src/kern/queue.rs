@@ -8,7 +8,7 @@
 //! `struct queue_entry` in <kern/queue.h>, so the C macros there and
 //! the code here operate on the same queues.
 
-use core::ffi::c_int;
+use core::ffi::{c_int, c_void};
 use core::ptr;
 use core::ptr::NonNull;
 
@@ -393,4 +393,119 @@ pub unsafe extern "C" fn queue_end(
 pub unsafe extern "C" fn queue_empty(q: *mut QueueEntry) -> c_int {
     // SAFETY: the caller promises `q` is a valid queue head.
     c_int::from(unsafe { &*q }.is_empty())
+}
+
+/// The chain slot `off` bytes inside a container.
+///
+/// The generic `queue.h` macros store container pointers in the links,
+/// so a neighbour's chain is found by adding the field offset to the
+/// container address.
+fn chain_of(container: *mut c_void, off: usize) -> *mut QueueEntry {
+    container
+        .cast::<u8>()
+        .wrapping_add(off)
+        .cast::<QueueEntry>()
+}
+
+/// Insert the container `elt` at the tail of `head`, chaining through
+/// the `QueueEntry` field `off` bytes inside each container.  The
+/// function form of the old `queue_enter()` macro: links store
+/// container pointers, so `off` is how neighbours' chains are found.
+///
+/// # Safety
+///
+/// `head` must be an initialized queue head and `elt` a valid,
+/// unlinked container with a `QueueEntry` at `off` bytes; every link
+/// in the queue must be a container with the same offset (or the head
+/// itself).  Nothing else may access the queue during the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn queue_enter_tail(
+    head: *mut QueueEntry,
+    elt: *mut c_void,
+    off: usize,
+) {
+    let chain = chain_of(elt, off);
+    // SAFETY: the caller promises `head` is a valid head and the queue
+    // satisfies the container-links invariant for `off`.
+    let prev = unsafe { (*head).prev };
+    if prev == head {
+        // SAFETY: as above.
+        unsafe { (*head).next = elt.cast() };
+    } else {
+        // SAFETY: `prev` is a container whose chain is at `off`.
+        unsafe { (*chain_of(prev.cast(), off)).next = elt.cast() };
+    }
+    // SAFETY: `chain` is the chain slot of the valid container `elt`.
+    unsafe {
+        (*chain).prev = prev;
+        (*chain).next = head;
+        (*head).prev = elt.cast();
+    }
+}
+
+/// Insert the container `elt` at the head of `head`; the function form
+/// of the old `queue_enter_first()` macro.  Same layout rules as
+/// `queue_enter_tail()`.
+///
+/// # Safety
+///
+/// Same contract as `queue_enter_tail()`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn queue_enter_head(
+    head: *mut QueueEntry,
+    elt: *mut c_void,
+    off: usize,
+) {
+    let chain = chain_of(elt, off);
+    // SAFETY: the caller promises `head` is a valid head and the queue
+    // satisfies the container-links invariant for `off`.
+    let next = unsafe { (*head).next };
+    if next == head {
+        // SAFETY: as above.
+        unsafe { (*head).prev = elt.cast() };
+    } else {
+        // SAFETY: `next` is a container whose chain is at `off`.
+        unsafe { (*chain_of(next.cast(), off)).prev = elt.cast() };
+    }
+    // SAFETY: `chain` is the chain slot of the valid container `elt`.
+    unsafe {
+        (*chain).next = next;
+        (*chain).prev = head;
+        (*head).next = elt.cast();
+    }
+}
+
+/// Remove the container `elt` from the queue headed by `head`; the
+/// function form of the old `queue_remove()` macro.  No membership
+/// check, like `remqueue()`.
+///
+/// # Safety
+///
+/// `elt` must be linked into `head`'s queue, with a `QueueEntry` at
+/// `off` bytes, and every link in the queue must be a container with
+/// the same offset (or the head).  Nothing else may access the queue
+/// during the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn queue_remove_generic(
+    head: *mut QueueEntry,
+    elt: *mut c_void,
+    off: usize,
+) {
+    let chain = chain_of(elt, off);
+    // SAFETY: the caller promises `elt` is linked into this queue.
+    let (next, prev) = unsafe { ((*chain).next, (*chain).prev) };
+    if next == head {
+        // SAFETY: the caller promises `head` is a valid head.
+        unsafe { (*head).prev = prev };
+    } else {
+        // SAFETY: `next` is a container whose chain is at `off`.
+        unsafe { (*chain_of(next.cast(), off)).prev = prev };
+    }
+    if prev == head {
+        // SAFETY: the caller promises `head` is a valid head.
+        unsafe { (*head).next = next };
+    } else {
+        // SAFETY: `prev` is a container whose chain is at `off`.
+        unsafe { (*chain_of(prev.cast(), off)).next = next };
+    }
 }
