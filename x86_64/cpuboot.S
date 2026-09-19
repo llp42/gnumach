@@ -16,7 +16,6 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#if NCPUS > 1
 #include <mach/machine/asm.h>
 #include <i386/i386asm.h>
 #include <i386/proc_reg.h>
@@ -367,4 +366,3 @@ apboot_gdt64:
 
 	/* KERNEL_DS */
 	.quad	((ACC_P | ACC_DATA_W) << SEG_ACCESS_OFS) | (SZ_64 << SEG_FLAGS_OFS)
-#endif

@@ -102,7 +102,6 @@ ENTRY(Thread_continue)
 	xorq	%rbp,%rbp			/* zero frame pointer */
 	call	*%rbx				/* call real continuation */
 
-#if	NCPUS > 1
 /*
  * void switch_to_shutdown_context(thread_t thread,
  *				   void (*routine)(processor_t),
@@ -144,5 +143,3 @@ ud2
 	movq	%rsi,%rdi			/* push argument */
 	call	*%rbx				/* call routine to run */
 	hlt					/* (should never return) */
-
-#endif	/* NCPUS > 1 */
