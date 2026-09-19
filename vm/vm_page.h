@@ -160,7 +160,6 @@ void vm_page_check(const struct vm_page *page);
  *		ordered, in LRU-like fashion.
  */
 
-#define VM_PAGE_DMA		0x01
 #if defined(VM_PAGE_DMA32_LIMIT) && VM_PAGE_DMA32_LIMIT > VM_PAGE_DIRECTMAP_LIMIT
 #define VM_PAGE_DIRECTMAP      0x02
 #define VM_PAGE_DMA32          0x04
