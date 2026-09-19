@@ -993,7 +993,7 @@ boolean_t ttymodem(
 	struct tty *	tp,
 	boolean_t	carrier_up)
 {
-	if ((tp->t_state&TS_WOPEN) == 0 && (tp->t_flags & MDMBUF)) {
+	if ((tp->t_state&TS_WOPEN) == 0 && (tp->t_flags & TF_MDMBUF)) {
 	    /*
 	     * Flow control by carrier.  Carrier down stops
 	     * output; carrier up restarts output.
