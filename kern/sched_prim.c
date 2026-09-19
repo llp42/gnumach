@@ -129,10 +129,6 @@ timeout_data_t	recompute_priorities_timer;
 decl_simple_lock_data(static,	wait_lock[NUMQUEUES])	 /* Lock for... */
 queue_head_t		wait_queue[NUMQUEUES];
 
-#define waitq_lock(wl)		simple_lock_nocheck(wl)
-#define waitq_unlock(wl)	simple_unlock_nocheck(wl)
-
-
 /* NOTE: we want a small positive integer out of this */
 #define wait_hash(event) \
 	((((long)(event) < 0) ? ~(long)(event) : (long)(event)) % NUMQUEUES)
@@ -238,7 +234,7 @@ void assert_wait(
 		index = wait_hash(event);
 		q = &wait_queue[index];
 		lock = &wait_lock[index];
-		waitq_lock(lock);
+		simple_lock_nocheck(lock);
 		thread_lock(thread);
 		enqueue_tail(q, &(thread->links));
 		thread->wait_event = event;
@@ -247,7 +243,7 @@ void assert_wait(
 		else
 			thread->state |= TH_WAIT | TH_UNINT;
 		thread_unlock(thread);
-		waitq_unlock(lock);
+		simple_unlock_nocheck(lock);
 	}
 	else {
 		thread_lock(thread);
@@ -300,7 +296,7 @@ void clear_wait(
 		index = wait_hash(event);
 		q = &wait_queue[index];
 		lock = &wait_lock[index];
-		waitq_lock(lock);
+		simple_lock_nocheck(lock);
 		/*
 		 *	If the thread is still waiting on that event,
 		 *	then remove it from the list.  If it is waiting
@@ -313,7 +309,7 @@ void clear_wait(
 			thread->wait_event = 0;
 			event = 0;		/* cause to run below */
 		}
-		waitq_unlock(lock);
+		simple_unlock_nocheck(lock);
 	}
 	if (event == 0) {
 		int	state = thread->state;
@@ -392,7 +388,7 @@ boolean_t thread_wakeup_prim(
 	q = &wait_queue[index];
 	s = splsched();
 	lock = &wait_lock[index];
-	waitq_lock(lock);
+	simple_lock_nocheck(lock);
 	thread = (thread_t) queue_first(q);
 	while (!queue_end(q, (queue_entry_t)thread)) {
 		next_th = (thread_t) queue_next((queue_t) thread);
@@ -441,7 +437,7 @@ boolean_t thread_wakeup_prim(
 		}
 		thread = next_th;
 	}
-	waitq_unlock(lock);
+	simple_unlock_nocheck(lock);
 	splx(s);
 	return (woke);
 }
