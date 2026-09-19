@@ -107,7 +107,6 @@ struct ifnet {
 
 #define	IFF_UP		0x0001		/* interface is up */
 #define	IFF_BROADCAST	0x0002		/* interface can broadcast */
-#define	IFF_LOOPBACK	0x0008		/* is a loopback net */
 #define	IFF_POINTOPOINT	0x0010		/* point-to-point link */
 #define	IFF_RUNNING	0x0040		/* resources allocated */
 #define	IFF_NOARP	0x0080		/* no address resolution protocol */
