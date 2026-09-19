@@ -109,11 +109,6 @@ struct bus_device {
 };
 
 /*
- * General flag definitions
- */
-#define BUS_XCLU	   0x80		/* want exclusive use of bdp's */
-
-/*
  * Per-driver structure.
  *
  * Each bus driver defines entries for a set of routines
