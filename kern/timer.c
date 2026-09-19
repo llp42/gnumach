@@ -88,10 +88,10 @@ void timer_normalize(timer_t timer)
 	 *	that the values read are ok.
 	 */
 
-	high_increment = timer->low_bits/TIMER_HIGH_UNIT;
+	high_increment = timer->low_bits/TIMER_RATE;
 	timer->high_bits_check += high_increment;
 	__sync_synchronize();
-	timer->low_bits %= TIMER_HIGH_UNIT;
+	timer->low_bits %= TIMER_RATE;
 	__sync_synchronize();
 	timer->high_bits += high_increment;
 }
@@ -228,7 +228,7 @@ timer_delta(
 	unsigned		result;
 
 	timer_grab(timer,&new_save);
-	result = (new_save.high - save->high) * TIMER_HIGH_UNIT +
+	result = (new_save.high - save->high) * TIMER_RATE +
 		new_save.low - save->low;
 	save->high = new_save.high;
 	save->low = new_save.low;

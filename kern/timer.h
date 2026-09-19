@@ -42,10 +42,9 @@
 #define TIMER_RATE	1000000
 
 /*
- *	TIMER_HIGH_UNIT is the unit for high_bits in terms of low_bits.
- *	Setting it to TIMER_RATE makes the high unit seconds.
+ *	The unit for high_bits in terms of low_bits is TIMER_RATE, which
+ *	makes the high unit seconds.
  */
-#define TIMER_HIGH_UNIT	TIMER_RATE
 
 /*
  *	Definitions for accurate timers.  high_bits_check is a copy of
