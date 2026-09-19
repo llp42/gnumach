@@ -51,8 +51,6 @@ typedef struct ipc_thread_queue {
 	ipc_thread_t ithq_base;
 } *ipc_thread_queue_t;
 
-#define	ITHQ_NULL		((ipc_thread_queue_t) 0)
-
 
 #define	ipc_thread_links_init(thread)		\
 MACRO_BEGIN					\
