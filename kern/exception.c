@@ -423,7 +423,7 @@ exception_raise(
 	ip_unlock(dest_port);
 
 	receiver = ipc_thread_queue_first(&dest_mqueue->imq_threads);
-	if ((receiver == ITH_NULL) ||
+	if ((receiver == THREAD_NULL) ||
 	    !((receiver->swap_func == mach_msg_continue) ||
 	      ((receiver->swap_func == mach_msg_receive_continue) &&
 	       (sizeof(struct mach_exception) <= receiver->ith_msize) &&

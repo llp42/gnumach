@@ -40,8 +40,6 @@
 
 typedef thread_t ipc_thread_t;
 
-#define	ITH_NULL		THREAD_NULL
-
 /*
  *	Note that this isn't a queue, but rather a stack. This causes
  *	threads that were recently running to be reused earlier, which
@@ -60,10 +58,10 @@ MACRO_END
 
 #define	ipc_thread_queue_init(queue)		\
 MACRO_BEGIN					\
-	(queue)->ithq_base = ITH_NULL;		\
+	(queue)->ithq_base = THREAD_NULL;		\
 MACRO_END
 
-#define	ipc_thread_queue_empty(queue)	((queue)->ithq_base == ITH_NULL)
+#define	ipc_thread_queue_empty(queue)	((queue)->ithq_base == THREAD_NULL)
 
 #define	ipc_thread_queue_first(queue)	((queue)->ithq_base)
 
@@ -74,7 +72,7 @@ MACRO_BEGIN								\
 									\
 	_next = (thread)->ith_next;					\
 	if (_next == (thread)) {					\
-		(queue)->ithq_base = ITH_NULL;				\
+		(queue)->ithq_base = THREAD_NULL;				\
 	} else {							\
 		ipc_thread_t _prev = (thread)->ith_prev;		\
 									\
@@ -89,7 +87,7 @@ MACRO_END
 MACRO_BEGIN								\
 	ipc_thread_t _first = (queue)->ithq_base;			\
 									\
-	if (_first == ITH_NULL) {					\
+	if (_first == THREAD_NULL) {					\
 		(queue)->ithq_base = (thread);				\
 	} else {							\
 		ipc_thread_t _last = _first->ith_prev;			\

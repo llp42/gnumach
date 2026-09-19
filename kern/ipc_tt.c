@@ -698,7 +698,7 @@ thread_get_special_port(
 	ipc_port_t *whichp;
 	ipc_port_t port;
 
-	if (thread == ITH_NULL)
+	if (thread == THREAD_NULL)
 		return KERN_INVALID_ARGUMENT;
 
 	switch (which) {
@@ -751,7 +751,7 @@ thread_set_special_port(
 	ipc_port_t *whichp;
 	ipc_port_t old;
 
-	if (thread == ITH_NULL)
+	if (thread == THREAD_NULL)
 		return KERN_INVALID_ARGUMENT;
 
 	switch (which) {

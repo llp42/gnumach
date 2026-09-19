@@ -342,7 +342,7 @@ ipc_port_set_qlimit(
 			ipc_thread_t th;
 
 			th = ipc_thread_dequeue(&port->ip_blocked);
-			if (th == ITH_NULL)
+			if (th == THREAD_NULL)
 				break;
 
 			th->ith_state = MACH_MSG_SUCCESS;
@@ -656,7 +656,7 @@ ipc_port_destroy(
 	 *	of a dead port.
 	 */
 
-	while ((sender = ipc_thread_dequeue(&port->ip_blocked)) != ITH_NULL) {
+	while ((sender = ipc_thread_dequeue(&port->ip_blocked)) != THREAD_NULL) {
 		sender->ith_state = MACH_MSG_SUCCESS;
 		thread_go(sender);
 	}

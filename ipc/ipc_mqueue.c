@@ -104,7 +104,7 @@ ipc_mqueue_move(
 
 		/* before adding kmsg to newq, check for a blocked receiver */
 
-		while ((th = ipc_thread_dequeue(blockedq)) != ITH_NULL) {
+		while ((th = ipc_thread_dequeue(blockedq)) != THREAD_NULL) {
 
 			thread_go(th);
 
@@ -144,7 +144,7 @@ ipc_mqueue_changed(
 {
 	ipc_thread_t th;
 
-	while ((th = ipc_thread_dequeue(&mqueue->imq_threads)) != ITH_NULL) {
+	while ((th = ipc_thread_dequeue(&mqueue->imq_threads)) != THREAD_NULL) {
 		th->ith_state = mr;
 		thread_go(th);
 	}
@@ -333,7 +333,7 @@ ipc_mqueue_send(
 
 	for (;;) {
 		receiver = ipc_thread_queue_first(receivers);
-		if (receiver == ITH_NULL) {
+		if (receiver == THREAD_NULL) {
 			/* no receivers; queue kmsg */
 
 			ipc_kmsg_enqueue_macro(&mqueue->imq_messages, kmsg);
@@ -640,7 +640,7 @@ ipc_mqueue_receive(
 		senders = &port->ip_blocked;
 		sender = ipc_thread_queue_first(senders);
 
-		if ((sender != ITH_NULL) &&
+		if ((sender != THREAD_NULL) &&
 		    (port->ip_msgcount < port->ip_qlimit)) {
 			ipc_thread_rmqueue(senders, sender);
 			sender->ith_state = MACH_MSG_SUCCESS;

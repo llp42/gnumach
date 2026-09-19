@@ -66,7 +66,7 @@ ipc_thread_dequeue(
 
 	first = ipc_thread_queue_first(queue);
 
-	if (first != ITH_NULL)
+	if (first != THREAD_NULL)
 		ipc_thread_rmqueue_first_macro(queue, first);
 
 	return first;
@@ -91,7 +91,7 @@ ipc_thread_rmqueue(
 
 	if (next == thread) {
 
-		queue->ithq_base = ITH_NULL;
+		queue->ithq_base = THREAD_NULL;
 	} else {
 		if (queue->ithq_base == thread)
 			queue->ithq_base = next;

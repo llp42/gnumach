@@ -748,7 +748,7 @@ mach_msg_trap(
 		}
 
 		receiver = ipc_thread_queue_first(&dest_mqueue->imq_threads);
-		if ((receiver == ITH_NULL) ||
+		if ((receiver == THREAD_NULL) ||
 		    (ipc_kmsg_queue_first(&rcv_mqueue->imq_messages)
 								!= IKM_NULL)) {
 			simple_unlock(&(dest_mqueue)->imq_lock_data);
@@ -1295,7 +1295,7 @@ mach_msg_trap(
 		 * we cannot directly receive the reply.
 		 */
 		if ((ipc_thread_queue_first(&rcv_mqueue->imq_threads)
-			!= ITH_NULL) ||
+			!= THREAD_NULL) ||
 		    (ipc_kmsg_queue_first(&rcv_mqueue->imq_messages)
 			!= IKM_NULL))
 		{
