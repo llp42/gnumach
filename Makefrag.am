@@ -118,7 +118,6 @@ libkernel_a_SOURCES += \
 	kern/priority.h \
 	kern/processor.c \
 	kern/processor.h \
-	kern/profile.c \
 	kern/queue.h \
 	kern/rbtree.c \
 	kern/rbtree.h \
@@ -334,8 +333,6 @@ include_mach_HEADERS = \
 	include/mach/policy.h \
 	include/mach/port.h \
 	include/mach/processor_info.h \
-	include/mach/profil.h \
-	include/mach/profilparam.h \
 	include/mach/std_types.h \
 	include/mach/syscall_sw.h \
 	include/mach/task_info.h \

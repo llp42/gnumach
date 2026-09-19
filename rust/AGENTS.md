@@ -27,7 +27,8 @@ routines of `kern/queue.c` plus the former accessor macros `queue_init()`,
 `queue_first()`, `queue_next()`, `queue_prev()`, `queue_end()` and
 `queue_empty()`.  `QueueEntry` is `#[repr(C)]`-identical to `struct
 queue_entry`, so what remains in `kern/queue.h` — the generic `(type,
-field)` macros and `mpqueue` — keeps working on the same layout.
+field)` macros — keeps working on the same layout.  (`mpqueue` is gone
+altogether: its only user was the dead `#if 0` profiling facility.)
 
 **Next:** work outward from the string routines.  A good candidate is a
 leaf, needs no allocation, and has a C definition that can be deleted in

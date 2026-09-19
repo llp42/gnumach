@@ -35,7 +35,7 @@
 #ifndef	_KERN_QUEUE_H_
 #define	_KERN_QUEUE_H_
 
-#include <kern/lock.h>
+#include <kern/macros.h>
 #include <mach/boolean.h>
 
 /*
@@ -195,45 +195,5 @@ MACRO_END
 	for ((elt) = (type) queue_first(head);			\
 	     !queue_end((head), (queue_entry_t)(elt));		\
 	     (elt) = (type) queue_next(&(elt)->field))
-
-
-
-/*----------------------------------------------------------------*/
-/*
- *	Define macros for queues with locks.
- */
-struct mpqueue_head {
-	struct queue_entry	head;		/* header for queue */
-	struct slock		lock;		/* lock for queue */
-};
-
-typedef struct mpqueue_head	mpqueue_head_t;
-
-#define mpqueue_init(q) \
-	MACRO_BEGIN \
-		queue_init(&(q)->head); \
-		simple_lock_init(&(q)->lock); \
-	MACRO_END
-
-#define mpenqueue_tail(q, elt) \
-	MACRO_BEGIN \
-		simple_lock(&(q)->lock); \
-		enqueue_tail(&(q)->head, elt); \
-		simple_unlock(&(q)->lock); \
-	MACRO_END
-
-#define mpdequeue_head(q, elt) \
-	MACRO_BEGIN \
-		simple_lock(&(q)->lock); \
-		if (queue_empty(&(q)->head)) \
-			*(elt) = 0; \
-		else \
-			*(elt) = dequeue_head(&(q)->head); \
-		simple_unlock(&(q)->lock); \
-	MACRO_END
-
-/*
- *	Old queue stuff, will go away soon.
- */
 
 #endif	/* _KERN_QUEUE_H_ */
