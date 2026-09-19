@@ -41,11 +41,6 @@
 #define	buf	io_req
 
 /*
- * Redefine flags
- */
-#define	B_MD1		IO_SPARE_START
-
-/*
  * Export standard minphys routine.
  */
 extern void minphys(io_req_t);
