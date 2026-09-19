@@ -15,7 +15,6 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#if NCPUS > 1
 #include <mach/machine/asm.h>
 #include <i386/i386asm.h>
 #include <i386/proc_reg.h>
@@ -277,4 +276,3 @@ apboot_jmp_offset:
 	.word BOOT_CS
 
 apbootend:
-#endif

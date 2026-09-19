@@ -85,7 +85,6 @@ interrupt_stack_alloc(void)
 	}
 }
 
-#if	NCPUS > 1
 phys_addr_t apboot_addr;
 extern void *apboot, *apbootend;
 extern volatile ApicLocalUnit* lapic;
@@ -330,4 +329,3 @@ start_other_cpus(void)
 	/* Re-enable IOAPIC interrupts as per setup */
 	lapic_enable();
 }
-#endif	/* NCPUS > 1 */

@@ -55,9 +55,7 @@
 
 #include <machine/tss.h>
 
-#if	NCPUS > 1
 #include <i386/mp_desc.h>
-#endif
 
 struct kmem_cache	pcb_cache;
 
@@ -112,13 +110,8 @@ vm_offset_t stack_detach(thread_t thread)
 	return stack;
 }
 
-#if	NCPUS > 1
 #define	curr_gdt(mycpu)		(mp_gdt[mycpu])
 #define	curr_ktss(mycpu)	(mp_ktss[mycpu])
-#else
-#define	curr_gdt(mycpu)		((void)(mycpu), gdt)
-#define	curr_ktss(mycpu)	((void)(mycpu), (struct task_tss *)&ktss)
-#endif
 
 #define	gdt_desc_p(mycpu,sel) \
 	((struct real_descriptor *)&curr_gdt(mycpu)[sel_idx(sel)])
@@ -248,14 +241,7 @@ void stack_handoff(
 				   new, mycpu);
 
 		simple_lock (&new_task->machine.iopb_lock);
-#if NCPUS>1
 #warning SMP support missing (avoid races with io_perm_modify).
-#else
-		/* This optimization only works on a single processor
-		   machine, where old_task's iopb can not change while
-		   we are switching.  */
-		if (old_task->machine.iopb || new_task->machine.iopb)
-#endif
 		  update_ktss_iopb (new_task->machine.iopb,
 				    new_task->machine.iopb_size);
 		simple_unlock (&new_task->machine.iopb_lock);
@@ -323,14 +309,7 @@ thread_t switch_context(
 				   new, mycpu);
 
 		simple_lock (&new_task->machine.iopb_lock);
-#if NCPUS>1
 #warning SMP support missing (avoid races with io_perm_modify).
-#else
-		/* This optimization only works on a single processor
-		   machine, where old_task's iopb can not change while
-		   we are switching.  */
-		if (old_task->machine.iopb || new_task->machine.iopb)
-#endif
 		  update_ktss_iopb (new_task->machine.iopb,
 				    new_task->machine.iopb_size);
 		simple_unlock (&new_task->machine.iopb_lock);

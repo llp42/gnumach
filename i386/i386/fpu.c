@@ -82,27 +82,10 @@ struct i386_fpsave_state *fp_default_state;
 struct kmem_cache	ifps_cache;	/* cache for FPU save area */
 static unsigned long	mxcsr_feature_mask = 0xffffffff;	/* Always AND user-provided mxcsr with this security mask */
 
-#if	NCPUS == 1
-volatile thread_t	fp_thread = THREAD_NULL;
-					/* thread whose state is in FPU */
-					/* always THREAD_NULL if emulating
-					   FPU */
-volatile thread_t	fp_intr_thread = THREAD_NULL;
-
-
-#define	clear_fpu() \
-    MACRO_BEGIN \
-	set_ts(); \
-	fp_thread = THREAD_NULL; \
-    MACRO_END
-
-#else	/* NCPUS > 1 */
 #define	clear_fpu() \
     MACRO_BEGIN \
 	set_ts(); \
     MACRO_END
-
-#endif
 
 
 /*
@@ -278,19 +261,6 @@ void
 fp_free(struct i386_fpsave_state *fps)
 {
 ASSERT_IPL(SPL0);
-#if	NCPUS == 1
-	if ((fp_thread != THREAD_NULL) && (fp_thread->pcb->ims.ifps == fps)) {
-		/* 
-		 * Make sure we don't get FPU interrupts later for
-		 * this thread
-		 */
-		clear_ts();
-		fwait();
-
-		/* Mark it free and disable access */
-	    clear_fpu();
-	}
-#endif	/* NCPUS == 1 */
 	kmem_cache_free(&ifps_cache, (vm_offset_t) fps);
 }
 
@@ -381,20 +351,6 @@ ASSERT_IPL(SPL0);
 	    return KERN_FAILURE;
 	if (flavor == i386_XFLOAT_STATE && xfstate->initialized && xfstate->fp_save_kind != fp_save_kind)
 	    return KERN_INVALID_ARGUMENT;
-
-#if	NCPUS == 1
-
-	/*
-	 * If this thread`s state is in the FPU,
-	 * discard it; we are replacing the entire
-	 * FPU state.
-	 */
-	if (fp_thread == thread) {
-	    clear_ts();
-	    fwait();			/* wait for possible interrupt */
-	    clear_fpu();		/* no state in FPU */
-	}
-#endif
 
 	if ((flavor == i386_FLOAT_STATE && fstate->initialized == 0) ||
 	    (flavor == i386_XFLOAT_STATE && xfstate->initialized == 0)) {
@@ -545,11 +501,7 @@ ASSERT_IPL(SPL0);
 
 	/* Make sure we`ve got the latest fp state info */
 	/* If the live fpu state belongs to our target */
-#if	NCPUS == 1
-	if (thread == fp_thread)
-#else
 	if (thread == current_thread())
-#endif
 	{
 	    clear_ts();
 	    fp_save(thread);
@@ -683,31 +635,6 @@ fpnoextflt(void)
 	 */
 ASSERT_IPL(SPL0);
 	clear_ts();
-#if	NCPUS == 1
-
-	/*
-	 * If this thread`s state is in the FPU, we are done.
-	 */
-	if (fp_thread == current_thread())
-	    return;
-
-	/* Make sure we don't do fpsave() in fp_intr while doing fpsave()
-	 * here if the current fpu instruction generates an error.
-	 */
-	fwait();
-	/*
-	 * If another thread`s state is in the FPU, save it.
-	 */
-	if (fp_thread != THREAD_NULL) {
-	    fp_save(fp_thread);
-	}
-
-	/*
-	 * Give this thread the FPU.
-	 */
-	fp_thread = current_thread();
-
-#endif	/* NCPUS == 1 */
 
 	/*
 	 * Load this thread`s state into the FPU.
@@ -725,17 +652,6 @@ fpextovrflt(void)
 	thread_t	thread = current_thread();
 	pcb_t		pcb;
 	struct i386_fpsave_state *ifps;
-
-#if	NCPUS == 1
-
-	/*
-	 * Is exception for the currently running thread?
-	 */
-	if (fp_thread != thread) {
-	    /* Uh oh... */
-	    panic("fpextovrflt");
-	}
-#endif
 
 	/*
 	 * This is a non-recoverable error.
@@ -776,30 +692,6 @@ fphandleerr(void)
 	/*
 	 * Save the FPU context to the thread using it.
 	 */
-#if	NCPUS == 1
-	if (fp_thread == THREAD_NULL) {
-		printf("fphandleerr: FPU not belonging to anyone!\n");
-		clear_ts();
-		fninit();
-		clear_fpu();
-		return 1;
-	}
-
-	if (fp_thread != thread) {
-	    /*
-	     * FPU exception is for a different thread.
-	     * When that thread again uses the FPU an exception will be
-	     * raised in fp_load. Remember the condition in fp_valid (== 2).
-	     */
-	    clear_ts();
-	    fp_save(fp_thread);
-	    fp_thread->pcb->ims.ifps->fp_valid = 2;
-	    fninit();
-	    clear_fpu();
-	    /* leave fp_intr_thread THREAD_NULL */
-	    return 1;
-	}
-#endif	/* NCPUS == 1 */
 
 	/*
 	 * Save the FPU state and turn off the FPU.
@@ -845,40 +737,10 @@ fpastintr(void)
 	thread_t	thread = current_thread();
 
 ASSERT_IPL(SPL0);
-#if	NCPUS == 1
-	/*
-	 * Since FPU errors only occur on ESC or WAIT instructions,
-	 * the current thread should own the FPU.  If it didn`t,
-	 * we should have gotten the task-switched interrupt first.
-	 */
-	if (fp_thread != THREAD_NULL) {
-	    panic("fpexterrflt");
-		return;
-	}
-
-	/*
-	 * Check if we got a context switch between the interrupt and the AST
-	 * This can happen if the interrupt arrived after the FPU AST was
-	 * checked. In this case, raise the exception in fp_load when this
-	 * thread next time uses the FPU. Remember exception condition in
-	 * fp_valid (extended boolean 2).
-	 */
-	if (fp_intr_thread != thread) {
-		if (fp_intr_thread == THREAD_NULL) {
-			panic("fpexterrflt: fp_intr_thread == THREAD_NULL");
-			return;
-		}
-		fp_intr_thread->pcb->ims.ifps->fp_valid = 2;
-		fp_intr_thread = THREAD_NULL;
-		return;
-	}
-	fp_intr_thread = THREAD_NULL;
-#else	/* NCPUS == 1 */
 	/*
 	 * Save the FPU state and turn off the FPU.
 	 */
 	fp_save(thread);
-#endif	/* NCPUS == 1 */
 
 	/*
 	 * Raise FPU exception.
@@ -971,9 +833,6 @@ void
 fpintr(int unit)
 {
 	spl_t	s;
-#if	NCPUS == 1
-	thread_t thread = current_thread();
-#endif	/* NCPUS == 1 */
 
 ASSERT_IPL(SPL1);
 	/*
@@ -983,12 +842,6 @@ ASSERT_IPL(SPL1);
 
 	if (fphandleerr())
 		return;
-
-#if	NCPUS == 1
-	if (fp_intr_thread != THREAD_NULL && fp_intr_thread != thread)
-	    panic("fp_intr: already caught intr");
-	fp_intr_thread = thread;
-#endif	/* NCPUS == 1 */
 
 	/*
 	 * Since we are running on the interrupt stack, we must

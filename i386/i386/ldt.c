@@ -93,10 +93,8 @@ ldt_init(void)
 	ldt_fill(ldt, gdt);
 }
 
-#if NCPUS > 1
 void
 ap_ldt_init(int cpu)
 {
 	ldt_fill(mp_desc_table[cpu]->ldt, mp_gdt[cpu]);
 }
-#endif

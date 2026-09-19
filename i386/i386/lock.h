@@ -32,7 +32,6 @@
 #define	SIMPLE_LOCK_INITIALIZER(l) \
 	{.lock_data = 0}
 
-#if NCPUS > 1
 #include <i386/smp.h>
 
 /*
@@ -124,8 +123,6 @@
 #endif	/* __GNUC__ */
 
 extern void simple_lock_pause(void);
-
-#endif /* NCPUS > 1 */
 
 
 

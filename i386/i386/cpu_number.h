@@ -30,8 +30,6 @@
 #ifndef	_I386_CPU_NUMBER_H_
 #define	_I386_CPU_NUMBER_H_
 
-#if	NCPUS > 1
-
 #define MY(stm)		%gs:PERCPU_##stm
 
 #define	CX(addr, reg)	addr(,reg,4)
@@ -58,16 +56,5 @@ static inline int cpu_number(void)
 	return percpu_get(int, cpu_id);
 }
 #endif
-
-#else	/* NCPUS == 1 */
-
-#define MY(stm)		(percpu_array + PERCPU_##stm)
-
-#define	CPU_NUMBER(reg) \
-	xor	reg, reg
-#define	CX(addr,reg)	addr
-#define	CX8(addr,reg)	addr
-
-#endif	/* NCPUS == 1 */
 
 #endif	/* _I386_CPU_NUMBER_H_ */

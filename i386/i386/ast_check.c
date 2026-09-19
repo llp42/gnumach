@@ -24,8 +24,6 @@
  * the rights to redistribute these changes.
  */
 
-#if	NCPUS > 1
-
 /*
  * Handle signalling ASTs on other processors.
  *
@@ -52,5 +50,3 @@ void cause_ast_check(const processor_t processor)
 {
     smp_remote_ast(APIC_LOGICAL_ID(processor->slot_num));
 }
-
-#endif	/* NCPUS > 1 */

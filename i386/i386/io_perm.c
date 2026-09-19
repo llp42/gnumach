@@ -310,9 +310,7 @@ i386_io_perm_modify (task_t target_task, io_perm_t io_perm, boolean_t enable)
       target_task->machine.iopb_size = iopb_size;
     }
 
-#if NCPUS>1
 #warning SMP support missing (notify all CPUs running threads in that of the I/O bitmap change).
-#endif
   if (target_task == current_task())
     update_ktss_iopb (iopb, target_task->machine.iopb_size);
 

@@ -131,7 +131,6 @@ gdt_init(void)
 
 }
 
-#if NCPUS > 1
 void
 ap_gdt_init(int cpu)
 {
@@ -142,4 +141,3 @@ ap_gdt_init(int cpu)
 	reload_gs_base(cpu);
 #endif
 }
-#endif

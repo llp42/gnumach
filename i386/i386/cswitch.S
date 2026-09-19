@@ -95,7 +95,6 @@ ENTRY(Thread_continue)
 	xorl	%ebp,%ebp			/* zero frame pointer */
 	call	*%ebx				/* call real continuation */
 
-#if	NCPUS > 1
 /*
  * void switch_to_shutdown_context(thread_t thread,
  *				   void (*routine)(processor_t),
@@ -135,5 +134,3 @@ ENTRY(switch_to_shutdown_context)
 	pushl	%esi				/* push argument */
 	call	*%ebx				/* call routine to run */
 	hlt					/* (should never return) */
-
-#endif	/* NCPUS > 1 */

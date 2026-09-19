@@ -198,7 +198,6 @@ static inline void set_xcr0(uint64_t value) {
  * to keep the new thread from using the coprocessor.
  * If multiple CPUs, we save the entire state.
  */
-#if	NCPUS > 1
 #define	fpu_save_context(thread) \
     MACRO_BEGIN \
 	struct i386_fpsave_state *ifps; \
@@ -210,14 +209,6 @@ static inline void set_xcr0(uint64_t value) {
 	} \
     MACRO_END
 	    
-#else	/* NCPUS == 1 */
-#define	fpu_save_context(thread) \
-    MACRO_BEGIN \
-	    set_ts(); \
-    MACRO_END
-
-#endif	/* NCPUS == 1 */
-
 enum fp_save_kind {
 	FP_FNSAVE,
 	FP_FXSAVE,

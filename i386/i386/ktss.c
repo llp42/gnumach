@@ -79,10 +79,8 @@ ktss_init(void)
 	ktss_fill(&ktss, gdt);
 }
 
-#if NCPUS > 1
 void
 ap_ktss_init(int cpu)
 {
 	ktss_fill(&mp_desc_table[cpu]->ktss, mp_gdt[cpu]);
 }
-#endif

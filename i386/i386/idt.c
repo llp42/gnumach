@@ -74,9 +74,7 @@ void idt_init(void)
 	idt_fill(idt);
 }
 
-#if NCPUS > 1
 void ap_idt_init(int cpu)
 {
 	idt_fill(mp_desc_table[cpu]->idt);
 }
-#endif
