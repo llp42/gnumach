@@ -322,7 +322,6 @@ vm_pageout_page(
 	kern_return_t		rc;
 	boolean_t		precious_clean;
 
-	assert(simple_lock_taken(&(m->object)->Lock));
 	assert(m->busy);
 
 	/*

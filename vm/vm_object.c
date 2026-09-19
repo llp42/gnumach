@@ -336,8 +336,6 @@ void vm_object_init(void)
 static void vm_object_cache_add(
 	vm_object_t	object)
 {
-	assert(simple_lock_taken(&(object)->Lock));
-	assert(simple_lock_taken(&vm_object_cached_lock_data));
 
 	assert(!object->cached);
 	queue_enter(&vm_object_cached_list, object, vm_object_t, cached_list);
@@ -347,8 +345,6 @@ static void vm_object_cache_add(
 static void vm_object_cache_remove(
 	vm_object_t	object)
 {
-	assert(simple_lock_taken(&(object)->Lock));
-	assert(simple_lock_taken(&vm_object_cached_lock_data));
 
 	assert(object->cached);
 	queue_remove(&vm_object_cached_list, object, vm_object_t, cached_list);
@@ -512,8 +508,6 @@ void vm_object_terminate(
 	vm_page_t	p;
 	vm_object_t	shadow_object;
 
-	assert(simple_lock_taken(&(object)->Lock));
-	assert(simple_lock_taken(&vm_object_cached_lock_data));
 
 	/*
 	 *	Make sure the object isn't already being terminated
@@ -716,7 +710,6 @@ static void vm_object_abort_activity(
 	vm_page_t	p;
 	vm_page_t	next;
 
-	assert(simple_lock_taken(&(object)->Lock));
 
 	/*
 	 *	Abort all activity that would be waiting
@@ -1033,7 +1026,6 @@ kern_return_t vm_object_copy_slowly(
 	vm_object_t	new_object;
 	vm_offset_t	new_offset;
 
-	assert(simple_lock_taken(&(src_object)->Lock));
 
 	if (size == 0) {
 		simple_unlock(&(src_object)->Lock);
@@ -1308,7 +1300,6 @@ static kern_return_t vm_object_copy_call(
 	vm_object_t	new_object;
 	vm_page_t	p;
 
-	assert(simple_lock_taken(&(src_object)->Lock));
 
 	/*
 	 *	Create a memory object port to be associated
@@ -2163,7 +2154,6 @@ void vm_object_pager_create(
 {
 	ipc_port_t	pager;
 
-	assert(simple_lock_taken(&(object)->Lock));
 
 	if (object->pager_created) {
 		/*
@@ -2257,7 +2247,6 @@ void vm_object_remove(
 {
 	ipc_port_t port;
 
-	assert(simple_lock_taken(&vm_object_cached_lock_data));
 
 	if ((port = object->pager) != IP_NULL) {
 		if (ip_kotype(port) == IKOT_PAGER)
@@ -2314,7 +2303,6 @@ void vm_object_collapse(
 	vm_page_t	p, pp;
 	ipc_port_t 	old_name_port;
 
-	assert(simple_lock_taken(&(object)->Lock));
 
 	if (!vm_object_collapse_allowed)
 		return;
@@ -2664,7 +2652,6 @@ void vm_object_page_remove(
 {
 	vm_page_t	p, next;
 
-	assert(simple_lock_taken(&(object)->Lock));
 
 	/*
 	 *	One and two page removals are most popular.
