@@ -203,11 +203,6 @@ struct vm_page_lru_queue vm_page_active_lru_list;
 struct vm_page_lru_queue vm_page_inactive_lru_list;
 
 /*
- * Segment name buffer size.
- */
-#define VM_PAGE_NAME_SIZE 16
-
-/*
  * Segment of contiguous memory.
  *
  * XXX Per-segment locking is probably useless, since one or both of the
