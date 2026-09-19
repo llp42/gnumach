@@ -69,7 +69,6 @@ typedef unsigned int ipc_kobject_type_t;
 #define IKOT_HOST_SECURITY	17
 #define	IKOT_LEDGER		18
 #define IKOT_MASTER_DEVICE	19
-#define IKOT_ACT		20
 #define IKOT_SUBSYSTEM		21
 #define IKOT_IO_DONE_QUEUE	22
 #define IKOT_SEMAPHORE		23
