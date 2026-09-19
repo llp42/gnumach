@@ -39,7 +39,6 @@
 
 /* XXX */
 #define CHAR_BIT	8U
-#define ERR_SUCCESS	KERN_SUCCESS
 
 /*
  * Mask applied on an entry to obtain its address.
@@ -337,7 +336,7 @@ rdxtree_grow(struct rdxtree *tree, rdxtree_key_t key)
 
     if (tree->root == NULL) {
         tree->height = new_height;
-        return ERR_SUCCESS;
+        return KERN_SUCCESS;
     }
 
     root = rdxtree_entry_addr(tree->root);
@@ -365,7 +364,7 @@ rdxtree_grow(struct rdxtree *tree, rdxtree_key_t key)
         root = node;
     } while (new_height > tree->height);
 
-    return ERR_SUCCESS;
+    return KERN_SUCCESS;
 }
 
 static void
@@ -437,7 +436,7 @@ rdxtree_insert_common(struct rdxtree *tree, rdxtree_key_t key,
         if (slotp != NULL)
             *slotp = &tree->root;
 
-        return ERR_SUCCESS;
+        return KERN_SUCCESS;
     }
 
     node = rdxtree_entry_addr(tree->root);
@@ -481,7 +480,7 @@ rdxtree_insert_common(struct rdxtree *tree, rdxtree_key_t key,
     if (slotp != NULL)
         *slotp = &prev->entries[index];
 
-    return ERR_SUCCESS;
+    return KERN_SUCCESS;
 }
 
 int
@@ -504,7 +503,7 @@ rdxtree_insert_alloc_common(struct rdxtree *tree, void *ptr,
             if (slotp != NULL)
                 *slotp = &tree->root;
 
-            return ERR_SUCCESS;
+            return KERN_SUCCESS;
         }
 
         goto grow;
@@ -557,7 +556,7 @@ grow:
 
 out:
     *keyp = key;
-    return ERR_SUCCESS;
+    return KERN_SUCCESS;
 }
 
 static void
