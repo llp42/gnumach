@@ -79,12 +79,6 @@ struct dev_ops	dev_name_list[] =
 	  nodev_async_in,	nulldev_reset,	nulldev_portdeath,	0,
 	  nodev_info},
 
-#if	ENABLE_IMMEDIATE_CONSOLE
-	{ "immc",	nulldev_open,	nulldev_close,	nulldev_read,
-	  nulldev_write,	nulldev_getstat,	nulldev_setstat,
-	  nomap,	nodev_async_in,	nulldev_reset,	nulldev_portdeath,	0,
-	  nodev_info },
-#endif	/* ENABLE_IMMEDIATE_CONSOLE */
 	{ kdname,	kdopen,		kdclose,	kdread,
 	  kdwrite,	kdgetstat,	kdsetstat,	kdmmap,
 	  nodev_async_in,	nulldev_reset,	kdportdeath,	0,

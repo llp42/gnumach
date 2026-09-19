@@ -52,7 +52,6 @@ libkernel_a_SOURCES += \
 	x86_64/cpuboot.S \
 	i386/i386at/disk.h \
 	i386/i386at/i8250.h \
-	i386/i386at/immc.c \
 	i386/i386at/int_init.c \
 	i386/i386at/int_init.h \
 	x86_64/interrupt.S \

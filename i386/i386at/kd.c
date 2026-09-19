@@ -1065,20 +1065,6 @@ kdinit(void)
 	unmask_irq(KBD_IRQ);
 	kd_initialized = TRUE;
 
-#if	ENABLE_IMMEDIATE_CONSOLE
-	/* Now that we're set up, we no longer need or want the
-           immediate console.  */
-	{
-		extern boolean_t immediate_console_enable;
-		immediate_console_enable = FALSE;
-	}
-
-	/* The immediate console printed stuff at the bottom of the
-	   screen rather than at the cursor position, so that's where
-	   we should start.  */
-	kd_setpos(ONE_PAGE - ONE_LINE); printf("\n");
-#endif /* ENABLE_IMMEDIATE_CONSOLE */
-
 	cnsetleds(kd_state = KS_NORMAL);
 					/* clear the LEDs AFTER we
 					   enable the keyboard controller.

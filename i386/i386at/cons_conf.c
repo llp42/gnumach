@@ -35,18 +35,11 @@
 #include "com.h"
 #endif
 
-#if	ENABLE_IMMEDIATE_CONSOLE
-#include "immc.h"
-#endif	/* ENABLE_IMMEDIATE_CONSOLE */
-
 /*
  * The rest of the consdev fields are filled in by the respective
  * cnprobe routine.
  */
 struct	consdev constab[] = {
-#if	ENABLE_IMMEDIATE_CONSOLE
-	{"immc", immc_cnprobe,	immc_cninit,	immc_cngetc,	immc_cnputc},
-#endif	/* ENABLE_IMMEDIATE_CONSOLE */
 	{"kd",	kdcnprobe,	kdcninit,	kdcngetc,	kdcnputc},
 #if NCOM > 0
 	{"com",	comcnprobe,	comcninit,	comcngetc,	comcnputc},

@@ -79,10 +79,6 @@
 #include <machine/irq.h>
 
 
-#if	ENABLE_IMMEDIATE_CONSOLE
-#include "immc.h"
-#endif	/* ENABLE_IMMEDIATE_CONSOLE */
-
 /* Location of the kernel's symbol table.
    Both of these are 0 if none is available.  */
 
@@ -427,9 +423,6 @@ i386at_init(void)
  */
 void c_boot_entry(vm_offset_t bi)
 {
-#if	ENABLE_IMMEDIATE_CONSOLE
-	romputc = immc_romputc;
-#endif	/* ENABLE_IMMEDIATE_CONSOLE */
 
 	/* Stash the boot_image_info pointer.  */
 	boot_info = *(typeof(boot_info)*)phystokv(bi);
