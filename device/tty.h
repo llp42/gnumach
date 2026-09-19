@@ -209,7 +209,6 @@ extern boolean_t tty_portdeath(
  * Hardware bits.
  * SHOULD NOT BE HERE.
  */
-#define	DONE	0200
 #define	IENABLE	0100
 
 /*
