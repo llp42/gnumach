@@ -43,8 +43,6 @@
 /*
  * Redefine flags
  */
-#define	B_CALL		IO_CALL
-
 #define	B_MD1		IO_SPARE_START
 
 /*
