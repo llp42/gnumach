@@ -111,7 +111,6 @@ struct bus_device {
 /*
  * General flag definitions
  */
-#define	BUS_CTLR	   0x04		/* descriptor for a bus adaptor */
 #define BUS_XCLU	   0x80		/* want exclusive use of bdp's */
 
 /*
