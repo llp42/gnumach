@@ -170,7 +170,6 @@ extern boolean_t tty_portdeath(
 #define	TS_TTSTOP	0x00000100	/* output stopped by ctl-s */
 #define	TS_HUPCLS	0x00000200	/* hang up upon last close */
 
-#define	TS_NBIO		0x00001000	/* tty in non-blocking mode */
 #define	TS_ONDELAY	0x00002000	/* device is open; software copy of 
  					 * carrier is not present */
 #define	TS_MIN		0x00004000	/* buffer input chars, if possible */
