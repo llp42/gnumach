@@ -222,7 +222,7 @@ processor_request_action(
 	    panic("processor_request_action: bad state");
     }
     simple_unlock(&action_lock);
-    simple_unlock_nocheck(&pset->idle_lock);
+    _simple_unlock(&pset->idle_lock);
 
     thread_wakeup((event_t)&action_queue);
 }

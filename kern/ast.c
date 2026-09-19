@@ -201,7 +201,7 @@ ast_check(void)
 			    }
 			    rq->low = i;
 			}
-			simple_unlock_nocheck(&(rq)->lock);
+			_simple_unlock(&(rq)->lock);
 		    }
 
 		    if (rq->low <= thread->sched_pri) {

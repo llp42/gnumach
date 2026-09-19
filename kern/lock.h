@@ -57,7 +57,6 @@
 
 #include <machine/lock.h>/*XXX*/
 #define simple_lock_try_nocheck	_simple_lock_try
-#define simple_unlock_nocheck	_simple_unlock
 
 
 /*
@@ -165,7 +164,7 @@ MACRO_END
 })
 #define simple_unlock(l)	\
 MACRO_BEGIN \
-	simple_unlock_nocheck(l); \
+	_simple_unlock(l); \
 MACRO_END
 
 /* _irq variants */
@@ -191,7 +190,7 @@ class	simple_lock_irq_data_t	name;
 })
 #define simple_unlock_irq(s, l)	\
 MACRO_BEGIN \
-	simple_unlock_nocheck(&(l)->slock); \
+	_simple_unlock(&(l)->slock); \
 	splx(s); \
 MACRO_END
 

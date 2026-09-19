@@ -259,7 +259,7 @@ evc_signal(evc_t ev)
 		 */
 		thread->state = (state &~ TH_WAIT) | TH_RUN;
 		thread_setrun(thread, TRUE);
-		simple_unlock_nocheck(&(thread)->lock);
+		_simple_unlock(&(thread)->lock);
 		break;
 
 	    case TH_RUN | TH_WAIT:
@@ -270,7 +270,7 @@ evc_signal(evc_t ev)
 	 	 * Mmm. Maybe don't need now that the while(..) check is
 		 * done before the thread lock is grabbed.....
 		 */
-		simple_unlock_nocheck(&(thread)->lock);
+		_simple_unlock(&(thread)->lock);
 		goto retry;
 	    case          TH_WAIT | TH_SUSP:
 	    case TH_RUN | TH_WAIT | TH_SUSP:
@@ -282,7 +282,7 @@ evc_signal(evc_t ev)
 		 *      Just clear the wait.
 		 */
 		thread->state = state &~ TH_WAIT;
-		simple_unlock_nocheck(&(thread)->lock);
+		_simple_unlock(&(thread)->lock);
 		break;
 
 	    default:
@@ -290,7 +290,7 @@ evc_signal(evc_t ev)
 		 *	Not waiting.
 		 */
 		panic("evc_signal.3");
-		simple_unlock_nocheck(&(thread)->lock);
+		_simple_unlock(&(thread)->lock);
 		break;
 	}
     }

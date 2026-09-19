@@ -302,7 +302,7 @@ kern_return_t task_terminate(
 		s = splsched();
 		_simple_lock(&(cur_thread)->lock);
 		if (!cur_thread->active) {
-			simple_unlock_nocheck(&(cur_thread)->lock);
+			_simple_unlock(&(cur_thread)->lock);
 			(void) splx(s);
 			simple_unlock(&(task)->lock);
 			thread_terminate(cur_thread);
@@ -311,7 +311,7 @@ kern_return_t task_terminate(
 		task_hold_locked(task);
 		task->active = FALSE;
 		queue_remove(list, cur_thread, thread_t, thread_list);
-		simple_unlock_nocheck(&(cur_thread)->lock);
+		_simple_unlock(&(cur_thread)->lock);
 		(void) splx(s);
 		simple_unlock(&(task)->lock);
 
@@ -344,14 +344,14 @@ kern_return_t task_terminate(
 			/*
 			 * Current task or thread is being terminated.
 			 */
-			simple_unlock_nocheck(&(cur_thread)->lock);
+			_simple_unlock(&(cur_thread)->lock);
 			(void) splx(s);
 			simple_unlock(&(task)->lock);
 			simple_unlock(&(cur_task)->lock);
 			thread_terminate(cur_thread);
 			return KERN_FAILURE;
 		}
-		simple_unlock_nocheck(&(cur_thread)->lock);
+		_simple_unlock(&(cur_thread)->lock);
 		(void) splx(s);
 		simple_unlock(&(cur_task)->lock);
 
@@ -879,7 +879,7 @@ kern_return_t task_info(
 
 		    thread_read_times(thread, &user_time, &system_time);
 
-		    simple_unlock_nocheck(&(thread)->lock);
+		    _simple_unlock(&(thread)->lock);
 		    splx(s);
 
 		    time_value64_add(&acc_user_time, &user_time);
@@ -1331,7 +1331,7 @@ thread_override_max_priority(
 
 	compute_priority(thread, TRUE);
 
-	simple_unlock_nocheck(&(thread)->lock);
+	_simple_unlock(&(thread)->lock);
 	(void) splx(s);
 
 	return KERN_SUCCESS;

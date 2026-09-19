@@ -189,7 +189,7 @@ void thread_set_timeout(
 	if ((thread->state & TH_WAIT) != 0) {
 		set_timeout(&thread->timer, t);
 	}
-	simple_unlock_nocheck(&(thread)->lock);
+	_simple_unlock(&(thread)->lock);
 	splx(s);
 }
 
@@ -241,8 +241,8 @@ void assert_wait(
 			thread->state |= TH_WAIT;
 		else
 			thread->state |= TH_WAIT | TH_UNINT;
-		simple_unlock_nocheck(&(thread)->lock);
-		simple_unlock_nocheck(lock);
+		_simple_unlock(&(thread)->lock);
+		_simple_unlock(lock);
 	}
 	else {
 		_simple_lock(&(thread)->lock);
@@ -250,7 +250,7 @@ void assert_wait(
 			thread->state |= TH_WAIT;
 		else
 			thread->state |= TH_WAIT | TH_UNINT;
-		simple_unlock_nocheck(&(thread)->lock);
+		_simple_unlock(&(thread)->lock);
 	}
 	splx(s);
 }
@@ -284,14 +284,14 @@ void clear_wait(
 		/*
 		 *	can`t interrupt thread
 		 */
-		simple_unlock_nocheck(&(thread)->lock);
+		_simple_unlock(&(thread)->lock);
 		splx(s);
 		return;
 	}
 
 	event = thread->wait_event;
 	if (event != 0) {
-		simple_unlock_nocheck(&(thread)->lock);
+		_simple_unlock(&(thread)->lock);
 		index = wait_hash(event);
 		q = &wait_queue[index];
 		lock = &wait_lock[index];
@@ -308,7 +308,7 @@ void clear_wait(
 			thread->wait_event = 0;
 			event = 0;		/* cause to run below */
 		}
-		simple_unlock_nocheck(lock);
+		_simple_unlock(lock);
 	}
 	if (event == 0) {
 		int	state = thread->state;
@@ -347,7 +347,7 @@ void clear_wait(
 			break;
 		}
 	}
-	simple_unlock_nocheck(&(thread)->lock);
+	_simple_unlock(&(thread)->lock);
 	splx(s);
 }
 
@@ -429,14 +429,14 @@ boolean_t thread_wakeup_prim(
 				state_panic(thread);
 				break;
 			}
-			simple_unlock_nocheck(&(thread)->lock);
+			_simple_unlock(&(thread)->lock);
 			woke = TRUE;
 			if (one_thread)
 				break;
 		}
 		thread = next_th;
 	}
-	simple_unlock_nocheck(lock);
+	_simple_unlock(lock);
 	splx(s);
 	return (woke);
 }
@@ -481,7 +481,7 @@ void thread_bind(
 	s = splsched();
 	_simple_lock(&(thread)->lock);
 	thread->bound_processor = processor;
-	simple_unlock_nocheck(&(thread)->lock);
+	_simple_unlock(&(thread)->lock);
 	(void) splx(s);
 }
 
@@ -535,7 +535,7 @@ static thread_t thread_select(
 				_simple_lock(&(thread)->lock);
 				if (thread->sched_stamp != sched_tick)
 				    update_priority(thread);
-				simple_unlock_nocheck(&(thread)->lock);
+				_simple_unlock(&(thread)->lock);
 			}
 			else {
 				thread = choose_pset_thread(myprocessor, pset);
@@ -613,7 +613,7 @@ boolean_t thread_invoke(
 	     */
 	    _simple_lock(&(new_thread)->lock);
 	    new_thread->state &= ~TH_UNINT;
-	    simple_unlock_nocheck(&(new_thread)->lock);
+	    _simple_unlock(&(new_thread)->lock);
 	    thread_wakeup(TH_EV_STATE(new_thread));
 
 	    if (continuation != thread_no_continuation) {
@@ -635,7 +635,7 @@ boolean_t thread_invoke(
 		case TH_SWAPPED:
 
 		    new_thread->state &= ~(TH_SWAPPED | TH_UNINT);
-		    simple_unlock_nocheck(&(new_thread)->lock);
+		    _simple_unlock(&(new_thread)->lock);
 		    thread_wakeup(TH_EV_STATE(new_thread));
 
 		    new_thread->last_processor = current_processor();
@@ -672,7 +672,7 @@ boolean_t thread_invoke(
 						| TH_SWAPPED;
 			    if (old_thread->wake_active) {
 				old_thread->wake_active = FALSE;
-				simple_unlock_nocheck(&(old_thread)->lock);
+				_simple_unlock(&(old_thread)->lock);
 				thread_wakeup(TH_EV_WAKE_ACTIVE(old_thread));
 
 				goto after_old_thread;
@@ -712,7 +712,7 @@ boolean_t thread_invoke(
 			default:
 			    state_panic(old_thread);
 		    }
-		    simple_unlock_nocheck(&(old_thread)->lock);
+		    _simple_unlock(&(old_thread)->lock);
 		after_old_thread:
 
 		    /*
@@ -733,7 +733,7 @@ boolean_t thread_invoke(
 		     *	Waiting for a stack
 		     */
 		    thread_swapin(new_thread);
-		    simple_unlock_nocheck(&(new_thread)->lock);
+		    _simple_unlock(&(new_thread)->lock);
 		    return FALSE;
 
 		case 0:
@@ -753,14 +753,14 @@ boolean_t thread_invoke(
 		    !stack_alloc_try(new_thread, thread_continue))
 		{
 		    thread_swapin(new_thread);
-		    simple_unlock_nocheck(&(new_thread)->lock);
+		    _simple_unlock(&(new_thread)->lock);
 		    return FALSE;
 		}
 	    }
 	}
 
 	new_thread->state &= ~(TH_SWAPPED | TH_UNINT);
-	simple_unlock_nocheck(&(new_thread)->lock);
+	_simple_unlock(&(new_thread)->lock);
 	thread_wakeup(TH_EV_STATE(new_thread));
 
 	/*
@@ -908,7 +908,7 @@ void thread_dispatch(
 		thread->state &= ~TH_RUN;
 		if (thread->wake_active) {
 		    thread->wake_active = FALSE;
-		    simple_unlock_nocheck(&(thread)->lock);
+		    _simple_unlock(&(thread)->lock);
 		    thread_wakeup(TH_EV_WAKE_ACTIVE(thread));
 		    return;
 		}
@@ -942,7 +942,7 @@ void thread_dispatch(
 	    default:
 		state_panic(thread);
 	}
-	simple_unlock_nocheck(&(thread)->lock);
+	_simple_unlock(&(thread)->lock);
 }
 
 
@@ -1130,7 +1130,7 @@ void update_priority(
 	    (th)->runq = (rq);						\
 	    thread_check((th), (rq));					\
 	    checkrq((rq), "thread_setrun: after adding thread");	\
-	    simple_unlock_nocheck(&(rq)->lock);						\
+	    _simple_unlock(&(rq)->lock);						\
 	MACRO_END
 #else	/* DEBUG */
 #define run_queue_enqueue(rq, th)					\
@@ -1151,7 +1151,7 @@ void update_priority(
 									\
 	    (rq)->count++;						\
 	    (th)->runq = (rq);						\
-	    simple_unlock_nocheck(&(rq)->lock);						\
+	    _simple_unlock(&(rq)->lock);						\
 	MACRO_END
 #endif	/* DEBUG */
 /*
@@ -1197,12 +1197,12 @@ void thread_setrun(
 		    pset->idle_count--;
 		    processor->next_thread = th;
 		    processor->state = PROCESSOR_DISPATCHING;
-		    simple_unlock_nocheck(&pset->idle_lock);
+		    _simple_unlock(&pset->idle_lock);
 		    if (processor != current_processor())
 			cause_ast_check(processor);
 		    return;
 		}
-		simple_unlock_nocheck(&pset->idle_lock);
+		_simple_unlock(&pset->idle_lock);
 	    }
 	    rq = &(pset->runq);
 	    run_queue_enqueue(rq,th);
@@ -1236,13 +1236,13 @@ void thread_setrun(
 		    pset->idle_count--;
 		    processor->next_thread = th;
 		    processor->state = PROCESSOR_DISPATCHING;
-		    simple_unlock_nocheck(&pset->idle_lock);
+		    _simple_unlock(&pset->idle_lock);
 		    simple_unlock(&(processor)->lock);
 		    if (processor != current_processor())
 			cause_ast_check(processor);
 		    return;
 		}
-		simple_unlock_nocheck(&pset->idle_lock);
+		_simple_unlock(&pset->idle_lock);
 		simple_unlock(&(processor)->lock);
 	    }
 	    rq = &(processor->runq);
@@ -1327,7 +1327,7 @@ struct run_queue *rem_runq(
 			checkrq(rq, "rem_runq: after removing thread");
 #endif	/* DEBUG */
 			th->runq = RUN_QUEUE_NULL;
-			simple_unlock_nocheck(&(rq)->lock);
+			_simple_unlock(&(rq)->lock);
 		}
 		else {
 			/*
@@ -1336,7 +1336,7 @@ struct run_queue *rem_runq(
 			 *	can't move again because this routine's
 			 *	caller locked the thread.
 			 */
-			simple_unlock_nocheck(&(rq)->lock);
+			_simple_unlock(&(rq)->lock);
 			rq = RUN_QUEUE_NULL;
 		}
 	}
@@ -1473,7 +1473,7 @@ thread_t choose_pset_thread(
 
 	    pset->idle_count++;
 	}
-	simple_unlock_nocheck(&pset->idle_lock);
+	_simple_unlock(&pset->idle_lock);
 
 	return myprocessor->idle_thread;
 }
@@ -1596,7 +1596,7 @@ retry:
 				/*
 				 *	Something happened, try again.
 				 */
-				simple_unlock_nocheck(&pset->idle_lock);
+				_simple_unlock(&pset->idle_lock);
 				goto retry;
 			}
 			/*
@@ -1608,7 +1608,7 @@ retry:
 			queue_remove(&pset->idle_queue, myprocessor,
 				processor_t, processor_queue);
 			myprocessor->state = PROCESSOR_RUNNING;
-			simple_unlock_nocheck(&pset->idle_lock);
+			_simple_unlock(&pset->idle_lock);
 			thread_block(idle_thread_continue);
 		}
 		else if ((state == PROCESSOR_ASSIGN) ||
@@ -1622,7 +1622,7 @@ retry:
 				*threadp = (volatile thread_t) THREAD_NULL;
 				_simple_lock(&(new_thread)->lock);
 				thread_setrun(new_thread, FALSE);
-				simple_unlock_nocheck(&(new_thread)->lock);
+				_simple_unlock(&(new_thread)->lock);
 			}
 
 			thread_block(idle_thread_continue);
@@ -1656,7 +1656,7 @@ void idle_thread(void)
 	 */
 	_simple_lock(&(self)->lock);
 	self->state |= TH_IDLE;
-	simple_unlock_nocheck(&(self)->lock);
+	_simple_unlock(&(self)->lock);
 	current_processor()->idle_thread = self;
 	(void) splx(s);
 
@@ -1847,7 +1847,7 @@ void do_thread_scan(void)
 			update_priority(thread);
 			thread_setrun(thread, TRUE);
 		}
-		simple_unlock_nocheck(&(thread)->lock);
+		_simple_unlock(&(thread)->lock);
 		splx(s);
 	    }
 	} while (restart_needed);

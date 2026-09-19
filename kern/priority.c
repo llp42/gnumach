@@ -145,7 +145,7 @@ void thread_quantum_update(
 				    compute_my_priority(thread);
 			    }
 			}
-			simple_unlock_nocheck(&(thread)->lock);
+			_simple_unlock(&(thread)->lock);
 			(void) splx(s);
 			/*
 			 *	This quantum is up, give this thread another.
@@ -184,7 +184,7 @@ void thread_quantum_update(
 				}
 			}
 		    }
-		    simple_unlock_nocheck(&(thread)->lock);
+		    _simple_unlock(&(thread)->lock);
 		    (void) splx(s);
 		}
 		/*

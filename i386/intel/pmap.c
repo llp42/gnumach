@@ -2461,7 +2461,7 @@ void process_pmap_updates(pmap_t my_pmap)
 	}
 	update_list_p->count = 0;
 	cpu_update_needed[my_cpu] = FALSE;
-	simple_unlock_nocheck(&update_list_p->lock);
+	_simple_unlock(&update_list_p->lock);
 }
 
 /*

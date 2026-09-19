@@ -404,7 +404,7 @@ kdopen(
 	o_pri = simple_lock_irq(&tp->t_lock);
 	if (!(tp->t_state & (TS_ISOPEN|TS_WOPEN))) {
 		/* XXX ttychars allocates memory */
-		simple_unlock_nocheck(&tp->t_lock.slock);
+		_simple_unlock(&tp->t_lock.slock);
 		ttychars(tp);
 		_simple_lock(&tp->t_lock.slock);
 		/*

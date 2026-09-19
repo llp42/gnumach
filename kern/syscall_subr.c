@@ -204,7 +204,7 @@ kern_return_t thread_switch(
 			/*
 			 *	Hah, got it!!
 			 */
-			simple_unlock_nocheck(&(thread)->lock);
+			_simple_unlock(&(thread)->lock);
 			(void) splx(s);
 			ip_unlock(port);
 			/* XXX thread might disappear on us now? */
@@ -222,7 +222,7 @@ kern_return_t thread_switch(
 
 			return(KERN_SUCCESS);
 		}
-		simple_unlock_nocheck(&(thread)->lock);
+		_simple_unlock(&(thread)->lock);
 		(void) splx(s);
 	    }
 	    ip_unlock(port);
@@ -290,7 +290,7 @@ thread_depress_priority(
     if (ticks != 0)
 	set_timeout(&thread->depress_timer, ticks);
 
-    simple_unlock_nocheck(&(thread)->lock);
+    _simple_unlock(&(thread)->lock);
     (void) splx(s);
 }
 
@@ -318,7 +318,7 @@ thread_depress_timeout(thread_t thread)
 	compute_priority(thread, FALSE);
     }
 
-    simple_unlock_nocheck(&(thread)->lock);
+    _simple_unlock(&(thread)->lock);
     (void) splx(s);
 }
 
@@ -348,7 +348,7 @@ thread_depress_abort(thread_t thread)
 	compute_priority(thread, FALSE);
     }
 
-    simple_unlock_nocheck(&(thread)->lock);
+    _simple_unlock(&(thread)->lock);
     (void) splx(s);
     return(KERN_SUCCESS);
 }

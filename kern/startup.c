@@ -277,7 +277,7 @@ void cpu_launch_first_thread(thread_t th)
 	percpu_assign(active_stack, th->kernel_stack);
 	_simple_lock(&(th)->lock);
 	th->state &= ~TH_UNINT;
-	simple_unlock_nocheck(&(th)->lock);
+	_simple_unlock(&(th)->lock);
 	th->last_processor = processor_ptr(mycpu);
 	timer_switch(&th->system_timer);
 

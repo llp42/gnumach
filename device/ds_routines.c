@@ -1511,7 +1511,7 @@ void iodone(io_req_t ior)
 	    _simple_lock(&io_done_list_lock.slock);
 	    enqueue_tail(&io_done_list, (queue_entry_t)ior);
 	    thread_wakeup((event_t)&io_done_list);
-	    simple_unlock_nocheck(&io_done_list_lock.slock);
+	    _simple_unlock(&io_done_list_lock.slock);
 	}
 	splx(s);
 }

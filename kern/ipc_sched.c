@@ -97,7 +97,7 @@ thread_go(
 		break;
 	}
 
-	simple_unlock_nocheck(&(thread)->lock);
+	_simple_unlock(&(thread)->lock);
 	splx(s);
 }
 
@@ -119,7 +119,7 @@ thread_will_wait(
 	thread->wait_result = -1;	/* for later assertions */
 	thread->state |= TH_WAIT;
 
-	simple_unlock_nocheck(&(thread)->lock);
+	_simple_unlock(&(thread)->lock);
 	splx(s);
 }
 
@@ -146,7 +146,7 @@ thread_will_wait_with_timeout(
 
 	set_timeout(&thread->timer, ticks);
 
-	simple_unlock_nocheck(&(thread)->lock);
+	_simple_unlock(&(thread)->lock);
 	splx(s);
 }
 
@@ -205,7 +205,7 @@ thread_handoff(
 	    (new->state != (TH_WAIT|TH_SWAPPED)) ||
 	     !check_processor_set(new) ||
 	     !check_bound_processor(new)) {
-		simple_unlock_nocheck(&(new)->lock);
+		_simple_unlock(&(new)->lock);
 		(void) splx(s);
 
 		return FALSE;
@@ -214,7 +214,7 @@ thread_handoff(
 	reset_timeout_check(&new->timer);
 
 	new->state = TH_RUN;
-	simple_unlock_nocheck(&(new)->lock);
+	_simple_unlock(&(new)->lock);
 
 	new->last_processor = current_processor();
 
@@ -258,14 +258,14 @@ thread_handoff(
 			 *	really stops.
 			 */
 			old->wake_active = FALSE;
-			simple_unlock_nocheck(&(old)->lock);
+			_simple_unlock(&(old)->lock);
 			thread_wakeup(TH_EV_WAKE_ACTIVE(old));
 			goto after_old_thread;
 		}
 	} else
 		panic("thread_handoff");
 
-	simple_unlock_nocheck(&(old)->lock);
+	_simple_unlock(&(old)->lock);
     after_old_thread:
 	(void) splx(s);
 
