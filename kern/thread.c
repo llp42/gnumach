@@ -498,7 +498,7 @@ kern_return_t thread_create(
 	 */
 
 	/* Inherit the task name as the thread name. */
-	memcpy (new_thread->name, parent_task->name, THREAD_NAME_SIZE);
+	memcpy (new_thread->name, parent_task->name, TASK_NAME_SIZE);
 
 	/*
 	 *	Add the thread to the task`s list of threads.

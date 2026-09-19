@@ -53,12 +53,6 @@
 #include <machine/thread.h>
 #include <ipc/ipc_kmsg_queue.h>
 
-/*
- * Thread name buffer size. Use the same size as the task so
- * the thread can inherit the task's name.
- */
-#define THREAD_NAME_SIZE TASK_NAME_SIZE
-
 struct thread {
 	/* Run queues */
 	queue_chain_t	links;		/* current run queue links */
@@ -228,7 +222,7 @@ struct thread {
 
 	processor_t	last_processor; /* processor this last ran on */
 
-	char	name[THREAD_NAME_SIZE];
+	char	name[TASK_NAME_SIZE];
 };
 
 #include <kern/cpu_number.h>
