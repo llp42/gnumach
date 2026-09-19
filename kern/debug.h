@@ -31,21 +31,6 @@
 #include <kern/assert.h> /*XXX*/
 
 
-#define here() printf("@ %s:%d\n", __FILE__, __LINE__)
-#define message(args) ({ printf("@ %s:%d: ", __FILE__, __LINE__); printf args; printf("\n"); })
-
-#define otsan() panic("%s:%d: off the straight and narrow!", __FILE__, __LINE__)
-
-#define struct_id_decl		unsigned struct_id;
-#define struct_id_init(p,id)	((p)->struct_id = (id))
-#define struct_id_denit(p)	((p)->struct_id = 0)
-#define struct_id_verify(p,id) \
-	({ if ((p)->struct_id != (id)) \
-		panic("%s:%d: "#p" (%08x) struct_id should be "#id" (%08x), is %08x\n", \
-			__FILE__, __LINE__, (p), (id), (p->struct_id)); \
-	})
-
-
 extern void log (int level, const char *fmt, ...);
 
 extern void panic_init(void);
