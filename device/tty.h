@@ -166,7 +166,6 @@ extern boolean_t tty_portdeath(
 #define	TS_FLUSH	0x00000010	/* outq has been flushed during DMA */
 #define	TS_CARR_ON	0x00000020	/* software copy of carrier-present */
 #define	TS_BUSY		0x00000040	/* output in progress */
-#define	TS_ASLEEP	0x00000080	/* wakeup when output done */
 
 #define	TS_TTSTOP	0x00000100	/* output stopped by ctl-s */
 #define	TS_HUPCLS	0x00000200	/* hang up upon last close */
