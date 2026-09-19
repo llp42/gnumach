@@ -79,11 +79,10 @@ void pset_sys_bootstrap(void)
 	for (i = 0; i < NCPUS; i++) {
 		/*
 		 *	Initialize processor data structures.
-		 *	Note that cpu_to_processor is processor_ptr.
 		 */
 		processor_init(processor_ptr(i), i);
 	}
-	master_processor = cpu_to_processor(master_cpu);
+	master_processor = processor_ptr(master_cpu);
 	queue_init(&all_psets);
 	simple_lock_init(&all_psets_lock);
 	queue_enter(&all_psets, &default_pset, processor_set_t, all_psets);
@@ -116,7 +115,7 @@ void pset_sys_init(void)
 	 * The master processor already has one.
 	 */
 	for (i = 0; i < NCPUS; i++) {
-	    processor = cpu_to_processor(i);
+	    processor = processor_ptr(i);
 	    if (processor != master_processor &&
 		machine_slot[i].is_cpu)
 	    {

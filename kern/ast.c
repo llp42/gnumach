@@ -117,7 +117,7 @@ ast_check(void)
 	/*
 	 *	Check processor state for ast conditions.
 	 */
-	myprocessor = cpu_to_processor(mycpu);
+	myprocessor = processor_ptr(mycpu);
 	switch(myprocessor->state) {
 	    case PROCESSOR_OFF_LINE:
 	    case PROCESSOR_IDLE:

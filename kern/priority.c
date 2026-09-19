@@ -77,7 +77,7 @@ void thread_quantum_update(
 	processor_set_t			pset;
 	spl_t				s;
 
-	myprocessor = cpu_to_processor(mycpu);
+	myprocessor = processor_ptr(mycpu);
 	pset = myprocessor->processor_set;
 	if (pset == 0) {
 	    /*

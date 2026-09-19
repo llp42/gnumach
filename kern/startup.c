@@ -197,7 +197,7 @@ void start_kernel_threads(void)
 		(void) thread_create(kernel_task, &th);
 		snprintf(name, sizeof(name), "idle/%d", i);
 		thread_set_name(th, name);
-		thread_bind(th, cpu_to_processor(i));
+		thread_bind(th, processor_ptr(i));
 		thread_start(th, idle_thread);
 		thread_doswapin(th);
 		(void) thread_resume(th);
@@ -267,7 +267,7 @@ void cpu_launch_first_thread(thread_t th)
 	(void) splhigh();
 
 	if (th == THREAD_NULL)
-	    th = choose_thread(cpu_to_processor(mycpu));
+	    th = choose_thread(processor_ptr(mycpu));
 	if (th == THREAD_NULL)
 	    panic("cpu_launch_first_thread");
 
@@ -278,7 +278,7 @@ void cpu_launch_first_thread(thread_t th)
 	simple_lock_nocheck(&(th)->lock);
 	th->state &= ~TH_UNINT;
 	simple_unlock_nocheck(&(th)->lock);
-	th->last_processor = cpu_to_processor(mycpu);
+	th->last_processor = processor_ptr(mycpu);
 	timer_switch(&th->system_timer);
 
 	PMAP_ACTIVATE_USER(vm_map_pmap(th->task->map), th, mycpu);

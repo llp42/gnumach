@@ -81,7 +81,7 @@ void cpu_up(int cpu)
 	processor_t		processor;
 	spl_t 			s;
 
-	processor = cpu_to_processor(cpu);
+	processor = processor_ptr(cpu);
 	simple_lock(&(&default_pset)->lock);
 #if	MACH_HOST
 	simple_lock(&(slave_pset)->lock);
@@ -139,7 +139,7 @@ static void cpu_down(int cpu)
 	spl_t			s;
 
 	s = splsched();
-	processor = cpu_to_processor(cpu);
+	processor = processor_ptr(cpu);
 	simple_lock(&(processor)->lock);
 	ms = &machine_slot[cpu];
 	ms->running = FALSE;

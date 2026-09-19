@@ -194,7 +194,6 @@ extern processor_t	master_processor;
 #define PROCESSOR_SHUTDOWN	5	/* Being shutdown */
 
 #define processor_ptr(i)	(&percpu_array[i].processor)
-#define cpu_to_processor	processor_ptr
 
 #define current_processor()	(percpu_ptr(struct processor, processor))
 #define current_processor_set()	(current_processor()->processor_set)

@@ -79,7 +79,7 @@ kern_return_t host_processors(
 	tp = (processor_t *) addr;
 	for (i = 0; i < NCPUS; i++)
 		if (machine_slot[i].is_cpu)
-			*tp++ = cpu_to_processor(i);
+			*tp++ = processor_ptr(i);
 
 	*countp = count;
 	*processor_list = (mach_port_t *) addr;

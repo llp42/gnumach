@@ -835,7 +835,7 @@ void thread_block(
 	continuation_t	continuation)
 {
 	thread_t thread = current_thread();
-	processor_t myprocessor = cpu_to_processor(cpu_number());
+	processor_t myprocessor = processor_ptr(cpu_number());
 	thread_t new_thread;
 	spl_t s;
 
@@ -867,7 +867,7 @@ void thread_run(
 	thread_t		new_thread)
 {
 	thread_t thread = current_thread();
-	processor_t myprocessor = cpu_to_processor(cpu_number());
+	processor_t myprocessor = processor_ptr(cpu_number());
 	spl_t s;
 
 	s = splsched();
@@ -1824,7 +1824,7 @@ void do_thread_scan(void)
 #endif	/* MACH_HOST */
 	    if (!restart_needed) {
 		for (i = 0; i < smp_get_numcpus(); i++) {
-		    if ((restart_needed = do_runq_scan(&cpu_to_processor(i)->runq)))
+		    if ((restart_needed = do_runq_scan(&processor_ptr(i)->runq)))
 			break;
 		}
 	    }
