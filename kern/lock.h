@@ -50,9 +50,9 @@
  * [... critical section]
  * simple_unlock_irq(s, &mylock);
  *
- * In the following, the _nocheck versions don't check anything, the _irq
- * versions disable interrupts, and the pristine versions are the ones to
- * use in ordinary code.
+ * In the following, the _irq versions disable interrupts and the plain
+ * versions are the ones to use in ordinary code.  Both are built on the
+ * machine's _simple_lock/_simple_unlock/_simple_lock_try primitives.
  */
 
 #include <machine/lock.h>/*XXX*/
