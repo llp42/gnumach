@@ -1,0 +1,29 @@
+{
+  "abi": "softfloat",
+  "arch": "x86_64",
+  "code-model": "kernel",
+  "cpu": "x86-64",
+  "data-layout": "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",
+  "disable-redzone": true,
+  "dynamic-linking": false,
+  "executables": false,
+  "features": "-mmx,-sse,+soft-float",
+  "function-sections": true,
+  "llvm-target": "x86_64-unknown-none-elf",
+  "max-atomic-width": 64,
+  "metadata": {
+    "description": "GNU Mach kernel (x86_64)",
+    "host_tools": false,
+    "std": false,
+    "tier": 3
+  },
+  "os": "none",
+  "panic-strategy": "abort",
+  "position-independent-executables": false,
+  "relocation-model": "static",
+  "rustc-abi": "x86-softfloat",
+  "target-c-int-width": 32,
+  "target-endian": "little",
+  "target-pointer-width": 64,
+  "vendor": "unknown"
+}

@@ -1,0 +1,26 @@
+# The toolchain the Rust half of the kernel is built with, and the one place
+# it is pinned.
+#
+# rustup resolves this from any working directory under the tree, so `make',
+# the pre-commit hook and CI all get the same rustc and the same `core'
+# sources without anyone having to remember RUSTC= or RUSTUP_TOOLCHAIN=.
+# Without it, the first rustc on PATH means whatever toolchain happens to be
+# the default, and a build mixing two of them fails with E0514 ("compiled by
+# an incompatible version of rustc") rather than saying so.
+#
+# mise is the exception worth knowing about.  It exports RUSTUP_TOOLCHAIN,
+# which outranks this file in rustup's precedence order, so it has to be told
+# to read this file rather than carry a pin of its own -- see
+# idiomatic_version_file_enable_tools in mise.toml.  Do not add a `rust' entry
+# to a [tools] section there: a second pin wins over this one and the two
+# drift apart without a word.
+#
+# `rust-src' is required: `core' is compiled from source for a target of our
+# own, see rust/AGENTS.md.  `clippy' and `rustfmt' are here for the same
+# reason: the build lints and format-checks the Rust half, so both are as
+# required as the compiler.  rustup installs the components listed here along
+# with the toolchain itself, so `rustup component add' is not a separate step.
+
+[toolchain]
+channel = "stable"
+components = ["rust-src", "clippy", "rustfmt"]

@@ -141,7 +141,14 @@ nodist_libkernel_a_SOURCES =
 MOSTLYCLEANFILES += \
 	$(nodist_libkernel_a_SOURCES)
 
+# `memcpy' in libkernel.a comes from libmach-rs.a, and the Rust half of the
+# kernel calls back into libkernel.a for `memset' -- the two archives refer to
+# each other, and a single pass over each cannot resolve that.  Naming
+# libkernel.a twice gives the linker the second pass it needs.  (`--start-group'
+# would say the same thing, but Automake rejects linker flags in a `_LDADD'.)
 gnumach_o_LDADD = \
+	libkernel.a \
+	libmach-rs.a \
 	libkernel.a
 
 gnumach_SOURCES =
@@ -152,6 +159,9 @@ include Makerules.am
 
 # Main Makefile fragment.
 include Makefrag.am
+
+# The Rust part of the kernel.
+include rust/Makefrag.am
 
 # Test suite.
 include tests/Makefrag.am

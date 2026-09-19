@@ -135,6 +135,7 @@ SRC_TESTLIB= \
 	$(srcdir)/i386/i386/strings.c \
 	$(srcdir)/kern/printf.c \
 	$(srcdir)/kern/strings.c \
+	$(srcdir)/tests/string.c \
 	$(srcdir)/util/atoi.c \
 	$(TESTSRC_TESTLIB) \
 	$(builddir)/tests/errlist.c \

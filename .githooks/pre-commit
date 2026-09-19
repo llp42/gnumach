@@ -7,8 +7,12 @@
 #     git config core.hooksPath .githooks
 #
 # It runs the project's own `make check' on x86_64 and i386, which boots every
-# tests/module-* under qemu -- a few minutes.  It is skipped when nothing
-# build-relevant is staged, so committing a README costs nothing.
+# tests/module-* under qemu -- a few minutes.  It runs on every commit, not
+# just ones that look build-relevant: no list of file extensions can answer
+# what a change affects, and the way a wrong answer shows up is a commit that
+# skipped the suite without saying so.  Rust sources were missing from that
+# list until 2026-09-19; anything added since is missing from it too, unless
+# there is no list.
 #
 # Bypass it deliberately with either:
 #
@@ -26,25 +30,6 @@ set -u
 
 if [ "${SKIP_TESTS:-}" = 1 ]; then
 	echo "pre-commit: SKIP_TESTS=1 -- not running the test suite." >&2
-	exit 0
-fi
-
-# Is anything staged that could change the build or the tests?
-# D is in the filter on purpose: removing a source file changes the build as
-# surely as adding one, and a deletion-only commit would otherwise look like
-# nothing to test.
-code=
-for f in $(git diff --cached --name-only --diff-filter=ACMRD); do
-	case "$f" in
-	*.c|*.h|*.S|*.s|*.ac|*.am|*.mk|*.defs|*.srv|*.cli|*.in|mise.toml)
-		code=1
-		break
-		;;
-	esac
-done
-
-if [ -z "$code" ]; then
-	echo "pre-commit: nothing build-relevant staged -- skipping the tests."
 	exit 0
 fi
 

@@ -1,0 +1,108 @@
+# Makefile fragment for the Rust part of GNU Mach.
+
+# The crate, as rustc sees it: one root, and the modules it pulls in.
+MACH_RS_SRCS = \
+	rust/src/glue.rs \
+	rust/src/lib.rs \
+	rust/src/panic.rs \
+	rust/src/utils/mod.rs \
+	rust/src/utils/string.rs
+
+EXTRA_DIST += \
+	$(MACH_RS_SRCS) \
+	rust-toolchain.toml \
+	rust/AGENTS.md \
+	rust/compiler_builtins_stub.rs \
+	rust/rustfmt.toml \
+	rust/targets/i686-gnumach.json \
+	rust/targets/x86_64-gnumach.json
+
+#
+# Silent build support.
+#
+
+RUSTC_V = $(RUSTC_V_$(V))
+RUSTC_V_ = $(RUSTC_V_$(AM_DEFAULT_VERBOSITY))
+RUSTC_V_0 = @echo "  RUSTC  $@";
+
+RUSTFMT_V = $(RUSTFMT_V_$(V))
+RUSTFMT_V_ = $(RUSTFMT_V_$(AM_DEFAULT_VERBOSITY))
+RUSTFMT_V_0 = @echo "  RSFMT  $@";
+
+CLIPPY_V = $(CLIPPY_V_$(V))
+CLIPPY_V_ = $(CLIPPY_V_$(AM_DEFAULT_VERBOSITY))
+CLIPPY_V_0 = @echo "  CLIPPY $@";
+
+#
+# Compilation flags.
+#
+
+# A target of our own, so code generation matches the C half: no SSE, no red
+# zone, the kernel code model.  Custom targets, and compiling `core' out of
+# tree below, are nightly-only -- hence RUSTC_BOOTSTRAP.
+RUSTC_ENV = RUSTC_BOOTSTRAP=1
+
+AM_RUSTFLAGS = \
+	-Zunstable-options \
+	--target $(RUST_TARGET_SPEC) \
+	--edition 2024 \
+	-C panic=abort \
+	-C opt-level=2 \
+	-C force-frame-pointers=yes \
+	-C overflow-checks=off
+
+#
+# `core', compiled from the toolchain's own sources for our target.
+#
+
+rust/libcore.rlib: $(RUST_LIB_SRC)/core/src/lib.rs
+	$(AM_V_at)$(MKDIR_P) rust
+	$(RUSTC_V) $(RUSTC_ENV) $(RUSTC) $(AM_RUSTFLAGS) $(RUSTFLAGS) \
+	  --crate-type rlib --crate-name core -C debuginfo=0 \
+	  -o $@ $<
+MOSTLYCLEANFILES += rust/libcore.rlib
+
+rust/libcompiler_builtins.rlib: $(srcdir)/rust/compiler_builtins_stub.rs \
+				rust/libcore.rlib
+	$(AM_V_at)$(MKDIR_P) rust
+	$(RUSTC_V) $(RUSTC_ENV) $(RUSTC) $(AM_RUSTFLAGS) $(RUSTFLAGS) \
+	  --crate-type rlib --crate-name compiler_builtins -C debuginfo=0 \
+	  --extern core=rust/libcore.rlib \
+	  -o $@ $<
+MOSTLYCLEANFILES += rust/libcompiler_builtins.rlib
+
+#
+# libmach-rs.a itself.
+#
+
+# Fat LTO, which is not for speed: `core' is compiled whole, and without LTO
+# the archive keeps its float formatting and the soft float intrinsics that
+# come with it, which libgcc does not provide and gnumach-undef-bad rejects.
+# Lints, which are not advisory: the Rust half is held to Rust's own
+# conventions, so a clippy warning or a formatting difference fails the build
+# like any other error.  Both tools ship with the pinned toolchain (see
+# `rust-toolchain.toml'), and both are cheap -- `core' is already built by
+# here, so clippy only has this crate left to look at.
+rust/lint.stamp: $(MACH_RS_SRCS:%=$(srcdir)/%) \
+		 rust/libcore.rlib rust/libcompiler_builtins.rlib
+	$(AM_V_at)$(MKDIR_P) rust
+	$(RUSTFMT_V)$(RUSTFMT) --check $(MACH_RS_SRCS:%=$(srcdir)/%)
+	$(CLIPPY_V)$(RUSTC_ENV) $(CLIPPY_DRIVER) $(AM_RUSTFLAGS) $(RUSTFLAGS) \
+	  -D warnings \
+	  --crate-type staticlib --crate-name mach_rs \
+	  --extern core=rust/libcore.rlib \
+	  --extern compiler_builtins=rust/libcompiler_builtins.rlib \
+	  --emit=metadata -o rust/mach_rs.rmeta $(srcdir)/rust/src/lib.rs
+	$(AM_V_at)touch $@
+MOSTLYCLEANFILES += rust/lint.stamp rust/mach_rs.rmeta
+
+libmach-rs.a: $(MACH_RS_SRCS:%=$(srcdir)/%) \
+	      rust/libcore.rlib rust/libcompiler_builtins.rlib \
+	      rust/lint.stamp
+	$(RUSTC_V) $(RUSTC_ENV) $(RUSTC) $(AM_RUSTFLAGS) $(RUSTFLAGS) \
+	  -C lto=fat \
+	  --crate-type staticlib --crate-name mach_rs \
+	  --extern core=rust/libcore.rlib \
+	  --extern compiler_builtins=rust/libcompiler_builtins.rlib \
+	  -o $@ $(srcdir)/rust/src/lib.rs
+MOSTLYCLEANFILES += libmach-rs.a

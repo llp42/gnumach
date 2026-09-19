@@ -19,24 +19,14 @@
 #include <stddef.h>
 #include <string.h>
 
-#define ARCH_STRING_MEMCPY
 #define ARCH_STRING_MEMMOVE
 #define ARCH_STRING_MEMSET
 #define ARCH_STRING_MEMCMP
 
-#ifdef ARCH_STRING_MEMCPY
-void *
-memcpy(void *dest, const void *src, size_t n)
-{
-    void *orig_dest;
-
-    orig_dest = dest;
-    asm volatile("rep movsb"
-                 : "+D" (dest), "+S" (src), "+c" (n)
-                 : : "memory");
-    return orig_dest;
-}
-#endif /* ARCH_STRING_MEMCPY */
+/*
+ * memcpy is not here.  It is written in Rust, in rust/src/utils/string.rs,
+ * and reaches the kernel through libmach-rs.a.
+ */
 
 #ifdef ARCH_STRING_MEMMOVE
 void *

@@ -1,3 +1,13 @@
+# The Rust toolchain is pinned by rust-toolchain.toml, not here.  That file is
+# the tool-agnostic one, so a contributor with plain rustup and no mise gets
+# the same compiler; this setting is what makes mise read it instead of
+# expecting a second pin in a [tools] section.  Without it mise installs its
+# own idea of "latest" and exports RUSTUP_TOOLCHAIN, which outranks
+# rust-toolchain.toml in rustup's precedence order and silently wins -- the
+# two then drift apart and the build dies with E0514.
+[settings]
+idiomatic_version_file_enable_tools = ["rust"]
+
 # Developer tasks for GNU Mach.
 #
 #   mise run deps           report any missing prerequisites
@@ -24,10 +34,21 @@ need() {
 }
 need autoreconf         "autoconf/automake, to generate configure"
 need gcc                "C compiler"
+need rustc              "Rust compiler, for libmach-rs.a"
+need rustfmt            "rustfmt; the build format-checks the Rust half"
+need clippy-driver      "clippy; the build lints the Rust half"
 need x86_64-gnu-mig     "MIG, for the 64-bit kernel"
 need i686-gnu-mig       "MIG, for the 32-bit kernel"
 need qemu-system-x86_64 "qemu, to run the 64-bit tests"
 need qemu-system-i386   "qemu, to run the 32-bit tests"
+# `core' is compiled from source for our own target, so the sources have to
+# be there; a toolchain without the `rust-src' component passes `need rustc'
+# and then fails at configure time.
+if rs=$(rustc --print sysroot 2>/dev/null) &&
+   [ -f "$rs/lib/rustlib/src/rust/library/core/src/lib.rs" ]
+then printf '  ok       rust-src\n'
+else printf '  MISSING  %-22s %s\n' rust-src "the Rust \`core' sources"; missing=1
+fi
 if   command -v grub-mkrescue  >/dev/null 2>&1; then printf '  ok       grub-mkrescue\n'
 elif command -v grub2-mkrescue >/dev/null 2>&1; then printf '  ok       grub2-mkrescue\n'
 else printf '  MISSING  %-22s %s\n' grub-mkrescue "builds the bootable test ISO"; missing=1
@@ -51,8 +72,16 @@ cd "${MISE_PROJECT_ROOT:-$(git rev-parse --show-toplevel)}"
 [ -x configure ] || autoreconf -fi
 mkdir -p build-64; cd build-64
 want=${NCPUS:-2}
-have=$(sed -n 's/^#define NCPUS \([0-9]*\)$/\1/p' config.h 2>/dev/null | head -1)
-if [ ! -f Makefile ] || [ "$have" != "$want" ]; then
+# `|| true' is not decoration: with `set -o pipefail' a missing config.h
+# makes sed exit 2, which `set -e' then turns into an instant abort -- so
+# without it the very first build in a clean tree dies here, silently.
+have=$(sed -n 's/^#define NCPUS \([0-9]*\)$/\1/p' config.h 2>/dev/null | head -1) || true
+# RUST_LIB_SRC is substituted by configure, so it goes stale whenever the
+# toolchain moves -- and a stale one means `core' is compiled from one
+# toolchain's sources by another's rustc, which dies with E0514.
+rustsrc="$(rustc --print sysroot)/lib/rustlib/src/rust/library"
+haverustsrc=$(sed -n 's/^RUST_LIB_SRC = //p' Makefile 2>/dev/null | head -1) || true
+if [ ! -f Makefile ] || [ "$have" != "$want" ] || [ "$haverustsrc" != "$rustsrc" ]; then
   ../configure --host=x86_64-gnu MIG=x86_64-gnu-mig --enable-ncpus="$want"
 fi
 make -j"$(nproc)"
@@ -66,8 +95,16 @@ cd "${MISE_PROJECT_ROOT:-$(git rev-parse --show-toplevel)}"
 [ -x configure ] || autoreconf -fi
 mkdir -p build-32; cd build-32
 want=${NCPUS:-2}
-have=$(sed -n 's/^#define NCPUS \([0-9]*\)$/\1/p' config.h 2>/dev/null | head -1)
-if [ ! -f Makefile ] || [ "$have" != "$want" ]; then
+# `|| true' is not decoration: with `set -o pipefail' a missing config.h
+# makes sed exit 2, which `set -e' then turns into an instant abort -- so
+# without it the very first build in a clean tree dies here, silently.
+have=$(sed -n 's/^#define NCPUS \([0-9]*\)$/\1/p' config.h 2>/dev/null | head -1) || true
+# RUST_LIB_SRC is substituted by configure, so it goes stale whenever the
+# toolchain moves -- and a stale one means `core' is compiled from one
+# toolchain's sources by another's rustc, which dies with E0514.
+rustsrc="$(rustc --print sysroot)/lib/rustlib/src/rust/library"
+haverustsrc=$(sed -n 's/^RUST_LIB_SRC = //p' Makefile 2>/dev/null | head -1) || true
+if [ ! -f Makefile ] || [ "$have" != "$want" ] || [ "$haverustsrc" != "$rustsrc" ]; then
   # ld defaults to elf64 on an x86_64 host, so point it at elf_i386; the
   # kernel is linked with bare ld rather than through the compiler driver.
   ../configure --host=i686-gnu \

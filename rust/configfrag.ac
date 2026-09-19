@@ -1,0 +1,101 @@
+dnl Configure fragment for the Rust part of GNU Mach.
+
+#
+# Rust.
+#
+# Not optional: `memcpy' in libkernel.a comes from libmach-rs.a now, so a
+# kernel built without it does not link.  Every check below is a hard error.
+#
+
+AC_ARG_VAR([RUSTC], [the Rust compiler])
+AC_ARG_VAR([RUSTFLAGS], [additional flags for the Rust compiler])
+
+AC_CHECK_PROG([RUSTC], [rustc], [rustc], [no])
+[if [ x"$RUSTC" = xno ]; then]
+  AC_MSG_ERROR([no `rustc' found, and GNU Mach needs one to build
+    libmach-rs.a.  Install a Rust toolchain (1.85 or later, with the
+    `rust-src' component: `rustup component add rust-src'), or point
+    RUSTC= at one.])
+[fi]
+
+# Edition 2024, which the toolchain's own `core' sources are written in, and
+# `#[unsafe(no_mangle)]' and C string literals, which the sources here use.
+AC_MSG_CHECKING([whether $RUSTC is new enough])
+[rustc_version=`$RUSTC --version 2>/dev/null | sed -n 's/^rustc \([0-9]*\.[0-9]*\).*/\1/p'`
+rustc_major=`echo "$rustc_version" | cut -d. -f1`
+rustc_minor=`echo "$rustc_version" | cut -d. -f2`
+if [ -n "$rustc_version" ] &&
+   { [ "$rustc_major" -gt 1 ] ||
+     { [ "$rustc_major" -eq 1 ] && [ "$rustc_minor" -ge 85 ]; }; }; then]
+  AC_MSG_RESULT([yes ($rustc_version)])
+[else]
+  AC_MSG_RESULT([no (${rustc_version:-no version reported})])
+  AC_MSG_ERROR([GNU Mach needs rustc 1.85 or later, for edition 2024.
+    If `$RUSTC' is the one you meant to use, run `$RUSTC --version' by
+    hand; a rustc that is found but cannot run (a shim with no toolchain
+    selected behind it, for instance) is reported here as a version this
+    old too.  Point RUSTC= at the compiler you want.])
+[fi]
+
+# rustfmt and clippy.  The Rust half is held to Rust's own conventions, and a
+# lint or a formatting difference fails the build like any other error, so both
+# are as required as the compiler itself.  Neither is an extra thing to install:
+# `rust-toolchain.toml' lists them among the toolchain's components.
+AC_ARG_VAR([RUSTFMT], [the Rust formatter])
+AC_CHECK_PROG([RUSTFMT], [rustfmt], [rustfmt], [no])
+[if [ x"$RUSTFMT" = xno ]; then]
+  AC_MSG_ERROR([no `rustfmt' found.  The Rust half of GNU Mach is
+    format-checked as part of the build.  Install the `rustfmt' component
+    (`rustup component add rustfmt'), or point RUSTFMT= at one.])
+[fi]
+
+AC_ARG_VAR([CLIPPY_DRIVER], [the Rust linter])
+AC_CHECK_PROG([CLIPPY_DRIVER], [clippy-driver], [clippy-driver], [no])
+[if [ x"$CLIPPY_DRIVER" = xno ]; then]
+  AC_MSG_ERROR([no `clippy-driver' found.  The Rust half of GNU Mach is
+    linted as part of the build.  Install the `clippy' component (`rustup
+    component add clippy'), or point CLIPPY_DRIVER= at one.])
+[fi]
+
+# `core' is compiled from source for our target, so we need its sources: a
+# release toolchain ships `core' only for the targets it knows about, and
+# none of them is a freestanding kernel.
+[rust_sysroot=`$RUSTC --print sysroot 2>/dev/null`
+RUST_LIB_SRC=$rust_sysroot/lib/rustlib/src/rust/library]
+AC_MSG_CHECKING([for the Rust `core' sources])
+[if [ -f "$RUST_LIB_SRC/core/src/lib.rs" ]; then]
+  AC_MSG_RESULT([$RUST_LIB_SRC])
+[else]
+  AC_MSG_RESULT([no])
+  AC_MSG_ERROR([the `rust-src' component is missing from this toolchain;
+    install it with `rustup component add rust-src', or unpack it into
+    $rust_sysroot/lib/rustlib/src/rust.  `core' is compiled from those
+    sources for the target below, so they have to be there.])
+[fi]
+AC_SUBST([RUST_LIB_SRC])
+
+# Our own target specification, so that rustc generates code the same way the
+# C compiler is told to: no SSE, no red zone, the kernel code model.
+[case $systype in
+  i386)
+    rust_target=i686-gnumach;;
+  x86_64)
+    rust_target=x86_64-gnumach;;
+  *)]
+    AC_MSG_ERROR([no rust/targets/*.json for `$systype'; the Rust half of
+      GNU Mach, and so GNU Mach, builds for i386 and x86_64 only.])[;;
+esac
+RUST_TARGET_SPEC='$(top_srcdir)'/rust/targets/$rust_target.json]
+AC_SUBST([RUST_TARGET_SPEC])
+
+# The target specification format is not stable across rustc releases, so a
+# toolchain new enough by version can still be too old for these files.
+AC_MSG_CHECKING([whether $RUSTC accepts the $rust_target target])
+[if RUSTC_BOOTSTRAP=1 $RUSTC -Zunstable-options --print target-spec-json \
+    --target "$srcdir"/rust/targets/$rust_target.json > /dev/null 2>&1; then]
+  AC_MSG_RESULT([yes])
+[else]
+  AC_MSG_RESULT([no])
+  AC_MSG_ERROR([$RUSTC rejected rust/targets/$rust_target.json; run the
+    command by hand to see why.])
+[fi]
