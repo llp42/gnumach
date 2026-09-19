@@ -406,7 +406,7 @@ kdopen(
 		/* XXX ttychars allocates memory */
 		simple_unlock_nocheck(&tp->t_lock.slock);
 		ttychars(tp);
-		simple_lock_nocheck(&tp->t_lock.slock);
+		_simple_lock(&tp->t_lock.slock);
 		/*
 		 *	Special support for boot-time rc scripts, which don't
 		 *	stty the console.

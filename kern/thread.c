@@ -553,7 +553,7 @@ void thread_deallocate(
 	 *	Only the thread needs to be locked.
 	 */
 	s = splsched();
-	simple_lock_nocheck(&(thread)->lock);
+	_simple_lock(&(thread)->lock);
 	if (--thread->ref_count > 0) {
 		simple_unlock_nocheck(&(thread)->lock);
 		(void) splx(s);
@@ -591,7 +591,7 @@ void thread_deallocate(
 	simple_lock(&(task)->lock);
 
 	s = splsched();
-	simple_lock_nocheck(&(thread)->lock);
+	_simple_lock(&(thread)->lock);
 
 	if (--thread->ref_count > 0) {
 		/*
@@ -680,7 +680,7 @@ void thread_reference(
 		return;
 
 	s = splsched();
-	simple_lock_nocheck(&(thread)->lock);
+	_simple_lock(&(thread)->lock);
 	thread->ref_count++;
 	simple_unlock_nocheck(&(thread)->lock);
 	(void) splx(s);
@@ -727,7 +727,7 @@ kern_return_t thread_terminate(
 	     *	exiting kernel.
 	     */
 	    s = splsched();
-	    simple_lock_nocheck(&(thread)->lock);
+	    _simple_lock(&(thread)->lock);
 	    if (thread->active) {
 		    thread->active = FALSE;
 		    thread_ast_set(thread, AST_TERMINATE);
@@ -746,12 +746,12 @@ kern_return_t thread_terminate(
 	simple_lock(&(cur_task)->lock);
 	s = splsched();
 	if ((vm_offset_t)thread < (vm_offset_t)cur_thread) {
-		simple_lock_nocheck(&(thread)->lock);
-		simple_lock_nocheck(&(cur_thread)->lock);
+		_simple_lock(&(thread)->lock);
+		_simple_lock(&(cur_thread)->lock);
 	}
 	else {
-		simple_lock_nocheck(&(cur_thread)->lock);
-		simple_lock_nocheck(&(thread)->lock);
+		_simple_lock(&(cur_thread)->lock);
+		_simple_lock(&(thread)->lock);
 	}
 
 	/*
@@ -862,7 +862,7 @@ thread_force_terminate(
 #endif	/* MACH_HOST */
 
 	s = splsched();
-	simple_lock_nocheck(&(thread)->lock);
+	_simple_lock(&(thread)->lock);
 	deallocate_here = thread->active;
 	thread->active = FALSE;
 	simple_unlock_nocheck(&(thread)->lock);
@@ -906,12 +906,12 @@ kern_return_t thread_halt(
 		 */
 		s = splsched();
 		if ((vm_offset_t)thread < (vm_offset_t)cur_thread) {
-			simple_lock_nocheck(&(thread)->lock);
-			simple_lock_nocheck(&(cur_thread)->lock);
+			_simple_lock(&(thread)->lock);
+			_simple_lock(&(cur_thread)->lock);
 		}
 		else {
-			simple_lock_nocheck(&(cur_thread)->lock);
-			simple_lock_nocheck(&(thread)->lock);
+			_simple_lock(&(cur_thread)->lock);
+			_simple_lock(&(thread)->lock);
 		}
 
 		/*
@@ -951,7 +951,7 @@ kern_return_t thread_halt(
 		 *	Lock thread and check whether it is already halted.
 		 */
 		s = splsched();
-		simple_lock_nocheck(&(thread)->lock);
+		_simple_lock(&(thread)->lock);
 		if (thread->state & TH_HALTED) {
 			thread->suspend_count++;
 			simple_unlock_nocheck(&(thread)->lock);
@@ -986,7 +986,7 @@ kern_return_t thread_halt(
 			thread_release(thread);
 			return KERN_FAILURE;
 		}
-		simple_lock_nocheck(&(thread)->lock);
+		_simple_lock(&(thread)->lock);
 	}
 
 	/*
@@ -1010,7 +1010,7 @@ kern_return_t thread_halt(
 		 */
 		if (ret != KERN_SUCCESS) {
 			s = splsched();
-			simple_lock_nocheck(&(thread)->lock);
+			_simple_lock(&(thread)->lock);
 			thread_ast_clear(thread, AST_HALT);
 			thread_wakeup_with_result(TH_EV_WAKE_ACTIVE(thread),
 				THREAD_INTERRUPTED);
@@ -1044,7 +1044,7 @@ kern_return_t thread_halt(
 		    (thread->swap_func == thread_exception_return) ||
 		    (thread->swap_func == thread_bootstrap_return)) {
 			s = splsched();
-			simple_lock_nocheck(&(thread)->lock);
+			_simple_lock(&(thread)->lock);
 			thread->state |= TH_HALTED;
 			thread_ast_clear(thread, AST_HALT);
 			simple_unlock_nocheck(&(thread)->lock);
@@ -1077,7 +1077,7 @@ kern_return_t thread_halt(
 		 */
 
 		s = splsched();
-		simple_lock_nocheck(&(thread)->lock);
+		_simple_lock(&(thread)->lock);
 		if ((thread->state & TH_SCHED_STATE) != TH_SUSP)
 			panic("thread_halt");
 		thread->state |= TH_RUN | TH_UNINT;
@@ -1118,7 +1118,7 @@ void	thread_halt_self(continuation_t continuation)
 		enqueue_tail(&reaper_queue, &(thread->links));
 		simple_unlock(&reaper_lock);
 
-		simple_lock_nocheck(&(thread)->lock);
+		_simple_lock(&(thread)->lock);
 		thread->state |= TH_HALTED;
 		simple_unlock_nocheck(&(thread)->lock);
 		(void) splx(s);
@@ -1132,7 +1132,7 @@ void	thread_halt_self(continuation_t continuation)
 		 *	has done so.
 		 */
 		s = splsched();
-		simple_lock_nocheck(&(thread)->lock);
+		_simple_lock(&(thread)->lock);
 		thread->state |= TH_HALTED;
 		thread_ast_clear(thread, AST_HALT);
 		simple_unlock_nocheck(&(thread)->lock);
@@ -1157,7 +1157,7 @@ void thread_hold(
 	spl_t			s;
 
 	s = splsched();
-	simple_lock_nocheck(&(thread)->lock);
+	_simple_lock(&(thread)->lock);
 	thread->suspend_count++;
 	thread->state |= TH_SUSP;
 	simple_unlock_nocheck(&(thread)->lock);
@@ -1201,7 +1201,7 @@ thread_dowait(
 
 	need_wakeup = FALSE;
 	s = splsched();
-	simple_lock_nocheck(&(thread)->lock);
+	_simple_lock(&(thread)->lock);
 
 	for (;;) {
 	    switch (thread->state & TH_SCHED_STATE) {
@@ -1249,7 +1249,7 @@ thread_dowait(
 		    thread->wake_active = TRUE;
 		    thread_sleep(TH_EV_WAKE_ACTIVE(thread),
 				simple_lock_addr(thread->lock), TRUE);
-		    simple_lock_nocheck(&(thread)->lock);
+		    _simple_lock(&(thread)->lock);
 		    if ((current_thread()->wait_result != THREAD_AWAKENED) &&
 			    !must_halt) {
 			ret = KERN_FAILURE;
@@ -1282,7 +1282,7 @@ void thread_release(
 	spl_t			s;
 
 	s = splsched();
-	simple_lock_nocheck(&(thread)->lock);
+	_simple_lock(&(thread)->lock);
 	if (--thread->suspend_count == 0) {
 		thread->state &= ~(TH_SUSP | TH_HALTED);
 		if ((thread->state & (TH_WAIT | TH_RUN)) == 0) {
@@ -1306,13 +1306,13 @@ kern_return_t thread_suspend(
 
 	hold = FALSE;
 	spl = splsched();
-	simple_lock_nocheck(&(thread)->lock);
+	_simple_lock(&(thread)->lock);
 	/* Wait for thread to get interruptible */
 	while (thread->state & TH_UNINT) {
 		assert_wait(TH_EV_STATE(thread), TRUE);
 		simple_unlock_nocheck(&(thread)->lock);
 		thread_block(thread_no_continuation);
-		simple_lock_nocheck(&(thread)->lock);
+		_simple_lock(&(thread)->lock);
 	}
 	if (thread->user_stop_count++ == 0) {
 		hold = TRUE;
@@ -1353,7 +1353,7 @@ kern_return_t thread_resume(
 	ret = KERN_SUCCESS;
 
 	s = splsched();
-	simple_lock_nocheck(&(thread)->lock);
+	_simple_lock(&(thread)->lock);
 	if (thread->user_stop_count > 0) {
 	    if (--thread->user_stop_count == 0) {
 		if (--thread->suspend_count == 0) {
@@ -1463,7 +1463,7 @@ kern_return_t thread_info(
 	    basic_info = (thread_basic_info_t) thread_info_out;
 
 	    s = splsched();
-	    simple_lock_nocheck(&(thread)->lock);
+	    _simple_lock(&(thread)->lock);
 
 	    /*
 	     *	Update lazy-evaluated scheduler info because someone wants it.
@@ -1551,7 +1551,7 @@ kern_return_t thread_info(
 	    sched_info = (thread_sched_info_t) thread_info_out;
 
 	    s = splsched();
-	    simple_lock_nocheck(&(thread)->lock);
+	    _simple_lock(&(thread)->lock);
 
 	    sched_info->policy = thread->policy;
 	    if (thread->policy == POLICY_FIXEDPRI)
@@ -1758,12 +1758,12 @@ thread_freeze(thread_t thread)
 	 *	Freeze the assignment, deferring to a prior freeze.
 	 */
 	s = splsched();
-	simple_lock_nocheck(&(thread)->lock);
+	_simple_lock(&(thread)->lock);
 	while (thread->may_assign == FALSE) {
 		thread->assign_active = TRUE;
 		thread_sleep((event_t) &thread->assign_active,
 			simple_lock_addr(thread->lock), FALSE);
-		simple_lock_nocheck(&(thread)->lock);
+		_simple_lock(&(thread)->lock);
 	}
 	thread->may_assign = FALSE;
 	simple_unlock_nocheck(&(thread)->lock);
@@ -1780,7 +1780,7 @@ thread_unfreeze(
 	spl_t 	s;
 
 	s = splsched();
-	simple_lock_nocheck(&(thread)->lock);
+	_simple_lock(&(thread)->lock);
 	thread->may_assign = TRUE;
 	if (thread->assign_active) {
 		thread->assign_active = FALSE;
@@ -1857,7 +1857,7 @@ Restart:
 	 *	reference to it.
 	 */
 	s = splsched();
-	simple_lock_nocheck(&(thread)->lock);
+	_simple_lock(&(thread)->lock);
 
 	thread_change_psets(thread, pset, new_pset);
 
@@ -1987,7 +1987,7 @@ thread_priority(
 	return KERN_INVALID_ARGUMENT;
 
     s = splsched();
-    simple_lock_nocheck(&(thread)->lock);
+    _simple_lock(&(thread)->lock);
 
     /*
      *	Check for violation of max priority
@@ -2030,7 +2030,7 @@ thread_set_own_priority(
     thread_t	thread = current_thread();
 
     s = splsched();
-    simple_lock_nocheck(&(thread)->lock);
+    _simple_lock(&(thread)->lock);
 
     if (priority < thread->max_priority)
 	thread->max_priority = priority;
@@ -2060,7 +2060,7 @@ thread_max_priority(
 	    return KERN_INVALID_ARGUMENT;
 
     s = splsched();
-    simple_lock_nocheck(&(thread)->lock);
+    _simple_lock(&(thread)->lock);
 
 #if	MACH_HOST
     /*
@@ -2115,7 +2115,7 @@ thread_policy(
 		return KERN_INVALID_ARGUMENT;
 
 	s = splsched();
-	simple_lock_nocheck(&(thread)->lock);
+	_simple_lock(&(thread)->lock);
 
 	/*
 	 *	Check if changing policy.
@@ -2188,7 +2188,7 @@ thread_wire(
 	    return KERN_INVALID_ARGUMENT;
 
 	s = splsched();
-	simple_lock_nocheck(&(thread)->lock);
+	_simple_lock(&(thread)->lock);
 
 	if (wired) {
 	    thread->vm_privilege = 1;
@@ -2226,7 +2226,7 @@ static void thread_collect_scan(void)
 		simple_lock(&(pset)->lock);
 		queue_iterate(&pset->threads, thread, thread_t, pset_threads) {
 			spl_t	s = splsched();
-			simple_lock_nocheck(&(thread)->lock);
+			_simple_lock(&(thread)->lock);
 
 			/*
 			 *	Only collect threads which are

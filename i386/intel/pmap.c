@@ -2447,7 +2447,7 @@ void process_pmap_updates(pmap_t my_pmap)
 	pmap_t			pmap;
 
 	update_list_p = &cpu_update_list[my_cpu];
-	simple_lock_nocheck(&update_list_p->lock);
+	_simple_lock(&update_list_p->lock);
 
 	for (j = 0; j < update_list_p->count; j++) {
 	    pmap = update_list_p->item[j].pmap;

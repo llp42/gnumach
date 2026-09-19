@@ -59,7 +59,7 @@ thread_go(
 	spl_t	s;
 
 	s = splsched();
-	simple_lock_nocheck(&(thread)->lock);
+	_simple_lock(&(thread)->lock);
 
 	reset_timeout_check(&thread->timer);
 
@@ -114,7 +114,7 @@ thread_will_wait(
 	spl_t	s;
 
 	s = splsched();
-	simple_lock_nocheck(&(thread)->lock);
+	_simple_lock(&(thread)->lock);
 
 	thread->wait_result = -1;	/* for later assertions */
 	thread->state |= TH_WAIT;
@@ -139,7 +139,7 @@ thread_will_wait_with_timeout(
 	spl_t	s;
 
 	s = splsched();
-	simple_lock_nocheck(&(thread)->lock);
+	_simple_lock(&(thread)->lock);
 
 	thread->wait_result = -1;	/* for later assertions */
 	thread->state |= TH_WAIT;
@@ -192,7 +192,7 @@ thread_handoff(
 	 */
 
 	s = splsched();
-	simple_lock_nocheck(&(new)->lock);
+	_simple_lock(&(new)->lock);
 
 	/*
 	 *	The first thing we must do is check the state
@@ -235,7 +235,7 @@ thread_handoff(
 	 *	that the old thread isn't waiting yet.
 	 */
 
-	simple_lock_nocheck(&(old)->lock);
+	_simple_lock(&(old)->lock);
 	old->swap_func = continuation;
 	old->wait_result = -1;		/* for later assertions */
 

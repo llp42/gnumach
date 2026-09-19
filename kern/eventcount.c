@@ -244,7 +244,7 @@ evc_signal(evc_t ev)
       retry:
 	while((thread->state & TH_RUN) || thread->lock.lock_data)
 		cpu_pause();
-	simple_lock_nocheck(&(thread)->lock);
+	_simple_lock(&(thread)->lock);
 
 	/* make thread runnable on this processor */
 	/* taken from clear_wait */

@@ -130,7 +130,7 @@ void thread_quantum_update(
 		}
 		if (myprocessor->quantum <= 0) {
 			s = splsched();
-			simple_lock_nocheck(&(thread)->lock);
+			_simple_lock(&(thread)->lock);
 			if (thread->sched_stamp != sched_tick) {
 				update_priority(thread);
 			}
@@ -167,7 +167,7 @@ void thread_quantum_update(
 		 */
 		else {
 		    s = splsched();
-		    simple_lock_nocheck(&(thread)->lock);
+		    _simple_lock(&(thread)->lock);
 		    if (thread->sched_stamp != sched_tick) {
 			update_priority(thread);
 		    }

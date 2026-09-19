@@ -137,7 +137,7 @@ kern_return_t thread_doswapin(thread_t thread)
 	 */
 
 	s = splsched();
-	simple_lock_nocheck(&(thread)->lock);
+	_simple_lock(&(thread)->lock);
 	thread->state &= ~(TH_SWAPPED | TH_SW_COMING_IN);
 	if (thread->state & TH_RUN)
 		thread_setrun(thread, TRUE);

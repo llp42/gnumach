@@ -56,7 +56,6 @@
  */
 
 #include <machine/lock.h>/*XXX*/
-#define simple_lock_nocheck	_simple_lock
 #define simple_lock_try_nocheck	_simple_lock_try
 #define simple_unlock_nocheck	_simple_unlock
 
@@ -159,7 +158,7 @@ extern void		lock_clear_recursive(lock_t);
 #define simple_lock(l)		\
 MACRO_BEGIN \
 	lock_check_no_interrupts(); \
-	simple_lock_nocheck(l); \
+	_simple_lock(l); \
 MACRO_END
 #define simple_lock_try(l)	({ \
 	simple_lock_try_nocheck(l); \
@@ -187,7 +186,7 @@ class	simple_lock_irq_data_t	name;
 
 #define simple_lock_irq(l)	({ \
 	spl_t __s = splhigh(); \
-	simple_lock_nocheck(&(l)->slock); \
+	_simple_lock(&(l)->slock); \
 	__s; \
 })
 #define simple_unlock_irq(s, l)	\

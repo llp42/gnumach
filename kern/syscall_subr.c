@@ -198,7 +198,7 @@ kern_return_t thread_switch(
 		 *	doesn't come, then it's not eligible.
 		 */
 		s = splsched();
-		simple_lock_nocheck(&(thread)->lock);
+		_simple_lock(&(thread)->lock);
 		if ((thread->processor_set == cur_thread->processor_set)
 		    && (rem_runq(thread) != RUN_QUEUE_NULL)) {
 			/*
@@ -273,7 +273,7 @@ thread_depress_priority(
     ticks = convert_ipc_timeout_to_ticks(depress_time);
 
     s = splsched();
-    simple_lock_nocheck(&(thread)->lock);
+    _simple_lock(&(thread)->lock);
 
     /*
      *	If thread is already depressed, override previous depression.
@@ -305,7 +305,7 @@ thread_depress_timeout(thread_t thread)
     spl_t	s;
 
     s = splsched();
-    simple_lock_nocheck(&(thread)->lock);
+    _simple_lock(&(thread)->lock);
 
     /*
      *	If we lose a race with thread_depress_abort,
@@ -336,7 +336,7 @@ thread_depress_abort(thread_t thread)
 	return(KERN_INVALID_ARGUMENT);
 
     s = splsched();
-    simple_lock_nocheck(&(thread)->lock);
+    _simple_lock(&(thread)->lock);
 
     /*
      *	Only restore priority if thread is depressed.

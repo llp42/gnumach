@@ -185,7 +185,7 @@ void thread_set_timeout(
 	spl_t 		s;
 
 	s = splsched();
-	simple_lock_nocheck(&(thread)->lock);
+	_simple_lock(&(thread)->lock);
 	if ((thread->state & TH_WAIT) != 0) {
 		set_timeout(&thread->timer, t);
 	}
@@ -233,8 +233,8 @@ void assert_wait(
 		index = wait_hash(event);
 		q = &wait_queue[index];
 		lock = &wait_lock[index];
-		simple_lock_nocheck(lock);
-		simple_lock_nocheck(&(thread)->lock);
+		_simple_lock(lock);
+		_simple_lock(&(thread)->lock);
 		enqueue_tail(q, &(thread->links));
 		thread->wait_event = event;
 		if (interruptible)
@@ -245,7 +245,7 @@ void assert_wait(
 		simple_unlock_nocheck(lock);
 	}
 	else {
-		simple_lock_nocheck(&(thread)->lock);
+		_simple_lock(&(thread)->lock);
 		if (interruptible)
 			thread->state |= TH_WAIT;
 		else
@@ -279,7 +279,7 @@ void clear_wait(
 	spl_t			s;
 
 	s = splsched();
-	simple_lock_nocheck(&(thread)->lock);
+	_simple_lock(&(thread)->lock);
 	if (interrupt_only && (thread->state & TH_UNINT)) {
 		/*
 		 *	can`t interrupt thread
@@ -295,14 +295,14 @@ void clear_wait(
 		index = wait_hash(event);
 		q = &wait_queue[index];
 		lock = &wait_lock[index];
-		simple_lock_nocheck(lock);
+		_simple_lock(lock);
 		/*
 		 *	If the thread is still waiting on that event,
 		 *	then remove it from the list.  If it is waiting
 		 *	on a different event, or no event at all, then
 		 *	someone else did our job for us.
 		 */
-		simple_lock_nocheck(&(thread)->lock);
+		_simple_lock(&(thread)->lock);
 		if (thread->wait_event == event) {
 			remqueue(q, (queue_entry_t)thread);
 			thread->wait_event = 0;
@@ -387,13 +387,13 @@ boolean_t thread_wakeup_prim(
 	q = &wait_queue[index];
 	s = splsched();
 	lock = &wait_lock[index];
-	simple_lock_nocheck(lock);
+	_simple_lock(lock);
 	thread = (thread_t) queue_first(q);
 	while (!queue_end(q, (queue_entry_t)thread)) {
 		next_th = (thread_t) queue_next((queue_t) thread);
 
 		if (thread->wait_event == event) {
-			simple_lock_nocheck(&(thread)->lock);
+			_simple_lock(&(thread)->lock);
 			remqueue(q, (queue_entry_t) thread);
 			thread->wait_event = 0;
 			reset_timeout_check(&thread->timer);
@@ -479,7 +479,7 @@ void thread_bind(
 	spl_t		s;
 
 	s = splsched();
-	simple_lock_nocheck(&(thread)->lock);
+	_simple_lock(&(thread)->lock);
 	thread->bound_processor = processor;
 	simple_unlock_nocheck(&(thread)->lock);
 	(void) splx(s);
@@ -532,7 +532,7 @@ static thread_t thread_select(
 			     (thread->bound_processor == myprocessor))) {
 
 				simple_unlock(&pset->runq.lock);
-				simple_lock_nocheck(&(thread)->lock);
+				_simple_lock(&(thread)->lock);
 				if (thread->sched_stamp != sched_tick)
 				    update_priority(thread);
 				simple_unlock_nocheck(&(thread)->lock);
@@ -611,7 +611,7 @@ boolean_t thread_invoke(
 	     *	Mark thread interruptible.
 	     *	Run continuation if there is one.
 	     */
-	    simple_lock_nocheck(&(new_thread)->lock);
+	    _simple_lock(&(new_thread)->lock);
 	    new_thread->state &= ~TH_UNINT;
 	    simple_unlock_nocheck(&(new_thread)->lock);
 	    thread_wakeup(TH_EV_STATE(new_thread));
@@ -627,7 +627,7 @@ boolean_t thread_invoke(
 	/*
 	 *	Check for stack-handoff.
 	 */
-	simple_lock_nocheck(&(new_thread)->lock);
+	_simple_lock(&(new_thread)->lock);
 	if ((old_thread->stack_privilege != current_stack()) &&
 	    (continuation != thread_no_continuation))
 	{
@@ -658,7 +658,7 @@ boolean_t thread_invoke(
 		     *	than actual calls to thread_dispatch.
 		     */
 
-		    simple_lock_nocheck(&(old_thread)->lock);
+		    _simple_lock(&(old_thread)->lock);
 		    old_thread->swap_func = continuation;
 
 		    switch (old_thread->state) {
@@ -891,7 +891,7 @@ void thread_dispatch(
 	 *	before the thread has a chance to run.
 	 */
 
-	simple_lock_nocheck(&(thread)->lock);
+	_simple_lock(&(thread)->lock);
 
 	if (thread->swap_func != thread_no_continuation) {
 		thread->state |= TH_SWAPPED;
@@ -1119,7 +1119,7 @@ void update_priority(
 		whichq = NRQS - 1;					\
 	    }								\
 									\
-	    simple_lock_nocheck(&(rq)->lock);	/* lock the run queue */	\
+	    _simple_lock(&(rq)->lock);	/* lock the run queue */	\
 	    checkrq((rq), "thread_setrun: before adding thread");	\
 	    enqueue_tail(&(rq)->runq[whichq], &((th)->links));		\
 									\
@@ -1143,7 +1143,7 @@ void update_priority(
 		whichq = NRQS - 1;					\
 	    }								\
 									\
-	    simple_lock_nocheck(&(rq)->lock);	/* lock the run queue */	\
+	    _simple_lock(&(rq)->lock);	/* lock the run queue */	\
 	    enqueue_tail(&(rq)->runq[whichq], &((th)->links));		\
 									\
 	    if (whichq < (rq)->low || (rq)->count == 0) 		\
@@ -1189,7 +1189,7 @@ void thread_setrun(
 	    pset = th->processor_set;
 
 	    if (pset->idle_count > 0) {
-		simple_lock_nocheck(&pset->idle_lock);
+		_simple_lock(&pset->idle_lock);
 		if (pset->idle_count > 0) {
 		    processor = (processor_t) queue_first(&pset->idle_queue);
 		    queue_remove(&(pset->idle_queue), processor, processor_t,
@@ -1229,7 +1229,7 @@ void thread_setrun(
 	    if (processor != PROCESSOR_NULL && processor->state == PROCESSOR_IDLE) {
 		simple_lock(&(processor)->lock);
 		pset = processor->processor_set;
-		simple_lock_nocheck(&pset->idle_lock);
+		_simple_lock(&pset->idle_lock);
 		if (processor->state == PROCESSOR_IDLE) {
 		    queue_remove(&pset->idle_queue, processor,
 			processor_t, processor_queue);
@@ -1308,7 +1308,7 @@ struct run_queue *rem_runq(
 	 *	the thread is on a runq, but could leave.
 	 */
 	if (rq != RUN_QUEUE_NULL) {
-		simple_lock_nocheck(&(rq)->lock);
+		_simple_lock(&(rq)->lock);
 #if	DEBUG
 		checkrq(rq, "rem_runq: at entry");
 #endif	/* DEBUG */
@@ -1455,7 +1455,7 @@ thread_t choose_pset_thread(
 	 *	was running.  If it was in an assignment or shutdown,
 	 *	leave it alone.  Return its idle thread.
 	 */
-	simple_lock_nocheck(&pset->idle_lock);
+	_simple_lock(&pset->idle_lock);
 	if (myprocessor->state == PROCESSOR_RUNNING) {
 	    myprocessor->state = PROCESSOR_IDLE;
 	    /*
@@ -1591,7 +1591,7 @@ retry:
 			processor_set_t pset;
 
 			pset = myprocessor->processor_set;
-			simple_lock_nocheck(&pset->idle_lock);
+			_simple_lock(&pset->idle_lock);
 			if (myprocessor->state != PROCESSOR_IDLE) {
 				/*
 				 *	Something happened, try again.
@@ -1620,7 +1620,7 @@ retry:
 			 */
 			if ((new_thread = (thread_t)*threadp)!= THREAD_NULL) {
 				*threadp = (volatile thread_t) THREAD_NULL;
-				simple_lock_nocheck(&(new_thread)->lock);
+				_simple_lock(&(new_thread)->lock);
 				thread_setrun(new_thread, FALSE);
 				simple_unlock_nocheck(&(new_thread)->lock);
 			}
@@ -1654,7 +1654,7 @@ void idle_thread(void)
 	 *	out of the run queues (and set the processor idle when we
 	 *	run next time).
 	 */
-	simple_lock_nocheck(&(self)->lock);
+	_simple_lock(&(self)->lock);
 	self->state |= TH_IDLE;
 	simple_unlock_nocheck(&(self)->lock);
 	current_processor()->idle_thread = self;
@@ -1837,7 +1837,7 @@ void do_thread_scan(void)
 		thread = stuck_threads[--stuck_count];
 		stuck_threads[stuck_count] = THREAD_NULL;
 		s = splsched();
-		simple_lock_nocheck(&(thread)->lock);
+		_simple_lock(&(thread)->lock);
 		if ((thread->state & TH_SCHED_STATE) == TH_RUN) {
 			/*
 			 *	Do the priority update.  Call

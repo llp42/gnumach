@@ -171,7 +171,7 @@ processor_request_action(
      *	get at processor state.
      */
     pset = processor->processor_set;
-    simple_lock_nocheck(&pset->idle_lock);
+    _simple_lock(&pset->idle_lock);
 
     /*
      *	If the processor is dispatching, let it finish - it will set its

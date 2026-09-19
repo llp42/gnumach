@@ -191,7 +191,7 @@ ast_check(void)
 			/*
 			 *	Need to recheck and possibly update hint.
 			 */
-			simple_lock_nocheck(&(rq)->lock);
+			_simple_lock(&(rq)->lock);
 			q = rq->runq + rq->low;
 			if (rq->count > 0) {
 			    for (i = rq->low; i < NRQS; i++) {

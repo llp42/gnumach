@@ -300,7 +300,7 @@ kern_return_t task_terminate(
 		 *	Make sure current thread is not being terminated.
 		 */
 		s = splsched();
-		simple_lock_nocheck(&(cur_thread)->lock);
+		_simple_lock(&(cur_thread)->lock);
 		if (!cur_thread->active) {
 			simple_unlock_nocheck(&(cur_thread)->lock);
 			(void) splx(s);
@@ -339,7 +339,7 @@ kern_return_t task_terminate(
 		 *	Check if current thread or task is being terminated.
 		 */
 		s = splsched();
-		simple_lock_nocheck(&(cur_thread)->lock);
+		_simple_lock(&(cur_thread)->lock);
 		if ((!cur_task->active) ||(!cur_thread->active)) {
 			/*
 			 * Current task or thread is being terminated.
@@ -875,7 +875,7 @@ kern_return_t task_info(
 		    spl_t		 s;
 
 		    s = splsched();
-		    simple_lock_nocheck(&(thread)->lock);
+		    _simple_lock(&(thread)->lock);
 
 		    thread_read_times(thread, &user_time, &system_time);
 
@@ -1321,7 +1321,7 @@ thread_override_max_priority(
 	spl_t	s;
 
 	s = splsched();
-	simple_lock_nocheck(&(thread)->lock);
+	_simple_lock(&(thread)->lock);
 
 	thread->max_priority = max_priority;
 	if (thread->processor_set->max_priority > max_priority)
