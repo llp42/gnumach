@@ -181,10 +181,6 @@ extern boolean_t tty_portdeath(
 #define	TS_MIN_TO_RCV	0x00400000	/* character received during
 					   receive timeout interval */
 
-/* flags - old names defined in terms of new ones */
-
-#define	LITOUT		TF_LITOUT
-
 /*
  * Modem control commands.
  */

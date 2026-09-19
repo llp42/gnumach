@@ -70,7 +70,7 @@ static struct bus_device *comcndev;
 extern char *kernel_cmdline;
 
 #define ISPEED	B115200
-#define IFLAGS	(TF_EVENP|TF_ODDP|TF_ECHO|TF_CRMOD|TF_XTABS|LITOUT)
+#define IFLAGS	(TF_EVENP|TF_ODDP|TF_ECHO|TF_CRMOD|TF_XTABS|TF_LITOUT)
 
 u_short divisorreg[] = {
 	0,	2304,	1536,	1047,		/*     0,    50,    75,   110*/
@@ -576,7 +576,7 @@ comparam(int unit)
 	outb(BAUD_LSB(addr), divisorreg[tp->t_ispeed] & 0xff);
 	outb(BAUD_MSB(addr), divisorreg[tp->t_ispeed] >> 8);
 
-	if (tp->t_flags & (LITOUT|LITOUT|LITOUT))
+	if (tp->t_flags & (TF_LITOUT|TF_LITOUT|TF_LITOUT))
 		mode = i8BITS;
 	else
 		mode = i7BITS | iPEN;
@@ -630,7 +630,7 @@ comst_3++;
 	while (i-- > 0) {
 		nch = getc(&tp->t_outq);
 		if (nch == -1) break;
-		if ((nch & 0200) && ((tp->t_flags & LITOUT) == 0)) {
+		if ((nch & 0200) && ((tp->t_flags & TF_LITOUT) == 0)) {
 		    timeout(ttrstrt, (char *)tp, (nch & 0x7f) + 6);
 		    tp->t_state |= TS_TIMEOUT;
 comst_4++;
@@ -642,7 +642,7 @@ comst_4++;
 	nch = getc(&tp->t_outq);
 	if (nch == -1)
 		return;
-	if ((nch & 0200) && ((tp->t_flags & LITOUT) == 0)) {
+	if ((nch & 0200) && ((tp->t_flags & TF_LITOUT) == 0)) {
 	    timeout((timer_func_t *)ttrstrt, (char *)tp, (nch & 0x7f) + 6);
 	    tp->t_state |= TS_TIMEOUT;
 comst_4++;
