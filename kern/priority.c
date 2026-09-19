@@ -141,7 +141,7 @@ void thread_quantum_update(
 #endif	/* NCPUS > 1 */
 		if (myprocessor->quantum <= 0) {
 			s = splsched();
-			thread_lock(thread);
+			simple_lock_nocheck(&(thread)->lock);
 			if (thread->sched_stamp != sched_tick) {
 				update_priority(thread);
 			}
@@ -156,7 +156,7 @@ void thread_quantum_update(
 				    compute_my_priority(thread);
 			    }
 			}
-			thread_unlock(thread);
+			simple_unlock_nocheck(&(thread)->lock);
 			(void) splx(s);
 			/*
 			 *	This quantum is up, give this thread another.
@@ -178,7 +178,7 @@ void thread_quantum_update(
 		 */
 		else {
 		    s = splsched();
-		    thread_lock(thread);
+		    simple_lock_nocheck(&(thread)->lock);
 		    if (thread->sched_stamp != sched_tick) {
 			update_priority(thread);
 		    }
@@ -195,7 +195,7 @@ void thread_quantum_update(
 				}
 			}
 		    }
-		    thread_unlock(thread);
+		    simple_unlock_nocheck(&(thread)->lock);
 		    (void) splx(s);
 		}
 		/*

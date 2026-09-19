@@ -202,13 +202,13 @@ kern_return_t thread_switch(
 		 *	doesn't come, then it's not eligible.
 		 */
 		s = splsched();
-		thread_lock(thread);
+		simple_lock_nocheck(&(thread)->lock);
 		if ((thread->processor_set == cur_thread->processor_set)
 		    && (rem_runq(thread) != RUN_QUEUE_NULL)) {
 			/*
 			 *	Hah, got it!!
 			 */
-			thread_unlock(thread);
+			simple_unlock_nocheck(&(thread)->lock);
 			(void) splx(s);
 			ip_unlock(port);
 			/* XXX thread might disappear on us now? */
@@ -226,7 +226,7 @@ kern_return_t thread_switch(
 
 			return(KERN_SUCCESS);
 		}
-		thread_unlock(thread);
+		simple_unlock_nocheck(&(thread)->lock);
 		(void) splx(s);
 	    }
 	    ip_unlock(port);
@@ -279,7 +279,7 @@ thread_depress_priority(
     ticks = convert_ipc_timeout_to_ticks(depress_time);
 
     s = splsched();
-    thread_lock(thread);
+    simple_lock_nocheck(&(thread)->lock);
 
     /*
      *	If thread is already depressed, override previous depression.
@@ -296,7 +296,7 @@ thread_depress_priority(
     if (ticks != 0)
 	set_timeout(&thread->depress_timer, ticks);
 
-    thread_unlock(thread);
+    simple_unlock_nocheck(&(thread)->lock);
     (void) splx(s);
 }
 
@@ -311,7 +311,7 @@ thread_depress_timeout(thread_t thread)
     spl_t	s;
 
     s = splsched();
-    thread_lock(thread);
+    simple_lock_nocheck(&(thread)->lock);
 
     /*
      *	If we lose a race with thread_depress_abort,
@@ -324,7 +324,7 @@ thread_depress_timeout(thread_t thread)
 	compute_priority(thread, FALSE);
     }
 
-    thread_unlock(thread);
+    simple_unlock_nocheck(&(thread)->lock);
     (void) splx(s);
 }
 
@@ -342,7 +342,7 @@ thread_depress_abort(thread_t thread)
 	return(KERN_INVALID_ARGUMENT);
 
     s = splsched();
-    thread_lock(thread);
+    simple_lock_nocheck(&(thread)->lock);
 
     /*
      *	Only restore priority if thread is depressed.
@@ -354,7 +354,7 @@ thread_depress_abort(thread_t thread)
 	compute_priority(thread, FALSE);
     }
 
-    thread_unlock(thread);
+    simple_unlock_nocheck(&(thread)->lock);
     (void) splx(s);
     return(KERN_SUCCESS);
 }

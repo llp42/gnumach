@@ -59,7 +59,7 @@ thread_go(
 	spl_t	s;
 
 	s = splsched();
-	thread_lock(thread);
+	simple_lock_nocheck(&(thread)->lock);
 
 	reset_timeout_check(&thread->timer);
 
@@ -97,7 +97,7 @@ thread_go(
 		break;
 	}
 
-	thread_unlock(thread);
+	simple_unlock_nocheck(&(thread)->lock);
 	splx(s);
 }
 
@@ -114,12 +114,12 @@ thread_will_wait(
 	spl_t	s;
 
 	s = splsched();
-	thread_lock(thread);
+	simple_lock_nocheck(&(thread)->lock);
 
 	assert(thread->wait_result = -1);	/* for later assertions */
 	thread->state |= TH_WAIT;
 
-	thread_unlock(thread);
+	simple_unlock_nocheck(&(thread)->lock);
 	splx(s);
 }
 
@@ -139,14 +139,14 @@ thread_will_wait_with_timeout(
 	spl_t	s;
 
 	s = splsched();
-	thread_lock(thread);
+	simple_lock_nocheck(&(thread)->lock);
 
 	assert(thread->wait_result = -1);	/* for later assertions */
 	thread->state |= TH_WAIT;
 
 	set_timeout(&thread->timer, ticks);
 
-	thread_unlock(thread);
+	simple_unlock_nocheck(&(thread)->lock);
 	splx(s);
 }
 
@@ -197,7 +197,7 @@ thread_handoff(
 	 */
 
 	s = splsched();
-	thread_lock(new);
+	simple_lock_nocheck(&(new)->lock);
 
 	/*
 	 *	The first thing we must do is check the state
@@ -210,7 +210,7 @@ thread_handoff(
 	    (new->state != (TH_WAIT|TH_SWAPPED)) ||
 	     !check_processor_set(new) ||
 	     !check_bound_processor(new)) {
-		thread_unlock(new);
+		simple_unlock_nocheck(&(new)->lock);
 		(void) splx(s);
 
 		return FALSE;
@@ -219,7 +219,7 @@ thread_handoff(
 	reset_timeout_check(&new->timer);
 
 	new->state = TH_RUN;
-	thread_unlock(new);
+	simple_unlock_nocheck(&(new)->lock);
 
 #if	NCPUS > 1
 	new->last_processor = current_processor();
@@ -242,7 +242,7 @@ thread_handoff(
 	 *	that the old thread isn't waiting yet.
 	 */
 
-	thread_lock(old);
+	simple_lock_nocheck(&(old)->lock);
 	old->swap_func = continuation;
 	assert(old->wait_result = -1);		/* for later assertions */
 
@@ -265,14 +265,14 @@ thread_handoff(
 			 *	really stops.
 			 */
 			old->wake_active = FALSE;
-			thread_unlock(old);
+			simple_unlock_nocheck(&(old)->lock);
 			thread_wakeup(TH_EV_WAKE_ACTIVE(old));
 			goto after_old_thread;
 		}
 	} else
 		panic("thread_handoff");
 
-	thread_unlock(old);
+	simple_unlock_nocheck(&(old)->lock);
     after_old_thread:
 	(void) splx(s);
 

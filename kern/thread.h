@@ -93,7 +93,7 @@ struct thread {
 	queue_chain_t	pset_threads;	/* list of all threads in proc set*/
 
 	/* Self-preservation */
-	decl_simple_lock_data(,lock)
+	decl_simple_lock_data(,lock)	/* shall be taken at splsched only */
 	int		ref_count;	/* number of references to me */
 
 	/* Hardware state */
@@ -394,10 +394,6 @@ extern void		thread_unfreeze(
  */
 
 #define thread_pcb(th)		((th)->pcb)
-
-/* Shall be taken at splsched only */
-#define thread_lock(th)		simple_lock_nocheck(&(th)->lock)
-#define thread_unlock(th)	simple_unlock_nocheck(&(th)->lock)
 
 #define thread_should_halt(thread)	\
 		((thread)->ast & (AST_HALT|AST_TERMINATE))

@@ -302,9 +302,9 @@ kern_return_t task_terminate(
 		 *	Make sure current thread is not being terminated.
 		 */
 		s = splsched();
-		thread_lock(cur_thread);
+		simple_lock_nocheck(&(cur_thread)->lock);
 		if (!cur_thread->active) {
-			thread_unlock(cur_thread);
+			simple_unlock_nocheck(&(cur_thread)->lock);
 			(void) splx(s);
 			simple_unlock(&(task)->lock);
 			thread_terminate(cur_thread);
@@ -313,7 +313,7 @@ kern_return_t task_terminate(
 		task_hold_locked(task);
 		task->active = FALSE;
 		queue_remove(list, cur_thread, thread_t, thread_list);
-		thread_unlock(cur_thread);
+		simple_unlock_nocheck(&(cur_thread)->lock);
 		(void) splx(s);
 		simple_unlock(&(task)->lock);
 
@@ -341,19 +341,19 @@ kern_return_t task_terminate(
 		 *	Check if current thread or task is being terminated.
 		 */
 		s = splsched();
-		thread_lock(cur_thread);
+		simple_lock_nocheck(&(cur_thread)->lock);
 		if ((!cur_task->active) ||(!cur_thread->active)) {
 			/*
 			 * Current task or thread is being terminated.
 			 */
-			thread_unlock(cur_thread);
+			simple_unlock_nocheck(&(cur_thread)->lock);
 			(void) splx(s);
 			simple_unlock(&(task)->lock);
 			simple_unlock(&(cur_task)->lock);
 			thread_terminate(cur_thread);
 			return KERN_FAILURE;
 		}
-		thread_unlock(cur_thread);
+		simple_unlock_nocheck(&(cur_thread)->lock);
 		(void) splx(s);
 		simple_unlock(&(cur_task)->lock);
 
@@ -880,11 +880,11 @@ kern_return_t task_info(
 		    spl_t		 s;
 
 		    s = splsched();
-		    thread_lock(thread);
+		    simple_lock_nocheck(&(thread)->lock);
 
 		    thread_read_times(thread, &user_time, &system_time);
 
-		    thread_unlock(thread);
+		    simple_unlock_nocheck(&(thread)->lock);
 		    splx(s);
 
 		    time_value64_add(&acc_user_time, &user_time);
@@ -1326,7 +1326,7 @@ thread_override_max_priority(
 	spl_t	s;
 
 	s = splsched();
-	thread_lock(thread);
+	simple_lock_nocheck(&(thread)->lock);
 
 	thread->max_priority = max_priority;
 	if (thread->processor_set->max_priority > max_priority)
@@ -1336,7 +1336,7 @@ thread_override_max_priority(
 
 	compute_priority(thread, TRUE);
 
-	thread_unlock(thread);
+	simple_unlock_nocheck(&(thread)->lock);
 	(void) splx(s);
 
 	return KERN_SUCCESS;

@@ -279,9 +279,9 @@ void cpu_launch_first_thread(thread_t th)
 
 	percpu_assign(active_thread, th);
 	percpu_assign(active_stack, th->kernel_stack);
-	thread_lock(th);
+	simple_lock_nocheck(&(th)->lock);
 	th->state &= ~TH_UNINT;
-	thread_unlock(th);
+	simple_unlock_nocheck(&(th)->lock);
 #if	NCPUS > 1
 	th->last_processor = cpu_to_processor(mycpu);
 #endif	/* NCPUS > 1 */

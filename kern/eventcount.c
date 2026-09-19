@@ -246,7 +246,7 @@ evc_signal(evc_t ev)
 	while((thread->state & TH_RUN) || thread->lock.lock_data)
 		cpu_pause();
 #endif
-	thread_lock(thread);
+	simple_lock_nocheck(&(thread)->lock);
 
 	/* make thread runnable on this processor */
 	/* taken from clear_wait */
@@ -265,7 +265,7 @@ evc_signal(evc_t ev)
 #else
 		simpler_thread_setrun(thread, TRUE);
 #endif
-		thread_unlock(thread);
+		simple_unlock_nocheck(&(thread)->lock);
 		break;
 
 	    case TH_RUN | TH_WAIT:
@@ -277,7 +277,7 @@ evc_signal(evc_t ev)
 	 	 * Mmm. Maybe don't need now that the while(..) check is
 		 * done before the thread lock is grabbed.....
 		 */
-		thread_unlock(thread);
+		simple_unlock_nocheck(&(thread)->lock);
 		goto retry;
 #else
 		/*FALLTHROUGH*/
@@ -292,7 +292,7 @@ evc_signal(evc_t ev)
 		 *      Just clear the wait.
 		 */
 		thread->state = state &~ TH_WAIT;
-		thread_unlock(thread);
+		simple_unlock_nocheck(&(thread)->lock);
 		break;
 
 	    default:
@@ -300,7 +300,7 @@ evc_signal(evc_t ev)
 		 *	Not waiting.
 		 */
 		panic("evc_signal.3");
-		thread_unlock(thread);
+		simple_unlock_nocheck(&(thread)->lock);
 		break;
 	}
     }
