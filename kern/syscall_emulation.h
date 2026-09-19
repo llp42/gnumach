@@ -52,8 +52,6 @@ typedef vm_offset_t	*emulation_vector_t; /* Variable-length array */
 #define EML_ROUTINE_NULL	(eml_routine_t)0
 #define EML_DISPATCH_NULL	(eml_dispatch_t)0
 
-#define	EML_SUCCESS		(0)
-
 #define	EML_MOD			(err_kern|err_sub(2))
 #define	EML_BAD_TASK		(EML_MOD|0x0001)
 #define	EML_BAD_CNT		(EML_MOD|0x0002)
