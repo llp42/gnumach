@@ -41,9 +41,6 @@
 #define	buf	io_req
 
 /*
- * Redefine fields for drivers using old names
- */
-/*
  * Redefine fields for driver request list heads, using old names.
  */
 #define	b_actf		io_next
