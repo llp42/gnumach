@@ -86,8 +86,6 @@ extern struct kmem_cache ipc_space_cache;
 extern struct ipc_space *ipc_space_kernel;
 extern struct ipc_space *ipc_space_reply;
 
-#define	is_ref_lock_init(is)	simple_lock_init(&(is)->is_ref_lock_data)
-
 #define	ipc_space_reference_macro(is)					\
 MACRO_BEGIN								\
 	simple_lock(&(is)->is_ref_lock_data);				\

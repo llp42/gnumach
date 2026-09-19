@@ -107,7 +107,7 @@ ipc_space_create(
 	if (space == IS_NULL)
 		return KERN_RESOURCE_SHORTAGE;
 
-	is_ref_lock_init(space);
+	simple_lock_init(&(space)->is_ref_lock_data);
 	space->is_references = 2;
 
 	is_lock_init(space);
@@ -150,7 +150,7 @@ ipc_space_create_special(
 	if (space == IS_NULL)
 		return KERN_RESOURCE_SHORTAGE;
 
-	is_ref_lock_init(space);
+	simple_lock_init(&(space)->is_ref_lock_data);
 	space->is_references = 1;
 
 	is_lock_init(space);
