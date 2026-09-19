@@ -40,7 +40,6 @@
 /* XXX */
 #define CHAR_BIT	8U
 #define ERR_SUCCESS	KERN_SUCCESS
-#define ERR_NOMEM	KERN_RESOURCE_SHORTAGE
 
 /*
  * Mask applied on an entry to obtain its address.
@@ -158,7 +157,7 @@ rdxtree_node_create(struct rdxtree_node **nodep, unsigned int height)
     node = (struct rdxtree_node *) kmem_cache_alloc(&rdxtree_node_cache);
 
     if (node == NULL)
-        return ERR_NOMEM;
+        return KERN_RESOURCE_SHORTAGE;
 
     node->parent = NULL;
     node->height = height;
