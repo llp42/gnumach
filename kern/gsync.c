@@ -141,7 +141,7 @@ probe_address (vm_map_t map, vm_offset_t addr,
   else if ((rprot & prot) != prot)
     {
       vm_map_unlock_read (map);
-      vm_object_unlock (vap->obj);
+      simple_unlock(&(vap->obj)->Lock);
       return (-1);
     }
 
@@ -244,7 +244,7 @@ kern_return_t gsync_wait (task_t task, vm_offset_t addr,
     vm_object_reference_locked (va.obj);
 
   /* We no longer need the lock on the VM object. */
-  vm_object_unlock (va.obj);
+  simple_unlock(&(va.obj)->Lock);
 
   struct gsync_hbucket *hbp = gsync_buckets + bucket;
   kmutex_lock (&hbp->lock, FALSE);
@@ -381,7 +381,7 @@ kern_return_t gsync_wake (task_t task,
     vm_object_reference_locked (va.obj);
 
   /* Done with the VM object lock. */
-  vm_object_unlock (va.obj);
+  simple_unlock(&(va.obj)->Lock);
 
   kern_return_t ret = KERN_INVALID_ARGUMENT;
   struct gsync_hbucket *hbp = gsync_buckets + bucket;
@@ -458,7 +458,7 @@ kern_return_t gsync_requeue (task_t task, vm_offset_t src,
   vm_map_unlock_read (task->map);
 
   /* Unlock the VM object before the second lookup. */
-  vm_object_unlock (va.obj);
+  simple_unlock(&(va.obj)->Lock);
 
   int dst_bkt = gsync_prepare_key (task, dst, flags, &dst_k, &va);
   if (dst_bkt < 0)
@@ -467,7 +467,7 @@ kern_return_t gsync_requeue (task_t task, vm_offset_t src,
 
   /* We never create any temporary mappings in 'requeue', so we
    * can unlock the VM object right now. */
-  vm_object_unlock (va.obj);
+  simple_unlock(&(va.obj)->Lock);
 
   /* If we're asked to unconditionally wake up a waiter, then
    * we need to remove a maximum of two threads from the queue. */

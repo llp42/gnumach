@@ -981,13 +981,13 @@ vm_map_pmap_enter(
 	while (addr < end_addr) {
 		vm_page_t	m;
 
-		vm_object_lock(object);
+		simple_lock(&(object)->Lock);
 		vm_object_paging_begin(object);
 
 		m = vm_page_lookup(object, offset);
 		if (m == VM_PAGE_NULL || m->absent) {
 			vm_object_paging_end(object);
-			vm_object_unlock(object);
+			simple_unlock(&(object)->Lock);
 			return;
 		}
 
@@ -998,19 +998,19 @@ vm_map_pmap_enter(
 		}
 
 		m->busy = TRUE;
-		vm_object_unlock(object);
+		simple_unlock(&(object)->Lock);
 
 		PMAP_ENTER(map->pmap, addr, m,
 			   protection, FALSE);
 
-		vm_object_lock(object);
+		simple_lock(&(object)->Lock);
 		PAGE_WAKEUP_DONE(m);
 		simple_lock(&vm_page_queue_lock);
 		if (!m->active && !m->inactive)
 		    vm_page_activate(m);
 		simple_unlock(&vm_page_queue_lock);
 		vm_object_paging_end(object);
-		vm_object_unlock(object);
+		simple_unlock(&(object)->Lock);
 
 		offset += PAGE_SIZE;
 		addr += PAGE_SIZE;
@@ -2096,10 +2096,10 @@ void vm_map_entry_delete(
 	     */
 
 	    if (object == kernel_object) {
-		vm_object_lock(object);
+		simple_lock(&(object)->Lock);
 		vm_object_page_remove(object, entry->offset,
 				entry->offset + size);
-		vm_object_unlock(object);
+		simple_unlock(&(object)->Lock);
 	    } else if (entry->is_shared) {
 		vm_object_pmap_remove(object,
 				 entry->offset,
@@ -2112,7 +2112,7 @@ void vm_map_entry_delete(
 		 *	one, we can release the deleted pages
 		 *	now.
 		 */
-		vm_object_lock(object);
+		simple_lock(&(object)->Lock);
 		if ((!object->pager_created) &&
 		    (object->ref_count == 1) &&
 		    (object->paging_in_progress == 0)) {
@@ -2120,7 +2120,7 @@ void vm_map_entry_delete(
 				entry->offset,
 				entry->offset + size);
 		}
-		vm_object_unlock(object);
+		simple_unlock(&(object)->Lock);
 	    }
         }
 
@@ -2289,14 +2289,14 @@ vm_map_copy_steal_pages(vm_map_copy_t copy)
 		vm_page_copy(m, new_m);
 
 		object = m->object;
-		vm_object_lock(object);
+		simple_lock(&(object)->Lock);
 		simple_lock(&vm_page_queue_lock);
 		if (!m->active && !m->inactive)
 			vm_page_activate(m);
 		simple_unlock(&vm_page_queue_lock);
 		PAGE_WAKEUP_DONE(m);
 		vm_object_paging_end(object);
-		vm_object_unlock(object);
+		simple_unlock(&(object)->Lock);
 
 		copy->cpy_page_list[i] = new_m;
 	}
@@ -2332,7 +2332,7 @@ void vm_map_copy_page_discard(vm_map_copy_t copy)
 
 				object = m->object;
 
-				vm_object_lock(object);
+				simple_lock(&(object)->Lock);
 				simple_lock(&vm_page_queue_lock);
 				if (!m->active && !m->inactive)
 					vm_page_activate(m);
@@ -2340,7 +2340,7 @@ void vm_map_copy_page_discard(vm_map_copy_t copy)
 
 				PAGE_WAKEUP_DONE(m);
 				vm_object_paging_end(object);
-				vm_object_unlock(object);
+				simple_unlock(&(object)->Lock);
 			}
 		}
 	}
@@ -3043,7 +3043,7 @@ kern_return_t vm_map_copyout(
 			 *	(XXX not true if we wire pages for
 			 *	 reading)
 			 */
-			vm_object_lock(object);
+			simple_lock(&(object)->Lock);
 			vm_object_paging_begin(object);
 
 			m = vm_page_lookup(object, offset);
@@ -3052,16 +3052,16 @@ kern_return_t vm_map_copyout(
 			    panic("vm_map_copyout: wiring %p", m);
 
 			m->busy = TRUE;
-			vm_object_unlock(object);
+			simple_unlock(&(object)->Lock);
 
 			PMAP_ENTER(dst_map->pmap, va, m,
 				   entry->protection, TRUE);
 
-			vm_object_lock(object);
+			simple_lock(&(object)->Lock);
 			PAGE_WAKEUP_DONE(m);
 			/* the page is wired, so we don't have to activate */
 			vm_object_paging_end(object);
-			vm_object_unlock(object);
+			simple_unlock(&(object)->Lock);
 
 			offset += PAGE_SIZE;
 			va += PAGE_SIZE;
@@ -3206,7 +3206,7 @@ kern_return_t vm_map_copyout_page_list(
 			(vm_size_t)(last->vme_end - last->vme_start + size));
 		last->object.vm_object = object;
 		last->offset = 0;
-		vm_object_lock(object);
+		simple_lock(&(object)->Lock);
 	}
 	else {
 	    vm_offset_t	prev_offset = last->offset;
@@ -3218,7 +3218,7 @@ kern_return_t vm_map_copyout_page_list(
 	     */
 
 	    object = last->object.vm_object;
-	    vm_object_lock(object);
+	    simple_lock(&(object)->Lock);
 
 	    /*
 	     *	Try to collapse the object first
@@ -3240,7 +3240,7 @@ kern_return_t vm_map_copyout_page_list(
 		(object->shadow != VM_OBJECT_NULL) ||
 		(object->copy != VM_OBJECT_NULL) ||
 		(object->paging_in_progress != 0)) {
-		    vm_object_unlock(object);
+		    simple_unlock(&(object)->Lock);
 		    goto create_object;
 	    }
 
@@ -3311,7 +3311,7 @@ create_object:
 	entry->max_protection = VM_PROT_ALL;
 	entry->projected_on = 0;
 
-	vm_object_lock(object);
+	simple_lock(&(object)->Lock);
 
 	/*
 	 *	Update the hints and the map size
@@ -3382,7 +3382,7 @@ insert_pages:
 			 */
 			cont_invoked = TRUE;
 			simple_unlock(&vm_page_queue_lock);
-			vm_object_unlock(object);
+			simple_unlock(&(object)->Lock);
 			vm_map_unlock(dst_map);
 			vm_map_copy_invoke_cont(copy, &new_copy, &result);
 
@@ -3415,13 +3415,13 @@ insert_pages:
 			}
 
 			vm_map_lock(dst_map);
-			vm_object_lock(object);
+			simple_lock(&(object)->Lock);
 			simple_lock(&vm_page_queue_lock);
 		}
 	}
 
 	simple_unlock(&vm_page_queue_lock);
-	vm_object_unlock(object);
+	simple_unlock(&(object)->Lock);
 
 	*dst_addr = start + dst_offset;
 
@@ -3726,7 +3726,7 @@ kern_return_t vm_map_copyin(
 		 */
 
 		if (was_wired) {
-			vm_object_lock(src_object);
+			simple_lock(&(src_object)->Lock);
 			(void) vm_object_copy_slowly(
 					src_object,
 					src_offset,
@@ -4148,7 +4148,7 @@ make_continuation:
 			/*
 			 *	Try to find the page of data.
 			 */
-			vm_object_lock(src_object);
+			simple_lock(&(src_object)->Lock);
 			vm_object_paging_begin(src_object);
 			if (((m = vm_page_lookup(src_object, src_offset)) !=
 			    VM_PAGE_NULL) && !m->busy && !m->fictitious &&
@@ -4220,17 +4220,17 @@ retry:
 					break;
 				case VM_FAULT_INTERRUPTED: /* ??? */
 			        case VM_FAULT_RETRY:
-					vm_object_lock(src_object);
+					simple_lock(&(src_object)->Lock);
 					vm_object_paging_begin(src_object);
 					goto retry;
 				case VM_FAULT_MEMORY_SHORTAGE:
 					VM_PAGE_WAIT((void (*)()) 0);
-					vm_object_lock(src_object);
+					simple_lock(&(src_object)->Lock);
 					vm_object_paging_begin(src_object);
 					goto retry;
 				case VM_FAULT_FICTITIOUS_SHORTAGE:
 					vm_page_more_fictitious();
-					vm_object_lock(src_object);
+					simple_lock(&(src_object)->Lock);
 					vm_object_paging_begin(src_object);
 					goto retry;
 				case VM_FAULT_MEMORY_ERROR:
@@ -4253,10 +4253,10 @@ retry:
 				}
 
 				if (top_page != VM_PAGE_NULL) {
-					vm_object_lock(src_object);
+					simple_lock(&(src_object)->Lock);
 					VM_PAGE_FREE(top_page);
 					vm_object_paging_end(src_object);
-					vm_object_unlock(src_object);
+					simple_unlock(&(src_object)->Lock);
 				 }
 
 				 /*
@@ -4280,7 +4280,7 @@ retry:
 			 *	Put the page in the page list.
 			 */
 			copy->cpy_page_list[copy->cpy_npages++] = m;
-			vm_object_unlock(m->object);
+			simple_unlock(&(m->object)->Lock);
 		}
 
 		/*
@@ -4361,7 +4361,7 @@ retry:
  			 */
 			m = copy->cpy_page_list[i];
 			src_object = m->object;
-			vm_object_lock(src_object);
+			simple_lock(&(src_object)->Lock);
 
 			if (src_destroy &&
 			    src_object->temporary &&
@@ -4385,7 +4385,7 @@ retry:
 				     *		that this piece of the
 				     *		pmap is pageable.
 				     */
-				    vm_object_unlock(src_object);
+				    simple_unlock(&(src_object)->Lock);
 				    if (page_vaddr >= unwire_end) {
 				        if (!vm_map_lookup_entry(src_map,
 				            page_vaddr, &src_entry))
@@ -4407,7 +4407,7 @@ retry:
 				     *	Step 2: Unwire the page.
 				     *	pmap_remove handles this for us.
 				     */
-				    vm_object_lock(src_object);
+				    simple_lock(&(src_object)->Lock);
 				}
 
 				/*
@@ -4437,7 +4437,7 @@ retry:
 				 *	Unlock the map while copying;
 				 *	This means no further page stealing.
 				 */
-				vm_object_unlock(src_object);
+				simple_unlock(&(src_object)->Lock);
 				vm_map_unlock(src_map);
 
 				vm_map_copy_steal_pages(copy);
@@ -4447,7 +4447,7 @@ retry:
 		        }
 
 			vm_object_paging_end(src_object);
-			vm_object_unlock(src_object);
+			simple_unlock(&(src_object)->Lock);
 	        }
 
 		/*
@@ -4597,10 +4597,10 @@ vm_map_t vm_map_fork(vm_map_t old_map)
 			 *	Bump the reference count for the new entry
 			 */
 
-			vm_object_lock(object);
+			simple_lock(&(object)->Lock);
 			object->use_shared_copy = TRUE;
 			object->ref_count++;
-			vm_object_unlock(object);
+			simple_unlock(&(object)->Lock);
 
 			new_entry = vm_map_entry_create(new_map);
 
@@ -4951,7 +4951,7 @@ kern_return_t vm_map_lookup(
 	 *	Lock the object to prevent it from disappearing
 	 */
 
-	vm_object_lock(*object);
+	simple_lock(&(*object)->Lock);
 
 	/*
 	 *	Save the version number and unlock the map.
@@ -5103,12 +5103,12 @@ vm_region_create_proxy (task_t task, vm_address_t address,
   max_protection &= entry->max_protection;
 
   object = entry->object.vm_object;
-  vm_object_lock(object);
+  simple_lock(&(object)->Lock);
   /* Create a pager in case this is an internal object that does
      not yet have one. */
   vm_object_pager_create(object);
   pager = ipc_port_copy_send(object->pager);
-  vm_object_unlock(object);
+  simple_unlock(&(object)->Lock);
 
   rpc_start = (address - entry->vme_start) + entry->offset;
   rpc_offset = 0;

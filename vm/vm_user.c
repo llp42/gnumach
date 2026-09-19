@@ -658,7 +658,7 @@ kern_return_t vm_allocate_contiguous(
 		return KERN_RESOURCE_SHORTAGE;
 	}
 
-	vm_object_lock(object);
+	simple_lock(&(object)->Lock);
 	simple_lock(&vm_page_queue_lock);
 
 	for (i = 0; i < vm_page_atop(size); i++) {
@@ -673,7 +673,7 @@ kern_return_t vm_allocate_contiguous(
 	}
 
 	simple_unlock(&vm_page_queue_lock);
-	vm_object_unlock(object);
+	simple_unlock(&(object)->Lock);
 
 	for (i = vm_page_atop(size); i < npages; i++) {
 		vm_page_release(&pages[i], FALSE, FALSE);
@@ -698,12 +698,12 @@ kern_return_t vm_allocate_contiguous(
 		return kr;
 	}
 
-	vm_object_lock(object);
+	simple_lock(&(object)->Lock);
 	simple_lock(&vm_page_queue_lock);
 	for (i = 0; i < vm_page_atop(size); i++)
 		vm_page_unwire(&pages[i]);
 	simple_unlock(&vm_page_queue_lock);
-	vm_object_unlock(object);
+	simple_unlock(&(object)->Lock);
 
 	*result_vaddr = vaddr;
 	*result_paddr = pages->phys_addr;
@@ -785,7 +785,7 @@ kern_return_t vm_pages_phys(
 			vm_object_t object = entry->object.vm_object;
 
 			if (object) {
-				vm_object_lock(object);
+				simple_lock(&(object)->Lock);
 				vm_page_t page = vm_page_lookup(object, offset);
 				if (page) {
 					if (page->phys_addr != (typeof(pagesp[cur])) page->phys_addr)
@@ -793,7 +793,7 @@ kern_return_t vm_pages_phys(
 					else
 						paddr = page->phys_addr;
 				}
-				vm_object_unlock(object);
+				simple_unlock(&(object)->Lock);
 			}
 		}
 		vm_map_unlock_read(cmap);

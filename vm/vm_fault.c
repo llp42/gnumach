@@ -118,17 +118,17 @@ vm_fault_cleanup(
 	vm_object_t	object,
 	vm_page_t	top_page)
 {
-	assert(vm_object_lock_taken(object));
+	assert(simple_lock_taken(&(object)->Lock));
 
 	vm_object_paging_end(object);
-	vm_object_unlock(object);
+	simple_unlock(&(object)->Lock);
 
 	if (top_page != VM_PAGE_NULL) {
 	    object = top_page->object;
-	    vm_object_lock(object);
+	    simple_lock(&(object)->Lock);
 	    VM_PAGE_FREE(top_page);
 	    vm_object_paging_end(object);
-	    vm_object_unlock(object);
+	    simple_unlock(&(object)->Lock);
 	}
 }
 
@@ -306,7 +306,7 @@ vm_fault_return_t vm_fault_page(
 				kern_return_t	wait_result;
 
 				PAGE_ASSERT_WAIT(m, interruptible);
-				vm_object_unlock(object);
+				simple_unlock(&(object)->Lock);
 				if (continuation != thread_no_continuation) {
 					vm_fault_state_t *state =
 						(vm_fault_state_t *) current_thread()->ith_other;
@@ -332,7 +332,7 @@ vm_fault_return_t vm_fault_page(
 				}
 			    after_thread_block:
 				wait_result = current_thread()->wait_result;
-				vm_object_lock(object);
+				simple_lock(&(object)->Lock);
 				if (wait_result != THREAD_AWAKENED) {
 					vm_fault_cleanup(object, first_m);
 					if (wait_result == THREAD_RESTART)
@@ -390,12 +390,12 @@ vm_fault_return_t vm_fault_page(
 					if (object != first_object) {
 						VM_PAGE_FREE(m);
 						vm_object_paging_end(object);
-						vm_object_unlock(object);
+						simple_unlock(&(object)->Lock);
 						object = first_object;
 						offset = first_offset;
 						m = first_m;
 						first_m = VM_PAGE_NULL;
-						vm_object_lock(object);
+						simple_lock(&(object)->Lock);
 					}
 
 					VM_PAGE_FREE(m);
@@ -414,14 +414,14 @@ vm_fault_return_t vm_fault_page(
 					 *  newly allocated -- in both cases
 					 *  it can't be page locked by a pager.
 					 */
-					vm_object_unlock(object);
+					simple_unlock(&(object)->Lock);
 
 					vm_page_zero_fill(m);
 
 
 					vm_stat.zero_fill_count++;
 					current_task()->zero_fills++;
-					vm_object_lock(object);
+					simple_lock(&(object)->Lock);
 					pmap_clear_modify(m->phys_addr);
 					break;
 				} else {
@@ -440,8 +440,8 @@ vm_fault_return_t vm_fault_page(
 						VM_PAGE_QUEUES_REMOVE(m);
 						simple_unlock(&vm_page_queue_lock);
 					}
-					vm_object_lock(next_object);
-					vm_object_unlock(object);
+					simple_lock(&(next_object)->Lock);
+					simple_unlock(&(object)->Lock);
 					object = next_object;
 					vm_object_paging_begin(object);
 					continue;
@@ -467,7 +467,7 @@ vm_fault_return_t vm_fault_page(
 
 					new_unlock_request = m->unlock_request =
 						(access_required | m->unlock_request);
-					vm_object_unlock(object);
+					simple_unlock(&(object)->Lock);
 					if ((rc = memory_object_data_unlock(
 						object->pager,
 						object->pager_request,
@@ -476,13 +476,13 @@ vm_fault_return_t vm_fault_page(
 						new_unlock_request))
 					     != KERN_SUCCESS) {
 					     	printf("vm_fault: memory_object_data_unlock failed\n");
-						vm_object_lock(object);
+						simple_lock(&(object)->Lock);
 						vm_fault_cleanup(object, first_m);
 						return((rc == MACH_SEND_INTERRUPTED) ?
 							VM_FAULT_INTERRUPTED :
 							VM_FAULT_MEMORY_ERROR);
 					}
-					vm_object_lock(object);
+					simple_lock(&(object)->Lock);
 					continue;
 				}
 
@@ -591,7 +591,7 @@ vm_fault_return_t vm_fault_page(
 			 *	We have a busy page, so we can
 			 *	release the object lock.
 			 */
-			vm_object_unlock(object);
+			simple_unlock(&(object)->Lock);
 
 			/*
 			 *	Call the memory manager to retrieve the data.
@@ -616,7 +616,7 @@ vm_fault_return_t vm_fault_page(
 				 *	but the data request may have blocked,
 				 *	so check if it's still there and busy.
 				 */
-				vm_object_lock(object);
+				simple_lock(&(object)->Lock);
 				if (m == vm_page_lookup(object,offset) &&
 				    m->absent && m->busy)
 					VM_PAGE_FREE(m);
@@ -631,7 +631,7 @@ vm_fault_return_t vm_fault_page(
 			 * be in a different page (i.e., m is meaningless at
 			 * this point).
 			 */
-			vm_object_lock(object);
+			simple_lock(&(object)->Lock);
 			continue;
 		}
 
@@ -667,11 +667,11 @@ vm_fault_return_t vm_fault_page(
 
 			if (object != first_object) {
 				vm_object_paging_end(object);
-				vm_object_unlock(object);
+				simple_unlock(&(object)->Lock);
 
 				object = first_object;
 				offset = first_offset;
-				vm_object_lock(object);
+				simple_lock(&(object)->Lock);
 			}
 
 			m = first_m;
@@ -684,19 +684,19 @@ vm_fault_return_t vm_fault_page(
 				return(VM_FAULT_MEMORY_SHORTAGE);
 			}
 
-			vm_object_unlock(object);
+			simple_unlock(&(object)->Lock);
 			vm_page_zero_fill(m);
 			vm_stat.zero_fill_count++;
 			current_task()->zero_fills++;
-			vm_object_lock(object);
+			simple_lock(&(object)->Lock);
 			pmap_clear_modify(m->phys_addr);
 			break;
 		}
 		else {
-			vm_object_lock(next_object);
+			simple_lock(&(next_object)->Lock);
 			if ((object != first_object) || must_be_resident)
 				vm_object_paging_end(object);
-			vm_object_unlock(object);
+			simple_unlock(&(object)->Lock);
 			object = next_object;
 			vm_object_paging_begin(object);
 		}
@@ -769,9 +769,9 @@ vm_fault_return_t vm_fault_page(
 				return(VM_FAULT_MEMORY_SHORTAGE);
 			}
 
-			vm_object_unlock(object);
+			simple_unlock(&(object)->Lock);
 			vm_page_copy(m, copy_m);
-			vm_object_lock(object);
+			simple_lock(&(object)->Lock);
 
 			/*
 			 *	If another map is truly sharing this
@@ -797,14 +797,14 @@ vm_fault_return_t vm_fault_page(
 
 			PAGE_WAKEUP_DONE(m);
 			vm_object_paging_end(object);
-			vm_object_unlock(object);
+			simple_unlock(&(object)->Lock);
 
 			vm_stat.cow_faults++;
 			current_task()->cow_faults++;
 			object = first_object;
 			offset = first_offset;
 
-			vm_object_lock(object);
+			simple_lock(&(object)->Lock);
 			VM_PAGE_FREE(first_m);
 			first_m = VM_PAGE_NULL;
 			assert(copy_m->busy);
@@ -862,12 +862,12 @@ vm_fault_return_t vm_fault_page(
 		/*
 		 *	Try to get the lock on the copy_object.
 		 */
-		if (!vm_object_lock_try(copy_object)) {
-			vm_object_unlock(object);
+		if (!simple_lock_try(&(copy_object)->Lock)) {
+			simple_unlock(&(object)->Lock);
 
 			simple_lock_pause();	/* wait a bit */
 
-			vm_object_lock(object);
+			simple_lock(&(object)->Lock);
 			continue;
 		}
 
@@ -894,7 +894,7 @@ vm_fault_return_t vm_fault_page(
 				RELEASE_PAGE(m);
 				copy_object->ref_count--;
 				assert(copy_object->ref_count > 0);
-				vm_object_unlock(copy_object);
+				simple_unlock(&(copy_object)->Lock);
 				goto block_and_backoff;
 			}
 		}
@@ -907,7 +907,7 @@ vm_fault_return_t vm_fault_page(
 				RELEASE_PAGE(m);
 				copy_object->ref_count--;
 				assert(copy_object->ref_count > 0);
-				vm_object_unlock(copy_object);
+				simple_unlock(&(copy_object)->Lock);
 				vm_fault_cleanup(object, first_m);
 				return(VM_FAULT_MEMORY_SHORTAGE);
 			}
@@ -949,7 +949,7 @@ vm_fault_return_t vm_fault_page(
 				 *	copy_object itself.
 				 */
 
-				vm_object_unlock(object);
+				simple_unlock(&(object)->Lock);
 
 				/*
 				 *	Write the page to the copy-object,
@@ -968,9 +968,9 @@ vm_fault_return_t vm_fault_page(
 
 				if ((copy_object->shadow != object) ||
 				    (copy_object->ref_count == 1)) {
-					vm_object_unlock(copy_object);
+					simple_unlock(&(copy_object)->Lock);
 					vm_object_deallocate(copy_object);
-					vm_object_lock(object);
+					simple_lock(&(object)->Lock);
 					continue;
 				}
 
@@ -981,7 +981,7 @@ vm_fault_return_t vm_fault_page(
 				 *	object tree.]
 				 */
 
-				vm_object_lock(object);
+				simple_lock(&(object)->Lock);
 			}
 
 			/*
@@ -1010,7 +1010,7 @@ vm_fault_return_t vm_fault_page(
 		 */
 		copy_object->ref_count--;
 		assert(copy_object->ref_count > 0);
-		vm_object_unlock(copy_object);
+		simple_unlock(&(copy_object)->Lock);
 
 		break;
 	}
@@ -1308,7 +1308,7 @@ kern_return_t vm_fault(
 
 	old_copy_object = m->object->copy;
 
-	vm_object_unlock(m->object);
+	simple_unlock(&(m->object)->Lock);
 	while (!vm_map_verify(map, &version)) {
 		vm_object_t	retry_object;
 		vm_offset_t	retry_offset;
@@ -1329,14 +1329,14 @@ kern_return_t vm_fault(
 				   &wired);
 
 		if (kr != KERN_SUCCESS) {
-			vm_object_lock(m->object);
+			simple_lock(&(m->object)->Lock);
 			RELEASE_PAGE(m);
 			UNLOCK_AND_DEALLOCATE;
 			goto done;
 		}
 
-		vm_object_unlock(retry_object);
-		vm_object_lock(m->object);
+		simple_unlock(&(retry_object)->Lock);
+		simple_lock(&(m->object)->Lock);
 
 		if ((retry_object != object) ||
 		    (retry_offset != offset)) {
@@ -1350,9 +1350,9 @@ kern_return_t vm_fault(
 		 *	has been copied while we left the map unlocked.
 		 */
 		prot &= retry_prot;
-		vm_object_unlock(m->object);
+		simple_unlock(&(m->object)->Lock);
 	}
-	vm_object_lock(m->object);
+	simple_lock(&(m->object)->Lock);
 
 	/*
 	 *	If the copy object changed while the top-level object
@@ -1379,7 +1379,7 @@ kern_return_t vm_fault(
 	 *	only once in each map for which it is wired.
 	 */
 
-	vm_object_unlock(m->object);
+	simple_unlock(&(m->object)->Lock);
 
 	/*
 	 *	Put this page into the physical map.
@@ -1396,7 +1396,7 @@ kern_return_t vm_fault(
 	 *	on a pageout queue, then put it where the
 	 *	pageout daemon can find it.
 	 */
-	vm_object_lock(m->object);
+	simple_lock(&(m->object)->Lock);
 	simple_lock(&vm_page_queue_lock);
 	if (change_wiring) {
 		if (wired)
@@ -1514,7 +1514,7 @@ void vm_fault_unwire(
 			do {
 				prot = VM_PROT_NONE;
 
-				vm_object_lock(object);
+				simple_lock(&(object)->Lock);
 				vm_object_paging_begin(object);
 			 	result = vm_fault_page(object,
 						entry->offset +
@@ -1597,7 +1597,7 @@ MACRO_END
 #define UNLOCK_THINGS					\
 MACRO_BEGIN						\
 	object->paging_in_progress--;			\
-	vm_object_unlock(object);			\
+	simple_unlock(&(object)->Lock);			\
 MACRO_END
 
 #undef	UNLOCK_AND_DEALLOCATE
@@ -1636,7 +1636,7 @@ MACRO_END
 	 *	disposal while we are messing with it.
 	 */
 
-	vm_object_lock(object);
+	simple_lock(&(object)->Lock);
 	assert(object->ref_count > 0);
 	object->ref_count++;
 	object->paging_in_progress++;
@@ -1694,14 +1694,14 @@ MACRO_END
 	 *	We have to unlock the object because pmap_enter
 	 *	may cause other faults.
 	 */
-	vm_object_unlock(object);
+	simple_unlock(&(object)->Lock);
 
 	PMAP_ENTER(map->pmap, va, m, prot, TRUE);
 
 	/*
 	 *	Must relock object so that paging_in_progress can be cleared.
 	 */
-	vm_object_lock(object);
+	simple_lock(&(object)->Lock);
 
 	/*
 	 *	Unlock everything, and return
@@ -1726,7 +1726,7 @@ static void vm_fault_copy_cleanup(
 {
 	vm_object_t	object = page->object;
 
-	vm_object_lock(object);
+	simple_lock(&(object)->Lock);
 	PAGE_WAKEUP_DONE(page);
 	simple_lock(&vm_page_queue_lock);
 	if (!page->active && !page->inactive)
@@ -1805,7 +1805,7 @@ kern_return_t	vm_fault_copy(
 		} else {
 			prot = VM_PROT_READ;
 
-			vm_object_lock(src_object);
+			simple_lock(&(src_object)->Lock);
 			vm_object_paging_begin(src_object);
 
 			switch (vm_fault_page(src_object, src_offset,
@@ -1836,14 +1836,14 @@ kern_return_t	vm_fault_copy(
 
 			assert ((prot & VM_PROT_READ) != VM_PROT_NONE);
 
-			vm_object_unlock(src_page->object);
+			simple_unlock(&(src_page->object)->Lock);
 		}
 
 	    RetryDestinationFault: ;
 
 		prot = VM_PROT_WRITE;
 
-		vm_object_lock(dst_object);
+		simple_lock(&(dst_object)->Lock);
 		vm_object_paging_begin(dst_object);
 
 		switch (vm_fault_page(dst_object, dst_offset, VM_PROT_WRITE,
@@ -1878,7 +1878,7 @@ kern_return_t	vm_fault_copy(
 
 		old_copy_object = dst_page->object->copy;
 
-		vm_object_unlock(dst_page->object);
+		simple_unlock(&(dst_page->object)->Lock);
 
 		if (!vm_map_verify(dst_map, dst_version)) {
 
@@ -1891,13 +1891,13 @@ kern_return_t	vm_fault_copy(
 		}
 
 
-		vm_object_lock(dst_page->object);
+		simple_lock(&(dst_page->object)->Lock);
 		if (dst_page->object->copy != old_copy_object) {
-			vm_object_unlock(dst_page->object);
+			simple_unlock(&(dst_page->object)->Lock);
 			vm_map_verify_done(dst_map, dst_version);
 			goto BailOut;
 		}
-		vm_object_unlock(dst_page->object);
+		simple_unlock(&(dst_page->object)->Lock);
 
 		/*
 		 *	Copy the page, and note that it is dirty
@@ -1973,9 +1973,9 @@ vm_fault_return_t vm_fault_page_overwrite(
 
 			dst_page = vm_page_alloc(dst_object, dst_offset);
 			if (dst_page == VM_PAGE_NULL) {
-				vm_object_unlock(dst_object);
+				simple_unlock(&(dst_object)->Lock);
 				VM_PAGE_WAIT((void (*)()) 0);
-				vm_object_lock(dst_object);
+				simple_lock(&(dst_object)->Lock);
 				continue;
 			}
 
@@ -2002,11 +2002,11 @@ vm_fault_return_t vm_fault_page_overwrite(
 
 #define	DISCARD_PAGE						\
 	MACRO_BEGIN						\
-	vm_object_lock(dst_object);				\
+	simple_lock(&(dst_object)->Lock);				\
 	dst_page = vm_page_lookup(dst_object, dst_offset);	\
 	if ((dst_page != VM_PAGE_NULL) && dst_page->overwriting) \
 	   	VM_PAGE_FREE(dst_page);				\
-	vm_object_unlock(dst_object);				\
+	simple_unlock(&(dst_object)->Lock);				\
 	MACRO_END
 		}
 
@@ -2031,7 +2031,7 @@ vm_fault_return_t vm_fault_page_overwrite(
 					vm_object_assert_wait(dst_object,
 						VM_OBJECT_EVENT_PAGER_READY,
 						interruptible);
-					vm_object_unlock(dst_object);
+					simple_unlock(&(dst_object)->Lock);
 					thread_block((void (*)()) 0);
 					if (current_thread()->wait_result !=
 					    THREAD_AWAKENED) {
@@ -2042,7 +2042,7 @@ vm_fault_return_t vm_fault_page_overwrite(
 				}
 
 				u = dst_page->unlock_request |= VM_PROT_WRITE;
-				vm_object_unlock(dst_object);
+				simple_unlock(&(dst_object)->Lock);
 
 				if ((rc = memory_object_data_unlock(
 						dst_object->pager,
@@ -2056,7 +2056,7 @@ vm_fault_return_t vm_fault_page_overwrite(
 						VM_FAULT_INTERRUPTED :
 						VM_FAULT_MEMORY_ERROR);
 				}
-				vm_object_lock(dst_object);
+				simple_lock(&(dst_object)->Lock);
 				continue;
 			}
 
@@ -2071,7 +2071,7 @@ vm_fault_return_t vm_fault_page_overwrite(
 		}
 
 		PAGE_ASSERT_WAIT(dst_page, interruptible);
-		vm_object_unlock(dst_object);
+		simple_unlock(&(dst_object)->Lock);
 		thread_block((void (*)()) 0);
 		if (current_thread()->wait_result != THREAD_AWAKENED) {
 			DISCARD_PAGE;

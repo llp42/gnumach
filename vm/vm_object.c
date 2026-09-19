@@ -204,7 +204,7 @@ static void _vm_object_setup(
 {
 	*object = vm_object_template;
 	queue_init(&object->memq);
-	vm_object_lock_init(object);
+	simple_lock_init(&(object)->Lock);
 	object->size = size;
 }
 
@@ -336,7 +336,7 @@ void vm_object_init(void)
 static void vm_object_cache_add(
 	vm_object_t	object)
 {
-	assert(vm_object_lock_taken(object));
+	assert(simple_lock_taken(&(object)->Lock));
 	assert(simple_lock_taken(&vm_object_cached_lock_data));
 
 	assert(!object->cached);
@@ -347,7 +347,7 @@ static void vm_object_cache_add(
 static void vm_object_cache_remove(
 	vm_object_t	object)
 {
-	assert(vm_object_lock_taken(object));
+	assert(simple_lock_taken(&(object)->Lock));
 	assert(simple_lock_taken(&vm_object_cached_lock_data));
 
 	assert(object->cached);
@@ -358,14 +358,14 @@ static void vm_object_cache_remove(
 void vm_object_collect(
 	vm_object_t	object)
 {
-	vm_object_unlock(object);
+	simple_unlock(&(object)->Lock);
 
 	/*
 	 *	The cache lock must be acquired in the proper order.
 	 */
 
 	simple_lock(&vm_object_cached_lock_data);
-	vm_object_lock(object);
+	simple_lock(&(object)->Lock);
 
 	/*
 	 *	If the object was referenced while the lock was
@@ -373,7 +373,7 @@ void vm_object_collect(
 	 */
 
 	if (!vm_object_collectable(object)) {
-		vm_object_unlock(object);
+		simple_unlock(&(object)->Lock);
 		simple_unlock(&vm_object_cached_lock_data);
 		return;
 	}
@@ -393,10 +393,10 @@ void vm_object_reference(
 	if (object == VM_OBJECT_NULL)
 		return;
 
-	vm_object_lock(object);
+	simple_lock(&(object)->Lock);
 	assert(object->ref_count > 0);
 	object->ref_count++;
-	vm_object_unlock(object);
+	simple_unlock(&(object)->Lock);
 }
 
 /*
@@ -428,14 +428,14 @@ void vm_object_deallocate(
 		/*
 		 *	Lose the reference
 		 */
-		vm_object_lock(object);
+		simple_lock(&(object)->Lock);
 		if (--(object->ref_count) > 0) {
 
 			/*
 			 *	If there are still references, then
 			 *	we are done.
 			 */
-			vm_object_unlock(object);
+			simple_unlock(&(object)->Lock);
 			simple_unlock(&vm_object_cached_lock_data);
 			return;
 		}
@@ -447,7 +447,7 @@ void vm_object_deallocate(
 		if (object->can_persist && (object->resident_page_count > 0)) {
 			vm_object_cache_add(object);
 			simple_unlock(&vm_object_cached_lock_data);
-			vm_object_unlock(object);
+			simple_unlock(&(object)->Lock);
 			return;
 		}
 
@@ -463,7 +463,7 @@ void vm_object_deallocate(
 			object->ref_count++;
 			vm_object_assert_wait(object,
 				VM_OBJECT_EVENT_INITIALIZED, FALSE);
-			vm_object_unlock(object);
+			simple_unlock(&(object)->Lock);
 			simple_unlock(&vm_object_cached_lock_data);
 			thread_block((void (*)()) 0);
 			continue;
@@ -512,7 +512,7 @@ void vm_object_terminate(
 	vm_page_t	p;
 	vm_object_t	shadow_object;
 
-	assert(vm_object_lock_taken(object));
+	assert(simple_lock_taken(&(object)->Lock));
 	assert(simple_lock_taken(&vm_object_cached_lock_data));
 
 	/*
@@ -534,11 +534,11 @@ void vm_object_terminate(
 	 *	copy.
 	 */
 	if ((shadow_object = object->shadow) != VM_OBJECT_NULL) {
-		vm_object_lock(shadow_object);
+		simple_lock(&(shadow_object)->Lock);
 		assert((shadow_object->copy == object) ||
 		       (shadow_object->copy == VM_OBJECT_NULL));
 		shadow_object->copy = VM_OBJECT_NULL;
-		vm_object_unlock(shadow_object);
+		simple_unlock(&(shadow_object)->Lock);
 	}
 
 	/*
@@ -620,7 +620,7 @@ void vm_object_terminate(
 	 *	using memory_object_terminate.
 	 */
 
-	vm_object_unlock(object);
+	simple_unlock(&(object)->Lock);
 
 	if (object->pager != IP_NULL) {
 		/* consumes our rights for pager, pager_request, pager_name */
@@ -716,7 +716,7 @@ static void vm_object_abort_activity(
 	vm_page_t	p;
 	vm_page_t	next;
 
-	assert(vm_object_lock_taken(object));
+	assert(simple_lock_taken(&(object)->Lock));
 
 	/*
 	 *	Abort all activity that would be waiting
@@ -787,7 +787,7 @@ kern_return_t memory_object_destroy(
 	 */
 
 	simple_lock(&vm_object_cached_lock_data);
-	vm_object_lock(object);
+	simple_lock(&(object)->Lock);
 	vm_object_remove(object);
 	object->can_persist = FALSE;
 	simple_unlock(&vm_object_cached_lock_data);
@@ -813,7 +813,7 @@ kern_return_t memory_object_destroy(
 	 */
 
 	vm_object_paging_wait(object, FALSE);
-	vm_object_unlock(object);
+	simple_unlock(&(object)->Lock);
 
 	/*
 	 *	Shut down the ports now.
@@ -876,14 +876,14 @@ void vm_object_pmap_protect(
 	if (object == VM_OBJECT_NULL)
 	    return;
 
-	vm_object_lock(object);
+	simple_lock(&(object)->Lock);
 
 	assert(object->temporary && object->internal);
 
 	while (TRUE) {
 	    if (object->resident_page_count > atop(size) / 2 &&
 		    pmap != PMAP_NULL) {
-		vm_object_unlock(object);
+		simple_unlock(&(object)->Lock);
 		pmap_protect(pmap, pmap_start, pmap_start + size, prot);
 		return;
 	    }
@@ -926,8 +926,8 @@ void vm_object_pmap_protect(
 		next_object = object->shadow;
 		if (next_object != VM_OBJECT_NULL) {
 		    offset += object->shadow_offset;
-		    vm_object_lock(next_object);
-		    vm_object_unlock(object);
+		    simple_lock(&(next_object)->Lock);
+		    simple_unlock(&(object)->Lock);
 		    object = next_object;
 		}
 		else {
@@ -946,7 +946,7 @@ void vm_object_pmap_protect(
 	    }
 	}
 
-	vm_object_unlock(object);
+	simple_unlock(&(object)->Lock);
 }
 
 /*
@@ -967,7 +967,7 @@ void vm_object_pmap_remove(
 	if (object == VM_OBJECT_NULL)
 		return;
 
-	vm_object_lock(object);
+	simple_lock(&(object)->Lock);
 
 	while (TRUE) {
 	     queue_iterate(&object->memq, p, vm_page_t, listq) {
@@ -986,11 +986,11 @@ void vm_object_pmap_remove(
 	     end   += object->shadow_offset;
 	     object = object->shadow;
 
-	     vm_object_lock(object);
-	     vm_object_unlock(prev_object);
+	     simple_lock(&(object)->Lock);
+	     simple_unlock(&(prev_object)->Lock);
 	}
 
-	vm_object_unlock(object);
+	simple_unlock(&(object)->Lock);
 }
 
 /*
@@ -1033,10 +1033,10 @@ kern_return_t vm_object_copy_slowly(
 	vm_object_t	new_object;
 	vm_offset_t	new_offset;
 
-	assert(vm_object_lock_taken(src_object));
+	assert(simple_lock_taken(&(src_object)->Lock));
 
 	if (size == 0) {
-		vm_object_unlock(src_object);
+		simple_unlock(&(src_object)->Lock);
 		*_result_object = VM_OBJECT_NULL;
 		return KERN_INVALID_ARGUMENT;
 	}
@@ -1047,7 +1047,7 @@ kern_return_t vm_object_copy_slowly(
 
 	assert(src_object->ref_count > 0);
 	src_object->ref_count++;
-	vm_object_unlock(src_object);
+	simple_unlock(&(src_object)->Lock);
 
 	/*
 	 *	Create a new object to hold the copied pages.
@@ -1070,14 +1070,14 @@ kern_return_t vm_object_copy_slowly(
 		vm_page_t	new_page;
 		vm_fault_return_t result;
 
-		vm_object_lock(new_object);
+		simple_lock(&(new_object)->Lock);
 		while ((new_page = vm_page_alloc(new_object, new_offset))
 				== VM_PAGE_NULL) {
-			vm_object_unlock(new_object);
+			simple_unlock(&(new_object)->Lock);
 			VM_PAGE_WAIT((void (*)()) 0);
-			vm_object_lock(new_object);
+			simple_lock(&(new_object)->Lock);
 		}
-		vm_object_unlock(new_object);
+		simple_unlock(&(new_object)->Lock);
 
 		do {
 			vm_prot_t	prot = VM_PROT_READ;
@@ -1085,7 +1085,7 @@ kern_return_t vm_object_copy_slowly(
 			vm_page_t	top_page;
 			vm_page_t	result_page;
 
-			vm_object_lock(src_object);
+			simple_lock(&(src_object)->Lock);
 			src_object->paging_in_progress++;
 
 			result = vm_fault_page(src_object, src_offset,
@@ -1111,7 +1111,7 @@ kern_return_t vm_object_copy_slowly(
 					 *		of copying.
 					 */
 
-					vm_object_unlock(result_page->object);
+					simple_unlock(&(result_page->object)->Lock);
 					vm_page_copy(result_page, new_page);
 
 					/*
@@ -1121,7 +1121,7 @@ kern_return_t vm_object_copy_slowly(
 
 					new_page->busy = FALSE;
 					new_page->dirty = TRUE;
-					vm_object_lock(result_page->object);
+					simple_lock(&(result_page->object)->Lock);
 					PAGE_WAKEUP_DONE(result_page);
 
 					simple_lock(&vm_page_queue_lock);
@@ -1221,7 +1221,7 @@ boolean_t vm_object_copy_temporary(
 	 *	a symmetric copy-on-write without asking.
 	 */
 
-	vm_object_lock(object);
+	simple_lock(&(object)->Lock);
 	if (object->temporary) {
 
 		/*
@@ -1234,7 +1234,7 @@ boolean_t vm_object_copy_temporary(
 			 *	must be copied (to allow copy object reuse).
 			 *	Source is unaffected.
 			 */
-			vm_object_unlock(object);
+			simple_unlock(&(object)->Lock);
 			object = vm_object_copy_delayed(object);
 			*_object = object;
 			*_src_needs_copy = FALSE;
@@ -1251,7 +1251,7 @@ boolean_t vm_object_copy_temporary(
 		assert(object->ref_count > 0);
 		object->ref_count++;
 		object->shadowed = TRUE;
-		vm_object_unlock(object);
+		simple_unlock(&(object)->Lock);
 
 		/*
 		 *	Both source and destination must make
@@ -1268,7 +1268,7 @@ boolean_t vm_object_copy_temporary(
 	    (object->copy_strategy == MEMORY_OBJECT_COPY_DELAY)) {
 	    	/* XXX Do something intelligent (see temporary code above) */
 	}
-	vm_object_unlock(object);
+	simple_unlock(&(object)->Lock);
 
 	return FALSE;
 }
@@ -1308,7 +1308,7 @@ static kern_return_t vm_object_copy_call(
 	vm_object_t	new_object;
 	vm_page_t	p;
 
-	assert(vm_object_lock_taken(src_object));
+	assert(simple_lock_taken(&(src_object)->Lock));
 
 	/*
 	 *	Create a memory object port to be associated
@@ -1334,7 +1334,7 @@ static kern_return_t vm_object_copy_call(
 	assert(src_object->ref_count > 0);
 	src_object->ref_count++;
 	vm_object_paging_begin(src_object);
-	vm_object_unlock(src_object);
+	simple_unlock(&(src_object)->Lock);
 
 	/* we hold a naked receive right for new_memory_object */
 	(void) ipc_port_make_send(new_memory_object);
@@ -1354,7 +1354,7 @@ static kern_return_t vm_object_copy_call(
 				new_memory_object);
 	/* no longer hold the naked receive right for new_memory_object */
 
-	vm_object_lock(src_object);
+	simple_lock(&(src_object)->Lock);
 	vm_object_paging_end(src_object);
 
 	/*
@@ -1372,7 +1372,7 @@ static kern_return_t vm_object_copy_call(
 	    }
 	}
 
-	vm_object_unlock(src_object);
+	simple_unlock(&(src_object)->Lock);
 		
 	/*
 	 *	Initialize the rest of the paging stuff
@@ -1467,7 +1467,7 @@ vm_object_t vm_object_copy_delayed(
 
 	new_copy = vm_object_allocate(src_object->size);
 
-	vm_object_lock(src_object);
+	simple_lock(&(src_object)->Lock);
 
 	/*
 	 *	See whether we can reuse the result of a previous
@@ -1479,12 +1479,12 @@ vm_object_t vm_object_copy_delayed(
 		/*
 		 *	Try to get the locks (out of order)
 		 */
-		if (!vm_object_lock_try(old_copy)) {
-			vm_object_unlock(src_object);
+		if (!simple_lock_try(&(old_copy)->Lock)) {
+			simple_unlock(&(src_object)->Lock);
 
 			simple_lock_pause();	/* wait a bit */
 
-			vm_object_lock(src_object);
+			simple_lock(&(src_object)->Lock);
 			goto Retry;
 		}
 
@@ -1503,8 +1503,8 @@ vm_object_t vm_object_copy_delayed(
 			 */
 			assert(old_copy->ref_count > 0);
 			old_copy->ref_count++;
-			vm_object_unlock(old_copy);
-			vm_object_unlock(src_object);
+			simple_unlock(&(old_copy)->Lock);
+			simple_unlock(&(src_object)->Lock);
 
 			vm_object_deallocate(new_copy);
 
@@ -1532,7 +1532,7 @@ vm_object_t vm_object_copy_delayed(
 		old_copy->shadow = new_copy;
 		assert(new_copy->ref_count > 0);
 		new_copy->ref_count++;
-		vm_object_unlock(old_copy);	/* done with old_copy */
+		simple_unlock(&(old_copy)->Lock);	/* done with old_copy */
 	}
 
 	/*
@@ -1559,7 +1559,7 @@ vm_object_t vm_object_copy_delayed(
 				   ~p->page_lock));
 	}
 
-	vm_object_unlock(src_object);
+	simple_unlock(&(src_object)->Lock);
 	
 	return new_copy;
 }
@@ -1585,7 +1585,7 @@ kern_return_t	vm_object_copy_strategically(
 
 	assert(src_object != VM_OBJECT_NULL);
 
-	vm_object_lock(src_object);
+	simple_lock(&(src_object)->Lock);
 
 	/* XXX assert(!src_object->temporary);  JSB FIXME */
 
@@ -1605,7 +1605,7 @@ kern_return_t	vm_object_copy_strategically(
 			*dst_needs_copy = FALSE;
 			return MACH_SEND_INTERRUPTED;
 		}
-		vm_object_lock(src_object);
+		simple_lock(&(src_object)->Lock);
 	}
 
 	/*
@@ -1657,7 +1657,7 @@ kern_return_t	vm_object_copy_strategically(
 		break;
 
 	    case MEMORY_OBJECT_COPY_DELAY:
-		vm_object_unlock(src_object);
+		simple_unlock(&(src_object)->Lock);
 		*dst_object = vm_object_copy_delayed(src_object);
 		*dst_offset = src_offset;
 		*dst_needs_copy = TRUE;
@@ -1815,7 +1815,7 @@ vm_object_t vm_object_lookup(
 		    (ip_kotype(port) == IKOT_PAGING_REQUEST)) {
 			simple_lock(&vm_object_cached_lock_data);
 			object = (vm_object_t) port->ip_kobject;
-			vm_object_lock(object);
+			simple_lock(&(object)->Lock);
 
 			assert(object->alive);
 
@@ -1823,7 +1823,7 @@ vm_object_t vm_object_lookup(
 				vm_object_cache_remove(object);
 
 			object->ref_count++;
-			vm_object_unlock(object);
+			simple_unlock(&(object)->Lock);
 			simple_unlock(&vm_object_cached_lock_data);
 		}
 		ip_unlock(port);
@@ -1843,7 +1843,7 @@ vm_object_t vm_object_lookup_name(
 		    (ip_kotype(port) == IKOT_PAGING_NAME)) {
 			simple_lock(&vm_object_cached_lock_data);
 			object = (vm_object_t) port->ip_kobject;
-			vm_object_lock(object);
+			simple_lock(&(object)->Lock);
 
 			assert(object->alive);
 
@@ -1851,7 +1851,7 @@ vm_object_t vm_object_lookup_name(
 				vm_object_cache_remove(object);
 
 			object->ref_count++;
-			vm_object_unlock(object);
+			simple_unlock(&(object)->Lock);
 			simple_unlock(&vm_object_cached_lock_data);
 		}
 		ip_unlock(port);
@@ -1879,7 +1879,7 @@ void vm_object_destroy(
 	}
 
 	object = (vm_object_t) pager->ip_kobject;
-	vm_object_lock(object);
+	simple_lock(&(object)->Lock);
 	if (object->ref_count == 0)
 		vm_object_cache_remove(object);
 	object->ref_count++;
@@ -1904,7 +1904,7 @@ void vm_object_destroy(
 	old_name = object->pager_name;
 	object->pager_name = IP_NULL;
 
-	vm_object_unlock(object);
+	simple_unlock(&(object)->Lock);
 	simple_unlock(&vm_object_cached_lock_data);
 
 	/*
@@ -1923,9 +1923,9 @@ void vm_object_destroy(
 	 *	Restart pending page requests
 	 */
 
-	vm_object_lock(object);
+	simple_lock(&(object)->Lock);
 	vm_object_abort_activity(object);
-	vm_object_unlock(object);
+	simple_unlock(&(object)->Lock);
 
 	/*
 	 *	Lose the object reference.
@@ -2028,11 +2028,11 @@ restart:
 				    : VM_OBJECT_NULL;
 
 	if ((object != VM_OBJECT_NULL) && !must_init) {
-		vm_object_lock(object);
+		simple_lock(&(object)->Lock);
 		if (object->ref_count == 0)
 			vm_object_cache_remove(object);
 		object->ref_count++;
-		vm_object_unlock(object);
+		simple_unlock(&(object)->Lock);
 
 		vm_stat.hits++;
 	}
@@ -2118,12 +2118,12 @@ restart:
 
 		}
 
-		vm_object_lock(object);
+		simple_lock(&(object)->Lock);
 		object->pager_initialized = TRUE;
 
 		vm_object_wakeup(object, VM_OBJECT_EVENT_INITIALIZED);
 	} else {
-		vm_object_lock(object);
+		simple_lock(&(object)->Lock);
 	}
 	/*
 	 *	[At this point, the object must be locked]
@@ -2138,9 +2138,9 @@ restart:
 		vm_object_wait(	object,
 				VM_OBJECT_EVENT_INITIALIZED,
 				FALSE);
-		vm_object_lock(object);
+		simple_lock(&(object)->Lock);
 	}
-	vm_object_unlock(object);
+	simple_unlock(&(object)->Lock);
 
 	return object;
 }
@@ -2163,7 +2163,7 @@ void vm_object_pager_create(
 {
 	ipc_port_t	pager;
 
-	assert(vm_object_lock_taken(object));
+	assert(simple_lock_taken(&(object)->Lock));
 
 	if (object->pager_created) {
 		/*
@@ -2175,7 +2175,7 @@ void vm_object_pager_create(
 			vm_object_wait(	object,
 					VM_OBJECT_EVENT_PAGER_READY,
 					FALSE);
-			vm_object_lock(object);
+			simple_lock(&(object)->Lock);
 		}
 		return;
 	}
@@ -2193,7 +2193,7 @@ void vm_object_pager_create(
 	 */
 
 	vm_object_paging_begin(object);
-	vm_object_unlock(object);
+	simple_unlock(&(object)->Lock);
 
 	object->existence_info = vm_external_create(
 					object->size +
@@ -2240,7 +2240,7 @@ void vm_object_pager_create(
 	 *	Release the paging reference
 	 */
 
-	vm_object_lock(object);
+	simple_lock(&(object)->Lock);
 	vm_object_paging_end(object);
 }
 
@@ -2314,7 +2314,7 @@ void vm_object_collapse(
 	vm_page_t	p, pp;
 	ipc_port_t 	old_name_port;
 
-	assert(vm_object_lock_taken(object));
+	assert(simple_lock_taken(&(object)->Lock));
 
 	if (!vm_object_collapse_allowed)
 		return;
@@ -2344,7 +2344,7 @@ void vm_object_collapse(
 		if ((backing_object = object->shadow) == VM_OBJECT_NULL)
 			return;
 	
-		vm_object_lock(backing_object);
+		simple_lock(&(backing_object)->Lock);
 		/*
 		 *	...
 		 *		The backing object is not read_only,
@@ -2358,7 +2358,7 @@ void vm_object_collapse(
 	
 		if (!backing_object->internal ||
 		    backing_object->paging_in_progress != 0) {
-			vm_object_unlock(backing_object);
+			simple_unlock(&(backing_object)->Lock);
 			return;
 		}
 	
@@ -2374,7 +2374,7 @@ void vm_object_collapse(
 		 */
 		if (backing_object->shadow != VM_OBJECT_NULL &&
 		    backing_object->shadow->copy != VM_OBJECT_NULL) {
-			vm_object_unlock(backing_object);
+			simple_unlock(&(backing_object)->Lock);
 			return;
 		}
 
@@ -2395,7 +2395,7 @@ void vm_object_collapse(
 	
 		if (backing_object->ref_count == 1) {
 			if (!simple_lock_try(&vm_object_cached_lock_data)) {
-				vm_object_unlock(backing_object);
+				simple_unlock(&(backing_object)->Lock);
 				return;
 			}
 
@@ -2543,19 +2543,19 @@ void vm_object_collapse(
 			assert(backing_object->alive);
 			assert(!backing_object->cached);
 			backing_object->alive = FALSE;
-			vm_object_unlock(backing_object);
+			simple_unlock(&(backing_object)->Lock);
 
-			vm_object_unlock(object);
+			simple_unlock(&(object)->Lock);
 			if (old_name_port != IP_NULL)
 				ipc_port_dealloc_kernel(old_name_port);
 			kmem_cache_free(&vm_object_cache, (vm_offset_t) backing_object);
-			vm_object_lock(object);
+			simple_lock(&(object)->Lock);
 
 			object_collapses++;
 		}
 		else {
 			if (!vm_object_collapse_bypass_allowed) {
-				vm_object_unlock(backing_object);
+				simple_unlock(&(backing_object)->Lock);
 				return;
 			}
 
@@ -2572,7 +2572,7 @@ void vm_object_collapse(
 			 */
 
 			if (backing_object->pager_created) {
-				vm_object_unlock(backing_object);
+				simple_unlock(&(backing_object)->Lock);
 				return;
 			}
 
@@ -2603,7 +2603,7 @@ void vm_object_collapse(
 					 *	Page still needed.
 					 *	Can't go any further.
 					 */
-					vm_object_unlock(backing_object);
+					simple_unlock(&(backing_object)->Lock);
 					return;
 				}
 			}
@@ -2633,7 +2633,7 @@ void vm_object_collapse(
 			 */
 			backing_object->ref_count--;
 			assert(backing_object->ref_count > 0);
-			vm_object_unlock(backing_object);
+			simple_unlock(&(backing_object)->Lock);
 
 			object_bypasses ++;
 
@@ -2664,7 +2664,7 @@ void vm_object_page_remove(
 {
 	vm_page_t	p, next;
 
-	assert(vm_object_lock_taken(object));
+	assert(simple_lock_taken(&(object)->Lock));
 
 	/*
 	 *	One and two page removals are most popular.
@@ -2782,7 +2782,7 @@ boolean_t vm_object_coalesce(
 		object = prev_object;
 	}
 
-	vm_object_lock(object);
+	simple_lock(&(object)->Lock);
 
 	/*
 	 *	Try to collapse the object first
@@ -2805,7 +2805,7 @@ boolean_t vm_object_coalesce(
 	    (object->shadow != VM_OBJECT_NULL) ||
 	    (object->copy != VM_OBJECT_NULL) ||
 	    (object->paging_in_progress != 0)) {
-		vm_object_unlock(object);
+		simple_unlock(&(object)->Lock);
 		return FALSE;
 	}
 
@@ -2832,7 +2832,7 @@ boolean_t vm_object_coalesce(
 		 *	the existing one.
 		 */
 		if (next_offset < prev_size) {
-			vm_object_unlock(object);
+			simple_unlock(&(object)->Lock);
 			return FALSE;
 		}
 		/*
@@ -2846,7 +2846,7 @@ boolean_t vm_object_coalesce(
 		*new_offset = next_offset - prev_size;
 	}
 
-	vm_object_unlock(object);
+	simple_unlock(&(object)->Lock);
 	*new_object = object;
 	return TRUE;
 }
@@ -2871,19 +2871,19 @@ ipc_port_t	vm_object_name(
 	if (object == VM_OBJECT_NULL)
 		return IP_NULL;
 
-	vm_object_lock(object);
+	simple_lock(&(object)->Lock);
 
 	while (object->shadow != VM_OBJECT_NULL) {
 		vm_object_t	new_object = object->shadow;
-		vm_object_lock(new_object);
-		vm_object_unlock(object);
+		simple_lock(&(new_object)->Lock);
+		simple_unlock(&(object)->Lock);
 		object = new_object;
 	}
 
 	p = object->pager_name;
 	if (p != IP_NULL)
 		p = ipc_port_make_send(p);
-	vm_object_unlock(object);
+	simple_unlock(&(object)->Lock);
 
 	return p;
 }
@@ -2920,7 +2920,7 @@ vm_object_page_map(
 	    while ((m = vm_page_grab_fictitious()) == VM_PAGE_NULL)
 		vm_page_more_fictitious();
 
-	    vm_object_lock(object);
+	    simple_lock(&(object)->Lock);
 	    if ((old_page = vm_page_lookup(object, offset))
 			!= VM_PAGE_NULL)
 	    {
@@ -2936,7 +2936,7 @@ vm_object_page_map(
 	    simple_unlock(&vm_page_queue_lock);
 
 	    PAGE_WAKEUP_DONE(m);
-	    vm_object_unlock(object);
+	    simple_unlock(&(object)->Lock);
 	}
 	return KERN_SUCCESS;
 }

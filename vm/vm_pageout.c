@@ -130,9 +130,9 @@ vm_pageout_setup(
 	 */
 	if (!flush) {
 		for (;;) {
-			vm_object_lock(new_object);
+			simple_lock(&(new_object)->Lock);
 			new_m = vm_page_alloc(new_object, new_offset);
-			vm_object_unlock(new_object);
+			simple_unlock(&(new_object)->Lock);
 
 			if (new_m != VM_PAGE_NULL) {
 				break;
@@ -152,7 +152,7 @@ vm_pageout_setup(
 							== VM_PAGE_NULL)
 			vm_page_more_fictitious();
 
-		vm_object_lock(old_object);
+		simple_lock(&(old_object)->Lock);
 		simple_lock(&vm_page_queue_lock);
 		vm_page_remove(m);
 		simple_unlock(&vm_page_queue_lock);
@@ -169,9 +169,9 @@ vm_pageout_setup(
 					paging_offset,
 					VM_EXTERNAL_STATE_EXISTS);
 
-		vm_object_unlock(old_object);
+		simple_unlock(&(old_object)->Lock);
 
-		vm_object_lock(new_object);
+		simple_lock(&(new_object)->Lock);
 
 		/*
 		 *	Move this page into the new object
@@ -193,7 +193,7 @@ vm_pageout_setup(
 		 */
 		vm_page_copy(m, new_m);
 
-		vm_object_lock(old_object);
+		simple_lock(&(old_object)->Lock);
 		m->dirty = FALSE;
 		pmap_clear_modify(m->phys_addr);
 
@@ -214,9 +214,9 @@ vm_pageout_setup(
 					paging_offset,
 					VM_EXTERNAL_STATE_EXISTS);
 
-		vm_object_unlock(old_object);
+		simple_unlock(&(old_object)->Lock);
 
-		vm_object_lock(new_object);
+		simple_lock(&(new_object)->Lock);
 
 		/*
 		 *	Use the new page below.
@@ -278,7 +278,7 @@ vm_pageout_setup(
 	 *	paging_in_progress incremented.]
 	 */
 
-	vm_object_unlock(new_object);
+	simple_unlock(&(new_object)->Lock);
 
 	/*
 	 *	Return the placeholder page to simplify cleanup.
@@ -322,7 +322,7 @@ vm_pageout_page(
 	kern_return_t		rc;
 	boolean_t		precious_clean;
 
-	assert(vm_object_lock_taken(m->object));
+	assert(simple_lock_taken(&(m->object)->Lock));
 	assert(m->busy);
 
 	/*
@@ -352,7 +352,7 @@ vm_pageout_page(
 	old_object = m->object;
 	paging_offset = m->offset + old_object->paging_offset;
 	vm_object_paging_begin(old_object);
-	vm_object_unlock(old_object);
+	simple_unlock(&(old_object)->Lock);
 
 	/*
 	 *	Allocate a new object into which we can put the page.
@@ -392,7 +392,7 @@ vm_pageout_page(
 	/*
 	 *	Clean up.
 	 */
-	vm_object_lock(old_object);
+	simple_lock(&(old_object)->Lock);
 	if (holding_page != VM_PAGE_NULL)
 	    VM_PAGE_FREE(holding_page);
 	vm_object_paging_end(old_object);

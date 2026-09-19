@@ -764,16 +764,16 @@ kmem_alloc_pages(
 	while (start < end) {
 	    vm_page_t	mem;
 
-	    vm_object_lock(object);
+	    simple_lock(&(object)->Lock);
 
 	    /*
 	     *	Allocate a page
 	     */
 	    while ((mem = vm_page_alloc_flags(object, offset, flags))
 			 == VM_PAGE_NULL) {
-		vm_object_unlock(object);
+		simple_unlock(&(object)->Lock);
 		VM_PAGE_WAIT((void (*)()) 0);
-		vm_object_lock(object);
+		simple_lock(&(object)->Lock);
 	    }
 
 	    /*
@@ -782,7 +782,7 @@ kmem_alloc_pages(
 	    simple_lock(&vm_page_queue_lock);
 	    vm_page_wire(mem);
 	    simple_unlock(&vm_page_queue_lock);
-	    vm_object_unlock(object);
+	    simple_unlock(&(object)->Lock);
 
 	    /*
 	     *	Enter it in the kernel pmap
@@ -790,9 +790,9 @@ kmem_alloc_pages(
 	    PMAP_ENTER(kernel_pmap, start, mem,
 		       protection, TRUE);
 
-	    vm_object_lock(object);
+	    simple_lock(&(object)->Lock);
 	    PAGE_WAKEUP_DONE(mem);
-	    vm_object_unlock(object);
+	    simple_unlock(&(object)->Lock);
 
 	    start += PAGE_SIZE;
 	    offset += PAGE_SIZE;
@@ -820,7 +820,7 @@ kmem_remap_pages(
 	while (start < end) {
 	    vm_page_t	mem;
 
-	    vm_object_lock(object);
+	    simple_lock(&(object)->Lock);
 
 	    /*
 	     *	Find a page
@@ -834,7 +834,7 @@ kmem_remap_pages(
 	    simple_lock(&vm_page_queue_lock);
 	    vm_page_wire(mem);
 	    simple_unlock(&vm_page_queue_lock);
-	    vm_object_unlock(object);
+	    simple_unlock(&(object)->Lock);
 
 	    /*
 	     *	Enter it in the kernel pmap.  The page isn't busy,

@@ -313,7 +313,7 @@ vm_object_t vm_object_copy_delayed(
 		vm_object_wait(	(object),				\
 				VM_OBJECT_EVENT_PAGING_IN_PROGRESS,	\
 				(interruptible));			\
-		vm_object_lock(object);					\
+		simple_lock(&(object)->Lock);					\
 									\
 	  /*XXX if ((interruptible) &&	*/				\
 	    /*XXX (current_thread()->wait_result != THREAD_AWAKENED))*/ \
@@ -340,14 +340,9 @@ vm_object_t vm_object_copy_delayed(
  *	Object locking macros
  */
 
-#define vm_object_lock_init(object)	simple_lock_init(&(object)->Lock)
-#define vm_object_lock(object)		simple_lock(&(object)->Lock)
-#define vm_object_unlock(object)	simple_unlock(&(object)->Lock)
-#define vm_object_lock_try(object)	simple_lock_try(&(object)->Lock)
 #define vm_object_sleep(event, object, interruptible)			\
 		thread_sleep((event_t)(event), simple_lock_addr((object)->Lock), \
 			     (interruptible))
-#define	vm_object_lock_taken(object)	simple_lock_taken(&(object)->Lock)
 
 /*
  *	Page cache accounting.

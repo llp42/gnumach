@@ -70,10 +70,10 @@ vm_object_real_name(vm_object_t object)
 	ipc_port_t port = IP_NULL;
 
 	if (object != VM_OBJECT_NULL) {
-		vm_object_lock(object);
+		simple_lock(&(object)->Lock);
 		if (object->pager_name != IP_NULL)
 			port = ipc_port_make_send(object->pager_name);
-		vm_object_unlock(object);
+		simple_unlock(&(object)->Lock);
 	}
 
 	return port;
@@ -202,18 +202,18 @@ mach_vm_object_info(
 	 */
 
     retry:
-	vm_object_lock(object);
+	simple_lock(&(object)->Lock);
 	copy = IP_NULL;
 	if (object->copy != VM_OBJECT_NULL) {
-		if (!vm_object_lock_try(object->copy)) {
-			vm_object_unlock(object);
+		if (!simple_lock_try(&(object->copy)->Lock)) {
+			simple_unlock(&(object)->Lock);
 			simple_lock_pause();	/* wait a bit */
 			goto retry;
 		}
 
 		if (object->copy->pager_name != IP_NULL)
 			copy = ipc_port_make_send(object->copy->pager_name);
-		vm_object_unlock(object->copy);
+		simple_unlock(&(object->copy)->Lock);
 	}
 	shadow = vm_object_real_name(object->shadow);
 
@@ -251,7 +251,7 @@ mach_vm_object_info(
 	if (object->lock_restart)
 		state |= VOI_STATE_LOCK_RESTART;
 	info.voi_state = state;
-	vm_object_unlock(object);
+	simple_unlock(&(object)->Lock);
 
 	*infop = info;
 	*shadowp = shadow;
@@ -297,11 +297,11 @@ _mach_vm_object_pages(
 	potential = *countp;
 
 	for (size = 0;;) {
-		vm_object_lock(object);
+		simple_lock(&(object)->Lock);
 		actual = object->resident_page_count;
 		if (actual <= potential)
 			break;
-		vm_object_unlock(object);
+		simple_unlock(&(object)->Lock);
 
 		if (pages != *pagesp)
 			kmem_free(ipc_kernel_map, addr, size);
@@ -407,7 +407,7 @@ _mach_vm_object_pages(
 
 	if (object->resident_page_count != count)
 		panic("mach_vm_object_pages");
-	vm_object_unlock(object);
+	simple_unlock(&(object)->Lock);
 
 	if (pages == *pagesp) {
 		/* data fit in-line; nothing to deallocate */

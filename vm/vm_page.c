@@ -875,7 +875,7 @@ vm_page_seg_pull_active_page(struct vm_page_seg *seg, boolean_t external)
         }
 
         vm_page_seg_remove_active_page(seg, page);
-        locked = vm_object_lock_try(page->object);
+        locked = simple_lock_try(&(page->object)->Lock);
 
         if (!locked) {
             vm_page_seg_add_active_page(seg, page);
@@ -884,7 +884,7 @@ vm_page_seg_pull_active_page(struct vm_page_seg *seg, boolean_t external)
 
         if (!vm_page_can_move(page)) {
             vm_page_seg_add_active_page(seg, page);
-            vm_object_unlock(page->object);
+            simple_unlock(&(page->object)->Lock);
             continue;
         }
 
@@ -928,7 +928,7 @@ vm_page_seg_pull_inactive_page(struct vm_page_seg *seg, boolean_t external)
         }
 
         vm_page_seg_remove_inactive_page(seg, page);
-        locked = vm_object_lock_try(page->object);
+        locked = simple_lock_try(&(page->object)->Lock);
 
         if (!locked) {
             vm_page_seg_add_inactive_page(seg, page);
@@ -937,7 +937,7 @@ vm_page_seg_pull_inactive_page(struct vm_page_seg *seg, boolean_t external)
 
         if (!vm_page_can_move(page)) {
             vm_page_seg_add_inactive_page(seg, page);
-            vm_object_unlock(page->object);
+            simple_unlock(&(page->object)->Lock);
             continue;
         }
 
@@ -985,7 +985,7 @@ vm_page_pull_active_page(boolean_t external)
         simple_lock(&seg->lock);
 
         vm_page_seg_remove_active_page(seg, page);
-        locked = vm_object_lock_try(page->object);
+        locked = simple_lock_try(&(page->object)->Lock);
 
         if (!locked) {
             vm_page_seg_add_active_page(seg, page);
@@ -995,7 +995,7 @@ vm_page_pull_active_page(boolean_t external)
 
         if (!vm_page_can_move(page)) {
             vm_page_seg_add_active_page(seg, page);
-            vm_object_unlock(page->object);
+            simple_unlock(&(page->object)->Lock);
             simple_unlock(&seg->lock);
             continue;
         }
@@ -1044,7 +1044,7 @@ vm_page_pull_inactive_page(boolean_t external)
         simple_lock(&seg->lock);
 
         vm_page_seg_remove_inactive_page(seg, page);
-        locked = vm_object_lock_try(page->object);
+        locked = simple_lock_try(&(page->object)->Lock);
 
         if (!locked) {
             vm_page_seg_add_inactive_page(seg, page);
@@ -1054,7 +1054,7 @@ vm_page_pull_inactive_page(boolean_t external)
 
         if (!vm_page_can_move(page)) {
             vm_page_seg_add_inactive_page(seg, page);
-            vm_object_unlock(page->object);
+            simple_unlock(&(page->object)->Lock);
             simple_unlock(&seg->lock);
             continue;
         }
@@ -1199,9 +1199,9 @@ vm_page_seg_balance_page(struct vm_page_seg *seg,
     simple_unlock(&vm_page_queue_free_lock);
 
     // object is already locked as vm_page_seg_alloc_from_buddy return it locked
-    assert(vm_object_lock_taken(object) != 0);
+    assert(simple_lock_taken(&(object)->Lock) != 0);
     vm_page_insert(dest, object, offset);
-    vm_object_unlock(object);
+    simple_unlock(&(object)->Lock);
 
     if (was_active) {
         vm_page_activate(dest);
@@ -1270,7 +1270,7 @@ restart:
 
     if (page != NULL) {
         simple_lock(&seg->lock);
-        vm_object_lock(page->object);
+        simple_lock(&(page->object)->Lock);
     } else {
         page = (active
                 ? vm_page_pull_active_page(external)
@@ -1295,7 +1295,7 @@ restart:
         /* This page got referenced while being marked as inactive, reactivate it.  */
         vm_page_seg_add_active_page(seg, page);
         simple_unlock(&seg->lock);
-        vm_object_unlock(object);
+        simple_unlock(&(object)->Lock);
         vm_stat.reactivations++;
         current_task()->reactivations++;
         simple_unlock(&vm_page_queue_lock);
@@ -1363,7 +1363,7 @@ out:
         if (vm_object_collectable(object)) {
             vm_object_collect(object);
         } else {
-            vm_object_unlock(object);
+            simple_unlock(&(object)->Lock);
         }
 
         return TRUE;
@@ -1393,7 +1393,7 @@ out:
     }
 
     vm_pageout_page(page, FALSE, TRUE); /* flush it */
-    vm_object_unlock(object);
+    simple_unlock(&(object)->Lock);
 
     if (double_paging) {
         goto restart;
@@ -1443,7 +1443,7 @@ vm_page_seg_refill_inactive(struct vm_page_seg *seg)
         page->reference = FALSE;
         pmap_clear_reference(page->phys_addr);
         vm_page_seg_add_inactive_page(seg, page);
-        vm_object_unlock(page->object);
+        simple_unlock(&(page->object)->Lock);
     }
 
     simple_unlock(&seg->lock);
@@ -1935,7 +1935,7 @@ void
 vm_page_wire(struct vm_page *page)
 {
     assert(simple_lock_taken(&vm_page_queue_lock));
-    assert(vm_object_lock_taken(page->object));
+    assert(simple_lock_taken(&(page->object)->Lock));
 
     VM_PAGE_CHECK(page);
 
@@ -1961,7 +1961,7 @@ vm_page_unwire(struct vm_page *page)
     struct vm_page_seg *seg;
 
     assert(simple_lock_taken(&vm_page_queue_lock));
-    assert(vm_object_lock_taken(page->object));
+    assert(simple_lock_taken(&(page->object)->Lock));
 
     VM_PAGE_CHECK(page);
 

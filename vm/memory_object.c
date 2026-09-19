@@ -131,7 +131,7 @@ kern_return_t memory_object_data_supply(
 	assert(data_copy->type == VM_MAP_COPY_PAGE_LIST);
 	page_list = &data_copy->cpy_page_list[0];
 
-	vm_object_lock(object);
+	simple_lock(&(object)->Lock);
 	vm_object_paging_begin(object);
 	offset -= object->paging_offset;
 
@@ -180,9 +180,9 @@ retry_lookup:
 			 */
 			if (m->busy) {
 				PAGE_ASSERT_WAIT(m, FALSE);
-				vm_object_unlock(object);
+				simple_unlock(&(object)->Lock);
 				thread_block((void (*)()) 0);
-				vm_object_lock(object);
+				simple_lock(&(object)->Lock);
 				goto retry_lookup;
 			}
 
@@ -237,7 +237,7 @@ retry_lookup:
 		    vm_map_copy_has_cont(data_copy)) {
 			vm_map_copy_t	new_copy;
 
-			vm_object_unlock(object);
+			simple_unlock(&(object)->Lock);
 
 			vm_map_copy_invoke_cont(data_copy, &new_copy, &result);
 
@@ -256,10 +256,10 @@ retry_lookup:
 			    if ((data_copy = new_copy) != VM_MAP_COPY_NULL)
 				page_list = &data_copy->cpy_page_list[0];
 
-			    vm_object_lock(object);
+			    simple_lock(&(object)->Lock);
 			}
 			else {
-			    vm_object_lock(object);
+			    simple_lock(&(object)->Lock);
 			    error_offset = offset + object->paging_offset +
 						PAGE_SIZE;
 			    break;
@@ -271,7 +271,7 @@ retry_lookup:
 	 *	Send reply if one was requested.
 	 */
 	vm_object_paging_end(object);
-	vm_object_unlock(object);
+	simple_unlock(&(object)->Lock);
 
 	if (vm_map_copy_has_cont(data_copy))
 		vm_map_copy_abort_cont(data_copy);
@@ -314,7 +314,7 @@ kern_return_t memory_object_data_error(
 	if (size != round_page(size))
 		return(KERN_INVALID_ARGUMENT);
 
-	vm_object_lock(object);
+	simple_lock(&(object)->Lock);
 	offset -= object->paging_offset;
 
 	while (size != 0) {
@@ -336,7 +336,7 @@ kern_return_t memory_object_data_error(
 		size -= PAGE_SIZE;
 		offset += PAGE_SIZE;
 	 }
-	vm_object_unlock(object);
+	simple_unlock(&(object)->Lock);
 
 	vm_object_deallocate(object);
 	return(KERN_SUCCESS);
@@ -360,12 +360,12 @@ kern_return_t memory_object_data_unavailable(
 		existence_info = vm_external_create(VM_EXTERNAL_SMALL_SIZE);
 	}
 
-	vm_object_lock(object);
+	simple_lock(&(object)->Lock);
  	if (existence_info != VM_EXTERNAL_NULL) {
 		object->existence_info = existence_info;
 	}
 	if ((offset == 0) && (size > VM_EXTERNAL_LARGE_SIZE)) {
-		vm_object_unlock(object);
+		simple_unlock(&(object)->Lock);
 		vm_object_deallocate(object);
 		return(KERN_SUCCESS);
 	}
@@ -394,7 +394,7 @@ kern_return_t memory_object_data_unavailable(
 		offset += PAGE_SIZE;
 	}
 
-	vm_object_unlock(object);
+	simple_unlock(&(object)->Lock);
 
 	vm_object_deallocate(object);
 	return(KERN_SUCCESS);
@@ -659,7 +659,7 @@ memory_object_lock_request(
 	 *	being destroyed.
 	 */
 
-	vm_object_lock(object);
+	simple_lock(&(object)->Lock);
 	vm_object_paging_begin(object);
 	offset -= object->paging_offset;
 
@@ -686,7 +686,7 @@ MACRO_BEGIN								\
 	unsigned		i;					\
 	vm_page_t		hp;					\
 									\
-	vm_object_unlock(object);					\
+	simple_unlock(&(object)->Lock);					\
 									\
 	(void) vm_map_copyin_object(new_object, 0, new_offset, &copy);	\
 									\
@@ -699,7 +699,7 @@ MACRO_BEGIN								\
 	     (pageout_action == MEMORY_OBJECT_LOCK_RESULT_MUST_CLEAN),	\
 		!should_flush);						\
 									\
-	vm_object_lock(object);						\
+	simple_lock(&(object)->Lock);						\
 									\
 	for (i = 0; i < atop(new_offset); i++) {			\
 	    hp = holding_pages[i];					\
@@ -750,9 +750,9 @@ MACRO_END
 			}
 
 			PAGE_ASSERT_WAIT(m, FALSE);
-			vm_object_unlock(object);
+			simple_unlock(&(object)->Lock);
 			thread_block((void (*)()) 0);
-			vm_object_lock(object);
+			simple_lock(&(object)->Lock);
 			continue;
 
 		    case MEMORY_OBJECT_LOCK_RESULT_MUST_CLEAN:
@@ -779,7 +779,7 @@ MACRO_END
 			        PAGEOUT_PAGES;
 			}
 
-			vm_object_unlock(object);
+			simple_unlock(&(object)->Lock);
 
 			/*
 			 *	If we have not already allocated an object
@@ -811,7 +811,7 @@ MACRO_END
 			new_offset += PAGE_SIZE;
 			last_offset = offset + PAGE_SIZE;
 
-			vm_object_lock(object);
+			simple_lock(&(object)->Lock);
 			break;
 		}
 		break;
@@ -827,17 +827,17 @@ MACRO_END
 	}
 
 	if (IP_VALID(reply_to)) {
-		vm_object_unlock(object);
+		simple_unlock(&(object)->Lock);
 
 		/* consumes our naked send-once/send right for reply_to */
 		(void) memory_object_lock_completed(reply_to, reply_to_type,
 			object->pager_request, original_offset, original_size);
 
-		vm_object_lock(object);
+		simple_lock(&(object)->Lock);
 	}
 
 	vm_object_paging_end(object);
-	vm_object_unlock(object);
+	simple_unlock(&(object)->Lock);
 	vm_object_deallocate(object);
 
 	return (KERN_SUCCESS);
@@ -870,7 +870,7 @@ memory_object_set_attributes_common(
 	if (may_cache)
 		may_cache = TRUE;
 
-	vm_object_lock(object);
+	simple_lock(&(object)->Lock);
 
 	/*
 	 *	Wake up anyone waiting for the ready attribute
@@ -893,7 +893,7 @@ memory_object_set_attributes_common(
 		object->copy_strategy = copy_strategy;
 	}
 
-	vm_object_unlock(object);
+	simple_unlock(&(object)->Lock);
 
 	vm_object_deallocate(object);
 
@@ -956,11 +956,11 @@ kern_return_t	memory_object_get_attributes(
 	if (object == VM_OBJECT_NULL)
 		return(KERN_INVALID_ARGUMENT);
 
-	vm_object_lock(object);
+	simple_lock(&(object)->Lock);
 	*may_cache = object->can_persist;
 	*object_ready = object->pager_ready;
 	*copy_strategy = object->copy_strategy;
-	vm_object_unlock(object);
+	simple_unlock(&(object)->Lock);
 
 	vm_object_deallocate(object);
 

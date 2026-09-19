@@ -128,7 +128,7 @@ intel_read_fault(
 	/*
 	 *	We must verify that the maps have not changed.
 	 */
-	vm_object_unlock(m->object);
+	simple_unlock(&(m->object)->Lock);
 	while (!vm_map_verify(map, &version)) {
 	    vm_object_t		retry_object;
 	    vm_offset_t		retry_offset;
@@ -138,16 +138,16 @@ intel_read_fault(
 				&retry_object, &retry_offset, &retry_prot,
 				&wired);
 	    if (result != KERN_SUCCESS) {
-		vm_object_lock(m->object);
+		simple_lock(&(m->object)->Lock);
 		RELEASE_PAGE(m);
 		UNLOCK_AND_DEALLOCATE;
 		return (result);
 	    }
 
-	    vm_object_unlock(retry_object);
+	    simple_unlock(&(retry_object)->Lock);
 
 	    if (retry_object != object || retry_offset != offset) {
-		vm_object_lock(m->object);
+		simple_lock(&(m->object)->Lock);
 		RELEASE_PAGE(m);
 		UNLOCK_AND_DEALLOCATE;
 		goto RetryFault;
@@ -159,7 +159,7 @@ intel_read_fault(
 	 */
 	PMAP_ENTER(map->pmap, vaddr, m, VM_PROT_READ|VM_PROT_WRITE, wired);
 
-	vm_object_lock(m->object);
+	simple_lock(&(m->object)->Lock);
 	simple_lock(&vm_page_queue_lock);
 	if (!m->active && !m->inactive)
 		vm_page_activate(m);
