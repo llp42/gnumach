@@ -339,14 +339,14 @@ simpler_thread_setrun(
 	ast_on(cpu_number(), AST_BLOCK);
 
 	whichq = (th)->sched_pri;
-	runq_lock(rq);	/* lock the run queue */
+	simple_lock_nocheck(&(rq)->lock);	/* lock the run queue */
 	enqueue_head(&(rq)->runq[whichq], &((th)->links));
 
 	if (whichq < (rq)->low || (rq)->count == 0)
 		 (rq)->low = whichq;	/* minimize */
 	(rq)->count++;
 	(th)->runq = (rq);
-	runq_unlock(rq);
+	simple_unlock_nocheck(&(rq)->lock);
 
 	/*
 	 *	Turn off first_quantum to allow context switch.

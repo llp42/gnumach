@@ -62,10 +62,6 @@ struct run_queue {
 typedef struct run_queue	*run_queue_t;
 #define RUN_QUEUE_NULL	((run_queue_t) 0)
 
-/* Shall be taken at splsched only */
-#define runq_lock(rq)		simple_lock_nocheck(&(rq)->lock)
-#define runq_unlock(rq)	simple_unlock_nocheck(&(rq)->lock)
-
 /*
  *	NOTE: For fixed priority threads, first_quantum indicates
  *	whether context switch at same priority is ok.  For timeshareing
