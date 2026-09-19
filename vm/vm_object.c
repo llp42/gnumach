@@ -182,15 +182,6 @@ queue_head_t	vm_object_cached_list;
 
 def_simple_lock_data(static,vm_object_cached_lock_data)
 
-#define vm_object_cache_lock()		\
-		simple_lock(&vm_object_cached_lock_data)
-#define vm_object_cache_lock_try()	\
-		simple_lock_try(&vm_object_cached_lock_data)
-#define vm_object_cache_unlock()	\
-		simple_unlock(&vm_object_cached_lock_data)
-#define vm_object_cache_locked()		\
-		simple_lock_taken(&vm_object_cached_lock_data)
-
 /*
  *	Virtual memory objects are initialized from
  *	a template (see vm_object_allocate).
@@ -346,7 +337,7 @@ static void vm_object_cache_add(
 	vm_object_t	object)
 {
 	assert(vm_object_lock_taken(object));
-	assert(vm_object_cache_locked());
+	assert(simple_lock_taken(&vm_object_cached_lock_data));
 
 	assert(!object->cached);
 	queue_enter(&vm_object_cached_list, object, vm_object_t, cached_list);
@@ -357,7 +348,7 @@ static void vm_object_cache_remove(
 	vm_object_t	object)
 {
 	assert(vm_object_lock_taken(object));
-	assert(vm_object_cache_locked());
+	assert(simple_lock_taken(&vm_object_cached_lock_data));
 
 	assert(object->cached);
 	queue_remove(&vm_object_cached_list, object, vm_object_t, cached_list);
@@ -373,7 +364,7 @@ void vm_object_collect(
 	 *	The cache lock must be acquired in the proper order.
 	 */
 
-	vm_object_cache_lock();
+	simple_lock(&vm_object_cached_lock_data);
 	vm_object_lock(object);
 
 	/*
@@ -383,7 +374,7 @@ void vm_object_collect(
 
 	if (!vm_object_collectable(object)) {
 		vm_object_unlock(object);
-		vm_object_cache_unlock();
+		simple_unlock(&vm_object_cached_lock_data);
 		return;
 	}
 
@@ -432,7 +423,7 @@ void vm_object_deallocate(
 		 *	the object.
 		 */
 
-		vm_object_cache_lock();
+		simple_lock(&vm_object_cached_lock_data);
 
 		/*
 		 *	Lose the reference
@@ -445,7 +436,7 @@ void vm_object_deallocate(
 			 *	we are done.
 			 */
 			vm_object_unlock(object);
-			vm_object_cache_unlock();
+			simple_unlock(&vm_object_cached_lock_data);
 			return;
 		}
 
@@ -455,7 +446,7 @@ void vm_object_deallocate(
 		 */
 		if (object->can_persist && (object->resident_page_count > 0)) {
 			vm_object_cache_add(object);
-			vm_object_cache_unlock();
+			simple_unlock(&vm_object_cached_lock_data);
 			vm_object_unlock(object);
 			return;
 		}
@@ -473,7 +464,7 @@ void vm_object_deallocate(
 			vm_object_assert_wait(object,
 				VM_OBJECT_EVENT_INITIALIZED, FALSE);
 			vm_object_unlock(object);
-			vm_object_cache_unlock();
+			simple_unlock(&vm_object_cached_lock_data);
 			thread_block((void (*)()) 0);
 			continue;
 		}
@@ -522,7 +513,7 @@ void vm_object_terminate(
 	vm_object_t	shadow_object;
 
 	assert(vm_object_lock_taken(object));
-	assert(vm_object_cache_locked());
+	assert(simple_lock_taken(&vm_object_cached_lock_data));
 
 	/*
 	 *	Make sure the object isn't already being terminated
@@ -536,7 +527,7 @@ void vm_object_terminate(
 	 */
 
 	vm_object_remove(object);
-	vm_object_cache_unlock();
+	simple_unlock(&vm_object_cached_lock_data);
 
 	/*
 	 *	Detach the object from its shadow if we are the shadow's
@@ -665,12 +656,12 @@ vm_object_pager_wakeup(
 	 *	If anyone was waiting for the memory_object_terminate
 	 *	to be queued, wake them up now.
 	 */
-	vm_object_cache_lock();
+	simple_lock(&vm_object_cached_lock_data);
 	assert(ip_kotype(pager) == IKOT_PAGER_TERMINATING);
 	someone_waiting = (pager->ip_kobject != IKO_NULL);
 	if (ip_active(pager))
 		ipc_kobject_set(pager, IKO_NULL, IKOT_NONE);
-	vm_object_cache_unlock();
+	simple_unlock(&vm_object_cached_lock_data);
 	if (someone_waiting) {
 		thread_wakeup((event_t) pager);
 	}
@@ -795,11 +786,11 @@ kern_return_t memory_object_destroy(
 	 *	the destroy call.]
 	 */
 
-	vm_object_cache_lock();
+	simple_lock(&vm_object_cached_lock_data);
 	vm_object_lock(object);
 	vm_object_remove(object);
 	object->can_persist = FALSE;
-	vm_object_cache_unlock();
+	simple_unlock(&vm_object_cached_lock_data);
 
 	/*
 	 *	Rip out the ports from the vm_object now... this
@@ -1822,7 +1813,7 @@ vm_object_t vm_object_lookup(
 		ip_lock(port);
 		if (ip_active(port) &&
 		    (ip_kotype(port) == IKOT_PAGING_REQUEST)) {
-			vm_object_cache_lock();
+			simple_lock(&vm_object_cached_lock_data);
 			object = (vm_object_t) port->ip_kobject;
 			vm_object_lock(object);
 
@@ -1833,7 +1824,7 @@ vm_object_t vm_object_lookup(
 
 			object->ref_count++;
 			vm_object_unlock(object);
-			vm_object_cache_unlock();
+			simple_unlock(&vm_object_cached_lock_data);
 		}
 		ip_unlock(port);
 	}
@@ -1850,7 +1841,7 @@ vm_object_t vm_object_lookup_name(
 		ip_lock(port);
 		if (ip_active(port) &&
 		    (ip_kotype(port) == IKOT_PAGING_NAME)) {
-			vm_object_cache_lock();
+			simple_lock(&vm_object_cached_lock_data);
 			object = (vm_object_t) port->ip_kobject;
 			vm_object_lock(object);
 
@@ -1861,7 +1852,7 @@ vm_object_t vm_object_lookup_name(
 
 			object->ref_count++;
 			vm_object_unlock(object);
-			vm_object_cache_unlock();
+			simple_unlock(&vm_object_cached_lock_data);
 		}
 		ip_unlock(port);
 	}
@@ -1881,9 +1872,9 @@ void vm_object_destroy(
 	 *	except that this time we look up based on the memory_object
 	 *	port, not the control port.
 	 */
-	vm_object_cache_lock();
+	simple_lock(&vm_object_cached_lock_data);
 	if (ip_kotype(pager) != IKOT_PAGER) {
-		vm_object_cache_unlock();
+		simple_unlock(&vm_object_cached_lock_data);
 		return;
 	}
 
@@ -1914,7 +1905,7 @@ void vm_object_destroy(
 	object->pager_name = IP_NULL;
 
 	vm_object_unlock(object);
-	vm_object_cache_unlock();
+	simple_unlock(&vm_object_cached_lock_data);
 
 	/*
 	 *	Clean up the port references.  Note that there's no
@@ -1971,7 +1962,7 @@ restart:
 	 *	Look for an object associated with this port.
 	 */
 
-	vm_object_cache_lock();
+	simple_lock(&vm_object_cached_lock_data);
 	for (;;) {
 		po = ip_kotype(pager);
 
@@ -1990,7 +1981,7 @@ restart:
 		if (po == IKOT_PAGER_TERMINATING) {
 			pager->ip_kobject = (ipc_kobject_t) pager;
 			assert_wait((event_t) pager, FALSE);
-			vm_object_cache_unlock();
+			simple_unlock(&vm_object_cached_lock_data);
 			thread_block((void (*)()) 0);
 			goto restart;
 		}
@@ -2009,9 +2000,9 @@ restart:
 		 */
 
 		if (new_object == VM_OBJECT_NULL) {
-			vm_object_cache_unlock();
+			simple_unlock(&vm_object_cached_lock_data);
 			new_object = vm_object_allocate(size);
-			vm_object_cache_lock();
+			simple_lock(&vm_object_cached_lock_data);
 		} else {
 			/*
 			 *	Lookup failed twice, and we have something
@@ -2050,7 +2041,7 @@ restart:
 
 	vm_stat.lookups++;
 
-	vm_object_cache_unlock();
+	simple_unlock(&vm_object_cached_lock_data);
 
 	/*
 	 *	If we raced to create a vm_object but lost, let's
@@ -2266,7 +2257,7 @@ void vm_object_remove(
 {
 	ipc_port_t port;
 
-	assert(vm_object_cache_locked());
+	assert(simple_lock_taken(&vm_object_cached_lock_data));
 
 	if ((port = object->pager) != IP_NULL) {
 		if (ip_kotype(port) == IKOT_PAGER)
@@ -2403,7 +2394,7 @@ void vm_object_collapse(
 		 */
 	
 		if (backing_object->ref_count == 1) {
-			if (!vm_object_cache_lock_try()) {
+			if (!simple_lock_try(&vm_object_cached_lock_data)) {
 				vm_object_unlock(backing_object);
 				return;
 			}
@@ -2510,7 +2501,7 @@ void vm_object_collapse(
 						(ipc_kobject_t) object,
 						IKOT_PAGING_NAME);
 
-			vm_object_cache_unlock();
+			simple_unlock(&vm_object_cached_lock_data);
 
 			/*
 			 * If there is no pager, leave paging-offset alone.
