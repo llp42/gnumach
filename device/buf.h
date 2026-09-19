@@ -43,7 +43,6 @@
 /*
  * Redefine flags
  */
-#define	B_OPEN		IO_OPEN
 #define	B_DONE		IO_DONE
 #define	B_ERROR		IO_ERROR
 #define	B_BUSY		IO_BUSY
