@@ -41,9 +41,6 @@
 #define	buf	io_req
 
 /*
- * Redefine fields for driver request list heads, using old names.
- */
-/*
  * Redefine flags
  */
 #define	B_WRITE		IO_WRITE
