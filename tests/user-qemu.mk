@@ -132,9 +132,7 @@ TESTSRC_TESTLIB= \
 	$(srcdir)/tests/testlib_thread_start.c
 
 SRC_TESTLIB= \
-	$(srcdir)/i386/i386/strings.c \
 	$(srcdir)/kern/printf.c \
-	$(srcdir)/kern/strings.c \
 	$(srcdir)/tests/string.c \
 	$(srcdir)/util/atoi.c \
 	$(TESTSRC_TESTLIB) \

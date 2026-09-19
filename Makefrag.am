@@ -138,7 +138,6 @@ libkernel_a_SOURCES += \
 	kern/shuttle.h \
 	kern/startup.c \
 	kern/startup.h \
-	kern/strings.c \
 	kern/syscall_emulation.c \
 	kern/syscall_emulation.h \
 	kern/syscall_subr.c \

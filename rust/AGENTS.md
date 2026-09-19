@@ -16,16 +16,14 @@ There is no staging branch and no parallel implementation kept beside the
 original: the C definition goes away in the same commit the Rust one arrives,
 because two definitions of one symbol is a link error, not a fallback.
 
-So far `memcpy()` has moved, from `i386/i386/strings.c`.  The C definition is
-gone, so both the kernel's own calls and the ones the C compiler inserts for
-struct and array copies land in Rust now.
+So far the string routines have moved: all of `i386/i386/strings.c` and
+`kern/strings.c` — `memcpy()`, `memmove()`, `memcmp()`, `memset()` and the
+`str*()` family.  Both C files are gone, so the kernel's own calls and the
+ones the C compiler inserts for struct and array copies land in Rust now.
 
-**Next:** the rest of `i386/i386/strings.c` — `memset()`, `memmove()`,
-`strlen()` and the others beside them.  They are the same shape as `memcpy()`:
-leaf routines, no allocation, no state, and already exercised by the qemu
-suite on every commit.  Work outward from there; a good candidate is a leaf,
-needs no allocation, and has a C definition that can be deleted in the same
-commit.
+**Next:** work outward from the string routines.  A good candidate is a
+leaf, needs no allocation, and has a C definition that can be deleted in
+the same commit.
 
 ## Rules
 
@@ -165,11 +163,10 @@ at, and the pair costs about a tenth of a second.
   uses the new rustc.  Reconfigure after a toolchain update; the `mise run
   build` and `mise run test` tasks compare it against `rustc --print sysroot`
   and reconfigure when it has moved.
-- `i386/i386/strings.c` is compiled into the test programs as well as the
-  kernel, so deleting a routine from it breaks `tests/module-*`.  The tests
-  are user-mode binaries with their own link: give them a routine of their own
-  in `tests/string.c` rather than linking `libmach-rs.a`, which is built for
-  the kernel's target.
+- The test programs are user-mode binaries with their own link, and the
+  string routines they use live in `tests/string.c` rather than in
+  `libmach-rs.a`, which is built for the kernel's target.  Moving a
+  routine the tests call means giving them a copy of their own there.
 
 ## Adding a routine
 
