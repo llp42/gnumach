@@ -306,7 +306,6 @@ struct kmem_cache	net_rcv_cache;	/* cache of net_rcv_port structs */
 struct net_hash_entry {
 	queue_chain_t   chain;	        /* list of entries with same hval */
 #define he_next chain.next
-#define he_prev chain.prev
 	ipc_port_t      rcv_port;	/* destination port */
 	int             rcv_qlimit;	/* qlimit for the port */
 	unsigned int	keys[N_NET_HASH_KEYS];
