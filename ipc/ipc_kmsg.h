@@ -192,8 +192,6 @@ MACRO_END
 
 typedef struct ipc_kmsg_queue *ipc_kmsg_queue_t;
 
-#define	IKMQ_NULL		((ipc_kmsg_queue_t) 0)
-
 
 #define	ipc_kmsg_queue_init(queue)		\
 MACRO_BEGIN					\
