@@ -56,7 +56,6 @@
  */
 
 #include <machine/lock.h>/*XXX*/
-#define simple_lock_try_nocheck	_simple_lock_try
 
 
 /*
@@ -160,7 +159,7 @@ MACRO_BEGIN \
 	_simple_lock(l); \
 MACRO_END
 #define simple_lock_try(l)	({ \
-	simple_lock_try_nocheck(l); \
+	_simple_lock_try(l); \
 })
 #define simple_unlock(l)	\
 MACRO_BEGIN \
