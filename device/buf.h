@@ -43,8 +43,6 @@
 /*
  * Redefine fields for drivers using old names
  */
-#define b_blocktotal    io_rectotal
-
 /*
  * Redefine fields for driver request list heads, using old names.
  */
