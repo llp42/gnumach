@@ -53,7 +53,6 @@ typedef struct ipc_pset {
 #define ips_object		ips_target.ipt_object
 #define ips_local_name		ips_target.ipt_name
 #define ips_messages		ips_target.ipt_messages
-#define	ips_references		ips_object.io_references
 
 #define	IPS_NULL		((ipc_pset_t) IO_NULL)
 
