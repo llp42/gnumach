@@ -111,7 +111,6 @@ struct io_req {
 #define	IO_WANTED	0x00000800	/* wakeup when no longer BUSY */
 #define	IO_CALL		0x00002000	/* call io_done_thread when done */
 #define IO_INBAND	0x00004000	/* mig call was inband */
-#define IO_INTERNAL	0x00008000	/* internal, device-driver specific */
 #define	IO_LOANED	0x00010000	/* ior loaned by another module */
 
 #define	IO_SPARE_START	0x00020000	/* start of spare flags */
