@@ -43,7 +43,6 @@
 /*
  * Redefine fields for driver request list heads, using old names.
  */
-#define	b_forw		io_link
 #define	b_back		io_rlink
 #define	b_active	io_count
 #define	b_errcnt	io_residual
