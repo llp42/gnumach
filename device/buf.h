@@ -43,7 +43,6 @@
 /*
  * Redefine fields for drivers using old names
  */
-#define	b_bcount	io_count
 #define	b_error		io_error
 #define	b_dev		io_unit
 #define	b_blkno		io_recnum
