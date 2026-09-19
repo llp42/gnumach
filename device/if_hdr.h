@@ -110,7 +110,6 @@ struct ifnet {
 #define	IFF_POINTOPOINT	0x0010		/* point-to-point link */
 #define	IFF_RUNNING	0x0040		/* resources allocated */
 #define	IFF_PROMISC	0x0100		/* receive all packets */
-#define	IFF_ALLMULTI	0x0200		/* receive all multicast packets */
 #define	IFF_BRIDGE	0x0100		/* support token ring routing field */
 #define	IFF_SNAP	0x0200		/* support extended sap header */
 
