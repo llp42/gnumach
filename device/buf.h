@@ -43,7 +43,6 @@
 /*
  * Redefine flags
  */
-#define	B_WANTED	IO_WANTED
 #define	B_BAD		IO_BAD
 #define	B_CALL		IO_CALL
 
