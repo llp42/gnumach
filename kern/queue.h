@@ -74,7 +74,7 @@ typedef	struct queue_entry	queue_chain_t;
 typedef	struct queue_entry	*queue_entry_t;
 
 /*
- * These fifteen are written in Rust, in rust/src/kern/queue.rs, and
+ * These thirteen are written in Rust, in rust/src/kern/queue.rs, and
  * reach the kernel through libmach-rs.a.  The macros below stay here
  * and operate on the same struct queue_entry layout.
  */
@@ -82,9 +82,7 @@ typedef	struct queue_entry	*queue_entry_t;
 void		enqueue_head(queue_t, queue_entry_t);
 void		enqueue_tail(queue_t, queue_entry_t);
 queue_entry_t	dequeue_head(queue_t);
-queue_entry_t	dequeue_tail(queue_t);
 void		remqueue(queue_t, queue_entry_t);
-void		insque(queue_entry_t, queue_entry_t);
 
 void		queue_init(queue_t);
 queue_entry_t	queue_first(queue_t);

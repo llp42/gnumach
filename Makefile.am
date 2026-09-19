@@ -223,7 +223,8 @@ EXTRA_DIST += \
 	Makefile.in.dep.patch
 
 EXTRA_DIST += \
-	DEVELOPMENT
+	DEVELOPMENT \
+	MIGRATE.md
 
 dist-hook: dist-rm-CVS gen-ChangeLog
 

@@ -127,7 +127,7 @@ impl QueueEntry {
     }
 
     /// Remove and return the last entry, or `None` when the queue is
-    /// empty.  `dequeue_tail()` in C, stale links included.
+    /// empty.  Stale links included, as in the old `dequeue_tail()`.
     ///
     /// # Safety
     ///
@@ -163,7 +163,8 @@ impl QueueEntry {
         }
     }
 
-    /// Insert `elt` right after `pred` in its queue.  `insque()` in C.
+    /// Insert `elt` right after `pred` in its queue, as the old
+    /// `insque()` did.
     ///
     /// # Safety
     ///
@@ -268,21 +269,6 @@ pub unsafe extern "C" fn dequeue_head(
     unsafe { que.pop_front() }.map_or(ptr::null_mut(), NonNull::as_ptr)
 }
 
-/// Remove and return the tail entry of `que`, or null when empty.
-///
-/// # Safety
-///
-/// Same contract as `dequeue_head()`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn dequeue_tail(
-    que: *mut QueueEntry,
-) -> *mut QueueEntry {
-    // SAFETY: the caller promises `que` is a valid head.
-    let que = unsafe { &mut *que };
-    // SAFETY: same as above.
-    unsafe { que.pop_back() }.map_or(ptr::null_mut(), NonNull::as_ptr)
-}
-
 /// Remove `elt` from its queue; `que` is unused, as in C.
 ///
 /// # Safety
@@ -298,26 +284,6 @@ pub unsafe extern "C" fn remqueue(
     let elt = unsafe { NonNull::new_unchecked(elt) };
     // SAFETY: same as above.
     unsafe { QueueEntry::remove(elt) };
-}
-
-/// Insert `entry` right after `pred` in its queue.
-///
-/// # Safety
-///
-/// `pred` must be linked into a queue and `entry` valid and unlinked;
-/// nothing else may access the queue during the call.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn insque(
-    entry: *mut QueueEntry,
-    pred: *mut QueueEntry,
-) {
-    // SAFETY: the caller promises both are valid and non-null, with
-    // `pred` linked.
-    let (entry, pred) = unsafe {
-        (NonNull::new_unchecked(entry), NonNull::new_unchecked(pred))
-    };
-    // SAFETY: same as above.
-    unsafe { QueueEntry::insert_after(pred, entry) };
 }
 
 /// Initialize `q` as an empty queue head.  `queue_init()` in C.

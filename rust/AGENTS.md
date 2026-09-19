@@ -22,8 +22,9 @@ So far the string routines have moved: all of `i386/i386/strings.c` and
 ones the C compiler inserts for struct and array copies land in Rust now.
 The Mach queue package followed: `kern/queue.c` is gone too, replaced by
 `src/kern/queue.rs` — an idiomatic module (NonNull, Option, an iterator)
-behind fifteen `extern "C"` wrappers keeping the old symbols: the six
-routines of `kern/queue.c`, the former accessor macros `queue_init()`,
+behind thirteen `extern "C"` wrappers keeping the old symbols: the four
+live routines of `kern/queue.c` (`dequeue_tail()` and `insque()` were
+dropped as uncalled), the former accessor macros `queue_init()`,
 `queue_first()`, `queue_next()`, `queue_prev()`, `queue_end()` and
 `queue_empty()`, and the generic `queue_enter()`, `queue_enter_first()`
 and `queue_remove()` operations themselves, which take the chain-field
