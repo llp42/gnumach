@@ -108,7 +108,6 @@ struct io_req {
 #define	IO_READ		0x00000001	/* operation is read */
 #define	IO_OPEN		0x00000002	/* operation is open */
 #define	IO_DONE		0x00000100	/* operation complete */
-#define	IO_BUSY		0x00000400	/* operation in progress */
 #define	IO_WANTED	0x00000800	/* wakeup when no longer BUSY */
 #define	IO_BAD		0x00001000	/* bad disk block */
 #define	IO_CALL		0x00002000	/* call io_done_thread when done */
