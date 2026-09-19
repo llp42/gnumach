@@ -104,7 +104,7 @@ struct processor {
 	processor_set_t	processor_set;	/* processor set I belong to */
 	processor_set_t processor_set_next;	/* set I will belong to */
 	queue_chain_t	processors;	/* all processors in set */
-	decl_simple_lock_data(,	lock)
+	decl_simple_lock_data(,	lock)	/* shall be taken at splsched only */
 	struct ipc_port *processor_self;	/* port for operations */
 	struct ipc_port *processor_name_self;	/* unprivileged name port */
 	int		slot_num;	/* machine-indep slot number */
@@ -212,17 +212,6 @@ extern processor_t	master_processor;
 
 #define cpu_state(slot_num)	(processor_ptr(slot_num)->state)
 #define cpu_idle(slot_num)	(cpu_state(slot_num) == PROCESSOR_IDLE)
-
-/* Useful lock macros */
-
-#define	pset_lock(pset)		simple_lock(&(pset)->lock)
-#define pset_unlock(pset)	simple_unlock(&(pset)->lock)
-#define	pset_ref_lock(pset)	simple_lock(&(pset)->ref_lock)
-#define	pset_ref_unlock(pset)	simple_unlock(&(pset)->ref_lock)
-
-/* Shall be taken at splsched only */
-#define processor_lock(pr)	simple_lock(&(pr)->lock)
-#define processor_unlock(pr)	simple_unlock(&(pr)->lock)
 
 typedef mach_port_t	*processor_array_t;
 typedef mach_port_t	*processor_name_array_t;

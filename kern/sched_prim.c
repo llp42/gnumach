@@ -1246,7 +1246,7 @@ void thread_setrun(
 	     *  processor here because it may not be the current one.
 	     */
 	    if (processor != PROCESSOR_NULL && processor->state == PROCESSOR_IDLE) {
-		processor_lock(processor);
+		simple_lock(&(processor)->lock);
 		pset = processor->processor_set;
 		pset_idle_lock();
 		if (processor->state == PROCESSOR_IDLE) {
@@ -1256,13 +1256,13 @@ void thread_setrun(
 		    processor->next_thread = th;
 		    processor->state = PROCESSOR_DISPATCHING;
 		    pset_idle_unlock();
-		    processor_unlock(processor);
+		    simple_unlock(&(processor)->lock);
 		    if (processor != current_processor())
 			cause_ast_check(processor);
 		    return;
 		}
 		pset_idle_unlock();
-		processor_unlock(processor);
+		simple_unlock(&(processor)->lock);
 	    }
 	    rq = &(processor->runq);
 	    run_queue_enqueue(rq,th);

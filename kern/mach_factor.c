@@ -71,7 +71,7 @@ void compute_mach_factor(void)
 	     *	If no processors, this pset is in suspended animation.
 	     *	No load calculations are performed.
 	     */
-	    pset_lock(pset);
+	    simple_lock(&(pset)->lock);
 	    if((ncpus = pset->processor_count) > 0) {
 
 		/*
@@ -142,7 +142,7 @@ void compute_mach_factor(void)
 		pset->sched_load = (pset->sched_load + load_now) >> 1;
 	    }
 
-	    pset_unlock(pset);
+	    simple_unlock(&(pset)->lock);
 	    pset = (processor_set_t) queue_next(&pset->all_psets);
 	}
 

@@ -182,9 +182,9 @@ task_create_kernel(
 		if (new_task->max_priority > new_task->priority)
 			new_task->priority = new_task->max_priority;
 	}
-	pset_lock(pset);
+	simple_lock(&(pset)->lock);
 	pset_add_task(pset, new_task);
-	pset_unlock(pset);
+	simple_unlock(&(pset)->lock);
 
 	new_task->may_assign = TRUE;
 	new_task->assign_active = FALSE;
@@ -240,9 +240,9 @@ void task_deallocate(
 	eml_task_deallocate(task);
 
 	pset = task->processor_set;
-	pset_lock(pset);
+	simple_lock(&(pset)->lock);
 	pset_remove_task(pset,task);
-	pset_unlock(pset);
+	simple_unlock(&(pset)->lock);
 	pset_deallocate(pset);
 	vm_map_deallocate(task->map);
 	is_release(task->itk_space);
@@ -972,12 +972,12 @@ task_assign(
 	 */
     Restart:
 	if ((vm_offset_t) pset < (vm_offset_t) new_pset) {
-	    pset_lock(pset);
-	    pset_lock(new_pset);
+	    simple_lock(&(pset)->lock);
+	    simple_lock(&(new_pset)->lock);
 	}
 	else {
-	    pset_lock(new_pset);
-	    pset_lock(pset);
+	    simple_lock(&(new_pset)->lock);
+	    simple_lock(&(pset)->lock);
 	}
 
 	/*
@@ -985,8 +985,8 @@ task_assign(
 	 *	reassign to default_pset.
 	 */
 	if (!new_pset->active) {
-	    pset_unlock(pset);
-	    pset_unlock(new_pset);
+	    simple_unlock(&(pset)->lock);
+	    simple_unlock(&(new_pset)->lock);
 	    new_pset = &default_pset;
 	    goto Restart;
 	}
@@ -1001,8 +1001,8 @@ task_assign(
 	pset_remove_task(pset, task);
 	pset_add_task(new_pset, task);
 
-	pset_unlock(pset);
-	pset_unlock(new_pset);
+	simple_unlock(&(pset)->lock);
+	simple_unlock(&(new_pset)->lock);
 
 	if (assign_threads == FALSE) {
 		/*
@@ -1217,11 +1217,11 @@ static void task_collect_scan(void)
 
 	simple_lock(&all_psets_lock);
 	queue_iterate(&all_psets, pset, processor_set_t, all_psets) {
-		pset_lock(pset);
+		simple_lock(&(pset)->lock);
 		queue_iterate(&pset->tasks, task, task_t, pset_tasks) {
 			task_reference(task);
 			pset_reference(pset);
-			pset_unlock(pset);
+			simple_unlock(&(pset)->lock);
 			simple_unlock(&all_psets_lock);
 
 			machine_task_collect (task);
@@ -1236,9 +1236,9 @@ static void task_collect_scan(void)
 			prev_pset = pset;
 
 			simple_lock(&all_psets_lock);
-			pset_lock(pset);
+			simple_lock(&(pset)->lock);
 		}
-		pset_unlock(pset);
+		simple_unlock(&(pset)->lock);
 	}
 	simple_unlock(&all_psets_lock);
 

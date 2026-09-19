@@ -165,17 +165,17 @@ void
 ipc_pset_enable(
 	processor_set_t		pset)
 {
-	pset_lock(pset);
+	simple_lock(&(pset)->lock);
 	if (likely(pset->active)) {
 		ipc_kobject_set(pset->pset_self,
 				(ipc_kobject_t) pset, IKOT_PSET);
 		ipc_kobject_set(pset->pset_name_self,
 				(ipc_kobject_t) pset, IKOT_PSET_NAME);
-		pset_ref_lock(pset);
+		simple_lock(&(pset)->ref_lock);
 		pset->ref_count += 2;
-		pset_ref_unlock(pset);
+		simple_unlock(&(pset)->ref_lock);
 	}
-	pset_unlock(pset);
+	simple_unlock(&(pset)->lock);
 }
 
 /*
@@ -467,12 +467,12 @@ convert_pset_to_port(
 {
 	ipc_port_t port;
 
-	pset_lock(pset);
+	simple_lock(&(pset)->lock);
 	if (pset->active)
 		port = ipc_port_make_send(pset->pset_self);
 	else
 		port = IP_NULL;
-	pset_unlock(pset);
+	simple_unlock(&(pset)->lock);
 
 	pset_deallocate(pset);
 	return port;
@@ -494,12 +494,12 @@ convert_pset_name_to_port(
 {
 	ipc_port_t port;
 
-	pset_lock(pset);
+	simple_lock(&(pset)->lock);
 	if (pset->active)
 		port = ipc_port_make_send(pset->pset_name_self);
 	else
 		port = IP_NULL;
-	pset_unlock(pset);
+	simple_unlock(&(pset)->lock);
 
 	pset_deallocate(pset);
 	return port;

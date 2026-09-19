@@ -339,9 +339,9 @@ void pset_deallocate(
 	if (pset == PROCESSOR_SET_NULL)
 		return;
 
-	pset_ref_lock(pset);
+	simple_lock(&(pset)->ref_lock);
 	if (--pset->ref_count > 0) {
-		pset_ref_unlock(pset);
+		simple_unlock(&(pset)->ref_lock);
 		return;
 	}
 #if	!MACH_HOST
@@ -357,15 +357,15 @@ void pset_deallocate(
 	 *	other structures in the right order.
 	 */
 	pset->ref_count = 1;
-	pset_ref_unlock(pset);
+	simple_unlock(&(pset)->ref_lock);
 
 	simple_lock(&all_psets_lock);
-	pset_ref_lock(pset);
+	simple_lock(&(pset)->ref_lock);
 	if (--pset->ref_count > 0) {
 		/*
 		 *	Made an extra reference.
 		 */
-		pset_ref_unlock(pset);
+		simple_unlock(&(pset)->ref_lock);
 		simple_unlock(&all_psets_lock);
 		return;
 	}
@@ -384,7 +384,7 @@ void pset_deallocate(
 	queue_remove(&all_psets, pset, processor_set_t, all_psets);
 	all_psets_count--;
 
-	pset_ref_unlock(pset);
+	simple_unlock(&(pset)->ref_lock);
 	simple_unlock(&all_psets_lock);
 
 	/*
@@ -402,9 +402,9 @@ void pset_deallocate(
 void pset_reference(
 	processor_set_t	pset)
 {
-	pset_ref_lock(pset);
+	simple_lock(&(pset)->ref_lock);
 	pset->ref_count++;
-	pset_ref_unlock(pset);
+	simple_unlock(&(pset)->ref_lock);
 }
 
 kern_return_t
@@ -568,9 +568,9 @@ kern_return_t processor_set_destroy(
 	 *	Handle multiple termination race.  First one through sets
 	 *	active to FALSE and disables ipc access.
 	 */
-	pset_lock(pset);
+	simple_lock(&(pset)->lock);
 	if (!(pset->active)) {
-		pset_unlock(pset);
+		simple_unlock(&(pset)->lock);
 		return KERN_FAILURE;
 	}
 
@@ -587,10 +587,10 @@ kern_return_t processor_set_destroy(
 	    while (!queue_empty(list)) {
 		elem = queue_first(list);
 		task_reference((task_t) elem);
-		pset_unlock(pset);
+		simple_unlock(&(pset)->lock);
 		task_assign((task_t) elem, &default_pset, FALSE);
 		task_deallocate((task_t) elem);
-		pset_lock(pset);
+		simple_lock(&(pset)->lock);
 	    }
 	}
 
@@ -599,10 +599,10 @@ kern_return_t processor_set_destroy(
 	    while (!queue_empty(list)) {
 		elem = queue_first(list);
 		thread_reference((thread_t) elem);
-		pset_unlock(pset);
+		simple_unlock(&(pset)->lock);
 		thread_assign((thread_t) elem, &default_pset);
 		thread_deallocate((thread_t) elem);
-		pset_lock(pset);
+		simple_lock(&(pset)->lock);
 	    }
 	}
 
@@ -610,13 +610,13 @@ kern_return_t processor_set_destroy(
 	    list = &pset->processors;
 	    while(!queue_empty(list)) {
 		elem = queue_first(list);
-		pset_unlock(pset);
+		simple_unlock(&(pset)->lock);
 		processor_assign((processor_t) elem, &default_pset, TRUE);
-		pset_lock(pset);
+		simple_lock(&(pset)->lock);
 	    }
 	}
 
-	pset_unlock(pset);
+	simple_unlock(&(pset)->lock);
 
 	/*
 	 *	Destroy ipc state.
@@ -686,13 +686,13 @@ processor_set_info(
 
 		basic_info = (processor_set_basic_info_t) info;
 
-		pset_lock(pset);
+		simple_lock(&(pset)->lock);
 		basic_info->processor_count = pset->processor_count;
 		basic_info->task_count = pset->task_count;
 		basic_info->thread_count = pset->thread_count;
 		basic_info->mach_factor = pset->mach_factor;
 		basic_info->load_average = pset->load_average;
-		pset_unlock(pset);
+		simple_unlock(&(pset)->lock);
 
 		*count = PROCESSOR_SET_BASIC_INFO_COUNT;
 		*host = &realhost;
@@ -706,10 +706,10 @@ processor_set_info(
 
 		sched_info = (processor_set_sched_info_t) info;
 
-		pset_lock(pset);
+		simple_lock(&(pset)->lock);
 		sched_info->policies = pset->policies;
 		sched_info->max_priority = pset->max_priority;
-		pset_unlock(pset);
+		simple_unlock(&(pset)->lock);
 
 		*count = PROCESSOR_SET_SCHED_INFO_COUNT;
 		*host = &realhost;
@@ -736,7 +736,7 @@ processor_set_max_priority(
 	if (pset == PROCESSOR_SET_NULL || invalid_pri(max_priority))
 		return KERN_INVALID_ARGUMENT;
 
-	pset_lock(pset);
+	simple_lock(&(pset)->lock);
 	pset->max_priority = max_priority;
 
 	if (change_threads) {
@@ -750,7 +750,7 @@ processor_set_max_priority(
 	    }
 	}
 
-	pset_unlock(pset);
+	simple_unlock(&(pset)->lock);
 
 	return KERN_SUCCESS;
 }
@@ -769,9 +769,9 @@ processor_set_policy_enable(
 	if ((pset == PROCESSOR_SET_NULL) || invalid_policy(policy))
 		return KERN_INVALID_ARGUMENT;
 
-	pset_lock(pset);
+	simple_lock(&(pset)->lock);
 	pset->policies |= policy;
-	pset_unlock(pset);
+	simple_unlock(&(pset)->lock);
 
 	return KERN_SUCCESS;
 }
@@ -793,7 +793,7 @@ processor_set_policy_disable(
 	    invalid_policy(policy))
 		return KERN_INVALID_ARGUMENT;
 
-	pset_lock(pset);
+	simple_lock(&(pset)->lock);
 
 	/*
 	 *	Check if policy enabled.  Disable if so, then handle
@@ -813,7 +813,7 @@ processor_set_policy_disable(
 		}
 	    }
 	}
-	pset_unlock(pset);
+	simple_unlock(&(pset)->lock);
 
 	return KERN_SUCCESS;
 }
@@ -845,9 +845,9 @@ processor_set_things(
 	size = 0; addr = 0;
 
 	for (;;) {
-		pset_lock(pset);
+		simple_lock(&(pset)->lock);
 		if (!pset->active) {
-			pset_unlock(pset);
+			simple_unlock(&(pset)->lock);
 			return KERN_FAILURE;
 		}
 
@@ -863,7 +863,7 @@ processor_set_things(
 			break;
 
 		/* unlock the pset and allocate more memory */
-		pset_unlock(pset);
+		simple_unlock(&(pset)->lock);
 
 		if (size != 0)
 			kfree(addr, size);
@@ -912,7 +912,7 @@ processor_set_things(
 	}
 
 	/* can unlock processor set now that we have the task/thread refs */
-	pset_unlock(pset);
+	simple_unlock(&(pset)->lock);
 
 	if (actual == 0) {
 		/* no things, so return null pointer and deallocate memory */

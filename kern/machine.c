@@ -82,12 +82,12 @@ void cpu_up(int cpu)
 	spl_t 			s;
 
 	processor = cpu_to_processor(cpu);
-	pset_lock(&default_pset);
+	simple_lock(&(&default_pset)->lock);
 #if	MACH_HOST
-	pset_lock(slave_pset);
+	simple_lock(&(slave_pset)->lock);
 #endif
 	s = splsched();
-	processor_lock(processor);
+	simple_lock(&(processor)->lock);
 #if	NCPUS > 1
 	init_ast_check(processor);
 #endif	/* NCPUS > 1 */
@@ -101,12 +101,12 @@ void cpu_up(int cpu)
 #endif
 		pset_add_processor(&default_pset, processor);
 	processor->state = PROCESSOR_RUNNING;
-	processor_unlock(processor);
+	simple_unlock(&(processor)->lock);
 	splx(s);
 #if	MACH_HOST
-	pset_unlock(slave_pset);
+	simple_unlock(&(slave_pset)->lock);
 #endif
-	pset_unlock(&default_pset);
+	simple_unlock(&(&default_pset)->lock);
 }
 
 kern_return_t
@@ -144,7 +144,7 @@ static void cpu_down(int cpu)
 
 	s = splsched();
 	processor = cpu_to_processor(cpu);
-	processor_lock(processor);
+	simple_lock(&(processor)->lock);
 	ms = &machine_slot[cpu];
 	ms->running = FALSE;
 	machine_info.avail_cpus--;
@@ -153,7 +153,7 @@ static void cpu_down(int cpu)
 	 */
 	processor->processor_set_next = PROCESSOR_SET_NULL;
 	processor->state = PROCESSOR_OFF_LINE;
-	processor_unlock(processor);
+	simple_unlock(&(processor)->lock);
 	splx(s);
 }
 
@@ -267,13 +267,13 @@ processor_assign(
      */
 Retry:
     s = splsched();
-    processor_lock(processor);
+    simple_lock(&(processor)->lock);
     if(processor->state == PROCESSOR_OFF_LINE ||
 	processor->state == PROCESSOR_SHUTDOWN) {
 	    /*
 	     *	Already shutdown or being shutdown -- Can't reassign.
 	     */
-	    processor_unlock(processor);
+	    simple_unlock(&(processor)->lock);
 	    (void) splx(s);
 	    pset_deallocate(new_pset);
 	    return(KERN_FAILURE);
@@ -281,7 +281,7 @@ Retry:
 
     if (processor->state == PROCESSOR_ASSIGN) {
 	assert_wait((event_t) processor, TRUE);
-	processor_unlock(processor);
+	simple_unlock(&(processor)->lock);
 	splx(s);
 	thread_block(thread_no_continuation);
 	goto Retry;
@@ -291,7 +291,7 @@ Retry:
      *	Avoid work if processor is already in this processor set.
      */
     if (processor->processor_set == new_pset)  {
-	processor_unlock(processor);
+	simple_unlock(&(processor)->lock);
 	(void) splx(s);
 	/* clean up dangling ref */
 	pset_deallocate(new_pset);
@@ -310,14 +310,14 @@ Retry:
 	while (processor->state == PROCESSOR_ASSIGN ||
 	    processor->state == PROCESSOR_SHUTDOWN) {
 		assert_wait((event_t)processor, TRUE);
-		processor_unlock(processor);
+		simple_unlock(&(processor)->lock);
 		splx(s);
 		thread_block(thread_no_continuation);
 		s = splsched();
-		processor_lock(processor);
+		simple_lock(&(processor)->lock);
 	}
     }
-    processor_unlock(processor);
+    simple_unlock(&(processor)->lock);
     splx(s);
     
     return(KERN_SUCCESS);
@@ -350,19 +350,19 @@ processor_shutdown(processor_t processor)
 	return KERN_INVALID_ARGUMENT;
 
     s = splsched();
-    processor_lock(processor);
+    simple_lock(&(processor)->lock);
     if(processor->state == PROCESSOR_OFF_LINE ||
 	processor->state == PROCESSOR_SHUTDOWN) {
 	    /*
 	     *	Already shutdown or being shutdown -- nothing to do.
 	     */
-	    processor_unlock(processor);
+	    simple_unlock(&(processor)->lock);
 	    splx(s);
 	    return(KERN_SUCCESS);
     }
 
     processor_request_action(processor, PROCESSOR_SET_NULL);
-    processor_unlock(processor);
+    simple_unlock(&(processor)->lock);
     splx(s);
 
     return(KERN_SUCCESS);
@@ -398,7 +398,7 @@ static void processor_doaction(processor_t processor)
 	 *	If this is the last processor in the processor_set,
 	 *	stop all the threads first.
 	 */
-	pset_lock(pset);
+	simple_lock(&(pset)->lock);
 	if (pset->processor_count == 1) {
 		/*
 		 *	First suspend all of them.
@@ -417,7 +417,7 @@ Restart_thread:
 		prev_thread = THREAD_NULL;
 		queue_iterate(&pset->threads, thread, thread_t, pset_threads) {
 			thread_reference(thread);
-			pset_unlock(pset);
+			simple_unlock(&(pset)->lock);
 			if (prev_thread != THREAD_NULL)
 				thread_deallocate(prev_thread);
 
@@ -431,17 +431,17 @@ Restart_thread:
 				 */
 				thread_unfreeze(thread);
 				thread_deallocate(thread);
-				pset_lock(pset);
+				simple_lock(&(pset)->lock);
 				goto Restart_thread;
 			}
 
 			(void) thread_dowait(thread, TRUE);
 			prev_thread = thread;
-			pset_lock(pset);
+			simple_lock(&(pset)->lock);
 			thread_unfreeze(prev_thread);
 		}
 	}
-	pset_unlock(pset);
+	simple_unlock(&(pset)->lock);
 
 	/*
 	 *	At this point, it is ok to remove the processor from the pset.
@@ -459,16 +459,16 @@ Restart_pset:
 	     */
 
 	    if ((integer_t) pset < (integer_t) new_pset) {
-		pset_lock(pset);
-		pset_lock(new_pset);
+		simple_lock(&(pset)->lock);
+		simple_lock(&(new_pset)->lock);
 	    }
 	    else {
-		pset_lock(new_pset);
-		pset_lock(pset);
+		simple_lock(&(new_pset)->lock);
+		simple_lock(&(pset)->lock);
 	    }
 	    if (!(new_pset->active)) {
-		pset_unlock(new_pset);
-		pset_unlock(pset);
+		simple_unlock(&(new_pset)->lock);
+		simple_unlock(&(pset)->lock);
 		pset_deallocate(new_pset);
 		new_pset = &default_pset;
 		pset_reference(new_pset);
@@ -480,8 +480,8 @@ Restart_pset:
 	     *	Only happens if there is more than one action thread.
 	     */
 	    while (new_pset->empty && new_pset->processor_count > 0) {
-		pset_unlock(new_pset);
-		pset_unlock(pset);
+		simple_unlock(&(new_pset)->lock);
+		simple_unlock(&(pset)->lock);
 		while (*(volatile boolean_t *)&new_pset->empty &&
 		       *(volatile int *)&new_pset->processor_count > 0)
 			/* spin */;
@@ -492,7 +492,7 @@ Restart_pset:
 	     *	Lock the processor.  new_pset should not have changed.
 	     */
 	    s = splsched();
-	    processor_lock(processor);
+	    simple_lock(&(processor)->lock);
 	    assert(processor->processor_set_next == new_pset);
 
 	    /*
@@ -501,7 +501,7 @@ Restart_pset:
 	     */
 	    if (processor->state == PROCESSOR_SHUTDOWN) {
 		processor->processor_set_next = PROCESSOR_SET_NULL;
-		pset_unlock(new_pset);
+		simple_unlock(&(new_pset)->lock);
 		goto shutdown;	/* releases pset reference */
 	    }
 
@@ -509,7 +509,7 @@ Restart_pset:
 	     *	Do assignment, then wakeup anyone waiting for it.
 	     */
 	    pset_remove_processor(pset, processor);
-	    pset_unlock(pset);
+	    simple_unlock(&(pset)->lock);
 
 	    pset_add_processor(new_pset, processor);
 	    if (new_pset->empty) {
@@ -533,9 +533,9 @@ Restart_pset:
 	    processor->processor_set_next = PROCESSOR_SET_NULL;
 	    processor->state = PROCESSOR_RUNNING;
 	    thread_wakeup((event_t)processor);
-	    processor_unlock(processor);
+	    simple_unlock(&(processor)->lock);
 	    splx(s);
-	    pset_unlock(new_pset);
+	    simple_unlock(&(new_pset)->lock);
 
 	    /*
 	     *	Clean up dangling references, and release our binding.
@@ -562,14 +562,14 @@ Restart_pset:
 	}
 
 	s = splsched();
-	processor_lock(processor);
+	simple_lock(&(processor)->lock);
 
 #if	MACH_HOST
     shutdown:
 #endif	/* MACH_HOST */
 	pset_remove_processor(pset, processor);
-	processor_unlock(processor);
-	pset_unlock(pset);
+	simple_unlock(&(processor)->lock);
+	simple_unlock(&(pset)->lock);
 	splx(s);
 
 	/*

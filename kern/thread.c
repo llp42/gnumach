@@ -439,7 +439,7 @@ kern_return_t thread_create(
 	 */
 
     Restart:
-	pset_lock(pset);
+	simple_lock(&(pset)->lock);
 	simple_lock(&(parent_task)->lock);
 
 	/*
@@ -456,7 +456,7 @@ kern_return_t thread_create(
 	    if (cur_pset != pset) {
 		pset_reference(cur_pset);
 		simple_unlock(&(parent_task)->lock);
-		pset_unlock(pset);
+		simple_unlock(&(pset)->lock);
 		pset_deallocate(pset);
 		pset = cur_pset;
 		goto Restart;
@@ -522,14 +522,14 @@ kern_return_t thread_create(
 
 	if (!parent_task->active) {
 		simple_unlock(&(parent_task)->lock);
-		pset_unlock(pset);
+		simple_unlock(&(pset)->lock);
 		(void) thread_terminate(new_thread);
 		/* release ref we would have given our caller */
 		thread_deallocate(new_thread);
 		return KERN_FAILURE;
 	}
 	simple_unlock(&(parent_task)->lock);
-	pset_unlock(pset);
+	simple_unlock(&(pset)->lock);
 
 	ipc_thread_enable(new_thread);
 
@@ -577,16 +577,16 @@ void thread_deallocate(
 	(void) splx(s);
 
 	pset = thread->processor_set;
-	pset_lock(pset);
+	simple_lock(&(pset)->lock);
 
 #if	MACH_HOST
 	/*
 	 *	The thread might have moved.
 	 */
 	while (pset != thread->processor_set) {
-	    pset_unlock(pset);
+	    simple_unlock(&(pset)->lock);
 	    pset = thread->processor_set;
-	    pset_lock(pset);
+	    simple_lock(&(pset)->lock);
 	}
 #endif	/* MACH_HOST */
 
@@ -603,7 +603,7 @@ void thread_deallocate(
 		thread_unlock(thread);
 		(void) splx(s);
 		simple_unlock(&(task)->lock);
-		pset_unlock(pset);
+		simple_unlock(&(pset)->lock);
 		return;
 	}
 
@@ -637,7 +637,7 @@ void thread_deallocate(
 	thread_unlock(thread);		/* no more references - safe */
 	(void) splx(s);
 	simple_unlock(&(task)->lock);
-	pset_unlock(pset);
+	simple_unlock(&(pset)->lock);
 	pset_deallocate(pset);
 
 	/*
@@ -1837,12 +1837,12 @@ thread_doassign(
 	 */
 Restart:
 	if ((vm_offset_t)pset < (vm_offset_t)new_pset) {
-	    pset_lock(pset);
-	    pset_lock(new_pset);
+	    simple_lock(&(pset)->lock);
+	    simple_lock(&(new_pset)->lock);
 	}
 	else {
-	    pset_lock(new_pset);
-	    pset_lock(pset);
+	    simple_lock(&(new_pset)->lock);
+	    simple_lock(&(pset)->lock);
 	}
 
 	/*
@@ -1850,8 +1850,8 @@ Restart:
 	 *	to default_pset.
 	 */
 	if (!new_pset->active) {
-	    pset_unlock(pset);
-	    pset_unlock(new_pset);
+	    simple_unlock(&(pset)->lock);
+	    simple_unlock(&(new_pset)->lock);
 	    new_pset = &default_pset;
 	    goto Restart;
 	}
@@ -1871,7 +1871,7 @@ Restart:
 	old_empty = pset->empty;
 	new_empty = new_pset->empty;
 
-	pset_unlock(pset);
+	simple_unlock(&(pset)->lock);
 
 	/*
 	 *	Reset policy and priorities if needed.
@@ -1895,7 +1895,7 @@ Restart:
 	    }
 	}
 
-	pset_unlock(new_pset);
+	simple_unlock(&(new_pset)->lock);
 
 	if (recompute_pri)
 		compute_priority(thread, TRUE);
@@ -2230,7 +2230,7 @@ static void thread_collect_scan(void)
 
 	simple_lock(&all_psets_lock);
 	queue_iterate(&all_psets, pset, processor_set_t, all_psets) {
-		pset_lock(pset);
+		simple_lock(&(pset)->lock);
 		queue_iterate(&pset->threads, thread, thread_t, pset_threads) {
 			spl_t	s = splsched();
 			thread_lock(thread);
@@ -2246,7 +2246,7 @@ static void thread_collect_scan(void)
 				thread_unlock(thread);
 				(void) splx(s);
 				pset->ref_count++;
-				pset_unlock(pset);
+				simple_unlock(&(pset)->lock);
 				simple_unlock(&all_psets_lock);
 
 				pcb_collect(thread);
@@ -2260,13 +2260,13 @@ static void thread_collect_scan(void)
 				prev_pset = pset;
 
 				simple_lock(&all_psets_lock);
-				pset_lock(pset);
+				simple_lock(&(pset)->lock);
 			} else {
 				thread_unlock(thread);
 				(void) splx(s);
 			}
 		}
-		pset_unlock(pset);
+		simple_unlock(&(pset)->lock);
 	}
 	simple_unlock(&all_psets_lock);
 
@@ -2444,9 +2444,9 @@ kern_return_t processor_set_stack_usage(
 	size = 0; addr = 0;
 
 	for (;;) {
-		pset_lock(pset);
+		simple_lock(&(pset)->lock);
 		if (!pset->active) {
-			pset_unlock(pset);
+			simple_unlock(&(pset)->lock);
 			return KERN_INVALID_ARGUMENT;
 		}
 
@@ -2459,7 +2459,7 @@ kern_return_t processor_set_stack_usage(
 			break;
 
 		/* unlock the pset and allocate more memory */
-		pset_unlock(pset);
+		simple_unlock(&(pset)->lock);
 
 		if (size != 0)
 			kfree(addr, size);
@@ -2485,7 +2485,7 @@ kern_return_t processor_set_stack_usage(
 	assert(queue_end(&pset->threads, (queue_entry_t) tmp_thread));
 
 	/* can unlock processor set now that we have the thread refs */
-	pset_unlock(pset);
+	simple_unlock(&(pset)->lock);
 
 	/* calculate maxusage and free thread references */
 
