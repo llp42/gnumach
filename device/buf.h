@@ -33,12 +33,7 @@
 #ifndef _DEVICE_BUF_H_
 #define _DEVICE_BUF_H_
 
-/*
- * io_req and fields
- */
 #include <device/io_req.h>
-
-#define	buf	io_req
 
 /*
  * Export standard minphys routine.
