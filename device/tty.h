@@ -175,7 +175,6 @@ extern boolean_t tty_portdeath(
 #define	TS_MIN		0x00004000	/* buffer input chars, if possible */
 #define	TS_MIN_TO	0x00008000	/* timeout for the above is active */
 
-#define TS_OUT          0x00010000	/* tty in use for dialout only */
 #define	TS_RTS_DOWN	0x00020000	/* modem pls stop */
 
 #define TS_TRANSLATE	0x00100000	/* translation device enabled */
