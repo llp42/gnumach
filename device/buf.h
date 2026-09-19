@@ -27,7 +27,7 @@
  *	Author: David B. Golub, Carnegie Mellon University
  *	Date: 	3/90
  *
- * 	Definitions to make new IO structures look like old ones
+ * 	Definitions for block IO requests.
  */
 
 #ifndef _DEVICE_BUF_H_
