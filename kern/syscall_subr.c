@@ -72,12 +72,10 @@ boolean_t swtch(void)
 {
 	processor_t	myprocessor;
 
-#if	NCPUS > 1
 	myprocessor = current_processor();
 	if (myprocessor->runq.count == 0 &&
 	    myprocessor->processor_set->runq.count == 0)
 		return(FALSE);
-#endif	/* NCPUS > 1 */
 
 	thread_block(swtch_continue);
 	myprocessor = current_processor();
@@ -103,12 +101,10 @@ boolean_t  swtch_pri(int pri)
 	thread_t	thread = current_thread();
 	processor_t	myprocessor;
 
-#if	NCPUS > 1
 	myprocessor = current_processor();
 	if (myprocessor->runq.count == 0 &&
 	    myprocessor->processor_set->runq.count == 0)
 		return(FALSE);
-#endif	/* NCPUS > 1 */
 
 	/*
 	 *	XXX need to think about depression duration.
@@ -240,11 +236,9 @@ kern_return_t thread_switch(
      *	highest priority thread (can easily happen with a collection
      *	of timesharing threads).
      */
-#if	NCPUS > 1
     myprocessor = current_processor();
     if (myprocessor->processor_set->runq.count > 0 ||
 	myprocessor->runq.count > 0)
-#endif	/* NCPUS > 1 */
     {
 	thread_block(thread_switch_continue);
     }

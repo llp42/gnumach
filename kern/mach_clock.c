@@ -109,9 +109,7 @@ timeout_data_t	timeout_timers[NTIMERS] = {0};
  * and the difference between these two read is multiplied by the counter
  * period and added to the read value from time or uptime to get a more
  * accurate time read.  */
-#if NCPUS > 1
 #warning This needs fixing
-#endif
 uint32_t	last_hpc_read = 0;
 
 /*
@@ -583,14 +581,12 @@ host_set_time64(const host_t host, time_value64_t new_time)
 	if (host == HOST_NULL)
 		return(KERN_INVALID_HOST);
 
-#if	NCPUS > 1
 	/*
 	 * Switch to the master CPU to synchronize correctly.
 	 */
 	thread_bind(current_thread(), master_processor);
 	if (current_processor() != master_processor)
 	    thread_block(thread_no_continuation);
-#endif	/* NCPUS > 1 */
 
 	s = splhigh();
 	clock_boottime_update(&new_time);
@@ -599,12 +595,10 @@ host_set_time64(const host_t host, time_value64_t new_time)
 	resettodr();
 	splx(s);
 
-#if	NCPUS > 1
 	/*
 	 * Switch off the master CPU.
 	 */
 	thread_bind(current_thread(), PROCESSOR_NULL);
-#endif	/* NCPUS > 1 */
 
 	return(KERN_SUCCESS);
 }
@@ -645,11 +639,9 @@ host_adjust_time64(
 	if (host == HOST_NULL)
 		return (KERN_INVALID_HOST);
 
-#if	NCPUS > 1
 	thread_bind(current_thread(), master_processor);
 	if (current_processor() != master_processor)
 	    thread_block(thread_no_continuation);
-#endif	/* NCPUS > 1 */
 
 	s = splclock();
 
@@ -678,9 +670,7 @@ host_adjust_time64(
 	  }
 
 	splx(s);
-#if	NCPUS > 1
 	thread_bind(current_thread(), PROCESSOR_NULL);
-#endif	/* NCPUS > 1 */
 
 	*old_adjustment = oadj;
 

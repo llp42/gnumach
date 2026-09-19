@@ -241,11 +241,9 @@ evc_signal(evc_t ev)
     {
 	ev->waiting_thread = 0;
 
-#if (NCPUS > 1)
       retry:
 	while((thread->state & TH_RUN) || thread->lock.lock_data)
 		cpu_pause();
-#endif
 	simple_lock_nocheck(&(thread)->lock);
 
 	/* make thread runnable on this processor */
@@ -260,16 +258,11 @@ evc_signal(evc_t ev)
 		 *	on run queue.
 		 */
 		thread->state = (state &~ TH_WAIT) | TH_RUN;
-#if NCPUS > 1
 		thread_setrun(thread, TRUE);
-#else
-		simpler_thread_setrun(thread, TRUE);
-#endif
 		simple_unlock_nocheck(&(thread)->lock);
 		break;
 
 	    case TH_RUN | TH_WAIT:
-#if (NCPUS > 1)
 		/*
 		 * Legal on MP: between assert_wait()
 		 * and thread_block(), in evc_wait() above.
@@ -279,9 +272,6 @@ evc_signal(evc_t ev)
 		 */
 		simple_unlock_nocheck(&(thread)->lock);
 		goto retry;
-#else
-		/*FALLTHROUGH*/
-#endif
 	    case          TH_WAIT | TH_SUSP:
 	    case TH_RUN | TH_WAIT | TH_SUSP:
 	    case TH_RUN | TH_WAIT           | TH_UNINT:
@@ -308,50 +298,4 @@ evc_signal(evc_t ev)
     simple_unlock(&ev->lock);
     splx(s);
 }
-
-#if	NCPUS <= 1
-/*
- * The scheduler is too messy for my old little brain
- */
-void
-simpler_thread_setrun(
-	thread_t	th,
-	boolean_t	may_preempt)
-{
-	struct run_queue	*rq;
-	int			whichq;
-
-	/*
-	 *	XXX should replace queue with a boolean in this case.
-	 */
-	if (default_pset.idle_count > 0) {
-		processor_t	processor;
-
-		processor = (processor_t) queue_first(&default_pset.idle_queue);
-		queue_remove(&default_pset.idle_queue, processor,
-		processor_t, processor_queue);
-		default_pset.idle_count--;
-		processor->next_thread = th;
-		processor->state = PROCESSOR_DISPATCHING;
-		return;
-	}
-	rq = &(master_processor->runq);
-	ast_on(cpu_number(), AST_BLOCK);
-
-	whichq = (th)->sched_pri;
-	simple_lock_nocheck(&(rq)->lock);	/* lock the run queue */
-	enqueue_head(&(rq)->runq[whichq], &((th)->links));
-
-	if (whichq < (rq)->low || (rq)->count == 0)
-		 (rq)->low = whichq;	/* minimize */
-	(rq)->count++;
-	(th)->runq = (rq);
-	simple_unlock_nocheck(&(rq)->lock);
-
-	/*
-	 *	Turn off first_quantum to allow context switch.
-	 */
-	current_processor()->first_quantum = FALSE;
-}
-#endif	/* NCPUS > 1 */
 

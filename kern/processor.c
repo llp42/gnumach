@@ -163,14 +163,12 @@ void pset_init(
 	pset->max_priority = BASEPRI_SYSTEM;
 	pset->policies = POLICY_TIMESHARE;
 	pset->set_quantum = min_quantum;
-#if	NCPUS > 1
 	pset->quantum_adj_index = 0;
 	simple_lock_init_irq(&pset->quantum_adj_lock);
 
 	for (i = 0; i <= NCPUS; i++) {
 	    pset->machine_quantum[i] = min_quantum;
 	}
-#endif	/* NCPUS > 1 */
 	pset->mach_factor = 0;
 	pset->load_average = 0;
 	pset->sched_load = SCHED_SCALE;		/* i.e. 1 */
@@ -460,11 +458,7 @@ kern_return_t processor_exit(
 	if (processor == PROCESSOR_NULL)
 		return KERN_INVALID_ARGUMENT;
 
-#if	NCPUS > 1
 	return processor_shutdown(processor);
-#else	/* NCPUS > 1 */
-	return KERN_FAILURE;
-#endif	/* NCPUS > 1 */
 }
 
 kern_return_t
@@ -476,11 +470,7 @@ processor_control(
 	if (processor == PROCESSOR_NULL)
 		return KERN_INVALID_ARGUMENT;
 
-#if	NCPUS > 1
 	return cpu_control(processor->slot_num, (int *)info, count);
-#else	/* NCPUS > 1 */
-	return KERN_FAILURE;
-#endif	/* NCPUS > 1 */
 }
 
 /*
@@ -493,7 +483,6 @@ processor_control(
 void quantum_set(
 	processor_set_t	pset)
 {
-#if	NCPUS > 1
 	int	i, ncpus;
 
 	ncpus = pset->processor_count;
@@ -507,9 +496,6 @@ void quantum_set(
 	i = ((pset->runq.count > pset->processor_count) ?
 		pset->processor_count : pset->runq.count);
 	pset->set_quantum = pset->machine_quantum[i];
-#else	/* NCPUS > 1 */
-	default_pset.set_quantum = min_quantum;
-#endif	/* NCPUS > 1 */
 }
 
 #if	MACH_HOST

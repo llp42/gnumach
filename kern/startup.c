@@ -67,11 +67,9 @@
 
 boolean_t reboot_on_panic = TRUE;
 
-#if	NCPUS > 1
 #include <machine/mp_desc.h>
 #include <kern/smp.h>
 #include <kern/machine.h>
-#endif	/* NCPUS > 1 */
 
 /* XX */
 extern char *kernel_cmdline;
@@ -211,7 +209,6 @@ void start_kernel_threads(void)
 	(void) kernel_thread(kernel_task, "sched", sched_thread, (char *) 0);
 	(void) kernel_thread(kernel_task, "intr", intr_thread, (char *)0);
 
-#if	NCPUS > 1
 	/*
 	 *	Create the shutdown thread.
 	 */
@@ -221,7 +218,6 @@ void start_kernel_threads(void)
 	 *	Allow other CPUs to run.
 	 */
 	start_other_cpus();
-#endif	/* NCPUS > 1 */
 
 	/*
 	 *	Create the device service.
@@ -282,9 +278,7 @@ void cpu_launch_first_thread(thread_t th)
 	simple_lock_nocheck(&(th)->lock);
 	th->state &= ~TH_UNINT;
 	simple_unlock_nocheck(&(th)->lock);
-#if	NCPUS > 1
 	th->last_processor = cpu_to_processor(mycpu);
-#endif	/* NCPUS > 1 */
 	timer_switch(&th->system_timer);
 
 	PMAP_ACTIVATE_USER(vm_map_pmap(th->task->map), th, mycpu);

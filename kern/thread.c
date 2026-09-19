@@ -345,9 +345,7 @@ void thread_init(void)
 	thread_template.assign_active = FALSE;
 #endif	/* MACH_HOST */
 
-#if	NCPUS > 1
 	/* thread_template.last_processor  (later) */
-#endif	/* NCPUS > 1 */
 
 	/*
 	 *	Initialize other data structures used in
@@ -1227,7 +1225,6 @@ thread_dowait(
 			thread->wake_active = FALSE;
 			break;
 		    }
-#if	NCPUS > 1
 		    /*
 		     *	The thread must be running, so make its
 		     *	processor execute ast_check().  This
@@ -1236,7 +1233,6 @@ thread_dowait(
 		     */
 		    if (thread->last_processor != PROCESSOR_NULL)
 		       cause_ast_check(thread->last_processor);
-#endif	/* NCPUS > 1 */
 
 		    /*
 		     *	Fall through to wait for thread to stop.
@@ -1572,11 +1568,9 @@ kern_return_t thread_info(
 	    sched_info->depressed = (thread->depress_priority >= 0);
 	    sched_info->depress_priority = thread->depress_priority;
 
-#if NCPUS > 1
 	    if (thread->last_processor)
 		sched_info->last_processor = thread->last_processor->slot_num;
 	    else
-#endif
 		sched_info->last_processor = 0;
 
 	    simple_unlock_nocheck(&(thread)->lock);

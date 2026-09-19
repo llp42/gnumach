@@ -57,10 +57,4 @@ extern	void	evc_init(evc_t ev),
 extern	kern_return_t	evc_wait(natural_t ev_id);
 extern	kern_return_t 	evc_wait_clear(natural_t ev_id);
 
-#if  NCPUS <= 1
-void simpler_thread_setrun(
-	thread_t	th,
-	boolean_t	may_preempt);
-#endif
-
 #endif	/* _KERN_EVENTCOUNT_H_ */

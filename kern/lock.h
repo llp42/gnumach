@@ -56,13 +56,10 @@
  */
 
 #include <machine/lock.h>/*XXX*/
-#if NCPUS > 1
 #define simple_lock_nocheck	_simple_lock
 #define simple_lock_try_nocheck	_simple_lock_try
 #define simple_unlock_nocheck	_simple_unlock
-#endif
 
-#define MACH_SLOCKS	(NCPUS > 1)
 
 /*
  *	A simple spin lock.
@@ -82,7 +79,6 @@ struct slock {
 typedef struct slock	simple_lock_data_t;
 typedef struct slock	*simple_lock_t;
 
-#if	MACH_SLOCKS
 /*
  *	Use the locks.
  */
@@ -108,40 +104,6 @@ class	simple_lock_irq_data_t	name = { SIMPLE_LOCK_INITIALIZER(&name.lock) };
 #define check_simple_locks()
 #define check_simple_locks_enable()
 #define check_simple_locks_disable()
-
-#else	/* MACH_SLOCKS */
-/*
- * Do not allocate storage for locks if not needed.
- */
-struct simple_lock_data_empty { struct {} is_a_simple_lock; };
-struct simple_lock_irq_data_empty { struct simple_lock_data_empty slock; };
-#define	decl_simple_lock_data(class,name)	\
-class struct simple_lock_data_empty name;
-#define	def_simple_lock_data(class,name)	\
-class struct simple_lock_data_empty name;
-#define	def_simple_lock_irq_data(class,name)	\
-class struct simple_lock_irq_data_empty name;
-#define	simple_lock_addr(lock)		(simple_lock_assert(&(lock)),	\
-					 (simple_lock_t)0)
-#define	simple_lock_irq_addr(lock)	(simple_lock_irq_assert(&(lock)),	\
-					 (simple_lock_t)0)
-
-/*
- *	No multiprocessor locking is necessary.
- */
-#define simple_lock_init(l)	simple_lock_assert(l)
-#define simple_lock_nocheck(l)		simple_lock_assert(l)
-#define simple_unlock_nocheck(l)	simple_lock_assert(l)
-#define simple_lock_try_nocheck(l)	(simple_lock_assert(l),		\
-				 TRUE)	/* always succeeds */
-#define simple_lock_taken(l)	(simple_lock_assert(l),		\
-				 1)	/* always succeeds */
-#define check_simple_locks()
-#define check_simple_locks_enable()
-#define check_simple_locks_disable()
-#define simple_lock_pause()
-
-#endif	/* MACH_SLOCKS */
 
 
 /*

@@ -47,9 +47,7 @@
 #include <kern/kern_types.h>
 #include <kern/host.h>
 
-#if	NCPUS > 1
 #include <machine/ast_types.h>
-#endif	/* NCPUS > 1 */
 
 struct processor_set {
 	struct run_queue	runq;		/* runq for this set */
@@ -73,11 +71,9 @@ struct processor_set {
 	int			max_priority;	/* maximum priority */
 	int			policies;	/* bit vector for policies */
 	int			set_quantum;	/* current default quantum */
-#if	NCPUS > 1
 	int			quantum_adj_index; /* runtime quantum adj. */
 	decl_simple_lock_irq_data(, quantum_adj_lock)  /* lock for above */
 	int			machine_quantum[NCPUS+1]; /* ditto */
-#endif	/* NCPUS > 1 */
 	long			mach_factor;	/* mach_factor */
 	long			load_average;	/* load_average */
 	long			sched_load;	/* load avg for scheduler */
@@ -105,9 +101,7 @@ struct processor {
 	struct ipc_port *processor_self;	/* port for operations */
 	struct ipc_port *processor_name_self;	/* unprivileged name port */
 	int		slot_num;	/* machine-indep slot number */
-#if	NCPUS > 1
 	ast_check_t	ast_check_data;	/* for remote ast_check invocation */
-#endif	/* NCPUS > 1 */
 	/* punt id data temporarily */
 };
 typedef struct processor Processor;

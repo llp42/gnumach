@@ -62,17 +62,7 @@
  */
 
 
-#if	NCPUS > 1
 static int lock_wait_time = 100;
-#else	/* NCPUS > 1 */
-
-	/*
-	 * 	It is silly to spin on a uni-processor as if we
-	 *	thought something magical would happen to the
-	 *	want_write bit while we are executing.
-	 */
-static int lock_wait_time = 0;
-#endif	/* NCPUS > 1 */
 
 /*
  *	Routine:	lock_init

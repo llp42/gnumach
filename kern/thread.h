@@ -226,9 +226,7 @@ struct thread {
 	boolean_t	assign_active;	/* someone waiting for may_assign */
 #endif	/* MACH_HOST */
 
-#if	NCPUS > 1
 	processor_t	last_processor; /* processor this last ran on */
-#endif	/* NCPUS > 1 */
 
 	char	name[THREAD_NAME_SIZE];
 };

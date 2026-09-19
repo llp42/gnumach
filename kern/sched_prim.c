@@ -639,9 +639,7 @@ boolean_t thread_invoke(
 		    simple_unlock_nocheck(&(new_thread)->lock);
 		    thread_wakeup(TH_EV_STATE(new_thread));
 
-#if	NCPUS > 1
 		    new_thread->last_processor = current_processor();
-#endif	/* NCPUS > 1 */
 
 		    /*
 		     *	Set up ast context of new thread and
@@ -769,9 +767,7 @@ boolean_t thread_invoke(
 	/*
 	 *	Thread is now interruptible.
 	 */
-#if	NCPUS > 1
 	new_thread->last_processor = current_processor();
-#endif	/* NCPUS > 1 */
 
 	/*
 	 *	Set up ast context of new thread and switch to its timer.
@@ -1180,9 +1176,7 @@ void thread_setrun(
 {
 	processor_t	processor;
 	run_queue_t	rq;
-#if	NCPUS > 1
 	processor_set_t	pset;
-#endif	/* NCPUS > 1 */
 
 	/*
 	 *	Update priority if needed.
@@ -1193,7 +1187,6 @@ void thread_setrun(
 
 	assert(th->runq == RUN_QUEUE_NULL);
 
-#if	NCPUS > 1
 	/*
 	 *	Try to dispatch the thread directly onto an idle processor.
 	 */
@@ -1273,39 +1266,6 @@ void thread_setrun(
 		cause_ast_check(processor);
 	    }
 	}
-#else	/* NCPUS > 1 */
-	/*
-	 *	XXX should replace queue with a boolean in this case.
-	 */
-	if (default_pset.idle_count > 0) {
-	    processor = (processor_t) queue_first(&default_pset.idle_queue);
-	    queue_remove(&default_pset.idle_queue, processor,
-		processor_t, processor_queue);
-	    default_pset.idle_count--;
-	    processor->next_thread = th;
-	    processor->state = PROCESSOR_DISPATCHING;
-	    return;
-	}
-	if (th->bound_processor == PROCESSOR_NULL) {
-	    	rq = &(default_pset.runq);
-	}
-	else {
-		rq = &(master_processor->runq);
-		ast_on(cpu_number(), AST_BLOCK);
-	}
-	run_queue_enqueue(rq,th);
-
-	/*
-	 * Preempt check
-	 */
-	if (may_preempt && (current_thread()->sched_pri > th->sched_pri)) {
-		/*
-		 *	Turn off first_quantum to allow context switch.
-		 */
-		current_processor()->first_quantum = FALSE;
-		ast_on(cpu_number(), AST_BLOCK);
-	}
-#endif	/* NCPUS > 1 */
 }
 
 /*

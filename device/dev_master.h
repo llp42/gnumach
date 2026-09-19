@@ -35,8 +35,6 @@
 
 #include <cpus.h>
 
-#if	NCPUS > 1
-
 #include <kern/macros.h>
 #include <kern/cpu_number.h>
 #include <kern/sched_prim.h>
@@ -54,12 +52,5 @@
 	MACRO_BEGIN \
 	thread_bind(current_thread(), PROCESSOR_NULL); \
 	MACRO_END
-
-#else	NCPUS > 1
-
-#define	io_grab_master()
-#define	io_release_master()
-
-#endif	NCPUS > 1
 
 #endif /* _DEVICE_DEV_MASTER_H_ */

@@ -157,13 +157,9 @@ thread_will_wait_with_timeout(
 #define	check_processor_set(thread)	TRUE
 #endif	/* MACH_HOST */
 
-#if	NCPUS > 1
 #define	check_bound_processor(thread) \
 	    ((thread)->bound_processor == PROCESSOR_NULL || \
 	     (thread)->bound_processor == current_processor())
-#else	/* NCPUS > 1 */
-#define	check_bound_processor(thread)	TRUE
-#endif	/* NCPUS > 1 */
 
 /*
  *	Routine:	thread_handoff
@@ -221,9 +217,7 @@ thread_handoff(
 	new->state = TH_RUN;
 	simple_unlock_nocheck(&(new)->lock);
 
-#if	NCPUS > 1
 	new->last_processor = current_processor();
-#endif	/* NCPUS > 1 */
 
 	ast_context(new, cpu_number());
 	timer_switch(&new->system_timer);

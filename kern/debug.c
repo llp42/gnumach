@@ -38,9 +38,7 @@
 
 #include <device/cons.h>
 
-#if NCPUS>1
 simple_lock_irq_data_t Assert_print_lock;
-#endif
 
 static void
 do_cnputc(char c, vm_offset_t offset)
@@ -51,15 +49,10 @@ do_cnputc(char c, vm_offset_t offset)
 void
 Assert(const char *exp, const char *file, int line, const char *fun)
 {
-#if NCPUS > 1
 	spl_t s = simple_lock_irq(&Assert_print_lock);
 	printf("{cpu%d} %s:%d: %s: Assertion `%s' failed.",
 	       cpu_number(), file, line, fun, exp);
 	simple_unlock_irq(s, &Assert_print_lock);
-#else
-	printf("%s:%d: %s: Assertion `%s' failed.",
-	       file, line, fun, exp);
-#endif
 
 	Debugger("assertion failure");
 }
@@ -88,9 +81,7 @@ int			paniccpu;
 void
 panic_init(void)
 {
-#if NCPUS > 1
 	simple_lock_init_irq(&Assert_print_lock);
-#endif
 	simple_lock_init_irq(&panic_lock);
 }
 
@@ -119,9 +110,7 @@ Panic(const char *file, int line, const char *fun, const char *s, ...)
 	}
 	simple_unlock_irq(spl, &panic_lock);
 	printf("panic ");
-#if	NCPUS > 1
 	printf("{cpu%d} ", paniccpu);
-#endif
 	printf("%s:%d: %s: ",file, line, fun);
 	va_start(listp, s);
 	_doprnt(s, listp, do_cnputc, 16, 0);

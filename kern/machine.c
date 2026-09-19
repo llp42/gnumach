@@ -88,9 +88,7 @@ void cpu_up(int cpu)
 #endif
 	s = splsched();
 	simple_lock(&(processor)->lock);
-#if	NCPUS > 1
 	init_ast_check(processor);
-#endif	/* NCPUS > 1 */
 	ms = &machine_slot[cpu];
 	ms->running = TRUE;
 	machine_info.avail_cpus++;
@@ -127,8 +125,6 @@ host_reboot(const host_t host, int options)
 	}
 	return (KERN_SUCCESS);
 }
-
-#if	NCPUS > 1
 
 /*
  *	cpu_down:
@@ -654,15 +650,3 @@ void processor_doshutdown(processor_t processor)
 
 	/*NOTREACHED*/
 }
-#else	/* NCPUS > 1 */
-
-kern_return_t
-processor_assign(
-	processor_t	processor,
-	processor_set_t	new_pset,
-	boolean_t	wait)
-{
-	return(KERN_FAILURE);
-}
-
-#endif /* NCPUS > 1 */

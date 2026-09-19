@@ -127,7 +127,6 @@ ast_check(void)
 		 */
 	    	break;
 
-#if	NCPUS > 1
 	    case PROCESSOR_ASSIGN:
 	    case PROCESSOR_SHUTDOWN:
 	        /*
@@ -137,7 +136,6 @@ ast_check(void)
 		 */
 		ast_on(mycpu, AST_BLOCK);
 		break;
-#endif	/* NCPUS > 1 */
 
 	    case PROCESSOR_RUNNING:
 

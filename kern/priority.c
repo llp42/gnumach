@@ -74,13 +74,10 @@ void thread_quantum_update(
 {
 	int				quantum;
 	processor_t			myprocessor;
-#if	NCPUS > 1
 	processor_set_t			pset;
-#endif
 	spl_t				s;
 
 	myprocessor = cpu_to_processor(mycpu);
-#if	NCPUS > 1
 	pset = myprocessor->processor_set;
 	if (pset == 0) {
 	    /*
@@ -90,7 +87,6 @@ void thread_quantum_update(
 	     */
 	    return;
 	}
-#endif	/* NCPUS > 1 */
 
 	/*
 	 *	Account for thread's utilization of these ticks.
@@ -101,7 +97,6 @@ void thread_quantum_update(
 	/*
 	 *	Update set_quantum and calculate the current quantum.
 	 */
-#if	NCPUS > 1
 	pset->set_quantum = pset->machine_quantum[
 		((pset->runq.count > pset->processor_count) ?
 		  pset->processor_count : pset->runq.count)];
@@ -110,10 +105,6 @@ void thread_quantum_update(
 		quantum = min_quantum;
 	else
 		quantum = pset->set_quantum;
-#else	/* NCPUS > 1 */
-	quantum = min_quantum;
-	default_pset.set_quantum = quantum;
-#endif	/* NCPUS > 1 */
 		
 	/*
 	 *	Now recompute the priority of the thread if appropriate.
@@ -121,7 +112,6 @@ void thread_quantum_update(
 
 	if (state != CPU_STATE_IDLE) {
 		myprocessor->quantum -= nticks;
-#if	NCPUS > 1
 		/*
 		 *	Runtime quantum adjustment.  Use quantum_adj_index
 		 *	to avoid synchronizing quantum expirations.
@@ -138,7 +128,6 @@ void thread_quantum_update(
 				pset->quantum_adj_index = 0;
 			simple_unlock_irq(s, &pset->quantum_adj_lock);
 		}
-#endif	/* NCPUS > 1 */
 		if (myprocessor->quantum <= 0) {
 			s = splsched();
 			simple_lock_nocheck(&(thread)->lock);
