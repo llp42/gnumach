@@ -65,7 +65,6 @@ typedef struct {
 		struct mouse_motion mmotion;	/* MOUSE_MOTION */
 	} value;
 } kd_event;
-#define m_deltaY	mmotion.mm_deltaY
 
 /* 
  * kd_event ID's.
