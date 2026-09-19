@@ -50,7 +50,6 @@ int_fill(struct real_gate *myidt)
 			      int_entry_table[i], KERNEL_CS,
 			      ACC_PL_K|ACC_INTR_GATE, 0);
 	}
-#if NCPUS > 1
 	fill_idt_gate(myidt, CALL_AST_CHECK,
 			      int_entry_table[i], KERNEL_CS,
 			      ACC_PL_K|ACC_INTR_GATE, 0);
@@ -59,7 +58,6 @@ int_fill(struct real_gate *myidt)
 			      int_entry_table[i], KERNEL_CS,
 			      ACC_PL_K|ACC_INTR_GATE, 0);
 	i++;
-#endif
 #ifdef APIC
 	fill_idt_gate(myidt, IOAPIC_SPURIOUS_BASE,
 			      int_entry_table[i], KERNEL_CS,
@@ -74,9 +72,7 @@ int_init(void)
 	int_fill(idt);
 }
 
-#if NCPUS > 1
 void ap_int_init(int cpu)
 {
 	int_fill(mp_desc_table[cpu]->idt);
 }
-#endif

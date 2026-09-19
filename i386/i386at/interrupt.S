@@ -52,13 +52,11 @@ ENTRY(interrupt)
 
 	movl	S_IRQ,%ecx		/* restore irq number */
 
-#if NCPUS > 1
 	cmpl	$CALL_PMAP_UPDATE,%ecx	/* was this a SMP pmap_update request? */
 	je	_call_single
 
 	cmpl	$CALL_AST_CHECK,%ecx	/* was this a SMP remote -> local ast request? */
 	je	_call_local_ast
-#endif
 
 	movb	EXT(irqinfo)(,%ecx,2),%al	/* look up irq_info[irq].trigger */
 	testb	$1,%al			/* was this a level triggered interrupt? */
@@ -141,7 +139,6 @@ _completed:
 	addl	$24,%esp		/* pop local variables */
 	ret
 
-#if NCPUS > 1
 _call_single:
 	call	EXT(lapic_eoi)		/* lapic EOI before the handler to allow extra update */
 	call	EXT(pmap_update_interrupt)
@@ -152,5 +149,4 @@ _call_local_ast:
 	call	EXT(ast_check)		/* AST check on this cpu */
 	jmp	_completed
 
-#endif
 END(interrupt)

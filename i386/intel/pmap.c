@@ -86,9 +86,7 @@
 #include <i386at/biosmem.h>
 #include <i386at/model_dep.h>
 
-#if	NCPUS > 1
 #include <i386/mp_desc.h>
-#endif
 
 #include <machine/db_machdep.h>
 
@@ -232,7 +230,6 @@ vm_object_t	pmap_object = VM_OBJECT_NULL;
  *	kernel_pmap can only be held at splvm.
  */
 
-#if	NCPUS > 1
 /*
  *	We raise the interrupt level to splvm, to block interprocessor
  *	interrupts during pmap operations.  We must take the CPU out of
@@ -315,30 +312,6 @@ MACRO_BEGIN \
 	} \
 MACRO_END
 
-#else	/* NCPUS > 1 */
-
-#define SPLVM(spl) ((void)(spl))
-#define SPLX(spl) ((void)(spl))
-
-#define PMAP_READ_LOCK(pmap, spl)	SPLVM(spl)
-#define PMAP_WRITE_LOCK(spl)		SPLVM(spl)
-#define PMAP_READ_UNLOCK(pmap, spl)	SPLX(spl)
-#define PMAP_WRITE_UNLOCK(spl)		SPLX(spl)
-#define PMAP_WRITE_TO_READ_LOCK(pmap)
-
-#define LOCK_PVH(index)
-#define UNLOCK_PVH(index)
-
-#define PMAP_UPDATE_TLBS(pmap, s, e) \
-MACRO_BEGIN \
-	/* invalidate our own TLB if pmap is in use */ \
-	if ((pmap)->cpus_using) { \
-	    INVALIDATE_TLB((pmap), (s), (e)); \
-	} \
-MACRO_END
-
-#endif	/* NCPUS > 1 */
-
 /* It is hard to know when a TLB flush becomes less expensive than a bunch of
  * invlpgs.  But it surely is more expensive than just one invlpg.  */
 #define INVALIDATE_TLB(pmap, s, e) \
@@ -351,7 +324,6 @@ MACRO_BEGIN \
 MACRO_END
 
 
-#if	NCPUS > 1
 /*
  *	Structures to keep track of pending TLB invalidations
  */
@@ -383,8 +355,6 @@ cpu_set		cpus_active;
 cpu_set		cpus_idle;
 volatile
 boolean_t	cpu_update_needed[NCPUS];
-
-#endif	/* NCPUS > 1 */
 
 /*
  *	Other useful macros.
@@ -654,9 +624,7 @@ void pmap_bootstrap(void)
 
 	kernel_pmap = &kernel_pmap_store;
 
-#if	NCPUS > 1
 	lock_init(&pmap_system_lock, FALSE);	/* NOT a sleep lock */
-#endif	/* NCPUS > 1 */
 
 	simple_lock_init(&kernel_pmap->lock);
 
@@ -818,9 +786,7 @@ void pmap_init(void)
 	unsigned long		npages;
 	vm_offset_t		addr;
 	vm_size_t		s;
-#if	NCPUS > 1
 	int			i;
-#endif	/* NCPUS > 1 */
 
 	/*
 	 *	Allocate memory for the pv_head_table and its lock bits,
@@ -873,7 +839,6 @@ void pmap_init(void)
 	s = (vm_size_t) sizeof(struct pv_entry);
 	kmem_cache_init(&pv_list_cache, "pv_entry", s, 0, NULL, 0);
 
-#if	NCPUS > 1
 	/*
 	 *	Set up the pmap request lists
 	 */
@@ -883,7 +848,6 @@ void pmap_init(void)
 	    simple_lock_init(&up->lock);
 	    up->count = 0;
 	}
-#endif	/* NCPUS > 1 */
 
 	/*
 	 * Indicate that the PMAP module is now fully initialized.
@@ -2384,7 +2348,6 @@ boolean_t pmap_is_referenced(phys_addr_t phys)
 	return (phys_attribute_test(phys, PHYS_REFERENCED));
 }
 
-#if	NCPUS > 1
 /*
 *	    TLB Coherence Code (TLB "shootdown" code)
 *
@@ -2577,15 +2540,6 @@ void pmap_update_interrupt(void)
 
 	splx(s);
 }
-#else	/* NCPUS > 1 */
-/*
- *	Dummy routine to satisfy external reference.
- */
-void pmap_update_interrupt(void)
-{
-	/* should never be called. */
-}
-#endif	/* NCPUS > 1 */
 
 #if defined(__i386__) || defined (__x86_64__)
 /* Unmap page 0 to trap NULL references.  */

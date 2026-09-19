@@ -238,7 +238,6 @@ extern void pmap_put_mapwindow(pmap_mapwindow_t *map);
 
 #define PMAP_NMAPWINDOWS 2	/* Per CPU */
 
-#if	NCPUS > 1
 /*
  *	List of cpus that are actively using mapped memory.  Any
  *	pmap update operation must wait for all cpus in this list.
@@ -266,8 +265,6 @@ boolean_t	cpu_update_needed[NCPUS];
 void		process_pmap_updates(pmap_t);
 extern	pmap_t	kernel_pmap;
 
-#endif	/* NCPUS > 1 */
-
 void		pmap_update_interrupt(void);
 
 /*
@@ -279,8 +276,6 @@ pt_entry_t *pmap_pte(const pmap_t pmap, vm_offset_t addr);
 /*
  *	Macros for speed.
  */
-
-#if	NCPUS > 1
 
 /*
  *	For multiple CPUS, PMAP_ACTIVATE and PMAP_DEACTIVATE must manage
@@ -431,47 +426,6 @@ MACRO_BEGIN								\
 	splx(s);							\
 MACRO_END
 
-#else	/* NCPUS > 1 */
-
-/*
- *	With only one CPU, we just have to indicate whether the pmap is
- *	in use.
- */
-
-#define	PMAP_ACTIVATE_KERNEL(my_cpu)					\
-MACRO_BEGIN								\
-	(void) (my_cpu);						\
-	kernel_pmap->cpus_using = TRUE;					\
-MACRO_END
-
-#define	PMAP_DEACTIVATE_KERNEL(my_cpu)					\
-MACRO_BEGIN\								\
-	(void) (my_cpu);						\
-	kernel_pmap->cpus_using = FALSE;				\
-MACRO_END
-
-#define	PMAP_ACTIVATE_USER(pmap, th, my_cpu)				\
-MACRO_BEGIN								\
-	pmap_t		tpmap = (pmap);					\
-	(void) (th);							\
-	(void) (my_cpu);						\
-									\
-	set_pmap(tpmap);						\
-	if (tpmap != kernel_pmap) {					\
-	    tpmap->cpus_using = TRUE;					\
-	}								\
-MACRO_END
-
-#define PMAP_DEACTIVATE_USER(pmap, thread, cpu)				\
-MACRO_BEGIN								\
-	(void) (thread);						\
-	(void) (cpu);							\
-	if ((pmap) != kernel_pmap)					\
-	    (pmap)->cpus_using = FALSE;					\
-MACRO_END
-
-#endif	/* NCPUS > 1 */
-
 #define PMAP_CONTEXT(pmap, thread)
 
 #define	pmap_kernel()			(kernel_pmap)
@@ -541,13 +495,11 @@ copy_from_phys(
  */
 extern phys_addr_t kvtophys (vm_offset_t);
 
-#if NCPUS > 1
 void signal_cpus(
 	cpu_set		use_list,
 	pmap_t		pmap,
 	vm_offset_t	start,
 	vm_offset_t	end);
-#endif	/* NCPUS > 1 */
 
 #endif	/* __ASSEMBLER__ */
 

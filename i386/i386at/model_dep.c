@@ -125,9 +125,7 @@ void machine_init(void)
 		for (;;);
 	}
 #endif
-#if (NCPUS > 1)
 	smp_init();
-#endif
 	init_irqs();
 #if defined(APIC)
 	ioapic_configure();
@@ -163,7 +161,6 @@ void machine_init(void)
 	pmap_unmap_page_zero();
 #endif
 
-#if NCPUS > 1
 	/*
 	 * Patch the realmode gdt with the correct offset and the first jmp to
 	 * protected mode with the correct target.
@@ -177,7 +174,6 @@ void machine_init(void)
 	 * To access it here, we need to add KERNEL_MAP_BASE to pointers. */
 	*(uint32_t *)phystokv(&gdt_descr_tmp.linear_base) += apboot_addr;
 	*(uint32_t *)phystokv(&apboot_jmp_offset) += apboot_addr;
-#endif
 #endif
 
 #ifdef APIC
@@ -405,10 +401,8 @@ i386at_init(void)
 	ktss_init();
 
 	init_percpu(0);
-#if NCPUS > 1
 	/* Initialize SMP structures in the master processor */
 	mp_desc_init(0);
-#endif // NCPUS
 
 	pmap_remove_temporary_mapping();
 
