@@ -40,7 +40,6 @@
 #include <stdint.h>
 
 #ifdef MACH_KERNEL
-#include <kern/assert.h>
 #endif
 
 /*

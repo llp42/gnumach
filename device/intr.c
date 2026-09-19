@@ -12,7 +12,6 @@
  * FOR ANY DAMAGES WHATSOEVER RESULTING FROM THE USE OF THIS SOFTWARE.
  */
 
-#include <kern/assert.h>
 #include <device/intr.h>
 #include <device/device_types.h>
 #include <device/device_port.h>

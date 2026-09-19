@@ -34,7 +34,6 @@
 #include <kern/slab.h>
 #include <vm/vm_external.h>
 #include <mach/vm_param.h>
-#include <kern/assert.h>
 #include <string.h>
 
 

@@ -35,7 +35,6 @@
 #define _IPC_IPC_MQUEUE_H_
 
 #include <mach/message.h>
-#include <kern/assert.h>
 #include <kern/lock.h>
 #include <kern/macros.h>
 #include <ipc/ipc_kmsg_queue.h>
@@ -81,7 +80,6 @@ ipc_mqueue_receive(ipc_mqueue_t, mach_msg_option_t,
  *	when assertions are turned off, we need two versions of this.
  */
 
-#include <kern/assert.h>
 
 
 #define	ipc_mqueue_send_always(kmsg)					\

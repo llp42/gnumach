@@ -32,7 +32,6 @@
  */
 #include <mach/machine/vm_types.h>
 
-#include <kern/assert.h>
 #include <intel/pmap.h>
 #include <kern/cpu_number.h>
 #include <machine/percpu.h>

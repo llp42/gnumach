@@ -36,7 +36,6 @@
 
 #include <mach/port.h>
 #include <mach/message.h>
-#include <kern/assert.h>
 #include <kern/debug.h>
 #include <kern/sched_prim.h>
 #include <kern/ipc_sched.h>

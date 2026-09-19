@@ -28,7 +28,6 @@
 #ifndef _mach_debug__debug_
 #define _mach_debug__debug_
 
-#include <kern/assert.h> /*XXX*/
 
 
 extern void log (int level, const char *fmt, ...);

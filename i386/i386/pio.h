@@ -27,6 +27,8 @@
 #ifndef _I386_PIO_H_
 #define _I386_PIO_H_
 
+#include <kern/macros.h>
+
 #ifndef	__GNUC__
 #error	You do not stand a chance.  This file is gcc only.
 #endif	/* __GNUC__ */

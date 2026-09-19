@@ -27,7 +27,7 @@
  * http://git.sceen.net/rbraun/librbraun.git/
  */
 
-#include <kern/assert.h>
+#include <kern/macros.h>
 #include <kern/slab.h>
 #include <mach/kern_return.h>
 #include <stddef.h>

@@ -43,7 +43,6 @@
 #include <mach/machine/vm_types.h>
 #include <kern/queue.h>
 #include <kern/lock.h>
-#include <kern/assert.h>
 #include <kern/debug.h>
 #include <kern/macros.h>
 #include <vm/pmap.h>

@@ -30,7 +30,6 @@
 #define _KERN_RBTREE_H
 
 #include <stddef.h>
-#include <kern/assert.h>
 #include <kern/macros.h>
 #include <sys/types.h>
 

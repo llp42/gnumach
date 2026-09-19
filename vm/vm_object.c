@@ -43,7 +43,6 @@
 #include <machine/vm_param.h>
 #include <ipc/ipc_port.h>
 #include <ipc/ipc_space.h>
-#include <kern/assert.h>
 #include <kern/debug.h>
 #include <kern/mach.server.h>
 #include <kern/lock.h>

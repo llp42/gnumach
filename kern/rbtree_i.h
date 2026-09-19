@@ -26,7 +26,6 @@
 #ifndef _KERN_RBTREE_I_H
 #define _KERN_RBTREE_I_H
 
-#include <kern/assert.h>
 
 /*
  * Red-black node structure.

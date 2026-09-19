@@ -23,7 +23,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <kern/assert.h>
 #include <kern/macros.h>
 #include <kern/rbtree.h>
 #include <kern/rbtree_i.h>

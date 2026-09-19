@@ -38,7 +38,6 @@
 
 #include <device/cons.h>
 
-simple_lock_irq_data_t Assert_print_lock;
 
 static void
 do_cnputc(char c, vm_offset_t offset)
@@ -46,16 +45,6 @@ do_cnputc(char c, vm_offset_t offset)
 	cnputc(c);
 }
 
-void
-Assert(const char *exp, const char *file, int line, const char *fun)
-{
-	spl_t s = simple_lock_irq(&Assert_print_lock);
-	printf("{cpu%d} %s:%d: %s: Assertion `%s' failed.",
-	       cpu_number(), file, line, fun, exp);
-	simple_unlock_irq(s, &Assert_print_lock);
-
-	Debugger("assertion failure");
-}
 
 void SoftDebugger(const char *message)
 {
@@ -81,7 +70,6 @@ int			paniccpu;
 void
 panic_init(void)
 {
-	simple_lock_init_irq(&Assert_print_lock);
 	simple_lock_init_irq(&panic_lock);
 }
 

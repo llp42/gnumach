@@ -36,7 +36,6 @@
  *	IPC operations on threads.
  */
 
-#include <kern/assert.h>
 #include <ipc/ipc_thread.h>
 
 /*

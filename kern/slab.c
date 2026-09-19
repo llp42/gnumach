@@ -72,7 +72,6 @@
  */
 
 #include <string.h>
-#include <kern/assert.h>
 #include <kern/mach_clock.h>
 #include <kern/macros.h>
 #include <kern/printf.h>

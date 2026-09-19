@@ -21,7 +21,6 @@
 #ifndef _KERN_LOG2_H
 #define _KERN_LOG2_H
 
-#include <kern/assert.h>
 
 #ifdef __LP64__
 #define LONG_BIT 64

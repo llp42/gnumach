@@ -41,7 +41,6 @@
 #include <mach/boolean.h>
 #include <mach/kern_return.h>
 #include <mach/port.h>
-#include <kern/assert.h>
 #include <kern/sched_prim.h>
 #include <kern/slab.h>
 #include <ipc/port.h>

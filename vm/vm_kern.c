@@ -39,7 +39,6 @@
 #include <mach/kern_return.h>
 #include <machine/locore.h>
 #include <machine/vm_param.h>
-#include <kern/assert.h>
 #include <kern/debug.h>
 #include <kern/lock.h>
 #include <kern/slab.h>

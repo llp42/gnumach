@@ -42,7 +42,6 @@
 #include <mach/machine.h>
 #include <mach/machine/multiboot.h>
 
-#include <kern/assert.h>
 #include <kern/cpu_number.h>
 #include <kern/debug.h>
 #include <kern/mach_clock.h>

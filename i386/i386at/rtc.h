@@ -48,6 +48,8 @@ WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 #ifndef _RTC_H_
 #define _RTC_H_
 
+#include <kern/macros.h>
+
 #define RTC_ADDR	0x70	/* I/O port address for register select */
 #define RTC_DATA	0x71	/* I/O port address for data read/write */
 

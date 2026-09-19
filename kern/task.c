@@ -40,7 +40,6 @@
 #include <mach_debug/mach_debug_types.h>
 #include <ipc/ipc_space.h>
 #include <ipc/ipc_types.h>
-#include <kern/assert.h>
 #include <kern/debug.h>
 #include <kern/task.h>
 #include <kern/thread.h>

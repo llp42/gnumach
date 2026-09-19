@@ -36,7 +36,6 @@
 
 #include <mach/machine/vm_types.h>
 #include <mach/message.h>
-#include <kern/assert.h>
 #include <kern/cpu_number.h>
 #include <kern/macros.h>
 #include <kern/kalloc.h>

@@ -35,7 +35,6 @@
 #include <mach/port.h>
 #include <mach/message.h>
 #include <mach/notify.h>
-#include <kern/assert.h>
 #include <ipc/ipc_kmsg.h>
 #include <ipc/ipc_mqueue.h>
 #include <ipc/ipc_notify.h>

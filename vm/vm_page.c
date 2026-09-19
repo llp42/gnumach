@@ -36,7 +36,6 @@
  */
 
 #include <string.h>
-#include <kern/assert.h>
 #include <kern/cpu_number.h>
 #include <kern/debug.h>
 #include <kern/list.h>

@@ -34,13 +34,13 @@
  *	Virtual memory mapping module.
  */
 
+#include <kern/macros.h>
 #include <kern/printf.h>
 #include <mach/kern_return.h>
 #include <mach/port.h>
 #include <mach/vm_attributes.h>
 #include <mach/vm_param.h>
 #include <mach/vm_wire.h>
-#include <kern/assert.h>
 #include <kern/debug.h>
 #include <kern/kalloc.h>
 #include <kern/mach.server.h>

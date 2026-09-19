@@ -19,7 +19,6 @@
 #include <inttypes.h>
 #include <i386/model_dep.h>
 #include <i386at/biosmem.h>
-#include <kern/assert.h>
 #include <kern/debug.h>
 #include <kern/macros.h>
 #include <kern/printf.h>
