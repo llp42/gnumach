@@ -9,8 +9,9 @@
 # The suite is the project's own: `make check` boots each tests/module-* under
 # qemu from a grub ISO built on the fly (see tests/user-qemu.mk).  Kernels are
 # built SMP (--enable-ncpus=2) so the locking is actually exercised; that also
-# flips enable_smp, which makes the harness pass -smp 2 to qemu.  Override the
-# CPU count with NCPUS=1 in the environment if you need a uniprocessor build.
+# flips enable_smp, which makes the harness pass -smp 2 to qemu.  The kernel is
+# multiprocessor-only now -- --enable-ncpus below 2 is an error -- and NCPUS is
+# the number of CPUs it supports, which may be more than the machine has.
 
 [tasks.deps]
 description = "Report the tools needed to build and test gnumach"
