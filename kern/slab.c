@@ -191,7 +191,6 @@
  * Options for kmem_cache_alloc_verify().
  */
 #define KMEM_AV_NOCONSTRUCT 0
-#define KMEM_AV_CONSTRUCT   1
 
 /*
  * Error codes for kmem_cache_error().
