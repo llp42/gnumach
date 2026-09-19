@@ -185,9 +185,6 @@ extern boolean_t tty_portdeath(
 
 #define	LITOUT		TF_LITOUT
 
-/* this is here only to let old code compile - it is never set */
-#define	PASS8		LITOUT
-
 /*
  * Modem control commands.
  */
