@@ -1020,7 +1020,7 @@ boolean_t ttymodem(
 	     */
 	    tp->t_state &= ~TS_CARR_ON;
 	    if (tp->t_state & TS_ISOPEN &&
-		(tp->t_flags & NOHANG) == 0)
+		(tp->t_flags & TF_NOHANG) == 0)
 	    {
 		/*
 		 * Hang up TTY if carrier drops.
