@@ -99,8 +99,6 @@ class	simple_lock_irq_data_t	name = { SIMPLE_LOCK_INITIALIZER(&name.lock) };
 #define	simple_lock_irq_addr(l)	(simple_lock_irq_assert(&(l)),	\
 				&(l)->lock)
 
-#if	(NCPUS > 1)
-
 /*
  *	The single-CPU debugging routines are not valid
  *	on a multiprocessor.
@@ -110,38 +108,6 @@ class	simple_lock_irq_data_t	name = { SIMPLE_LOCK_INITIALIZER(&name.lock) };
 #define check_simple_locks()
 #define check_simple_locks_enable()
 #define check_simple_locks_disable()
-
-#else	/* NCPUS > 1 */
-/*
- *	Use our single-CPU locking test routines.
- */
-
-extern void		simple_lock_init(simple_lock_t);
-extern void		_simple_lock(simple_lock_t,
-				     const char *, const char *);
-extern void		_simple_unlock(simple_lock_t);
-extern boolean_t	_simple_lock_try(simple_lock_t,
-					 const char *, const char *);
-
-/* We provide simple_lock and simple_lock_try so that we can save the
-   location.  */
-#define XSTR(x)		#x
-#define STR(x)		XSTR(x)
-#define LOCATION	__FILE__ ":" STR(__LINE__)
-
-#define simple_lock_nocheck(lock)	_simple_lock((lock), #lock, LOCATION)
-#define simple_lock_try_nocheck(lock)	_simple_lock_try((lock), #lock, LOCATION)
-#define simple_unlock_nocheck(lock)	_simple_unlock((lock))
-
-#define simple_lock_pause()
-#define simple_lock_taken(lock)		(simple_lock_assert(lock),	\
-					 (lock)->lock_data)
-
-extern void		check_simple_locks(void);
-extern void		check_simple_locks_enable(void);
-extern void		check_simple_locks_disable(void);
-
-#endif	/* NCPUS > 1 */
 
 #else	/* MACH_SLOCKS */
 /*
