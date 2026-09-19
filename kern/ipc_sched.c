@@ -116,7 +116,7 @@ thread_will_wait(
 	s = splsched();
 	simple_lock_nocheck(&(thread)->lock);
 
-	assert(thread->wait_result = -1);	/* for later assertions */
+	thread->wait_result = -1;	/* for later assertions */
 	thread->state |= TH_WAIT;
 
 	simple_unlock_nocheck(&(thread)->lock);
@@ -141,7 +141,7 @@ thread_will_wait_with_timeout(
 	s = splsched();
 	simple_lock_nocheck(&(thread)->lock);
 
-	assert(thread->wait_result = -1);	/* for later assertions */
+	thread->wait_result = -1;	/* for later assertions */
 	thread->state |= TH_WAIT;
 
 	set_timeout(&thread->timer, ticks);
@@ -238,7 +238,7 @@ thread_handoff(
 
 	simple_lock_nocheck(&(old)->lock);
 	old->swap_func = continuation;
-	assert(old->wait_result = -1);		/* for later assertions */
+	old->wait_result = -1;		/* for later assertions */
 
 	if (old->state == TH_RUN) {
 		/*

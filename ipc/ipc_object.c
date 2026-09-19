@@ -375,7 +375,7 @@ ipc_object_copyin_type(
 		return MACH_MSG_TYPE_PORT_SEND;
 
 	    default:
-		assert(!"ipc_object_copyin_type: strange rights");
+		panic("ipc_object_copyin_type: strange rights");
 		return 0; /* in case assert/panic returns */
 	}
 }
@@ -533,7 +533,7 @@ ipc_object_copyin_from_kernel(
 		break;
 
 	    default:
-		assert(!"ipc_object_copyin_from_kernel: strange rights");
+		panic("ipc_object_copyin_from_kernel: strange rights");
 	}
 }
 
@@ -835,7 +835,7 @@ ipc_object_copyout_dest(
 	    }
 
 	    default:
-		assert(!"ipc_object_copyout_dest: strange rights");
+		panic("ipc_object_copyout_dest: strange rights");
 
 	}
 

@@ -110,7 +110,6 @@ static void timer_grab(
 	timer_t		timer,
 	timer_save_t	save)
 {
-  unsigned int passes=0;
 	do {
 		(save)->high = (timer)->high_bits;
 		__sync_synchronize ();
@@ -126,8 +125,6 @@ static void timer_grab(
 	 *	Additions to timer only touch low bits and
 	 *	are therefore atomic with respect to this.
 	 */
-		passes++;
-		assert((passes < 10000) ? (1) : ((timer->high_bits_check = save->high), 0));
 	} while ( (save)->high != (timer)->high_bits_check);
 }
 

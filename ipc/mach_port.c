@@ -159,7 +159,7 @@ mach_port_names(
 	ipc_entry_num_t bound;
 
 	/* safe simplifying assumption */
-	assert_static(sizeof(mach_port_name_t) == sizeof(mach_port_type_t));
+	_Static_assert(sizeof(mach_port_name_t) == sizeof(mach_port_type_t));
 
 	if (space == IS_NULL)
 		return KERN_INVALID_TASK;

@@ -143,7 +143,7 @@ ipc_right_reverse(
 
 	if ((*entryp = ipc_reverse_lookup(space, (ipc_object_t) port))) {
 		*namep = (*entryp)->ie_name;
-		assert((entry = *entryp) != IE_NULL);
+		entry = *entryp;	/* for later assertions */
 		assert(IE_BITS_TYPE(entry->ie_bits) == MACH_PORT_TYPE_SEND);
 		assert(port == (ipc_port_t) entry->ie_object);
 
@@ -534,7 +534,7 @@ ipc_right_clean(
 	    }
 
 	    default:
-		assert(!"ipc_right_clean: strange type");
+		panic("ipc_right_clean: strange type");
 	}
 }
 
@@ -667,7 +667,7 @@ ipc_right_destroy(
 	    }
 
 	    default:
-		assert(!"ipc_right_destroy: strange type");
+		panic("ipc_right_destroy: strange type");
 	}
 
 	return KERN_SUCCESS;
@@ -1148,7 +1148,7 @@ ipc_right_delta(
 	    }
 
 	    default:
-		assert(!"ipc_right_delta: strange right");
+		panic("ipc_right_delta: strange right");
 	}
 
 	return KERN_SUCCESS;
@@ -1279,7 +1279,7 @@ ipc_right_copyin_check(
 	    }
 
 	    default:
-		assert(!"ipc_right_copyin_check: strange rights");
+		panic("ipc_right_copyin_check: strange rights");
 	}
 
 	return TRUE;
@@ -1585,7 +1585,7 @@ ipc_right_copyin(
 	    }
 
 	    default:
-		assert(!"ipc_right_copyin: strange rights");
+		panic("ipc_right_copyin: strange rights");
 	}
 
 	return KERN_SUCCESS;
@@ -1948,7 +1948,7 @@ ipc_right_copyout(
 	    }
 
 	    default:
-		assert(!"ipc_right_copyout: strange rights");
+		panic("ipc_right_copyout: strange rights");
 	}
 
 	return KERN_SUCCESS;
@@ -2075,7 +2075,7 @@ ipc_right_rename(
 		break;
 
 	    default:
-		assert(!"ipc_right_rename: strange rights");
+		panic("ipc_right_rename: strange rights");
 	}
 
 	assert(oentry->ie_request == 0);

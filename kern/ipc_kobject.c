@@ -204,7 +204,7 @@ ipc_kobject_server(ipc_kmsg_t request)
 		break;
 
 		default:
-		assert(!"ipc_object_destroy: strange destination rights");
+		panic("ipc_object_destroy: strange destination rights");
 	}
 	*destp = IP_NULL;
 
