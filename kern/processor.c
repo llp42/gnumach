@@ -85,7 +85,8 @@ void pset_sys_bootstrap(void)
 	master_processor = processor_ptr(master_cpu);
 	queue_init(&all_psets);
 	simple_lock_init(&all_psets_lock);
-	queue_enter(&all_psets, &default_pset, processor_set_t, all_psets);
+	queue_enter_tail(&all_psets, &default_pset,
+	    __builtin_offsetof(typeof(default_pset), all_psets));
 	all_psets_count = 1;
 	default_pset.active = TRUE;
 
@@ -219,7 +220,8 @@ void pset_remove_processor(
 	if (pset != processor->processor_set)
 		panic("pset_remove_processor: wrong pset");
 
-	queue_remove(&pset->processors, processor, processor_t, processors);
+	queue_remove_generic(&pset->processors, processor,
+	    __builtin_offsetof(typeof(*processor), processors));
 	processor->processor_set = PROCESSOR_SET_NULL;
 	pset->processor_count--;
 	quantum_set(pset);
@@ -236,7 +238,8 @@ void pset_add_processor(
 	processor_set_t	pset,
 	processor_t	processor)
 {
-	queue_enter(&pset->processors, processor, processor_t, processors);
+	queue_enter_tail(&pset->processors, processor,
+	    __builtin_offsetof(typeof(*processor), processors));
 	processor->processor_set = pset;
 	pset->processor_count++;
 	pset->empty = FALSE;
@@ -256,7 +259,8 @@ void pset_remove_task(
 	if (pset != task->processor_set)
 		return;
 
-	queue_remove(&pset->tasks, task, task_t, pset_tasks);
+	queue_remove_generic(&pset->tasks, task,
+	    __builtin_offsetof(typeof(*task), pset_tasks));
 	task->processor_set = PROCESSOR_SET_NULL;
 	pset->task_count--;
 }
@@ -271,7 +275,8 @@ void pset_add_task(
 	processor_set_t	pset,
 	task_t		task)
 {
-	queue_enter(&pset->tasks, task, task_t, pset_tasks);
+	queue_enter_tail(&pset->tasks, task,
+	    __builtin_offsetof(typeof(*task), pset_tasks));
 	task->processor_set = pset;
 	pset->task_count++;
 }
@@ -286,7 +291,8 @@ void pset_remove_thread(
 	processor_set_t	pset,
 	thread_t	thread)
 {
-	queue_remove(&pset->threads, thread, thread_t, pset_threads);
+	queue_remove_generic(&pset->threads, thread,
+	    __builtin_offsetof(typeof(*thread), pset_threads));
 	thread->processor_set = PROCESSOR_SET_NULL;
 	pset->thread_count--;
 }
@@ -301,7 +307,8 @@ void pset_add_thread(
 	processor_set_t	pset,
 	thread_t	thread)
 {
-	queue_enter(&pset->threads, thread, thread_t, pset_threads);
+	queue_enter_tail(&pset->threads, thread,
+	    __builtin_offsetof(typeof(*thread), pset_threads));
 	thread->processor_set = pset;
 	pset->thread_count++;
 }
@@ -317,9 +324,11 @@ void thread_change_psets(
 	processor_set_t	old_pset,
 	processor_set_t	new_pset)
 {
-	queue_remove(&old_pset->threads, thread, thread_t, pset_threads);
+	queue_remove_generic(&old_pset->threads, thread,
+	    __builtin_offsetof(typeof(*thread), pset_threads));
 	old_pset->thread_count--;
-	queue_enter(&new_pset->threads, thread, thread_t, pset_threads);
+	queue_enter_tail(&new_pset->threads, thread,
+	    __builtin_offsetof(typeof(*thread), pset_threads));
 	thread->processor_set = new_pset;
 	new_pset->thread_count++;
 }
@@ -378,7 +387,8 @@ void pset_deallocate(
 	/*
 	 *	Remove from all_psets queue.
 	 */
-	queue_remove(&all_psets, pset, processor_set_t, all_psets);
+	queue_remove_generic(&all_psets, pset,
+	    __builtin_offsetof(typeof(*pset), all_psets));
 	all_psets_count--;
 
 	simple_unlock(&(pset)->ref_lock);
@@ -523,7 +533,8 @@ processor_set_create(
 	pset->active = TRUE;
 
 	simple_lock(&all_psets_lock);
-	queue_enter(&all_psets, pset, processor_set_t, all_psets);
+	queue_enter_tail(&all_psets, pset,
+	    __builtin_offsetof(typeof(*pset), all_psets));
 	all_psets_count++;
 	simple_unlock(&all_psets_lock);
 

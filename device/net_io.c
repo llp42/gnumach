@@ -735,11 +735,11 @@ net_filter(const ipc_kmsg_t	kmsg,
 
  		    if (entp == (net_hash_entry_t) 0) {
 			if (infp->filter[0] & NETF_IN)
-			    queue_remove(&ifp->if_rcv_port_list, infp,
-					 net_rcv_port_t, input);
+			    queue_remove_generic(&ifp->if_rcv_port_list, infp,
+				__builtin_offsetof(typeof(*infp), input));
 			if (infp->filter[0] & NETF_OUT)
-			    queue_remove(&ifp->if_snd_port_list, infp,
-					 net_rcv_port_t, output);
+			    queue_remove_generic(&ifp->if_snd_port_list, infp,
+				__builtin_offsetof(typeof(*infp), output));
 
 			/* Use input only for queues of dead filters. */
  			ENQUEUE_DEAD(dead_infp, infp, input);
@@ -1210,11 +1210,11 @@ net_set_filter(
 
 		    /* Remove the old filter from lists */
 		    if (infp->filter[0] & NETF_IN)
-			queue_remove(&ifp->if_rcv_port_list, infp,
-				     net_rcv_port_t, input);
+			queue_remove_generic(&ifp->if_rcv_port_list, infp,
+			    __builtin_offsetof(typeof(*infp), input));
 		    if (infp->filter[0] & NETF_OUT)
-			queue_remove(&ifp->if_snd_port_list, infp,
-				     net_rcv_port_t, output);
+			queue_remove_generic(&ifp->if_snd_port_list, infp,
+			    __builtin_offsetof(typeof(*infp), output));
 
 		    ENQUEUE_DEAD(dead_infp, infp, input);
 	    }
@@ -1288,7 +1288,8 @@ net_set_filter(
 		if (priority > infp->priority)
 		    break;
 
-	    queue_enter(&ifp->if_rcv_port_list, my_infp, net_rcv_port_t, input);
+	    queue_enter_tail(&ifp->if_rcv_port_list, my_infp,
+		__builtin_offsetof(typeof(*my_infp), input));
 	}
 
 	if (out) {
@@ -1296,7 +1297,8 @@ net_set_filter(
 		if (priority > infp->priority)
 		    break;
 
-	    queue_enter(&ifp->if_snd_port_list, my_infp, net_rcv_port_t, output);
+	    queue_enter_tail(&ifp->if_snd_port_list, my_infp,
+		__builtin_offsetof(typeof(*my_infp), output));
 	}
     }
     
@@ -2075,13 +2077,13 @@ hash_ent_remove(
 			ENQUEUE_DEAD(*dead_p, entp, chain);
 			if (hp->ref_count == 0 && !used) {
 				if (((net_rcv_port_t)hp)->filter[0] & NETF_IN)
-					queue_remove(&ifp->if_rcv_port_list,
-						     (net_rcv_port_t)hp,
-						     net_rcv_port_t, input);
+					queue_remove_generic(&ifp->if_rcv_port_list,
+					    (net_rcv_port_t)hp,
+					    __builtin_offsetof(struct net_rcv_port, input));
 				if (((net_rcv_port_t)hp)->filter[0] & NETF_OUT)
-					queue_remove(&ifp->if_snd_port_list,
-						     (net_rcv_port_t)hp,
-						     net_rcv_port_t, output);
+					queue_remove_generic(&ifp->if_snd_port_list,
+					    (net_rcv_port_t)hp,
+					    __builtin_offsetof(struct net_rcv_port, output));
 				hp->n_keys = 0;
 				return TRUE;
 			}

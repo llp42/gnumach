@@ -212,8 +212,8 @@ static void dev_pager_hash_insert(
 	new_entry->pager_rec = rec;
 
 	simple_lock(&dev_pager_hash_lock);
-	queue_enter(&dev_pager_hashtable[dev_hash(name_port)],
-			new_entry, dev_pager_entry_t, links);
+	queue_enter_tail(&dev_pager_hashtable[dev_hash(name_port)], new_entry,
+	    __builtin_offsetof(typeof(*new_entry), links));
 	simple_unlock(&dev_pager_hash_lock);
 }
 
@@ -229,7 +229,8 @@ static void dev_pager_hash_delete(const ipc_port_t name_port)
 	     !queue_end(bucket, &entry->links);
 	     entry = (dev_pager_entry_t)queue_next(&entry->links)) {
 	    if (entry->name == name_port) {
-		queue_remove(bucket, entry, dev_pager_entry_t, links);
+		queue_remove_generic(bucket, entry,
+		    __builtin_offsetof(typeof(*entry), links));
 		break;
 	    }
 	}
@@ -288,8 +289,8 @@ static void dev_device_hash_insert(
 	new_entry->pager_rec = rec;
 
 	simple_lock(&dev_device_hash_lock);
-	queue_enter(&dev_device_hashtable[dev_hash(device + offset)],
-			new_entry, dev_device_entry_t, links);
+	queue_enter_tail(&dev_device_hashtable[dev_hash(device + offset)],
+	    new_entry, __builtin_offsetof(typeof(*new_entry), links));
 	simple_unlock(&dev_device_hash_lock);
 }
 
@@ -307,7 +308,8 @@ static void dev_device_hash_delete(
 	     !queue_end(bucket, &entry->links);
 	     entry = (dev_device_entry_t)queue_next(&entry->links)) {
 	    if (entry->device == device && entry->offset == offset) {
-		queue_remove(bucket, entry, dev_device_entry_t, links);
+		queue_remove_generic(bucket, entry,
+		    __builtin_offsetof(typeof(*entry), links));
 		break;
 	    }
 	}

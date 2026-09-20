@@ -31,10 +31,10 @@ arrives, and `mise run test` decides whether it is correct.
   "C"` symbols (`dequeue_tail()` and `insque()` were dropped as
   uncalled), plus the `queue.h` accessor macros (`queue_init()`,
   `queue_first()`, `queue_next()`, `queue_prev()`, `queue_end()`,
-  `queue_empty()`) and the generic `queue_enter()` and `queue_remove()`
-  operations, all of which are Rust functions now; `queue_iterate()` is
-  the only macro left.  `queue_enter_first()` is gone: its sole caller
-  now expands to `queue_enter_head()` and its `__builtin_offsetof`.
+  `queue_empty()`) and the generic `queue_enter()`, `queue_enter_first()`
+  and `queue_remove()` operations, all of which are Rust functions now,
+  reached by an explicit `__builtin_offsetof` at every former call site;
+  `queue_iterate()` is the only macro left in `kern/queue.h`.
   `QueueEntry` is `!Unpin` with `Pin`-based mutators, and
   `--enable-queue-debug` compiles read-only link invariant checks.
 - `device/blkio.c` (66) — `block_io_mmap()`, `minphys()`.  Zero calls.

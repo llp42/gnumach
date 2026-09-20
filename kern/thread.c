@@ -508,8 +508,8 @@ kern_return_t thread_create(
 	parent_task->ref_count++;
 
 	parent_task->thread_count++;
-	queue_enter(&parent_task->thread_list, new_thread, thread_t,
-					thread_list);
+	queue_enter_tail(&parent_task->thread_list, new_thread,
+	    __builtin_offsetof(typeof(*new_thread), thread_list));
 
 	/*
 	 *	Finally, mark the thread active.
@@ -627,7 +627,8 @@ void thread_deallocate(
 	 *	Remove thread from task list and processor_set threads list.
 	 */
 	task->thread_count--;
-	queue_remove(&task->thread_list, thread, thread_t, thread_list);
+	queue_remove_generic(&task->thread_list, thread,
+	    __builtin_offsetof(typeof(*thread), thread_list));
 
 	pset_remove_thread(pset, thread);
 

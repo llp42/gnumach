@@ -103,33 +103,6 @@ void		queue_remove_generic(queue_t, void *, size_t);
  */
 
 /*
- *	Macro:		queue_enter
- *	Function:
- *		Insert a new element at the tail of the queue.
- *	Header:
- *		void queue_enter(q, elt, type, field)
- *			queue_t q;
- *			<type> elt;
- *			<type> is what's in our queue
- *			<field> is the chain field in (*<type>)
- */
-#define queue_enter(head, elt, type, field)				\
-	queue_enter_tail((head), (elt),					\
-	    __builtin_offsetof(typeof(*(elt)), field))
-
-/*
- *	Macro:		queue_remove
- *	Function:
- *		Remove an arbitrary item from the queue.
- *	Header:
- *		void queue_remove(q, qe, type, field)
- *			arguments as in queue_enter
- */
-#define queue_remove(head, elt, type, field)				\
-	queue_remove_generic((head), (elt),					\
-	    __builtin_offsetof(typeof(*(elt)), field))
-
-/*
  *	Macro:		queue_iterate
  *	Function:
  *		iterate over each item in the queue.

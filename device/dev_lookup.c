@@ -74,7 +74,8 @@ dev_number_enter(const mach_device_t device)
 	queue_t	q;
 
 	q = &dev_number_hash_table[DEV_NUMBER_HASH(device->dev_number)];
-	queue_enter(q, device, mach_device_t, number_chain);
+	queue_enter_tail(q, device,
+	    __builtin_offsetof(typeof(*device), number_chain));
 }
 
 /*
@@ -87,7 +88,8 @@ dev_number_remove(const mach_device_t device)
 	queue_t	q;
 
 	q = &dev_number_hash_table[DEV_NUMBER_HASH(device->dev_number)];
-	queue_remove(q, device, mach_device_t, number_chain);
+	queue_remove_generic(q, device,
+	    __builtin_offsetof(typeof(*device), number_chain));
 }
 
 /*

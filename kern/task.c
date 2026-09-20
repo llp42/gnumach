@@ -310,7 +310,8 @@ kern_return_t task_terminate(
 		}
 		task_hold_locked(task);
 		task->active = FALSE;
-		queue_remove(list, cur_thread, thread_t, thread_list);
+		queue_remove_generic(list, cur_thread,
+		    __builtin_offsetof(typeof(*cur_thread), thread_list));
 		_simple_unlock(&(cur_thread)->lock);
 		(void) splx(s);
 		simple_unlock(&(task)->lock);
@@ -439,7 +440,8 @@ kern_return_t task_terminate(
 	if (cur_thread->task == task) {
 		simple_lock(&(task)->lock);
 		s = splsched();
-		queue_enter(list, cur_thread, thread_t, thread_list);
+		queue_enter_tail(list, cur_thread,
+		    __builtin_offsetof(typeof(*cur_thread), thread_list));
 		(void) splx(s);
 		simple_unlock(&(task)->lock);
 		(void) thread_terminate(cur_thread);

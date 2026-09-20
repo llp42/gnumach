@@ -376,7 +376,8 @@ void softclock(void)
 				void *t_arg;
 
 				nextsoftcheck = (timeout_t)queue_next(&t->chain);
-				queue_remove(spoke, t, timeout_t, chain);
+				queue_remove_generic(spoke, t,
+				    __builtin_offsetof(typeof(*t), chain));
 				t->chain.prev = t->chain.next = NULL;
 				t_fcn = t->fcn;
 				t_arg = t->param;
@@ -425,7 +426,8 @@ void set_timeout(
 	t->t_time = elapsed_ticks + interval + 1;
 
 	/* Insert new timeout at the end of the corresponding wheel entry.  */
-	queue_enter(TIMEOUT_WHEEL_QUEUE(t->t_time), t, timeout_t, chain);
+	queue_enter_tail(TIMEOUT_WHEEL_QUEUE(t->t_time), t,
+	    __builtin_offsetof(typeof(*t), chain));
 
 	simple_unlock_irq(s, &twheel_lock);
 }
@@ -450,7 +452,7 @@ boolean_t reset_timeout(timeout_t t)
 		nextsoftcheck = (timeout_t)queue_next(&t->chain);
 
 
-	queue_remove(spoke, t, timeout_t, chain);
+	queue_remove_generic(spoke, t, __builtin_offsetof(typeof(*t), chain));
 	t->chain.prev = t->chain.next = NULL;
 	simple_unlock_irq(s, &twheel_lock);
 	return TRUE;

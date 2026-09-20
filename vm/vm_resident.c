@@ -353,7 +353,8 @@ void vm_page_insert(
 	 *	Now link into the object's list of backed pages.
 	 */
 
-	queue_enter(&object->memq, mem, vm_page_t, listq);
+	queue_enter_tail(&object->memq, mem,
+	    __builtin_offsetof(typeof(*mem), listq));
 	mem->tabled = TRUE;
 
 	/*
@@ -432,8 +433,8 @@ void vm_page_replace(
 				 * and return it to the free list.
 				 */
 				*mp = m->next;
-				queue_remove(&object->memq, m, vm_page_t,
-					     listq);
+				queue_remove_generic(&object->memq, m,
+				    __builtin_offsetof(typeof(*m), listq));
 				m->tabled = FALSE;
 				object->resident_page_count--;
 				VM_PAGE_QUEUES_REMOVE(m);
@@ -465,7 +466,8 @@ void vm_page_replace(
 	 *	Now link into the object's list of backed pages.
 	 */
 
-	queue_enter(&object->memq, mem, vm_page_t, listq);
+	queue_enter_tail(&object->memq, mem,
+	    __builtin_offsetof(typeof(*mem), listq));
 	mem->tabled = TRUE;
 
 	/*
@@ -521,7 +523,8 @@ void vm_page_remove(
 	 *	Now remove from the object's list of backed pages.
 	 */
 
-	queue_remove(&mem->object->memq, mem, vm_page_t, listq);
+	queue_remove_generic(&mem->object->memq, mem,
+	    __builtin_offsetof(typeof(*mem), listq));
 
 	/*
 	 *	And show that the object has one fewer resident

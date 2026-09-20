@@ -1192,8 +1192,9 @@ void thread_setrun(
 		_simple_lock(&pset->idle_lock);
 		if (pset->idle_count > 0) {
 		    processor = (processor_t) queue_first(&pset->idle_queue);
-		    queue_remove(&(pset->idle_queue), processor, processor_t,
-				processor_queue);
+		    queue_remove_generic(&(pset->idle_queue), processor,
+			__builtin_offsetof(typeof(*processor),
+					   processor_queue));
 		    pset->idle_count--;
 		    processor->next_thread = th;
 		    processor->state = PROCESSOR_DISPATCHING;
@@ -1231,8 +1232,9 @@ void thread_setrun(
 		pset = processor->processor_set;
 		_simple_lock(&pset->idle_lock);
 		if (processor->state == PROCESSOR_IDLE) {
-		    queue_remove(&pset->idle_queue, processor,
-			processor_t, processor_queue);
+		    queue_remove_generic(&pset->idle_queue, processor,
+			__builtin_offsetof(typeof(*processor),
+					   processor_queue));
 		    pset->idle_count--;
 		    processor->next_thread = th;
 		    processor->state = PROCESSOR_DISPATCHING;
@@ -1463,8 +1465,8 @@ thread_t choose_pset_thread(
 	     *	XXX on front so master gets used last.
 	     */
 	    if (myprocessor == master_processor) {
-		queue_enter(&(pset->idle_queue), myprocessor,
-			processor_t, processor_queue);
+		queue_enter_tail(&(pset->idle_queue), myprocessor,
+		    __builtin_offsetof(typeof(*myprocessor), processor_queue));
 	    }
 	    else {
 		queue_enter_head(&(pset->idle_queue), myprocessor,
@@ -1605,8 +1607,9 @@ retry:
 			 */
 			no_dispatch_count++;
 			pset->idle_count--;
-			queue_remove(&pset->idle_queue, myprocessor,
-				processor_t, processor_queue);
+			queue_remove_generic(&pset->idle_queue, myprocessor,
+			    __builtin_offsetof(typeof(*myprocessor),
+					       processor_queue));
 			myprocessor->state = PROCESSOR_RUNNING;
 			_simple_unlock(&pset->idle_lock);
 			thread_block(idle_thread_continue);

@@ -531,9 +531,9 @@ fn chain_of(container: *mut c_void, off: usize) -> *mut QueueEntry {
 }
 
 /// Insert the container `elt` at the tail of `head`, chaining through
-/// the `QueueEntry` field `off` bytes inside each container.  The
-/// function form of the old `queue_enter()` macro: links store
-/// container pointers, so `off` is how neighbours' chains are found.
+/// the `QueueEntry` field `off` bytes inside each container; what the
+/// old `queue_enter()` macro expanded to.  Links store container
+/// pointers, so `off` is how neighbours' chains are found.
 ///
 /// # Safety
 ///
@@ -607,9 +607,9 @@ pub unsafe extern "C" fn queue_enter_head(
     unsafe { check_chain(head, off) };
 }
 
-/// Remove the container `elt` from the queue headed by `head`; the
-/// function form of the old `queue_remove()` macro.  No membership
-/// check, like `remqueue()`.
+/// Remove the container `elt` from the queue headed by `head`; what the
+/// old `queue_remove()` macro expanded to.  No membership check, like
+/// `remqueue()`.
 ///
 /// # Safety
 ///

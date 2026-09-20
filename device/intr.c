@@ -186,7 +186,7 @@ insert_intr_entry (struct irqdev *dev, int id, ipc_port_t dst_port)
   new->interrupts = 0;
   new->n_unacked = 0;
 
-  queue_enter (dev->intr_queue, new, user_intr_t *, chain);
+  queue_enter_tail(dev->intr_queue, new, __builtin_offsetof(typeof(*new), chain));
 out:
   simple_unlock_irq(s, &intr_lock);
   if (free)
@@ -316,7 +316,8 @@ intr_thread (void)
 	       * We clear unacked irqs now, so the Linux handling can trigger,
 	       * and we will cleanup later after the Linux handler is cleared.
 	       */
-	      queue_remove (&main_intr_queue, e, user_intr_t *, chain);
+	      queue_remove_generic(&main_intr_queue, e,
+				  __builtin_offsetof(typeof(*e), chain));
 
 	      printf ("irq handler [%d]: release a dead delivery port %p entry %p\n", e->id, e->dst_port, e);
 	      ipc_port_release (e->dst_port);

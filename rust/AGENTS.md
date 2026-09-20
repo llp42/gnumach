@@ -26,15 +26,14 @@ behind thirteen `extern "C"` wrappers keeping the old symbols: the four
 live routines of `kern/queue.c` (`dequeue_tail()` and `insque()` were
 dropped as uncalled), the former accessor macros `queue_init()`,
 `queue_first()`, `queue_next()`, `queue_prev()`, `queue_end()` and
-`queue_empty()`, and the generic `queue_enter()` and `queue_remove()`
-operations themselves, which take the chain-field offset as a value.
-(`queue_enter_first()` is gone: it had a single caller, which now calls
-`queue_enter_head()` with the `__builtin_offsetof` spelled out.)
-`QueueEntry` is `#[repr(C)]`-identical to `struct queue_entry`, so what
-remains in `kern/queue.h` — two one-line `offsetof` wrappers and
-`queue_iterate()` — keeps working on the same layout.  (`mpqueue` is
-gone altogether: its only user was the dead `#if 0` profiling
-facility.)  `QueueEntry` is `!Unpin`, and linking
+`queue_empty()`, and the generic `queue_enter()`, `queue_enter_first()`
+and `queue_remove()` operations themselves, which take the chain-field
+offset as a value.  Those three macros are gone too: every former call
+site spells the `__builtin_offsetof` out, so `kern/queue.h` keeps only
+`queue_iterate()`.  `QueueEntry` is `#[repr(C)]`-identical to `struct
+queue_entry`, so that one macro keeps working on the same layout.
+(`mpqueue` is gone altogether: its only user was the dead `#if 0`
+profiling facility.)  `QueueEntry` is `!Unpin`, and linking
 takes `Pin<&mut _>`: the C callers pin their objects by contract, the
 `extern "C"` wrappers turn that contract into a `Pin` at the boundary,
 and safe Rust can no longer move an entry once it is linked.  A

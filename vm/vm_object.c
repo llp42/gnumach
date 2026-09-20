@@ -336,7 +336,8 @@ static void vm_object_cache_add(
 	vm_object_t	object)
 {
 
-	queue_enter(&vm_object_cached_list, object, vm_object_t, cached_list);
+	queue_enter_tail(&vm_object_cached_list, object,
+	    __builtin_offsetof(typeof(*object), cached_list));
 	object->cached = TRUE;
 }
 
@@ -344,7 +345,8 @@ static void vm_object_cache_remove(
 	vm_object_t	object)
 {
 
-	queue_remove(&vm_object_cached_list, object, vm_object_t, cached_list);
+	queue_remove_generic(&vm_object_cached_list, object,
+	    __builtin_offsetof(typeof(*object), cached_list));
 	object->cached = FALSE;
 }
 

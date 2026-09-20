@@ -190,8 +190,8 @@ processor_request_action(
 	    /*
 	     *	Remove from idle queue.
 	     */
-	    queue_remove(&pset->idle_queue, processor, 	processor_t,
-		processor_queue);
+	    queue_remove_generic(&pset->idle_queue, processor,
+		__builtin_offsetof(typeof(*processor), processor_queue));
 	    pset->idle_count--;
 
 	    /* fall through ... */
@@ -199,8 +199,8 @@ processor_request_action(
 	    /*
 	     *	Put it on the action queue.
 	     */
-	    queue_enter(&action_queue, processor, processor_t,
-		processor_queue);
+	    queue_enter_tail(&action_queue, processor,
+		__builtin_offsetof(typeof(*processor), processor_queue));
 
 	    /* fall through ... */
 	case PROCESSOR_ASSIGN:
@@ -598,8 +598,9 @@ void __attribute__((noreturn)) action_thread_continue(void)
 		simple_lock(&action_lock);
 		while ( !queue_empty(&action_queue)) {
 			processor = (processor_t) queue_first(&action_queue);
-			queue_remove(&action_queue, processor, processor_t,
-				     processor_queue);
+			queue_remove_generic(&action_queue, processor,
+			    __builtin_offsetof(typeof(*processor),
+					       processor_queue));
 			simple_unlock(&action_lock);
 			(void) splx(s);
 
