@@ -67,9 +67,9 @@ you see one.
 
 ## Read first
 
-- `AGENTS.md` — the twenty rules and the hard test rule; cite the rule
-  number in every finding it applies to.
-- `rust/AGENTS.md` — the Rust-half conventions.
+- `AGENTS.md` at the top of the tree — the twenty rules, the Rust-half
+  conventions and the hard test rule; cite the rule number in every
+  finding it applies to.
 - `MIGRATE.md` — the map: which C file a Rust module replaces, the
   layers, the boundary law.
 
@@ -172,7 +172,7 @@ Then findings by severity, each in this shape:
 
 - **BLOCKER** / **SHOULD-FIX** / **NIT** / **QUESTION** — `path:line`
   - code: the exact lines, quoted
-  - rule: `AGENTS.md` rule N / `rust/AGENTS.md` / ABI / soundness
+  - rule: `AGENTS.md` rule N / ABI / soundness
   - why: the concrete failure it can cause
   - direction: what good looks like, as prose — not a patch
   - risk: behaviour and ABI impact, and which test would catch it

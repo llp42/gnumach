@@ -513,6 +513,15 @@ second.
 6. Record the move in `MIGRATE.md`.
 7. `mise run test` — both architectures green — before committing.
 
+## Review before done
+
+Compiling and passing the suite is necessary, not sufficient.  Before
+reporting a task complete, run the `rust-reviewer` agent (`/review`)
+over the pending diff and resolve every BLOCKER it reports.  A
+`READY WITH NITS` verdict may be committed, with the nits left for a
+follow-up; `NOT READY` may not.  The reviewer only reports — it never
+edits — so the author fixes what it finds.
+
 ## Checklist before a commit
 
 1. No test was weakened, skipped, shortened or deleted, and no lint,
@@ -528,6 +537,8 @@ second.
    `#[unsafe(no_mangle)]`, no `static mut`.
 6. `mise run test` — x86_64 **and** i386 — is green.
 7. `MIGRATE.md` records what moved.
+8. The diff has passed `rust-reviewer` (`/review`) with no unresolved
+   BLOCKER.
 
 ## License headers
 
