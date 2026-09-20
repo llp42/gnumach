@@ -62,7 +62,6 @@ libkernel_a_SOURCES += \
 	i386/i386at/kd_event.c \
 	i386/i386at/kd_event.h \
 	i386/i386at/kd_queue.h \
-	i386/i386at/kd_mouse.c \
 	i386/i386at/kd_mouse.h \
 	i386/i386at/kdasm.S \
 	i386/i386at/kdsoft.h \
@@ -96,6 +95,7 @@ libkernel_a_SOURCES += \
 	i386/i386/irq.c \
 	i386/i386/irq.h \
 	i386/i386/msr.h \
+	i386/i386/pio_glue.c \
 	i386/i386/pit.c \
 	i386/i386/pit.h
 

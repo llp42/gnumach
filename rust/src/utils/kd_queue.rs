@@ -53,13 +53,16 @@ struct RpcTimeValue {
     microseconds: c_int,
 }
 
+/// `kev_type` of <device/input.h>: an event type.
+pub type KevType = u16;
+
 /// `struct mouse_motion` of <device/input.h>.
 #[repr(C)]
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
-struct MouseMotion {
-    mm_delta_x: i16,
-    mm_delta_y: i16,
+pub struct MouseMotion {
+    pub mm_delta_x: i16,
+    pub mm_delta_y: i16,
 }
 
 /// The `value` union of `kd_event` in <device/input.h>.
@@ -115,40 +118,98 @@ const _: () = assert!(
         == offset_of!(KdEventQueue, firstfree) + size_of::<c_int>()
 );
 
+impl Default for KdEventQueue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl KdEvent {
+    /// An all-zero event, the image BSS holds before anything is
+    /// queued; only `KdEventQueue::new()` needs it.
+    const fn zeroed() -> Self {
+        Self {
+            type_: 0,
+            unused_time: RpcTimeValue {
+                seconds: 0,
+                microseconds: 0,
+            },
+            value: KdValue { up: 0 },
+        }
+    }
+
+    /// A `MOUSE_MOTION` event carrying `moved`.
+    pub const fn motion(moved: MouseMotion) -> Self {
+        Self {
+            type_: 4,
+            unused_time: RpcTimeValue {
+                seconds: 0,
+                microseconds: 0,
+            },
+            value: KdValue { mmotion: moved },
+        }
+    }
+
+    /// A button event of type `which`, pressed when `up` is false:
+    /// what `mouse_button()` builds.  `up` becomes the C `boolean_t`
+    /// the callers read.
+    pub const fn button(which: KevType, up: bool) -> Self {
+        Self {
+            type_: which,
+            unused_time: RpcTimeValue {
+                seconds: 0,
+                microseconds: 0,
+            },
+            value: KdValue { up: up as c_int },
+        }
+    }
+}
+
 impl KdEventQueue {
+    /// A queue with every slot zeroed, as the C's BSS image of a
+    /// `kd_event_queue` is: for `#[no_mangle]` statics a C file used
+    /// to define.
+    pub const fn new() -> Self {
+        Self {
+            events: [KdEvent::zeroed(); KDQSIZE],
+            firstfree: 0,
+            firstout: 0,
+        }
+    }
+
     /// The slot after `index`, wrapping at `KDQSIZE`: `q_next()` in C.
     fn next(index: c_int) -> c_int {
         (index + 1) % KDQSIZE as c_int
     }
 
     /// Whether the queue holds no events.  `kdq_empty()` in C.
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.firstfree == self.firstout
     }
 
     /// Whether the queue holds its most, `KDQSIZE - 1` events:
     /// `kdq_full()` in C, which leaves one slot free so that a full
     /// queue and an empty one cannot look alike.
-    fn is_full(&self) -> bool {
+    pub fn is_full(&self) -> bool {
         Self::next(self.firstfree) == self.firstout
     }
 
     /// Make the queue empty.  `kdq_reset()` in C.
-    fn clear(&mut self) {
+    pub fn clear(&mut self) {
         self.firstfree = 0;
         self.firstout = 0;
     }
 
     /// Copy `ev` into the free slot and advance the write index.
     /// `kdq_put()` in C; the caller has checked `is_full()`.
-    fn push_back(&mut self, ev: KdEvent) {
+    pub fn push_back(&mut self, ev: KdEvent) {
         self.events[self.firstfree as usize] = ev;
         self.firstfree = Self::next(self.firstfree);
     }
 
     /// Advance the read index and return the slot it left, or `None`
     /// when the queue is empty.  `kdq_get()` in C.
-    fn pop_front(&mut self) -> Option<&mut KdEvent> {
+    pub fn pop_front(&mut self) -> Option<&mut KdEvent> {
         if self.is_empty() {
             return None;
         }

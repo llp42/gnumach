@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! Machine-dependent code; mirrors the C tree's `machine/` headers.
+//! The i386 tree, shared by the i686 and x86_64 kernels; mirrors `i386/`.
 
-pub mod i386;
-pub mod types;
+pub mod kd_mouse;

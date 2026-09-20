@@ -56,7 +56,7 @@ Rust story.  This is the "why" behind every blocker in §4.
 
 | Layer | C machinery | Rust must first provide | Blocks |
 |---|---|---|---|
-| **L0 pure** | string ops (already Rust), byte order (Rust), parser tables | nothing | `rbtree.c`, `kd_queue.c`, `ipc_thread.c`, `atoi.c` |
+| **L0 pure** | string ops (already Rust), byte order (Rust), parser tables | nothing | `rbtree.c`, `ipc_thread.c`, `atoi.c` |
 | **L1 types** | `struct thread`, `task`, `processor`, `processor_set`, `ipc_port`, `vm_map` read/written field-by-field, sometimes by asm (`i386asm.sym`) | `#[repr(C)]` mirror + offset/size `const` asserts, or C accessor shims; decision on who owns the layout | everything in `kern/` |
 | **L2 locks/IRQ/percpu** | `simple_lock`/`_simple_lock` (inline `xchg` macros), `spl*` (`spl.S`, per-CPU `curr_ipl`), `simple_lock_irq`, `percpu_get`/`current_thread()` (`%gs`), `__sync_synchronize`, `cpu_pause` | A `SpinLock` type `repr(transparent)` over `natural_t` so C macros keep working; an `IrqGuard` over `splx`; a per-CPU accessor in `src/arch/`; C shims for the lock/percpu/spl macros (first real shim customers) | `lock.c`, `kmutex.c`, `eventcount.c`, `priority.c`, `timer.c`, scheduler/IPC/VM files |
 | **L3 memory** | `kalloc`/`kfree`, `kmem_cache_*` (slab), `kmem_alloc_wired`, `vm_page_*` | the same C API behind thin shims; optionally later a `GlobalAlloc` over `kalloc` (an explicit design decision, not a quiet add) | `slab.c` itself, `rdxtree.c`, `syscall_emulation.c`, `processor.c`, `task.c` |
@@ -953,11 +953,10 @@ MIG-generated `.c` live only under `build-*/` and are not ported.
 | `pcb.c` | 919 | PCB/context (anchor) | 5 | `switch_context` asm, fpu |
 | `trap.c` | 532 | trap entry bodies (anchor) | 5 | `alltraps`/`all_intrs` |
 
-### i386/i386at/ (17 files, 8,728 LOC)
+### i386/i386at/ (15 files, 7,820 LOC)
 
 | File | LOC | Role | Friction | Blockers |
 |---|---:|---|---:|---|
-| `kd_queue.c` | 109 | keyboard/mouse ring buffer | 1 | own `q_next` macro |
 | `mem.c` | 42 | `/dev/mem` mmap hook | 1 | `biosmem_addr_available` |
 | `mbinfo.c` | 49 | multiboot info device | 2 | `device_read_alloc` |
 | `cons_conf.c` | 48 | console table | 2 | `constab` entries |
@@ -971,9 +970,52 @@ MIG-generated `.c` live only under `build-*/` and are not ported.
 | `pic_isa.c` | 56 | ISA IRQ tables | 3 | pic/ipl |
 | `kd_event.c` | 392 | kbd/mouse events | 3 | `kd_queue`, spl |
 | `com.c` | 893 | 8250 serial | 4 | tty, spl, pio |
-| `kd_mouse.c` | 799 | PS/2 mouse | 4 | com, spl |
 | `model_dep.c` | 545 | machine init/bootstrap (anchor) | 5 | asm, pmap, percpu |
 | `kd.c` | 3033 | keyboard/VGA tty | 5 | db_interface, vga, spl |
+
+`kd_queue.c` and `kd_mouse.c` are ported; §9 records them.  The two
+entries below keep the detail §4.1 gives the `kern/` files.
+
+#### `i386/i386at/kd_queue.c` — 109 lines — ported
+* **Rust home.** `src/utils/kd_queue.rs`, shared by both x86 kernels.
+  A `#[repr(C)]` mirror of `kd_event` and `kd_event_queue` with size and
+  offset asserts; `c_long` mirrors `rpc_long_integer_t`, so only the
+  default configuration is covered (`--enable-user32` makes the C field
+  32 bits, which Rust cannot see).
+* **Boundary.** Safe `clear`/`push_back`/`pop_front`/`is_empty`/
+  `is_full` behind the five unchanged `kdq_*` wrappers; `kdq_get()`
+  returns NULL on an empty queue where C returned the stale slot, which
+  no caller reaches.  `tests/kd_queue.c` and `tests/test-kd-queue.c`
+  pin the contract, since the suite never opens `/dev/kbd`.
+
+#### `i386/i386at/kd_mouse.c` — 799 lines — ported
+* **Role.** `/dev/mouse`: the Mouse Systems 5-byte, Microsoft and
+  Logitech 3-byte and IBM PS/2 3-byte protocols, on COM1 or the
+  keyboard controller, decoded into `kd_event`s and queued.
+* **Rust home.** `src/arch/i386/kd_mouse.rs`, shared by both x86
+  kernels.  Every name in `kd_mouse.h` is unchanged, and `kd.c`'s two
+  direct uses (`mouse_in_use`, `mouse_handle_byte()`) stay exported.
+* **Bridges.** `glue.rs` declares the plain C functions: `splhi`/
+  `spltty`/`splx` (asm functions, not macros), `printf`, `wakeup`,
+  `assert_wait`, `thread_block`, `iodone`, `device_read_alloc`,
+  `ds_read_done`, `comgetc`, `kd_sendcmd`, `kd_cmdreg_write`,
+  `kd_mouse_drain`, `kdintr`.  The macros and config-shaped data got C
+  shims instead: `pio_inb`/`pio_outb` in a new `i386/i386/pio_glue.c`
+  over the `inb`/`outb` statement expressions; `irq_mask`/`irq_unmask`
+  and `ivect`/`iunit` accessors added to `i386/i386/irq.c` (`mask_irq`
+  is inline under APIC and the arrays are `NINTR`-sized); and
+  `com_base_addr`/`com_irq` added to `i386/i386at/com.c` for the
+  `NCOM`-sized `cominfo`.  `minor()` and `printf_once` are Rust-side.
+* **`io_req_t`.** The four device entry points read a `#[repr(C)]`
+  prefix mirror of `struct io_req` (`IoReq`) through `io_done`; the two
+  leading chain fields are asserted, and are what let an IO request
+  double as its own `queue_entry_t` for the read queue.
+* **Notes.** `STATE` holds the old globals, including the event queue
+  and the `mouse_read_queue` head, which is self-linked on first use
+  where C linked it at compile time.  `kd_queue`'s API was widened with
+  constructors and public methods, with no layout or ABI change.
+  `tests/kd_mouse.c` and `tests/test-kd-mouse.c` pin the decoders,
+  since the suite never opens `/dev/mouse`.
 
 ### i386/intel/, x86_64/, util/, chips/
 
@@ -1033,14 +1075,13 @@ generated `.server.h`; the unmarshalling, `TypeCheck` and
 Tier 1 — no new infrastructure:
 
 1. `kern/rbtree.c` — 0 undefined symbols; unlocks slab later.
-2. `i386/i386at/kd_queue.c` — 0 undefined; file-local `q_next`.
-3. `ipc/ipc_thread.c` — 0 undefined; header macros only.
-4. `util/atoi.c` — 0 undefined; needs a `tests/` copy in the same
+2. `ipc/ipc_thread.c` — 0 undefined; header macros only.
+3. `util/atoi.c` — 0 undefined; needs a `tests/` copy in the same
    commit.
-5. `ipc/ipc_target.c` — one call to `ipc_mqueue_init` (shim or defer).
-6. `i386/i386at/mem.c`, `i386/i386at/mbinfo.c` — one or two leaf calls.
-7. `i386/i386/ast_check.c`, `i386/i386/hardclock.c` — tiny, asm-free.
-8. `kern/boot_script.c` — isolated, allocation callbacks only.
+4. `ipc/ipc_target.c` — one call to `ipc_mqueue_init` (shim or defer).
+5. `i386/i386at/mem.c`, `i386/i386at/mbinfo.c` — one or two leaf calls.
+6. `i386/i386/ast_check.c`, `i386/i386/hardclock.c` — tiny, asm-free.
+7. `kern/boot_script.c` — isolated, allocation callbacks only.
 
 Tier 2 — after the first shims (percpu, locks, `struct` mirrors):
 
@@ -1102,7 +1143,9 @@ green, `rustfmt`/`clippy` clean, no new undefined symbols.
   `boot_script_define_function` has no callers.
 * Test-linked routines: `util/atoi.c` and `kern/printf.c` are compiled
   into the user tests (`tests/user-qemu.mk:137`); a port of either is
-  not a port until `tests/` has its own C copy.
+  not a port until `tests/` has its own C copy.  `tests/kd_queue.c` and
+  `tests/kd_mouse.c` are such copies already, pinning the ring-buffer
+  and mouse-packet contracts the Rust implements.
 
 ## 9. Already moved (for reference)
 
@@ -1114,6 +1157,7 @@ green, `rustfmt`/`clippy` clean, no new undefined symbols.
 | `i386/i386/loose_ends.c` (`delay`) | `src/utils/delay.rs` | `87d85e0c` |
 | `util/byteorder.c` | `src/utils/byteorder.rs` | `7ad91b7b` |
 | `kern/elf-load.c` | `src/kern/elf_load.rs` | `308594ca` |
+| `i386/i386at/kd_queue.c` | `src/utils/kd_queue.rs` | `ed2502e9` |
 
 Deleted dead code: `device/blkio.c` (unreachable block pager path) and
 the `#if 0` profiling facility (`profil.h`, `profilparam.h`,

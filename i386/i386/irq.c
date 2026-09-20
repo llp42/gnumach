@@ -93,3 +93,44 @@ struct irqdev irqtab = {
 #endif
 };
 
+/*
+ * C shims for the Rust mouse driver: `ivect' and `iunit' are arrays
+ * sized by NINTR, and mask_irq/unmask_irq are static inline under APIC,
+ * so Rust can neither declare nor call them.  See rust/src/glue.rs.
+ */
+void
+irq_mask (irq_t irq_nr)
+{
+  mask_irq (irq_nr);
+}
+
+void
+irq_unmask (irq_t irq_nr)
+{
+  unmask_irq (irq_nr);
+}
+
+void
+irq_set_handler (int irq_nr, interrupt_handler_fn handler)
+{
+  ivect[irq_nr] = handler;
+}
+
+interrupt_handler_fn
+irq_get_handler (int irq_nr)
+{
+  return ivect[irq_nr];
+}
+
+void
+irq_set_unit (int irq_nr, int unit)
+{
+  iunit[irq_nr] = unit;
+}
+
+int
+irq_get_unit (int irq_nr)
+{
+  return iunit[irq_nr];
+}
+

@@ -55,6 +55,22 @@ struct bus_device *cominfo[NCOM];
 struct bus_driver comdriver = {
 	comprobe, 0, comattach, 0, com_std, "com", cominfo, 0, 0, 0};
 
+/*
+ * C shims for the Rust mouse driver: `cominfo' is an NCOM-sized array
+ * Rust cannot declare.  See rust/src/glue.rs.
+ */
+vm_offset_t
+com_base_addr (int unit)
+{
+	return cominfo[unit]->address;
+}
+
+int
+com_irq (int unit)
+{
+	return cominfo[unit]->sysdep1;
+}
+
 struct tty com_tty[NCOM];
 int commodem[NCOM];
 int comcarrier[NCOM] = {0, 0,};
