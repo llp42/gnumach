@@ -14,7 +14,6 @@ use super::display::{
 };
 use super::*;
 use crate::glue;
-use crate::utils::atoi;
 use core::ffi::{c_int, c_short};
 
 /// `kd_bellon()`, for use inside the module.
@@ -303,13 +302,26 @@ fn repeat(n: c_int, f: fn()) {
 
 /// A `\e[<n>G` column or `\e[<n>;<m>H` row/column parameter: absent and
 /// zero both mean the first column or row, and a value above zero counts
-/// from one.  A wrapped-negative value passes through, as in the C.
+/// from one.  A value at or below zero passes through; `take_number()`
+/// cannot produce a negative one, so only the zero case is reachable.
 fn zero_based(n: Option<c_int>) -> c_int {
     match n {
         None => 0,
         Some(n) if n > 0 => n - 1,
         Some(n) => n,
     }
+}
+
+/// The leading decimal digits of `seq` at `cp`: the number of bytes they
+/// occupy and their value.  `None` means there were no digits, or the
+/// value does not fit a `c_int`.
+fn take_number(seq: &[u8], cp: usize) -> (usize, Option<c_int>) {
+    let rest = seq.get(cp..).unwrap_or_default();
+    let digits = rest.iter().take_while(|b| b.is_ascii_digit()).count();
+    let number = core::str::from_utf8(rest.get(..digits).unwrap_or_default())
+        .ok()
+        .and_then(|s| s.parse::<c_int>().ok());
+    (digits, number)
 }
 
 /// The ANSI interpreter.  `parserest()` in C.
@@ -329,7 +341,7 @@ fn parserest(seq: &[u8; K_MAXESC], start: usize) {
     }
 
     loop {
-        let (used, n) = atoi::parse(seq.get(cp..).unwrap_or_default());
+        let (used, n) = take_number(seq, cp);
         cp += used;
         number[npar] = n;
         if seq[cp] != b';' {

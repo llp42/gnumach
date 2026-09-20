@@ -27,7 +27,7 @@ const MACH_ATOI_DEFAULT: c_int = -1;
 /// least one, the number they spell; `None` means there were no digits.
 /// The accumulator wraps, as the C original's did.
 #[must_use]
-pub(crate) fn parse(bytes: &[u8]) -> (usize, Option<c_int>) {
+fn parse(bytes: &[u8]) -> (usize, Option<c_int>) {
     let mut number: c_int = 0;
     let mut used = 0;
 

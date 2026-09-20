@@ -1172,6 +1172,12 @@ detail §4.1 gives the `kern/` files.
   directly.  The bitmap backend and `kdsoft.h`'s function-pointer
   table were never selected by the ported `kdinit()` and had no C
   callers, so they, the header and its Makefrag entries are gone.
+* **Parameters (deliberate change).** `esc.rs` parses its `\e[...]`
+  numbers itself with `core::str::parse::<c_int>()` over the leading
+  digit run; a parameter too large for an `int` counts as absent
+  instead of wrapping into a repeat count, an SGR attribute or a
+  row/column as `mach_atoi()`'s accumulator did.  `test-kd-dev` pins
+  the reset with an 11-digit parameter.
 * **Tests.** `tests/kd.c` and `tests/test-kd.c` pin the escape parser
   (command dispatch, positions, attributes) and the modifier state
   machine.  `tests/test-kd-dev.c` drives the driver through its
@@ -1203,8 +1209,8 @@ detail §4.1 gives the `kern/` files.
   returning `(usize, Option<c_int>)`, with the C accumulator's
   wrapping, and the `mach_atoi()` adapter at the edge.
 * **Callers.** `i386/i386at/com.c` parses the `console=com<n>` unit
-  through the adapter; `src/arch/i386/kd/esc.rs` calls `parse()` for
-  escape-sequence parameters.
+  through the adapter; `src/arch/i386/kd/esc.rs` parses its
+  escape-sequence parameters with `core`'s integer parser instead.
 * **Tests.** Qemu only: boot parses `console=com0`, and
   `test-kd-dev` drives the escape parser on both arches.  `util/atoi.c`
   was compiled into the user tests, so `tests/string.c` now carries a
@@ -1356,6 +1362,7 @@ rbtree's; see §8.
 | `i386/i386at/mbinfo.c` | `src/arch/i386/mbinfo.rs` | `21fcbe0b` |
 | `kern/rbtree.c` | `src/kern/rbtree.rs` | `9445e08b` … `e2b04831` |
 | `ipc/ipc_thread.c` | `src/ipc/ipc_thread.rs` | `417ba80a` |
+| `util/atoi.c` | `src/utils/atoi.rs` | `c289337f` |
 
 Deleted dead code: `device/blkio.c` (unreachable block pager path) and
 the `#if 0` profiling facility (`profil.h`, `profilparam.h`,

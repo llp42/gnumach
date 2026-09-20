@@ -74,7 +74,9 @@ test_kd_keymap(mach_port_t kd)
 static void
 test_kd_write(mach_port_t kd)
 {
-	static const char seq[] = "\033[2J\033[1;1HX";
+	static const char seq[] = "\033[2J\033[1;1HX"
+		"\033[1;2H\033[1mY"
+		"\033[1;3H\033[99999999999mZ";
 	int written = 0;
 	kern_return_t err;
 
@@ -108,6 +110,13 @@ test_kd_vga(mach_port_t kd)
 
 	ASSERT(vga[0] == 'X', "vga: 'X' not on screen");
 	ASSERT(vga[1] == 0x07, "vga: attribute not KA_NORMAL");
+
+	/* A parameter too large for an int counts as absent: Z must come
+	 * back normal, not bold like Y. */
+	ASSERT(vga[2] == 'Y', "vga: 'Y' not on screen");
+	ASSERT(vga[3] == 0x0f, "vga: 'Y' not bold");
+	ASSERT(vga[4] == 'Z', "vga: 'Z' not on screen");
+	ASSERT(vga[5] == 0x07, "vga: overflow parameter not absent");
 
 	err = vm_deallocate(mach_task_self(), (vm_address_t)vga, size);
 	ASSERT_RET(err, "vm_deallocate vga");
