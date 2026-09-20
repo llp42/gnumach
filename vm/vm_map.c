@@ -1957,11 +1957,11 @@ vm_map_pageable_current(vm_map_t map, vm_prot_t access_type)
 	struct rbtree_node *node;
 	vm_offset_t min_address, max_address;
 
-	node = rbtree_first(&map->hdr.tree);
+	node = rbtree_firstlast(&map->hdr.tree, RBTREE_LEFT);
 	min_address = rbtree_entry(node, struct vm_map_entry,
 				   tree_node)->vme_start;
 
-	node = rbtree_last(&map->hdr.tree);
+	node = rbtree_firstlast(&map->hdr.tree, RBTREE_RIGHT);
 	max_address = rbtree_entry(node, struct vm_map_entry,
 				   tree_node)->vme_end;
 

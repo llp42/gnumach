@@ -68,12 +68,9 @@ struct rbtree;
 /*
  * Look up a node or one of its nearest nodes in a tree.
  *
- * This macro essentially acts as rbtree_lookup() but if no entry matched
- * the key, an additional step is performed to obtain the next or previous
- * node, depending on the direction (left or right).
- *
- * The constraints that apply to the key parameter are the same as for
- * rbtree_lookup().
+ * The macro walks the tree with cmp_fn, whose key parameter is its first
+ * argument, and if no entry matched, calls rbtree_nearest() to obtain the
+ * next or previous node, depending on the direction (left or right).
  */
 #define rbtree_lookup_nearest(tree, key, cmp_fn, dir)       \
 MACRO_BEGIN                                                 \
@@ -110,12 +107,12 @@ MACRO_END
  * then checks red-black rules violations, and rebalances the tree if
  * necessary.
  *
- * Unlike rbtree_lookup(), the cmp_fn parameter must compare two complete
+ * Unlike the lookup macros, the cmp_fn parameter must compare two complete
  * entries, so it is suggested to use two different comparison inline
  * functions, such as myobj_cmp_lookup() and myobj_cmp_insert(). There is no
  * guarantee about the order of the nodes given to the comparison function.
  *
- * See rbtree_lookup().
+ * See rbtree_lookup_nearest().
  */
 #define rbtree_insert(tree, node, cmp_fn)                   \
 MACRO_BEGIN                                                 \
@@ -139,14 +136,13 @@ MACRO_END
 /*
  * Look up a node/slot pair in a tree.
  *
- * This macro essentially acts as rbtree_lookup() but in addition to a node,
- * it also returns a slot, which identifies an insertion point in the tree.
- * If the returned node is null, the slot can be used by rbtree_insert_slot()
- * to insert without the overhead of an additional lookup. The slot is a
- * simple unsigned long integer.
+ * The macro walks the tree like rbtree_lookup_nearest() and, in addition
+ * to a node, it also returns a slot, which identifies an insertion point
+ * in the tree.  If the returned node is null, the slot can be used by
+ * rbtree_insert_slot() to insert without the overhead of an additional
+ * lookup.  The slot is a simple unsigned long integer.
  *
- * The constraints that apply to the key parameter are the same as for
- * rbtree_lookup().
+ * The key is the first argument given to cmp_fn.
  */
 #define rbtree_lookup_slot(tree, key, cmp_fn, slot) \
 MACRO_BEGIN                                         \
@@ -190,15 +186,5 @@ MACRO_END
  * After completion, the node is stale.
  */
 void rbtree_remove(struct rbtree *tree, struct rbtree_node *node);
-
-/*
- * Return the first node of a tree.
- */
-#define rbtree_first(tree) rbtree_firstlast(tree, RBTREE_LEFT)
-
-/*
- * Return the last node of a tree.
- */
-#define rbtree_last(tree) rbtree_firstlast(tree, RBTREE_RIGHT)
 
 #endif /* _KERN_RBTREE_H */

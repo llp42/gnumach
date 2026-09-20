@@ -188,8 +188,10 @@ into Rust).  Layer = the highest prerequisite layer from §2.
   preserved.  The child sides are a private `Side` enum — the ABI's
   `c_int` directions convert once at the boundary — and `Rbtree`/
   `RbtreeNode` have `new()` and `unlinked()`/`init()` constructors
-  that the C entry points and the tests share.  Every `unsafe` block
-  carries its own `// SAFETY:` note.
+  that the C entry points and the tests share.  The core is
+  Rust-native: a copyable `NodeRef` handle and `Rbtree` methods carry
+  the algorithms, and the nine exports are thin adapters.  Every
+  `unsafe` block carries its own `// SAFETY:` note.
 * **Boundary.** Nine `unsafe extern "C"` symbols:
   `rbtree_insert_rebalance`, `rbtree_remove`, `rbtree_nearest`,
   `rbtree_firstlast`, plus the leaf operations `rbtree_init`,
@@ -208,7 +210,8 @@ into Rust).  Layer = the highest prerequisite layer from §2.
   Moving the leaf inlines to Rust then pruned
   `rbtree_slot_parent`/`rbtree_slot_index` and the `RBTREE_COLOR_*`,
   `RBTREE_PARENT_MASK` and `RBTREE_SLOT_*` macros, so C no longer
-  encodes a color or unpacks a slot.
+  encodes a color or unpacks a slot.  The `rbtree_first`/`rbtree_last`
+  macros are gone too; `vm_map.c` spells `rbtree_firstlast()` out.
 * **Panics (cleanup).** `expect` remains only where the red-black
   rules re-derive a link (rotate's child, a red node's grandparent,
   the brother and its far child).  The insert and remove restructurings
