@@ -60,7 +60,6 @@ libkernel_a_SOURCES += \
 	i386/i386at/kd.c \
 	i386/i386at/kd.h \
 	i386/i386at/kd_event.h \
-	i386/i386at/kd_queue.h \
 	i386/i386at/kd_mouse.h \
 	i386/i386at/kdasm.S \
 	i386/i386at/kdsoft.h \

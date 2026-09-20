@@ -982,11 +982,12 @@ files.
   offset asserts; `c_long` mirrors `rpc_long_integer_t`, so only the
   default configuration is covered (`--enable-user32` makes the C field
   32 bits, which Rust cannot see).
-* **Boundary.** Safe `clear`/`push_back`/`pop_front`/`is_empty`/
-  `is_full` behind the five unchanged `kdq_*` wrappers; `kdq_get()`
-  returns NULL on an empty queue where C returned the stale slot, which
-  no caller reaches.  `tests/kd_queue.c` and `tests/test-kd-queue.c`
-  pin the contract, since the suite never opens `/dev/kbd`.
+* **Boundary.** Pure Rust now: the drivers use its safe `clear`/
+  `push_back`/`pop_front`/`is_empty`/`is_full` operations.  The five
+  `kdq_*` `extern "C"` wrappers and `kd_queue.h` went when `kd_event.c`
+  stopped being their last C caller.  `tests/kd_queue.c` and
+  `tests/test-kd-queue.c` pin the contract, since the suite never opens
+  `/dev/kbd`.
 
 #### `i386/i386at/kd_mouse.c` — 799 lines — ported
 * **Role.** `/dev/mouse`: the Mouse Systems 5-byte, Microsoft and
@@ -1183,6 +1184,7 @@ green, `rustfmt`/`clippy` clean, no new undefined symbols.
 | `kern/elf-load.c` | `src/kern/elf_load.rs` | `308594ca` |
 | `i386/i386at/kd_queue.c` | `src/utils/kd_queue.rs` | `ed2502e9` |
 | `i386/i386at/kd_mouse.c` | `src/arch/i386/kd_mouse.rs` | `64f44fa8` |
+| `i386/i386at/kd_event.c` | `src/arch/i386/kd_event.rs` | `5d6a289a` |
 
 Deleted dead code: `device/blkio.c` (unreachable block pager path) and
 the `#if 0` profiling facility (`profil.h`, `profilparam.h`,
