@@ -129,7 +129,7 @@ const _: () = {
 };
 
 impl Tty {
-    const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             t_lock: SimpleLock {
                 lock_data: AtomicU32::new(0),
@@ -173,11 +173,8 @@ impl Tty {
 }
 
 /// `kd_tty` of <i386at/kd.c>.
-static mut TTY: Tty = Tty::new();
-
 fn tty() -> &'static mut Tty {
-    // SAFETY: the driver runs at SPLKD.
-    unsafe { &mut *core::ptr::addr_of_mut!(TTY) }
+    &mut super::kd().tty
 }
 
 fn lock() -> *mut c_void {
@@ -293,7 +290,7 @@ pub unsafe extern "C" fn kdmmap(
         return MAP_FAILED;
     }
     // i386_btop(): shift by I386_PGSHIFT.
-    let base = unsafe { super::KD_BITMAP_START };
+    let base = super::kd().bitmap_start;
     (base.wrapping_add(off)) >> 12
 }
 
@@ -326,7 +323,7 @@ pub unsafe extern "C" fn kdgetstat(
             return D_INVALID_OPERATION;
         }
         unsafe {
-            *data = super::KD_STATE;
+            *data = super::kd().state_bits();
             *count = 1;
         }
         D_SUCCESS

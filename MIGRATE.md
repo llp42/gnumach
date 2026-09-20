@@ -1049,9 +1049,7 @@ records them.  The four entries below keep the detail §4.1 gives the
   `esc.rs`, `display.rs`, `console.rs`, `tty.rs` (the `struct tty`
   mirror and kdopen/close/read/write, get/set status, mmap,
   portdeath, kdstart), `keymap.rs` (the 89-row map, generated from the
-  C table) and `mod.rs` (state and `kdinit()`).  The
-  `kd_dput`/`kd_dmvup`/... table of `kdsoft.h` stays exported so a
-  backend can still be swapped.
+  C table) and `mod.rs` (state and `kdinit()`).
 * **The tty wall.** `tty.rs` mirrors `struct tty` `#[repr(C)]` field
   for field, with the offsets pinned per target (`t_lock`, `t_inq`,
   `t_outq`, `t_state`, `t_line`, the delayed queues, `t_timeout` and
@@ -1060,23 +1058,31 @@ records them.  The four entries below keep the detail §4.1 gives the
   `phystokv()` are the shims in the new `i386/i386at/kd_glue.c`;
   `char_open`/`ttychars`/`ttyclose`/`tty_get_status`/`tty_set_status`/
   `tty_portdeath`/`tty_queue_completion`/`getc` and the `hz`/
-  `rebootflag` data come through `glue.rs`.  `kd_state` and
-  `kd_bitmap_start` stay exported Rust statics.
+  `rebootflag` data come through `glue.rs`.
 * **`kd.c` is gone.** The file, its Makefrag entries and the five
   shims it briefly hosted (`kd_tty_rint`, `kd_tty_init`, `kd_phystokv`,
   `kd_rebootflag`, `kd_hz`) are deleted.
 * **Narrow boundary (cleanup).** Only 23 symbols stay
   `#[no_mangle] extern "C"`: the 14 kd entries (8 conf.c device hooks,
   4 console hooks, `kdintr`, `kdreboot`), the 5 kbd entries and the 4
-  mouse entries.  Everything else is `pub(crate)` Rust, the
-  Rust-to-Rust glue declarations are gone, and `kd.h`/`kd_mouse.h`/
-  `kd_event.h` no longer declare the retired symbols; `kd_state`,
-  `kd_bitmap_start`, `kb_mode` and `mouse_in_use` are crate-private.
+  mouse entries; `cnpollc` stays exported too because
+  `i386/i386/db_interface.h` declares it.  Everything else is
+  `pub(crate)` Rust, the Rust-to-Rust glue declarations are gone, and
+  `kd.h`/`kd_mouse.h`/`kd_event.h` no longer declare the retired
+  symbols.
 * **Idioms (cleanup).** Named scancode/controller constants, `bool`
   and `usize` internal returns, device return codes shared from
   `io_req.rs`, `Option<NonNull<_>>` for the tty's inert pointers, and
   private names that read as Rust (`cn_set_leds`, `char_to_bit`,
   `fb_ptr`, `motion`, ...).
+* **State (cleanup).** The driver's globals live in one `Kd` object
+  behind a `SyncCell<UnsafeCell<_>>` singleton, `kd()`; `state()`,
+  `kb_mode()`/`set_kb_mode()`, the modifier bits and `mouse_in_use()`
+  are accessors on it.  No `static mut` remains in the kd family.
+* **Backend (cleanup).** `display.rs` calls the EGA text routines
+  directly.  The bitmap backend and `kdsoft.h`'s function-pointer
+  table were never selected by the ported `kdinit()` and had no C
+  callers, so they, the header and its Makefrag entries are gone.
 * **Tests.** `tests/kd.c` and `tests/test-kd.c` pin the escape parser
   (command dispatch, positions, attributes) and the modifier state
   machine.  `tests/test-kd-dev.c` drives the driver through its

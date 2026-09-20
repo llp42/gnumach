@@ -23,6 +23,7 @@ use super::io_req::{
 use crate::glue;
 use crate::kern::queue::QueueEntry;
 use crate::utils::kd_queue::{KdEvent, KdEventQueue, Scancode};
+use core::cell::UnsafeCell;
 use core::ffi::{c_int, c_long, c_uint};
 use core::mem::{MaybeUninit, size_of};
 use core::pin::Pin;
@@ -98,15 +99,15 @@ impl State {
     }
 }
 
-static mut STATE: State = State::new();
+static STATE: crate::arch::i386::kd::SyncCell<State> =
+    crate::arch::i386::kd::SyncCell(UnsafeCell::new(State::new()));
 
 /// The one state object.  Callers must hold `SPLKD`, which serializes
 /// every use, and must not hold the reference across a call that could
 /// re-enter the driver.
 fn state() -> &'static mut State {
-    // SAFETY: the driver runs at SPLKD; nothing else accesses `STATE`,
-    // and no reference outlives the function that took it.
-    unsafe { &mut *ptr::addr_of_mut!(STATE) }
+    // SAFETY: the driver runs at SPLKD; nothing else accesses `STATE`.
+    unsafe { &mut *STATE.0.get() }
 }
 
 /// The read queue head, self-linked on first use.  Callers hold `SPLKD`.

@@ -23,6 +23,7 @@ pub mod tty;
 
 use crate::glue;
 use crate::utils::delay::delay;
+use core::cell::UnsafeCell;
 use core::ffi::{c_int, c_short, c_uint};
 
 /// `NUMKEYS` in <i386at/kd.h>.
@@ -95,7 +96,6 @@ pub(crate) const K_BS: u8 = 0x08;
 pub(crate) const K_HT: u8 = 0x09;
 pub(crate) const K_BEL: u8 = 0x07;
 pub(crate) const K_SPACE: u8 = 0x20;
-pub(crate) const K_QUES: u8 = 0x3f;
 pub(crate) const K_UP: u8 = 0x80;
 pub(crate) const K_EXTEND: u8 = 0xe0;
 pub(crate) const K_ACKSC: u8 = 0xfa;
@@ -132,7 +132,6 @@ pub(crate) const KB_ASCII: c_int = 2;
 
 // Display attributes, <i386at/kd.h>.
 pub(crate) const KA_NORMAL: u8 = 0x07;
-pub(crate) const KA_REVERSE: u8 = 0x70;
 pub(crate) const KAX_REVERSE: u8 = 0x01;
 pub(crate) const KAX_UNDERLINE: u8 = 0x02;
 pub(crate) const KAX_BLINK: u8 = 0x04;
@@ -151,9 +150,6 @@ pub(crate) const C_STOP: u8 = 0x0b;
 pub(crate) const C_LOW: u8 = 0x0f;
 pub(crate) const C_HIGH: u8 = 0x0e;
 pub(crate) const C_BITMAP_START: usize = 0xa0000;
-
-/// `SLAMBPW` in <i386at/kd.c>.
-pub(crate) const SLAMBPW: c_int = 2;
 
 /// `CN_INTERNAL` of <device/cons.h>.
 pub(crate) const CN_INTERNAL: c_short = 2;
@@ -230,20 +226,6 @@ pub(crate) struct State {
     pub(crate) magic_state: c_int,
 
     pub(crate) kd_bellstate: bool,
-
-    pub(crate) font_start: *const u8,
-    pub(crate) fb_height: c_short,
-    pub(crate) char_width: c_short,
-    pub(crate) char_height: c_short,
-    pub(crate) chars_in_font: c_short,
-    pub(crate) cursor_height: c_short,
-    pub(crate) char_black: u8,
-    pub(crate) char_white: u8,
-    pub(crate) xstart: c_short,
-    pub(crate) ystart: c_short,
-    pub(crate) char_byte_width: c_short,
-    pub(crate) fb_byte_width: c_short,
-    pub(crate) font_byte_width: c_short,
 }
 
 impl State {
@@ -273,54 +255,83 @@ impl State {
             kd_kbd_magic_button: 0,
             magic_state: KS_NORMAL,
             kd_bellstate: false,
-            font_start: core::ptr::null(),
-            fb_height: 0,
-            char_width: 0,
-            char_height: 0,
-            chars_in_font: 0,
-            cursor_height: 0,
-            char_black: 0,
-            char_white: 0xff,
-            xstart: 0,
-            ystart: 0,
-            char_byte_width: 0,
-            fb_byte_width: 0,
-            font_byte_width: 0,
         }
     }
 }
 
-static mut STATE: State = State::new();
+/// A singleton cell.  The kernel's `SPLKD` serialization is what makes
+/// the `Sync` promise true: every access goes through `kd()`.
+pub(crate) struct SyncCell<T>(pub(crate) UnsafeCell<T>);
+
+// SAFETY: all access is serialized by SPLKD; see `kd()`.
+unsafe impl<T> Sync for SyncCell<T> {}
+
+/// The driver's one state object: the keyboard, display, parser and
+/// console state, the tty, and the few values other modules share.
+pub(crate) struct Kd {
+    pub(crate) st: State,
+    pub(crate) tty: tty::Tty,
+    pub(crate) kb_mode: c_int,
+    pub(crate) state_bits: c_int,
+    pub(crate) bitmap_start: usize,
+}
+
+impl Kd {
+    const fn new() -> Self {
+        Self {
+            st: State::new(),
+            tty: tty::Tty::new(),
+            kb_mode: KB_ASCII,
+            state_bits: KS_NORMAL,
+            bitmap_start: C_BITMAP_START,
+        }
+    }
+
+    /// The ascii/event switch, `kb_mode` of <i386at/kd.h>.
+    pub(crate) fn kb_mode(&self) -> c_int {
+        self.kb_mode
+    }
+
+    /// Set the keyboard mode, as `kbdsetstat()` does.
+    pub(crate) fn set_kb_mode(&mut self, mode: c_int) {
+        self.kb_mode = mode;
+    }
+
+    /// The keyboard modifier state.
+    pub(crate) fn state_bits(&self) -> c_int {
+        self.state_bits
+    }
+
+    /// Set the keyboard modifier state.
+    pub(crate) fn set_state_bits(&mut self, value: c_int) {
+        self.state_bits = value;
+    }
+}
+
+static KD: SyncCell<Kd> = SyncCell(UnsafeCell::new(Kd::new()));
 
 /// The one state object.  Callers must hold `SPLKD`, which serializes
 /// every use, and must not hold the reference across a call that could
 /// re-enter the driver.
-pub(crate) fn state() -> &'static mut State {
-    // SAFETY: the driver runs at SPLKD; nothing else accesses `STATE`.
-    unsafe { &mut *core::ptr::addr_of_mut!(STATE) }
+pub(crate) fn kd() -> &'static mut Kd {
+    // SAFETY: the driver runs at SPLKD; nothing else accesses `KD`.
+    unsafe { &mut *KD.0.get() }
 }
 
-/// `kb_mode` of <i386at/kd.h>, the ascii/event switch.  `kd_event.rs`
-/// sets it from `kbdsetstat()`; `kd.c` used to own it.
-static mut KB_MODE: c_int = KB_ASCII;
+/// The keyboard/display/parser state.
+pub(crate) fn state() -> &'static mut State {
+    &mut kd().st
+}
 
 /// The current keyboard mode.
 pub(crate) fn kb_mode() -> c_int {
-    // SAFETY: a plain integer, published at SPLKD.
-    unsafe { KB_MODE }
+    kd().kb_mode()
 }
 
-/// Set the keyboard mode: `kbd_set_mode()` was the C shim for this.
+/// Set the keyboard mode.
 pub(crate) fn set_kb_mode(mode: c_int) {
-    // SAFETY: as above.
-    unsafe { KB_MODE = mode };
+    kd().set_kb_mode(mode);
 }
-
-/// The keyboard modifier state, shared with `kd_event.rs`.
-pub(crate) static mut KD_STATE: c_int = KS_NORMAL;
-
-/// The physical start of the bitmap frame buffer, for `kdmmap()`.
-pub(crate) static mut KD_BITMAP_START: usize = C_BITMAP_START;
 
 /// Initialize the driver.  `kdinit()` in C; interrupts are assumed
 /// disabled, and the call is idempotent.  The caller must hold `SPLKD`.
@@ -356,10 +367,8 @@ pub(crate) fn kdinit() {
 
     // Clear the LEDs after enabling the controller: this keeps
     // NUM-LOCK from being set on the NEC Versa.
-    unsafe {
-        KD_STATE = KS_NORMAL;
-        keyboard::cn_set_leds(KS_NORMAL as u8);
-    }
+    kd().set_state_bits(KS_NORMAL);
+    keyboard::cn_set_leds(KS_NORMAL as u8);
 
     // Allocate the input buffer.
     tty::ttychars_init();
@@ -372,7 +381,7 @@ pub(crate) fn kdinit() {
 /// Called by the debugger's console layer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cnpollc(on: c_int) {
-    if unsafe { crate::arch::i386::kd_mouse::MOUSE_IN_USE } != 0 {
+    if crate::arch::i386::kd_mouse::mouse_in_use() != 0 {
         if on != 0 {
             // Switch into X.
             let s = state();
@@ -401,7 +410,7 @@ pub unsafe extern "C" fn cnpollc(on: c_int) {
 /// Called on a magic key sequence or a reboot request.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kdreboot() {
-    unsafe { (display::kd_dreset)() };
+    display::reset();
     keyboard::sendcmd(KC_CMD_RESET);
     delay(1000000);
     unsafe { glue::cpu_shutdown() };

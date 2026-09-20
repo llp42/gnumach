@@ -33,16 +33,14 @@ const K_KP_END: c_int = 0x4f;
 const K_DOWNSC: c_int = 0x50;
 const K_KP_PGDN: c_int = 0x51;
 
-/// Read the exported `kd_state`.
+/// Read the shared modifier state.
 fn state_bits() -> c_int {
-    // SAFETY: a plain integer written at SPLKD.
-    unsafe { KD_STATE }
+    super::kd().state_bits()
 }
 
-/// Write the exported `kd_state`.
+/// Write the shared modifier state.
 fn set_state_bits(value: c_int) {
-    // SAFETY: as above.
-    unsafe { KD_STATE = value };
+    super::kd().set_state_bits(value);
 }
 
 /// The current keyboard mode.
@@ -310,7 +308,7 @@ fn intr() {
     // We may have seen a mouse event.
     if unsafe { glue::pio_inb(K_STATUS) } & K_AUX_OBUF_FUL == K_AUX_OBUF_FUL {
         let sc = unsafe { glue::pio_inb(K_RDWR) };
-        if unsafe { kd_mouse::MOUSE_IN_USE } != 0 {
+        if kd_mouse::mouse_in_use() != 0 {
             kd_mouse::mouse_handle_byte(sc);
         } else {
             // SAFETY: a literal format with one integer.

@@ -78,7 +78,6 @@ WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 #include <device/io_req.h>
 #include <device/input.h>
 #include <device/tty.h>
-#include <i386at/kdsoft.h>
 
 /*
  * Where memory for various graphics adapters starts.
@@ -231,8 +230,7 @@ WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  * For an EGA-like display, each character takes two bytes, one for the 
  * actual character, followed by one for its attributes.  
  * Be very careful if you change ONE_SPACE, as these constants are also used
- * to define the device-independent display implemented by kd.c.  
- * (See kdsoft.h for more details on the device-independent display.)
+ * to define the device-independent display (now in rust/src/).
  */
 #define ONE_SPACE	2		/* bytes in 1 char, EGA-like display */
 #define BOTTOM_LINE 	3840		/* 1st byte in last line of display */
@@ -649,18 +647,5 @@ extern io_return_t kdsetstat(
 
 extern int kdportdeath(dev_t dev, mach_port_t port);
 extern vm_offset_t kdmmap(dev_t dev, vm_offset_t off, vm_prot_t prot);
-
-/*
- * Generic routines for bitmap devices (i.e., assume no hardware
- * assist).  Assumes a simple byte ordering (i.e., a byte at a lower
- * address is to the left of the byte at the next higher address).
- * For the 82786, this works anyway if the characters are 2 bytes
- * wide.  (more bubble gum and paper clips.)
- *
- * See the comments above (in i386at/kd.c) about SLAMBPW.
- */
-void bmpch2bit(csrpos_t pos, short *xb, short *yb);
-void bmppaintcsr(csrpos_t pos, u_char val);
-u_char *bit2fbptr(short	xb, short yb);
 
 #endif	/* _KD_H_ */

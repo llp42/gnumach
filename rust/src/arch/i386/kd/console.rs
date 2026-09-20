@@ -130,15 +130,16 @@ pub(crate) fn maygetc() -> c_int {
         if (scancode as usize) < NUMKEYS {
             // Look up in the map, then process.
             let mut char_idx = super::keyboard::state2idx(
-                unsafe { KD_STATE } as c_uint,
+                super::kd().state_bits() as c_uint,
                 state().kd_extended,
             );
             let mut c = unsafe { KEY_MAP[scancode as usize][char_idx] };
             if c == K_SCAN {
                 char_idx += 1;
                 c = unsafe { KEY_MAP[scancode as usize][char_idx] };
-                let st = super::keyboard::modifier(unsafe { KD_STATE }, c, up);
-                unsafe { KD_STATE = st };
+                let st =
+                    super::keyboard::modifier(super::kd().state_bits(), c, up);
+                super::kd().set_state_bits(st);
             } else if !up
                 && c == K_ESC
                 && unsafe { KEY_MAP[scancode as usize][char_idx + 1] } == 0x5b

@@ -25,6 +25,7 @@ use super::io_req::{
 use crate::glue;
 use crate::kern::queue::QueueEntry;
 use crate::utils::kd_queue::{KdEvent, KdEventQueue, KevType, MouseMotion};
+use core::cell::UnsafeCell;
 use core::ffi::{c_int, c_long, c_uint};
 use core::mem::{MaybeUninit, size_of};
 use core::pin::Pin;
@@ -89,7 +90,20 @@ const K_IBUF_FUL: u8 = 0x02;
 
 /// Whether `/dev/mouse` is open.  `i386/i386at/kd.c` reads it directly
 /// (`cnpollc`, `kdintr`), so the symbol and its `boolean_t` size stay.
-pub(crate) static mut MOUSE_IN_USE: c_int = 0;
+static MOUSE_IN_USE: crate::arch::i386::kd::SyncCell<c_int> =
+    crate::arch::i386::kd::SyncCell(UnsafeCell::new(0));
+
+/// Whether the mouse has taken over the console (X is running).
+pub(crate) fn mouse_in_use() -> c_int {
+    // SAFETY: a plain integer, written at SPLKD.
+    unsafe { *MOUSE_IN_USE.0.get() }
+}
+
+/// Record that the mouse took (`1`) or gave back (`0`) the console.
+pub(crate) fn set_mouse_in_use(value: c_int) {
+    // SAFETY: as above.
+    unsafe { *MOUSE_IN_USE.0.get() = value };
+}
 
 /// The driver's mutable state: the C file's file-scope globals.
 ///
@@ -146,15 +160,15 @@ impl State {
     }
 }
 
-static mut STATE: State = State::new();
+static STATE: crate::arch::i386::kd::SyncCell<State> =
+    crate::arch::i386::kd::SyncCell(UnsafeCell::new(State::new()));
 
 /// The one state object.  Callers must hold `SPLKD`, which serializes
 /// every use, and must not hold the reference across a call that could
 /// re-enter the driver.
 fn state() -> &'static mut State {
-    // SAFETY: the driver runs at SPLKD; nothing else accesses `STATE`,
-    // and no reference outlives the function that took it.
-    unsafe { &mut *ptr::addr_of_mut!(STATE) }
+    // SAFETY: the driver runs at SPLKD; nothing else accesses `STATE`.
+    unsafe { &mut *STATE.0.get() }
 }
 
 /// The read queue head, self-linked on first use.  Callers hold `SPLKD`.
@@ -575,10 +589,10 @@ pub unsafe extern "C" fn mouseopen(
     _flags: c_int,
     _ior: *mut IoReq,
 ) -> c_int {
-    if unsafe { MOUSE_IN_USE } != 0 {
+    if mouse_in_use() != 0 {
         return D_ALREADY_OPEN;
     }
-    unsafe { MOUSE_IN_USE = 1 };
+    set_mouse_in_use(1);
     let s = state();
     s.queue.clear();
     s.lastbuttons = MOUSE_ALL_UP;
@@ -647,7 +661,7 @@ pub unsafe extern "C" fn mouseclose(dev: DevT, _flags: c_int) {
         _ => {}
     }
     s.queue.clear();
-    unsafe { MOUSE_IN_USE = 0 };
+    set_mouse_in_use(0);
 }
 
 /// Read queued events.  `mouseread()` in C.
