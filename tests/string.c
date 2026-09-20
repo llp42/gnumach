@@ -1,14 +1,15 @@
 /* SPDX-License-Identifier: BSD-2-Clause
  * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
  *
- * String routines for the test programs.
+ * String routines for the test programs, plus `mach_atoi`.
  *
- * The kernel's string routines come from libmach-rs.a.  These are
- * user-mode binaries with their own link, so they carry their own, as
- * plain loops.  Only the routines the tests actually use live here.
+ * The kernel's string and atoi routines come from libmach-rs.a.  These
+ * are user-mode binaries with their own link, so they carry their own,
+ * as plain loops.  Only the routines the tests actually use live here.
  */
 
 #include <stddef.h>
+#include <util/atoi.h>
 
 void *
 memcpy(void *s1, const void *s2, size_t n)
@@ -76,4 +77,20 @@ strlen(const char *s)
 		continue;
 
 	return s - 1 - ret;
+}
+
+int
+mach_atoi(const u_char *cp, int *nump)
+{
+	int number;
+	const u_char *original;
+
+	original = cp;
+	for (number = 0; '0' <= *cp && *cp <= '9'; cp++)
+		number = (number * 10) + (*cp - '0');
+	if (original == cp)
+		*nump = MACH_ATOI_DEFAULT;
+	else
+		*nump = number;
+	return cp - original;
 }

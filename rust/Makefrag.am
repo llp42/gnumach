@@ -26,6 +26,7 @@ MACH_RS_SRCS = \
 	rust/src/kern/smp.rs \
 	rust/src/lib.rs \
 	rust/src/panic.rs \
+	rust/src/utils/atoi.rs \
 	rust/src/utils/byteorder.rs \
 	rust/src/utils/cell.rs \
 	rust/src/utils/delay.rs \

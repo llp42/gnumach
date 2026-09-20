@@ -3,6 +3,7 @@
 
 //! Code that is the same on every machine.
 
+pub mod atoi;
 pub mod byteorder;
 pub(crate) mod cell;
 pub mod delay;

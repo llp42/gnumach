@@ -154,10 +154,6 @@ pub(crate) const C_BITMAP_START: usize = 0xa0000;
 /// `CN_INTERNAL` of <device/cons.h>.
 pub(crate) const CN_INTERNAL: c_short = 2;
 
-/// `MACH_ATOI_DEFAULT` of <util/atoi.h>, the "no number" value
-/// `mach_atoi()` stores.
-pub(crate) const MACH_ATOI_DEFAULT: c_int = -1;
-
 /// `color_table[]` in <i386at/kd.c>, the proper ANSI color order.
 pub(crate) const COLOR_TABLE: [u8; 16] =
     [0, 4, 2, 6, 1, 5, 3, 7, 8, 12, 10, 14, 9, 13, 11, 15];

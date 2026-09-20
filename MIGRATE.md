@@ -57,7 +57,7 @@ Rust story.  This is the "why" behind every blocker in §4.
 
 | Layer | C machinery | Rust must first provide | Blocks |
 |---|---|---|---|
-| **L0 pure** | string ops (already Rust), byte order (Rust), parser tables | nothing | `atoi.c` |
+| **L0 pure** | string ops (already Rust), byte order (Rust), atoi (Rust), parser tables | nothing | — |
 | **L1 types** | `struct thread`, `task`, `processor`, `processor_set`, `ipc_port`, `vm_map` read/written field-by-field, sometimes by asm (`i386asm.sym`) | `#[repr(C)]` mirror + offset/size `const` asserts, or C accessor shims; decision on who owns the layout | everything in `kern/` |
 | **L2 locks/IRQ/percpu** | `simple_lock`/`_simple_lock` (inline `xchg` macros), `spl*` (`spl.S`, per-CPU `curr_ipl`), `simple_lock_irq`, `percpu_get`/`current_thread()` (`%gs`), `__sync_synchronize`, `cpu_pause` | A `SpinLock` type `repr(transparent)` over `natural_t` so C macros keep working; an `IrqGuard` over `splx`; a per-CPU accessor in `src/arch/`; C shims for the lock/percpu/spl macros (first real shim customers) | `lock.c`, `kmutex.c`, `eventcount.c`, `priority.c`, `timer.c`, scheduler/IPC/VM files |
 | **L3 memory** | `kalloc`/`kfree`, `kmem_cache_*` (slab), `kmem_alloc_wired`, `vm_page_*` | the same C API behind thin shims; optionally later a `GlobalAlloc` over `kalloc` (an explicit design decision, not a quiet add) | `slab.c` itself, `rdxtree.c`, `syscall_emulation.c`, `processor.c`, `task.c` |
@@ -119,9 +119,10 @@ Distilled from the ports so far and `AGENTS.md`:
   (`include/mach/mach_types.defs:198-248`), trap entries and asm-read
   globals keep their exact C names and types; rename only after the C
   readers are gone.
-* **Test copies.**  `util/atoi.c` and `kern/printf.c` are compiled into
-  the user tests (`tests/user-qemu.mk:137`); moving either requires a
-  `tests/` copy in the same commit.
+* **Test copies.**  `kern/printf.c` is compiled into the user tests
+  (`tests/user-qemu.mk:135`); moving it requires a `tests/` copy in the
+  same commit.  `util/atoi.c` moved this way, and its copy lives in
+  `tests/string.c`.
 
 What Rust still lacks (as of the rbtree port): an allocator over
 `kalloc`/`kmem_cache`, an RAII lock/IRQ layer, per-CPU access, a struct
@@ -948,8 +949,8 @@ MIG-generated `.c` live only under `build-*/` and are not ported.
 | `ipc_right.c` | 1844 | rights translation (anchor) | 5 | entry/space/table/marequest |
 | `mach_msg.c` | 1648 | `mach_msg_trap` (anchor) | 5 | copyin/out, locore/pcb, sched |
 
-`ipc_thread.c` is ported; its §9 row comes with the port commit.  The
-entry below keeps the detail §4.1 gives the `kern/` files.
+`ipc_thread.c` is ported; §9 records it.  The entry below keeps the
+detail §4.1 gives the `kern/` files.
 
 #### `ipc/ipc_thread.c` — 103 lines — ported
 * **Role.** The LIFO stack of threads waiting on a message queue or
@@ -1188,11 +1189,26 @@ detail §4.1 gives the `kern/` files.
 
 | File | LOC | Role | Friction | Blockers |
 |---|---:|---|---:|---|
-| `util/atoi.c` | 106 | `mach_atoi` | 1 | needs `tests/` copy |
+| `util/atoi.c` | 106 | `mach_atoi` | 1 | ported — see §9 |
 | `i386/intel/read_fault.c` | 178 | pre-486 workaround | 1 | dead on i686/x86_64 — delete |
 | `chips/busses.c` | 232 | bus config tables | 2 | `bus_*_init` hooks |
 | `i386/intel/pmap.c` | 2599 | x86 page tables (anchor) | 5 | everything; see below |
 | `x86_64/` | — | **no C at all** | — | only `.S` + headers |
+
+#### `util/atoi.c` — 106 lines — ported
+* **Role.** Parse the leading decimal digits of a byte string; the C
+  interface stores the number -- or `MACH_ATOI_DEFAULT` when there is
+  none -- and returns the bytes consumed.
+* **Rust home.** `src/utils/atoi.rs`: a safe `parse()` over `&[u8]`
+  returning `(usize, Option<c_int>)`, with the C accumulator's
+  wrapping, and the `mach_atoi()` adapter at the edge.
+* **Callers.** `i386/i386at/com.c` parses the `console=com<n>` unit
+  through the adapter; `src/arch/i386/kd/esc.rs` calls `parse()` for
+  escape-sequence parameters.
+* **Tests.** Qemu only: boot parses `console=com0`, and
+  `test-kd-dev` drives the escape parser on both arches.  `util/atoi.c`
+  was compiled into the user tests, so `tests/string.c` now carries a
+  copy.
 
 ### Hard anchors outside `kern/`
 
@@ -1240,16 +1256,14 @@ generated `.server.h`; the unmarshalling, `TypeCheck` and
 ## 6. Least-friction candidates, in order
 
 Ported from this list so far: `kern/rbtree.c`, `i386/i386at/kd_queue.c`,
-`i386/i386at/mem.c`, `i386/i386at/mbinfo.c` and `ipc/ipc_thread.c`
-(see §9).
+`i386/i386at/mem.c`, `i386/i386at/mbinfo.c`, `ipc/ipc_thread.c` and
+`util/atoi.c` (see §9).
 
 Tier 1 — no new infrastructure:
 
-1. `util/atoi.c` — 0 undefined; needs a `tests/` copy in the same
-   commit.
-2. `ipc/ipc_target.c` — one call to `ipc_mqueue_init` (shim or defer).
-3. `i386/i386/ast_check.c`, `i386/i386/hardclock.c` — tiny, asm-free.
-4. `kern/boot_script.c` — isolated, allocation callbacks only.
+1. `ipc/ipc_target.c` — one call to `ipc_mqueue_init` (shim or defer).
+2. `i386/i386/ast_check.c`, `i386/i386/hardclock.c` — tiny, asm-free.
+3. `kern/boot_script.c` — isolated, allocation callbacks only.
 
 Tier 2 — after the first shims (percpu, locks, `struct` mirrors):
 
@@ -1316,9 +1330,10 @@ rbtree's; see §8.
   `tests/test-rbtree-rs` compiles it for the host as part of
   `make check`.  It is the exception, not a second build path; every
   other port is exercised through the running kernel.
-* Test-linked routines: `util/atoi.c` and `kern/printf.c` are compiled
-  into the user tests (`tests/user-qemu.mk:137`); a port of either is
-  not a port until `tests/` has its own C copy.  `tests/kd_queue.c`,
+* Test-linked routines: `kern/printf.c` is compiled into the user tests
+  (`tests/user-qemu.mk:135`); a port of it is not a port until `tests/`
+  has its own C copy.  `util/atoi.c` moved that way, and its copy is in
+  `tests/string.c`.  `tests/kd_queue.c`,
   `tests/kd_event.c`, `tests/kd_mouse.c` and `tests/kd.c` are such
   copies already, pinning the ring-buffer, `X_kdb`, mouse-packet and
   escape-parser contracts the Rust implements.
@@ -1340,6 +1355,7 @@ rbtree's; see §8.
 | `i386/i386at/mem.c` | `src/arch/i386/mem.rs` | `548186d3` |
 | `i386/i386at/mbinfo.c` | `src/arch/i386/mbinfo.rs` | `21fcbe0b` |
 | `kern/rbtree.c` | `src/kern/rbtree.rs` | `9445e08b` … `e2b04831` |
+| `ipc/ipc_thread.c` | `src/ipc/ipc_thread.rs` | `417ba80a` |
 
 Deleted dead code: `device/blkio.c` (unreachable block pager path) and
 the `#if 0` profiling facility (`profil.h`, `profilparam.h`,

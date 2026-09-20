@@ -33,9 +33,6 @@ unsafe extern "C" {
     // <kern/machine.c>
     pub fn cpu_shutdown();
 
-    // <util/atoi.h>
-    pub fn mach_atoi(s: *const u8, nump: *mut c_int) -> c_int;
-
     // <i386at/kd.h>, the screen block moves in kdasm.S
     pub fn kd_slmwd(start: *mut c_void, count: c_int, value: c_int);
     pub fn kd_slmscu(from: *mut c_void, to: *mut c_void, count: c_int);

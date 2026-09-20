@@ -138,7 +138,6 @@ SRC_TESTLIB= \
 	$(srcdir)/tests/kd_mouse.c \
 	$(srcdir)/tests/kd_queue.c \
 	$(srcdir)/tests/string.c \
-	$(srcdir)/util/atoi.c \
 	$(TESTSRC_TESTLIB) \
 	$(builddir)/tests/errlist.c \
 	$(MIG_GEN_CC)

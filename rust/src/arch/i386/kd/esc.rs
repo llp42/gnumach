@@ -14,6 +14,7 @@ use super::display::{
 };
 use super::*;
 use crate::glue;
+use crate::utils::atoi;
 use core::ffi::{c_int, c_short};
 
 /// `kd_bellon()`, for use inside the module.
@@ -300,10 +301,21 @@ fn repeat(n: c_int, f: fn()) {
     }
 }
 
+/// A `\e[<n>G` column or `\e[<n>;<m>H` row/column parameter: absent and
+/// zero both mean the first column or row, and a value above zero counts
+/// from one.  A wrapped-negative value passes through, as in the C.
+fn zero_based(n: Option<c_int>) -> c_int {
+    match n {
+        None => 0,
+        Some(n) if n > 0 => n - 1,
+        Some(n) => n,
+    }
+}
+
 /// The ANSI interpreter.  `parserest()` in C.
 fn parserest(seq: &[u8; K_MAXESC], start: usize) {
     let mut cp = start;
-    let mut number = [MACH_ATOI_DEFAULT; 16];
+    let mut number: [Option<c_int>; 16] = [None; 16];
     let mut npar: usize = 0;
     let mut question = false;
     let mut angle = false;
@@ -317,11 +329,8 @@ fn parserest(seq: &[u8; K_MAXESC], start: usize) {
     }
 
     loop {
-        let mut n: c_int = 0;
-        // SAFETY: `seq` is NUL-terminated, so the pointer is valid for
-        // `mach_atoi()`.
-        let used = unsafe { glue::mach_atoi(seq.as_ptr().add(cp), &mut n) };
-        cp += used as usize;
+        let (used, n) = atoi::parse(seq.get(cp..).unwrap_or_default());
+        cp += used;
         number[npar] = n;
         if seq[cp] != b';' {
             break;
@@ -354,41 +363,43 @@ fn parserest(seq: &[u8; K_MAXESC], start: usize) {
         b'm' => {
             for value in &number[..=np] {
                 match *value {
-                    MACH_ATOI_DEFAULT | 0 => {
+                    None | Some(0) => {
                         state().kd_attrflags = 0;
                         state().kd_color = KA_NORMAL;
                     }
-                    1 => {
+                    Some(1) => {
                         state().kd_attrflags |= KAX_BOLD;
                         state().kd_attrflags &= !KAX_DIM;
                     }
-                    2 => {
+                    Some(2) => {
                         state().kd_attrflags |= KAX_DIM;
                         state().kd_attrflags &= !KAX_BOLD;
                     }
-                    4 => state().kd_attrflags |= KAX_UNDERLINE,
-                    5 => state().kd_attrflags |= KAX_BLINK,
-                    7 => state().kd_attrflags |= KAX_REVERSE,
-                    8 => state().kd_attrflags |= KAX_INVISIBLE,
-                    21 | 22 => state().kd_attrflags &= !(KAX_BOLD | KAX_DIM),
-                    24 => state().kd_attrflags &= !KAX_UNDERLINE,
-                    25 => state().kd_attrflags &= !KAX_BLINK,
-                    27 => state().kd_attrflags &= !KAX_REVERSE,
-                    38 => {
+                    Some(4) => state().kd_attrflags |= KAX_UNDERLINE,
+                    Some(5) => state().kd_attrflags |= KAX_BLINK,
+                    Some(7) => state().kd_attrflags |= KAX_REVERSE,
+                    Some(8) => state().kd_attrflags |= KAX_INVISIBLE,
+                    Some(21 | 22) => {
+                        state().kd_attrflags &= !(KAX_BOLD | KAX_DIM);
+                    }
+                    Some(24) => state().kd_attrflags &= !KAX_UNDERLINE,
+                    Some(25) => state().kd_attrflags &= !KAX_BLINK,
+                    Some(27) => state().kd_attrflags &= !KAX_REVERSE,
+                    Some(38) => {
                         state().kd_attrflags |= KAX_UNDERLINE;
                         state().kd_color =
                             (state().kd_color & 0xf0) | (KA_NORMAL & 0x0f);
                     }
-                    39 => {
+                    Some(39) => {
                         state().kd_attrflags &= !KAX_UNDERLINE;
                         state().kd_color =
                             (state().kd_color & 0xf0) | (KA_NORMAL & 0x0f);
                     }
-                    v if (30..=37).contains(&v) => {
+                    Some(v) if (30..=37).contains(&v) => {
                         let c = COLOR_TABLE[(v - 30) as usize];
                         state().kd_color = (state().kd_color & 0xf0) | c;
                     }
-                    v if (40..=47).contains(&v) => {
+                    Some(v) if (40..=47).contains(&v) => {
                         let c = COLOR_TABLE[(v - 40) as usize];
                         state().kd_color =
                             (state().kd_color & 0x0f) | (c << 4);
@@ -400,94 +411,50 @@ fn parserest(seq: &[u8; K_MAXESC], start: usize) {
             state().esc_spt = 0;
         }
         b'@' => {
-            if number[0] == MACH_ATOI_DEFAULT {
-                insch(1);
-            } else {
-                insch(number[0]);
-            }
+            insch(number[0].unwrap_or(1));
             state().esc_spt = 0;
         }
         b'A' => {
-            if number[0] == MACH_ATOI_DEFAULT {
-                up();
-            } else {
-                repeat(number[0], up);
-            }
+            repeat(number[0].unwrap_or(1), up);
             state().esc_spt = 0;
         }
         b'B' => {
-            if number[0] == MACH_ATOI_DEFAULT {
-                down();
-            } else {
-                repeat(number[0], down);
-            }
+            repeat(number[0].unwrap_or(1), down);
             state().esc_spt = 0;
         }
         b'C' => {
-            if number[0] == MACH_ATOI_DEFAULT {
-                right();
-            } else {
-                repeat(number[0], right);
-            }
+            repeat(number[0].unwrap_or(1), right);
             state().esc_spt = 0;
         }
         b'D' => {
-            if number[0] == MACH_ATOI_DEFAULT {
-                left();
-            } else {
-                repeat(number[0], left);
-            }
+            repeat(number[0].unwrap_or(1), left);
             state().esc_spt = 0;
         }
         b'E' => {
             cr();
-            if number[0] == MACH_ATOI_DEFAULT {
-                down();
-            } else {
-                repeat(number[0], down);
-            }
+            repeat(number[0].unwrap_or(1), down);
             state().esc_spt = 0;
         }
         b'F' => {
             cr();
-            if number[0] == MACH_ATOI_DEFAULT {
-                up();
-            } else {
-                repeat(number[0], up);
-            }
+            repeat(number[0].unwrap_or(1), up);
             state().esc_spt = 0;
         }
         b'G' => {
-            if number[0] == MACH_ATOI_DEFAULT {
-                number[0] = 0;
-            } else if number[0] > 0 {
-                number[0] -= 1; // numbered from 1
-            }
             setpos(
                 beg_of_line(state().kd_curpos)
-                    + number[0] as c_short * ONE_SPACE,
+                    + zero_based(number[0]) as c_short * ONE_SPACE,
             );
             state().esc_spt = 0;
         }
         b'f' | b'H' => {
-            if number[0] == MACH_ATOI_DEFAULT && number[1] == MACH_ATOI_DEFAULT
-            {
+            if number[0].is_none() && number[1].is_none() {
                 home();
                 state().esc_spt = 0;
                 return;
             }
-            if number[0] == MACH_ATOI_DEFAULT {
-                number[0] = 0;
-            } else if number[0] > 0 {
-                number[0] -= 1; // numbered from 1
-            }
-            let mut newpos = number[0] as c_short * ONE_LINE;
-            if number[1] == MACH_ATOI_DEFAULT {
-                number[1] = 0;
-            } else if number[1] > 0 {
-                number[1] -= 1;
-            }
-            newpos += number[1] as c_short * ONE_SPACE;
+            let mut newpos = zero_based(number[0]) as c_short * ONE_LINE;
+            newpos += zero_based(number[1]) as c_short * ONE_SPACE;
             if newpos < 0 {
                 newpos = 0; // upper left
             }
@@ -499,68 +466,44 @@ fn parserest(seq: &[u8; K_MAXESC], start: usize) {
         }
         b'J' => {
             match number[0] {
-                MACH_ATOI_DEFAULT | 0 => cltobcur(),
-                1 => cltopcur(),
-                2 => cls(),
+                None | Some(0) => cltobcur(),
+                Some(1) => cltopcur(),
+                Some(2) => cls(),
                 _ => {}
             }
             state().esc_spt = 0;
         }
         b'K' => {
             match number[0] {
-                MACH_ATOI_DEFAULT | 0 => cltoecur(),
-                1 => clfrbcur(),
-                2 => eraseln(),
+                None | Some(0) => cltoecur(),
+                Some(1) => clfrbcur(),
+                Some(2) => eraseln(),
                 _ => {}
             }
             state().esc_spt = 0;
         }
         b'L' => {
-            if number[0] == MACH_ATOI_DEFAULT {
-                insln(1);
-            } else {
-                insln(number[0]);
-            }
+            insln(number[0].unwrap_or(1));
             state().esc_spt = 0;
         }
         b'M' => {
-            if number[0] == MACH_ATOI_DEFAULT {
-                delln(1);
-            } else {
-                delln(number[0]);
-            }
+            delln(number[0].unwrap_or(1));
             state().esc_spt = 0;
         }
         b'P' => {
-            if number[0] == MACH_ATOI_DEFAULT {
-                delch(1);
-            } else {
-                delch(number[0]);
-            }
+            delch(number[0].unwrap_or(1));
             state().esc_spt = 0;
         }
         b'S' => {
-            if number[0] == MACH_ATOI_DEFAULT {
-                scrollup();
-            } else {
-                repeat(number[0], scrollup);
-            }
+            repeat(number[0].unwrap_or(1), scrollup);
             state().esc_spt = 0;
         }
         b'T' => {
-            if number[0] == MACH_ATOI_DEFAULT {
-                scrolldn();
-            } else {
-                repeat(number[0], scrolldn);
-            }
+            repeat(number[0].unwrap_or(1), scrolldn);
             state().esc_spt = 0;
         }
         b'X' => {
-            if number[0] == MACH_ATOI_DEFAULT {
-                erase(1);
-            } else {
-                erase(number[0]);
-            }
+            erase(number[0].unwrap_or(1));
             state().esc_spt = 0;
         }
         0 => {}
