@@ -3,5 +3,6 @@
 
 //! Code that is the same on every machine.
 
+pub mod byteorder;
 pub mod delay;
 pub mod string;

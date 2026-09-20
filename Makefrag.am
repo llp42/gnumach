@@ -169,8 +169,7 @@ EXTRA_DIST += \
 libkernel_a_SOURCES += \
 	util/atoi.c \
 	util/atoi.h \
-	util/byteorder.h \
-	util/byteorder.c
+	util/byteorder.h
 
 #
 # Virtual memory implementation.

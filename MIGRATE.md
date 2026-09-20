@@ -23,9 +23,10 @@ arrives, and `mise run test` decides whether it is correct.
 
 ## Clean candidates: pure C, no asm, no allocation
 
-- `util/byteorder.c` (53 lines) — `htonl()`, `htons()`, `ntohl()`,
-  `ntohs()`.  Only callee: `__builtin_bswap{16,32}`, which is
-  `u16::to_be()` & co. in Rust.  The simplest file in the tree.
+- ~~`util/byteorder.c`~~ **ported** — now
+  `rust/src/utils/byteorder.rs`: `ntohs()`, `ntohl()`, `htons()` and
+  `htonl()` over `from_be()`/`to_be()`, which is what the C's
+  `__builtin_bswap{16,32}` blocks compiled to.
 - ~~`kern/queue.c`~~ **ported** — now `rust/src/kern/queue.rs`: a
   `#[repr(C)]`-compatible `QueueEntry` module behind the four `extern
   "C"` symbols (`dequeue_tail()` and `insque()` were dropped as
@@ -113,6 +114,6 @@ out — nothing to port:
 
 ## Suggested order
 
-`util/byteorder.c` is the next port — zero calls, no state.  Then the
-rest of the clean list, then rbtree/timer, and leave `db_interface.c`
+The clean list is down to `i386/i386at/kd_queue.c`, `ipc/ipc_thread.c`
+and `util/atoi.c`.  Then rbtree/timer, and leave `db_interface.c`
 until `src/arch/` exists.
