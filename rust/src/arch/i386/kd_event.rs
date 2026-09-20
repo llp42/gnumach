@@ -8,12 +8,12 @@
 //! code when the keyboard is in Event mode; `kbdread()` drains the
 //! events to the reader.  The file also carries the `X_kdb` port-I/O
 //! escape used by `cnpollc()`: the caller installs a list of in/out
-//! commands with `kbdsetstat()`, and `X_kdb_enter()`/`X_kdb_exit()`
+//! commands with `kbdsetstat()`, and `x_kdb_enter()`/`x_kdb_exit()`
 //! replay them.
 //!
 //! The queue and the device entry points run at `SPLKD` (`spltty`),
-//! like the C file's globals.  `i386/i386at/kd.c` calls `X_kdb_enter()`
-//! and `X_kdb_exit()`, and `conf.c` keeps the four device entries.
+//! like the C file's globals.  `i386/i386at/kd.c` calls `x_kdb_enter()`
+//! and `x_kdb_exit()`, and `conf.c` keeps the four device entries.
 
 use super::io_req::{
     D_INVALID_OPERATION, D_INVALID_SIZE, D_IO_QUEUED, D_NOWAIT, D_SUCCESS,
@@ -29,8 +29,8 @@ use core::pin::Pin;
 use core::ptr::{self, NonNull};
 use core::sync::atomic::{AtomicBool, Ordering};
 
-/// `sizeof X_kdb_enter_str / sizeof X_kdb_enter_str[0]` in C: the most
-/// port commands `X_kdb_enter_init()` accepts.
+/// `sizeof x_kdb_enter_str / sizeof x_kdb_enter_str[0]` in C: the most
+/// port commands `x_kdb_enter_init()` accepts.
 const KDB_STR_MAX: usize = 512;
 
 // The keyboard ioctls of <device/input.h>, whose `_IOW`/`_IOR` values
@@ -201,7 +201,7 @@ pub unsafe extern "C" fn kbdopen(
 ) -> c_int {
     let sp = unsafe { glue::spltty() };
     // SAFETY: kd.c's driver init, as in C, at spltty.
-    unsafe { glue::kdinit() };
+    crate::arch::i386::kd::kdinit();
     unsafe { glue::splx(sp) };
     kbdinit();
     0
@@ -277,16 +277,17 @@ pub unsafe extern "C" fn kbdsetstat(
         if count != 1 {
             return D_INVALID_OPERATION;
         }
-        // SAFETY: `count == 1` promises one readable value; the
-        // shim truncates to the `u_char` the C passed.
-        unsafe { glue::kd_setleds1(*data as u8) };
+        // SAFETY: `count == 1` promises one readable value; kd
+        // truncates to the `u_char` the C passed.
+        let val = unsafe { *data };
+        crate::arch::i386::kd::keyboard::set_leds1(val as u8);
         D_SUCCESS
     } else if flavor == K_X_KDB_ENTER {
         // SAFETY: `data` holds `count` port commands.
-        unsafe { X_kdb_enter_init(data.cast(), count) }
+        unsafe { x_kdb_enter_init(data.cast(), count) }
     } else if flavor == K_X_KDB_EXIT {
         // SAFETY: as above.
-        unsafe { X_kdb_exit_init(data.cast(), count) }
+        unsafe { x_kdb_exit_init(data.cast(), count) }
     } else {
         D_INVALID_OPERATION
     }
@@ -334,13 +335,8 @@ pub unsafe extern "C" fn kbdread(_dev: DevT, ior: *mut IoReq) -> c_int {
 }
 
 /// Finish a read that was queued waiting for events.
-/// `kbd_read_done()` in C.
-///
-/// # Safety
-///
-/// The device layer calls this with the request it queued.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kbd_read_done(ior: *mut IoReq) -> c_int {
+/// `kbd_read_done()` in C, as a callback value.
+unsafe extern "C" fn kbd_read_done(ior: *mut IoReq) -> c_int {
     let s = state();
     // SAFETY: as in `kbdread()`.
     let sp = unsafe { glue::spltty() };
@@ -360,34 +356,14 @@ pub unsafe extern "C" fn kbd_read_done(ior: *mut IoReq) -> c_int {
     1
 }
 
-/// Enqueue a scancode.  `kd_enqsc()` in C; called at `SPLKD`.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_enqsc(sc: Scancode) {
+/// Enqueue a scancode.  `kd_enqsc()` in C; called at `SPLKD` from the
+/// kd interrupt path.
+pub(crate) fn kd_enqsc(sc: Scancode) {
     enqueue_event(state(), &KdEvent::scancode(sc));
 }
 
-/// Enqueue an event and complete waiting reads.  `kbd_enqueue()` in C.
-///
-/// # Safety
-///
-/// `ev` must point at a valid event, and the caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kbd_enqueue(ev: *mut KdEvent) {
-    // SAFETY: the caller promises `ev` is valid for a read.
-    enqueue_event(state(), unsafe { &*ev });
-}
-
-/// Replay the `X_kdb_enter` port commands.  `X_kdb_enter()` in C.
-///
-/// # Safety
-///
-/// Called by `kd.c` with the list the last `K_X_KDB_ENTER` set.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn X_kdb_enter() {
+/// Replay the `x_kdb_enter` port commands.  `x_kdb_enter()` in C.
+pub(crate) fn x_kdb_enter() {
     let s = state();
     let len = s.x_kdb_enter_len;
     let mut i = 0;
@@ -397,13 +373,8 @@ pub unsafe extern "C" fn X_kdb_enter() {
     }
 }
 
-/// Replay the `X_kdb_exit` port commands.  `X_kdb_exit()` in C.
-///
-/// # Safety
-///
-/// Called by `kd.c` with the list the last `K_X_KDB_EXIT` set.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn X_kdb_exit() {
+/// Replay the `x_kdb_exit` port commands.  `x_kdb_exit()` in C.
+pub(crate) fn x_kdb_exit() {
     let s = state();
     let len = s.x_kdb_exit_len;
     let mut i = 0;
@@ -413,16 +384,8 @@ pub unsafe extern "C" fn X_kdb_exit() {
     }
 }
 
-/// Install the `X_kdb_enter` port commands.  `X_kdb_enter_init()` in C.
-///
-/// # Safety
-///
-/// `data` must point at `count` readable integers.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn X_kdb_enter_init(
-    data: *mut c_uint,
-    count: c_uint,
-) -> c_int {
+/// Install the `x_kdb_enter` port commands.  `x_kdb_enter_init()` in C.
+unsafe fn x_kdb_enter_init(data: *mut c_uint, count: c_uint) -> c_int {
     if count as usize > KDB_STR_MAX {
         return D_INVALID_OPERATION;
     }
@@ -440,16 +403,8 @@ pub unsafe extern "C" fn X_kdb_enter_init(
     D_SUCCESS
 }
 
-/// Install the `X_kdb_exit` port commands.  `X_kdb_exit_init()` in C.
-///
-/// # Safety
-///
-/// `data` must point at `count` readable integers.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn X_kdb_exit_init(
-    data: *mut c_uint,
-    count: c_uint,
-) -> c_int {
+/// Install the `x_kdb_exit` port commands.  `x_kdb_exit_init()` in C.
+unsafe fn x_kdb_exit_init(data: *mut c_uint, count: c_uint) -> c_int {
     if count as usize > KDB_STR_MAX {
         return D_INVALID_OPERATION;
     }

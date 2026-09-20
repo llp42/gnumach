@@ -38,8 +38,7 @@ pub unsafe extern "C" fn kdcnprobe(cp: *mut ConsDev) -> c_int {
 /// Called once from `cninit()`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kdcninit(_cp: *mut ConsDev) -> c_int {
-    // SAFETY: the console layer calls this at boot.
-    unsafe { kdinit() };
+    kdinit();
     0
 }
 
@@ -53,13 +52,13 @@ pub unsafe extern "C" fn kdcninit(_cp: *mut ConsDev) -> c_int {
 pub unsafe extern "C" fn kdcngetc(_dev: u16, wait: c_int) -> c_int {
     if wait != 0 {
         loop {
-            let c = unsafe { kdcnmaygetc() };
+            let c = maygetc();
             if c >= 0 {
                 return c;
             }
         }
     } else {
-        unsafe { kdcnmaygetc() }
+        maygetc()
     }
 }
 
@@ -75,20 +74,16 @@ pub unsafe extern "C" fn kdcnputc(_dev: u16, c: c_int) -> c_int {
     }
     // Tab is handled in kd_putc.
     if c == b'\n' as c_int {
-        unsafe { super::esc::kd_putc(b'\r') };
+        super::esc::putc(b'\r');
     }
-    unsafe { super::esc::kd_putc_esc(c as u8) };
+    super::esc::putc_esc(c as u8);
     0
 }
 
 /// Polled keyboard getc, ignoring caps lock.  `kdcnmaygetc()` in C.
-///
-/// # Safety
-///
 /// The caller must hold `SPLKD` (interrupts are usually off in the
 /// debugger).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kdcnmaygetc() -> c_int {
+pub(crate) fn maygetc() -> c_int {
     if !state().kd_initialized {
         return -1;
     }
@@ -116,14 +111,12 @@ pub unsafe extern "C" fn kdcnmaygetc() -> c_int {
         } else if scancode == K_RESEND {
             // SAFETY: a literal format with no arguments.
             unsafe { glue::printf(c"cngetc: resend".as_ptr()) };
-            // SAFETY: the caller holds SPLKD.
-            unsafe { super::keyboard::kd_resend() };
+            super::keyboard::resend();
             continue;
         } else if scancode == K_ACKSC {
             // SAFETY: a literal format with no arguments.
             unsafe { glue::printf(c"cngetc: handle_ack".as_ptr()) };
-            // SAFETY: the caller holds SPLKD.
-            unsafe { super::keyboard::kd_handle_ack() };
+            super::keyboard::handle_ack();
             continue;
         }
         if scancode & K_UP != 0 {
@@ -131,27 +124,20 @@ pub unsafe extern "C" fn kdcnmaygetc() -> c_int {
             scancode &= !K_UP;
         }
         if state().kd_kbd_mouse != 0 {
-            // SAFETY: the caller holds SPLKD.
-            unsafe { super::keyboard::kd_kbd_magic(scancode as c_int) };
+            super::keyboard::kbd_magic(scancode as c_int);
         }
         if (scancode as usize) < NUMKEYS {
             // Look up in the map, then process.
-            // SAFETY: the caller holds SPLKD.
-            let mut char_idx = unsafe {
-                super::keyboard::kdstate2idx(
-                    kd_state as c_uint,
-                    state().kd_extended as c_int,
-                )
-            } as usize;
+            let mut char_idx = super::keyboard::state2idx(
+                unsafe { KD_STATE } as c_uint,
+                state().kd_extended,
+            ) as usize;
             let mut c = unsafe { KEY_MAP[scancode as usize][char_idx] };
             if c == K_SCAN {
                 char_idx += 1;
                 c = unsafe { KEY_MAP[scancode as usize][char_idx] };
-                // SAFETY: the caller holds SPLKD.
-                let st = unsafe {
-                    super::keyboard::do_modifier(kd_state, c, up as c_int)
-                };
-                unsafe { kd_state = st };
+                let st = super::keyboard::modifier(unsafe { KD_STATE }, c, up);
+                unsafe { KD_STATE = st };
             } else if !up
                 && c == K_ESC
                 && unsafe { KEY_MAP[scancode as usize][char_idx + 1] } == 0x5b
@@ -180,19 +166,14 @@ pub unsafe extern "C" fn kdcnmaygetc() -> c_int {
     }
 }
 
-/// `kdsetbell()` in C: turn the bell on or off.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kdsetbell(val: c_int, _flags: c_int) -> c_int {
+/// `kdsetbell()` in C: turn the bell on or off.  The caller must hold
+/// `SPLKD`.
+pub(crate) fn set_bell(val: c_int, _flags: c_int) -> c_int {
     if val == KD_BELLON {
-        // SAFETY: the caller holds SPLKD.
-        unsafe { super::kd_bellon() };
+        super::kd_bellon();
         0
     } else if val == KD_BELLOFF {
-        // SAFETY: the caller holds SPLKD.
+        // SAFETY: the timeout callback is the driver's.
         unsafe { super::kd_belloff(core::ptr::null_mut()) };
         0
     } else {

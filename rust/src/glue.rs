@@ -61,14 +61,6 @@ unsafe extern "C" {
     // <i386at/com.h>
     pub fn comgetc(unit: c_int) -> c_int;
 
-    // <i386at/kd.h>
-    pub fn kd_sendcmd(ch: u8);
-    pub fn kd_cmdreg_write(value: c_int);
-    pub fn kd_mouse_drain();
-    pub fn kdintr(vector: c_int);
-    pub fn kdinit();
-    pub fn kd_setleds1(value: u8);
-
     // <device/tty.h> and <device/cirbuf.h>
     pub fn ttychars(tp: *mut c_void);
     pub fn char_open(

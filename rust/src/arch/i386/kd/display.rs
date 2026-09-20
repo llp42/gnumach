@@ -178,13 +178,8 @@ fn xga_getpos() -> c_short {
 }
 
 /// Initialize the character-based graphics adapter.  `kd_xga_init()` in
-/// C.
-///
-/// # Safety
-///
-/// Called once, from `kdinit()`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_xga_init() {
+/// C; called once, from `kdinit()`.
+pub(crate) fn xga_init() {
     {
         let s = state();
         s.vid_start = phystokv(EGA_START) as *mut u8;
@@ -225,36 +220,6 @@ pub unsafe extern "C" fn kd_xga_init() {
     }
 
     setpos(xga_getpos());
-}
-
-/// Set the cursor, scrolling if needed.  `kd_setpos()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_setpos(newpos: c_short) {
-    setpos(newpos);
-}
-
-/// Scroll the screen up a line.  `kd_scrollup()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_scrollup() {
-    scrollup();
-}
-
-/// Scroll the screen down a line.  `kd_scrolldn()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_scrolldn() {
-    scrolldn();
 }
 
 // The bitmap backend.  Private safe helpers, exported C entry points.

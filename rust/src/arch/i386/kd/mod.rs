@@ -77,8 +77,6 @@ pub(crate) const K_RDLDTWORD: u8 = 0x30;
 pub(crate) const K_TSQRWAVE: u8 = 0x06;
 pub(crate) const K_TBINARY: u8 = 0x00;
 pub(crate) const K_CMD_LEDS: u8 = 0xed;
-pub(crate) const K_LED_NUMLK: u8 = 0x2;
-pub(crate) const K_LED_CAPSLK: u8 = 0x4;
 pub(crate) const KC_CMD_READ: u8 = 0x20;
 pub(crate) const KC_CMD_WRITE: u8 = 0x60;
 pub(crate) const K_CB_DISBLE: u8 = 0x10;
@@ -314,25 +312,15 @@ pub(crate) fn set_kb_mode(mode: c_int) {
     unsafe { KB_MODE = mode };
 }
 
-/// `kd_state` of <i386at/kd.h>: needed by the C `kdgetstat()` until the
-/// tty slice moves it.
-#[unsafe(no_mangle)]
-pub static mut kd_state: c_int = KS_NORMAL;
+/// The keyboard modifier state, shared with `kd_event.rs`.
+pub(crate) static mut KD_STATE: c_int = KS_NORMAL;
 
-/// `kd_bitmap_start` of <i386at/kd.c>, needed by the C `kdmmap()` until
-/// the tty slice moves it.
-#[unsafe(no_mangle)]
-pub static mut kd_bitmap_start: usize = C_BITMAP_START;
+/// The physical start of the bitmap frame buffer, for `kdmmap()`.
+pub(crate) static mut KD_BITMAP_START: usize = C_BITMAP_START;
 
 /// Initialize the driver.  `kdinit()` in C; interrupts are assumed
-/// disabled, and the call is idempotent.
-///
-/// # Safety
-///
-/// The caller must hold the interrupt level the C used (`spltty`), and
-/// the keyboard controller must not be in use.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kdinit() {
+/// disabled, and the call is idempotent.  The caller must hold `SPLKD`.
+pub(crate) fn kdinit() {
     if state().kd_initialized {
         return;
     }
@@ -344,7 +332,7 @@ pub unsafe extern "C" fn kdinit() {
         s.kd_color = KA_NORMAL;
     }
     // Board-specific initialization, then the controller.
-    unsafe { display::kd_xga_init() };
+    display::xga_init();
 
     // Get rid of any garbage in the output buffer.
     if unsafe { glue::pio_inb(K_STATUS) } & K_OBUF_FUL != 0 {
@@ -352,12 +340,12 @@ pub unsafe extern "C" fn kdinit() {
     }
 
     unsafe {
-        keyboard::kd_sendcmd(KC_CMD_READ);
-        let mut k_comm = keyboard::kd_getdata();
+        keyboard::sendcmd(KC_CMD_READ);
+        let mut k_comm = keyboard::getdata();
         k_comm &= !K_CB_DISBLE;
         k_comm |= K_CB_ENBLIRQ;
-        keyboard::kd_sendcmd(KC_CMD_WRITE);
-        keyboard::kd_senddata(k_comm);
+        keyboard::sendcmd(KC_CMD_WRITE);
+        keyboard::senddata(k_comm);
         glue::irq_unmask(KBD_IRQ);
     }
     state().kd_initialized = true;
@@ -365,8 +353,8 @@ pub unsafe extern "C" fn kdinit() {
     // Clear the LEDs after enabling the controller: this keeps
     // NUM-LOCK from being set on the NEC Versa.
     unsafe {
-        kd_state = KS_NORMAL;
-        keyboard::cnsetleds(KS_NORMAL as u8);
+        KD_STATE = KS_NORMAL;
+        keyboard::cnsetleds_impl(KS_NORMAL as u8);
     }
 
     // Allocate the input buffer.
@@ -380,19 +368,19 @@ pub unsafe extern "C" fn kdinit() {
 /// Called by the debugger's console layer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cnpollc(on: c_int) {
-    if unsafe { crate::arch::i386::kd_mouse::mouse_in_use } != 0 {
+    if unsafe { crate::arch::i386::kd_mouse::MOUSE_IN_USE } != 0 {
         if on != 0 {
             // Switch into X.
             let s = state();
             s.old_kb_mode = kb_mode();
             set_kb_mode(KB_ASCII);
-            unsafe { crate::arch::i386::kd_event::X_kdb_enter() };
+            crate::arch::i386::kd_event::x_kdb_enter();
             s.kd_pollc += 1;
         } else {
             let s = state();
             s.kd_pollc -= 1;
             // Switch out of X.
-            unsafe { crate::arch::i386::kd_event::X_kdb_exit() };
+            crate::arch::i386::kd_event::x_kdb_exit();
             set_kb_mode(s.old_kb_mode);
         }
     } else if on != 0 {
@@ -410,31 +398,25 @@ pub unsafe extern "C" fn cnpollc(on: c_int) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kdreboot() {
     unsafe { (display::kd_dreset)() };
-    unsafe { keyboard::kd_sendcmd(0xfe) };
+    keyboard::sendcmd(0xfe);
     delay(1000000);
     unsafe { glue::cpu_shutdown() };
 }
 
-/// `kd_belloff()` in C.
+/// `kd_belloff()` in C: the timeout callback.
 ///
 /// # Safety
 ///
 /// Called from the timeout table; `_param` is unused.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_belloff(_param: *mut core::ffi::c_void) {
+pub(crate) unsafe extern "C" fn kd_belloff(_param: *mut core::ffi::c_void) {
     let status =
         unsafe { glue::pio_inb(K_PORTB) } & !(K_SPKRDATA | K_ENABLETMR2);
     unsafe { glue::pio_outb(K_PORTB, status) };
     state().kd_bellstate = false;
 }
 
-/// `kd_bellon()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_bellon() {
+/// `kd_bellon()` in C.  The caller must hold `SPLKD`.
+pub(crate) fn kd_bellon() {
     // Program timer 2.
     unsafe {
         glue::pio_outb(

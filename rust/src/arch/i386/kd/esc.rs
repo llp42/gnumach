@@ -18,13 +18,12 @@ use core::ffi::{c_int, c_short};
 
 /// `kd_bellon()`, for use inside the module.
 fn bellon() {
-    // SAFETY: the caller holds SPLKD.
-    unsafe { super::kd_bellon() };
+    super::kd_bellon();
 }
 
 // Safe operations for the interpreter.
 
-fn putc(ch: u8) {
+pub(crate) fn putc(ch: u8) {
     if ch == 0 && state().sit_for_0 != 0 {
         return;
     }
@@ -576,12 +575,7 @@ fn parserest(seq: &[u8; K_MAXESC], start: usize) {
 
 /// Collect one character, or replay an escape sequence.
 /// `kd_putc_esc()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`; the console layer calls this.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_putc_esc(c: u8) {
+pub(crate) fn putc_esc(c: u8) {
     let s = state();
     if c == K_ESC {
         if s.esc_spt == 0 {
@@ -606,227 +600,4 @@ pub unsafe extern "C" fn kd_putc_esc(c: u8) {
     } else {
         putc(c);
     }
-}
-
-/// Draw one character, with the control specials.  `kd_putc()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_putc(ch: u8) {
-    putc(ch);
-}
-
-/// Interpret the collected escape sequence.  `kd_parseesc()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_parseesc() {
-    parseesc();
-}
-
-/// The ANSI command interpreter.  `kd_parserest()` in C.
-///
-/// # Safety
-///
-/// `cp` must point at a NUL-terminated escape sequence, and the caller
-/// must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_parserest(cp: *mut u8) {
-    let mut seq = [0u8; K_MAXESC];
-    let mut i = 0;
-    while i < K_MAXESC - 1 {
-        // SAFETY: the caller promises a NUL-terminated string.
-        let b = unsafe { *cp.add(i) };
-        seq[i] = b;
-        if b == 0 {
-            break;
-        }
-        i += 1;
-    }
-    parserest(&seq, 0);
-}
-
-/// Tab to the next multiple of eight.  `kd_tab()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_tab() {
-    tab();
-}
-
-/// Clear the screen.  `kd_cls()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_cls() {
-    cls();
-}
-
-/// Move to the home position.  `kd_home()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_home() {
-    home();
-}
-
-/// Move up a line.  `kd_up()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_up() {
-    up();
-}
-
-/// Move down a line.  `kd_down()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_down() {
-    down();
-}
-
-/// Move right one character.  `kd_right()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_right() {
-    right();
-}
-
-/// Move left one character.  `kd_left()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_left() {
-    left();
-}
-
-/// Move to the beginning of the line.  `kd_cr()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_cr() {
-    cr();
-}
-
-/// Clear from the cursor to the bottom.  `kd_cltobcur()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_cltobcur() {
-    cltobcur();
-}
-
-/// Clear from the top to the cursor.  `kd_cltopcur()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_cltopcur() {
-    cltopcur();
-}
-
-/// Clear from the cursor to end of line.  `kd_cltoecur()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_cltoecur() {
-    cltoecur();
-}
-
-/// Clear from the beginning of the line to the cursor.
-/// `kd_clfrbcur()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_clfrbcur() {
-    clfrbcur();
-}
-
-/// Clear the current line.  `kd_eraseln()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_eraseln() {
-    eraseln();
-}
-
-/// Overwrite `number` characters.  `kd_erase()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_erase(number: c_int) {
-    erase(number);
-}
-
-/// Insert `number` blanks.  `kd_insch()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_insch(number: c_int) {
-    insch(number);
-}
-
-/// Delete `number` lines.  `kd_delln()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_delln(number: c_int) {
-    delln(number);
-}
-
-/// Insert `number` lines.  `kd_insln()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_insln(number: c_int) {
-    insln(number);
-}
-
-/// Delete `number` characters.  `kd_delch()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_delch(number: c_int) {
-    delch(number);
 }

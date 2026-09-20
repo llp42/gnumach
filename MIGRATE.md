@@ -1065,6 +1065,13 @@ records them.  The four entries below keep the detail §4.1 gives the
 * **`kd.c` is gone.** The file, its Makefrag entries and the five
   shims it briefly hosted (`kd_tty_rint`, `kd_tty_init`, `kd_phystokv`,
   `kd_rebootflag`, `kd_hz`) are deleted.
+* **Narrow boundary (cleanup).** Only 23 symbols stay
+  `#[no_mangle] extern "C"`: the 14 kd entries (8 conf.c device hooks,
+  4 console hooks, `kdintr`, `kdreboot`), the 5 kbd entries and the 4
+  mouse entries.  Everything else is `pub(crate)` Rust, the
+  Rust-to-Rust glue declarations are gone, and `kd.h`/`kd_mouse.h`/
+  `kd_event.h` no longer declare the retired symbols; `kd_state`,
+  `kd_bitmap_start`, `kb_mode` and `mouse_in_use` are crate-private.
 * **Tests.** `tests/kd.c` and `tests/test-kd.c` pin the escape parser
   (command dispatch, positions, attributes) and the modifier state
   machine.  `tests/test-kd-dev.c` drives the driver through its

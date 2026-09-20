@@ -556,7 +556,6 @@ WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  * are for the Shift state, then Ctrl, then Alt, then Shift/Alt.
  */
 #ifdef	KERNEL
-extern u_char	key_map[NUMKEYS][WIDTH_KMAP];
 #endif	/* KERNEL */
 
 
@@ -613,77 +612,16 @@ struct kbentry {
  * Ioctl's on /dev/kbd.
  */
 
-#ifdef	KERNEL
-extern	int	kb_mode;
-#endif
-
-struct X_kdb {
-	u_int *ptr;
-	u_int size;
-};
-
-#define K_X_KDB_ENTER	_IOW('K', 16, struct X_kdb)
-#define K_X_KDB_EXIT	_IOW('K', 17, struct X_kdb)
-
-#define K_X_IN		0x01000000
-#define K_X_OUT		0x02000000
-#define K_X_BYTE	0x00010000
-#define K_X_WORD	0x00020000
-#define K_X_LONG	0x00040000
-#define K_X_TYPE	0x03070000
-#define K_X_PORT	0x0000ffff
-
-extern boolean_t kd_isupper (u_char);
-extern boolean_t kd_islower (u_char);
-extern void kd_senddata (unsigned char);
-extern void kd_sendcmd (unsigned char);
-extern void kd_cmdreg_write (int);
-extern void kd_mouse_drain (void);
-extern void set_kd_state (int);
-extern void kd_setleds1 (u_char);
-extern void kd_setleds2 (void);
-extern void cnsetleds (u_char);
-extern void kdreboot (void);
-extern void kd_putc_esc (u_char);
-extern void kd_putc (u_char);
-extern void kd_parseesc (void);
-extern void kd_down (void);
-extern void kd_up (void);
-extern void kd_cr (void);
-extern void kd_tab (void);
-extern void kd_left (void);
-extern void kd_right (void);
-extern void kd_scrollup (void);
-extern void kd_scrolldn (void);
-extern void kd_cls (void);
-extern void kd_home (void);
-extern void kd_insch (int number);
-extern void kd_cltobcur (void);
-extern void kd_cltopcur (void);
-extern void kd_cltoecur (void);
-extern void kd_clfrbcur (void);
-extern void kd_eraseln (void);
-extern void kd_insln (int);
-extern void kd_delln (int);
-extern void kd_delch (int);
-extern void kd_erase (int);
-extern void kd_bellon (void);
-extern void kd_belloff (void *param);
-extern void kdinit (void);
-extern int kdsetkbent (struct kbentry *, int);
-extern int kdgetkbent (struct kbentry *);
-extern int kdsetbell (int, int);
-extern void kd_resend (void);
-extern void kd_handle_ack (void);
-extern int kd_kbd_magic (int);
-extern unsigned int kdstate2idx (unsigned int, boolean_t);
-extern void kd_parserest (u_char *);
+/*
+ * The only kd entry points the rest of the C kernel still calls are
+ * below; the driver itself is Rust (src/arch/i386/kd/).  See
+ * MIGRATE.md.
+ */
 extern int kdcnprobe(struct consdev *cp);
 extern int kdcninit(struct consdev *cp);
 extern int kdcngetc(dev_t dev, int wait);
-extern int kdcnmaygetc (void);
 extern int kdcnputc(dev_t dev, int c);
-extern void kd_setpos(csrpos_t newpos);
+extern void kdreboot (void);
 
 extern void kd_slmwd (void *start, int count, int value);
 extern void kd_slmscu (void *from, void *to, int count);
@@ -712,10 +650,6 @@ extern io_return_t kdsetstat(
 extern int kdportdeath(dev_t dev, mach_port_t port);
 extern vm_offset_t kdmmap(dev_t dev, vm_offset_t off, vm_prot_t prot);
 
-boolean_t kdcheckmagic(Scancode scancode);
-
-int do_modifier(int state, Scancode c, boolean_t up);
-
 /*
  * Generic routines for bitmap devices (i.e., assume no hardware
  * assist).  Assumes a simple byte ordering (i.e., a byte at a lower
@@ -728,13 +662,5 @@ int do_modifier(int state, Scancode c, boolean_t up);
 void bmpch2bit(csrpos_t pos, short *xb, short *yb);
 void bmppaintcsr(csrpos_t pos, u_char val);
 u_char *bit2fbptr(short	xb, short yb);
-
-unsigned char kd_getdata(void);
-unsigned char state2leds(int state);
-
-void kdstart(struct tty *tp);
-void kdstop(struct tty *tp, int flags);
-
-void kd_xga_init(void);
 
 #endif	/* _KD_H_ */

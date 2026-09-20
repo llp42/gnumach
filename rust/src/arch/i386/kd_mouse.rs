@@ -89,8 +89,7 @@ const K_IBUF_FUL: u8 = 0x02;
 
 /// Whether `/dev/mouse` is open.  `i386/i386at/kd.c` reads it directly
 /// (`cnpollc`, `kdintr`), so the symbol and its `boolean_t` size stay.
-#[unsafe(no_mangle)]
-pub static mut mouse_in_use: c_int = 0;
+pub(crate) static mut MOUSE_IN_USE: c_int = 0;
 
 /// The driver's mutable state: the C file's file-scope globals.
 ///
@@ -248,7 +247,12 @@ fn serial_open(s: &mut State, dev: DevT) {
 fn kd_open(s: &mut State, mouse_pic: c_int) {
     let sp = unsafe { glue::splhi() };
     s.oldvect = unsafe { glue::irq_get_handler(mouse_pic) };
-    unsafe { glue::irq_set_handler(mouse_pic, Some(glue::kdintr)) };
+    unsafe {
+        glue::irq_set_handler(
+            mouse_pic,
+            Some(crate::arch::i386::kd::keyboard::kdintr),
+        )
+    };
     unsafe { glue::irq_unmask(mouse_pic as c_uint) };
     unsafe { glue::splx(sp) };
 }
@@ -323,12 +327,8 @@ fn ps2_open(s: &mut State, _dev: DevT) {
     let sp = unsafe { glue::spltty() };
     s.lastbuttons = 0;
     s.mouse_char_cmd = true;
-    // SAFETY: the keyboard commands go through the controller's own
-    // ports, as in C.
-    unsafe {
-        glue::kd_sendcmd(0xa8);
-        glue::kd_cmdreg_write(0x47);
-    }
+    crate::arch::i386::kd::keyboard::sendcmd(0xa8);
+    crate::arch::i386::kd::keyboard::cmdreg_write(0x47);
     read_reset(s);
     write_char(0xff);
     if read_char(s) != 0xfa {
@@ -364,12 +364,9 @@ fn ps2_close(s: &mut State, _dev: DevT) {
         let _ = read_char(s);
         let _ = read_char(s);
     }
-    // SAFETY: as in `ps2_open()`.
-    unsafe {
-        glue::kd_sendcmd(0xa7);
-        glue::kd_cmdreg_write(0x65);
-        glue::splx(sp);
-    }
+    crate::arch::i386::kd::keyboard::sendcmd(0xa7);
+    crate::arch::i386::kd::keyboard::cmdreg_write(0x65);
+    unsafe { glue::splx(sp) };
 }
 
 /// `mouse_packet_mouse_system_mouse()` in C.
@@ -578,10 +575,10 @@ pub unsafe extern "C" fn mouseopen(
     _flags: c_int,
     _ior: *mut IoReq,
 ) -> c_int {
-    if unsafe { mouse_in_use } != 0 {
+    if unsafe { MOUSE_IN_USE } != 0 {
         return D_ALREADY_OPEN;
     }
-    unsafe { mouse_in_use = 1 };
+    unsafe { MOUSE_IN_USE = 1 };
     let s = state();
     s.queue.clear();
     s.lastbuttons = MOUSE_ALL_UP;
@@ -645,13 +642,12 @@ pub unsafe extern "C" fn mouseclose(dev: DevT, _flags: c_int) {
                 i -= 1;
                 core::hint::black_box(i);
             }
-            // SAFETY: the controller is quiet by now.
-            unsafe { glue::kd_mouse_drain() };
+            crate::arch::i386::kd::keyboard::mouse_drain();
         }
         _ => {}
     }
     s.queue.clear();
-    unsafe { mouse_in_use = 0 };
+    unsafe { MOUSE_IN_USE = 0 };
 }
 
 /// Read queued events.  `mouseread()` in C.
@@ -696,13 +692,8 @@ pub unsafe extern "C" fn mouseread(_dev: DevT, ior: *mut IoReq) -> c_int {
 }
 
 /// Finish a read that was queued waiting for events.
-/// `mouse_read_done()` in C.
-///
-/// # Safety
-///
-/// The device layer calls this with the request it queued.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn mouse_read_done(ior: *mut IoReq) -> c_int {
+/// `mouse_read_done()` in C, as a callback value.
+unsafe extern "C" fn mouse_read_done(ior: *mut IoReq) -> c_int {
     let s = state();
     // SAFETY: as in `mouseread()`.
     let sp = unsafe { glue::spltty() };
@@ -749,13 +740,9 @@ pub unsafe extern "C" fn mousegetstat(
     }
 }
 
-/// The unit's interrupt handler.  `mouseintr()` in C.
-///
-/// # Safety
-///
-/// The interrupt path calls this at `SPLKD` with a valid unit.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn mouseintr(unit: c_int) {
+/// The unit's interrupt handler.  `mouseintr()` in C, as a callback
+/// value.
+unsafe extern "C" fn mouseintr(unit: c_int) {
     let base_addr = unsafe { glue::com_base_addr(unit) } as u16;
     // SAFETY: the port block is the unit's.
     let id = unsafe { glue::pio_inb(base_addr + RID) };
@@ -773,143 +760,17 @@ pub unsafe extern "C" fn mouseintr(unit: c_int) {
 }
 
 /// Accumulate one mouse byte.  `mouse_handle_byte()` in C; called at
-/// `SPLKD`, from the interrupt path and from `kd.c`.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn mouse_handle_byte(ch: u8) {
+/// `SPLKD` from the kd interrupt path.
+pub(crate) fn mouse_handle_byte(ch: u8) {
     handle_byte(state(), ch);
 }
 
 /// Enqueue a mouse-motion event.  `mouse_moved()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn mouse_moved(where_: MouseMotion) {
+pub(crate) fn mouse_moved(where_: MouseMotion) {
     motion_event(state(), where_);
 }
 
 /// Enqueue a button event.  `mouse_button()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn mouse_button(which: KevType, direction: u8) {
+pub(crate) fn mouse_button(which: KevType, direction: u8) {
     button_event(state(), which, direction);
-}
-
-/// Enqueue an event and complete waiting reads.  `mouse_enqueue()` in C.
-///
-/// # Safety
-///
-/// `ev` must point at a valid event, and the caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn mouse_enqueue(ev: *mut KdEvent) {
-    // SAFETY: the caller promises `ev` is valid for a read.
-    enqueue(state(), unsafe { &*ev });
-}
-
-/// Route the serial unit's IRQ to this driver.
-/// `serial_mouse_open()` in C.
-///
-/// # Safety
-///
-/// `dev` must name an open serial unit.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn serial_mouse_open(dev: DevT) {
-    serial_open(state(), dev);
-}
-
-/// Restore the serial unit's IRQ.  `serial_mouse_close()` in C.
-///
-/// # Safety
-///
-/// `dev` must name the unit a matching open set up.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn serial_mouse_close(dev: DevT, _flags: c_int) {
-    serial_close(state(), dev);
-}
-
-/// Route the keyboard controller's IRQ to the PS/2 mouse.
-/// `kd_mouse_open()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_mouse_open(_dev: DevT, mouse_pic: c_int) {
-    kd_open(state(), mouse_pic);
-}
-
-/// Mask the keyboard controller's mouse IRQ.  `kd_mouse_close()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_mouse_close(_dev: DevT, mouse_pic: c_int) {
-    kd_close(state(), mouse_pic);
-}
-
-/// Reset and enable a PS/2 mouse.  `ibm_ps2_mouse_open()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`, and `dev` must name the open unit.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn ibm_ps2_mouse_open(dev: DevT) {
-    ps2_open(state(), dev);
-}
-
-/// Reset and disable a PS/2 mouse.  `ibm_ps2_mouse_close()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`, and `dev` must name the open unit.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn ibm_ps2_mouse_close(dev: DevT) {
-    ps2_close(state(), dev);
-}
-
-/// Decode a Mouse Systems packet.  `mouse_packet_mouse_system_mouse()` in
-/// C.
-///
-/// # Safety
-///
-/// `buf` must point at `MOUSEBUFSIZE` readable bytes, and the caller
-/// must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn mouse_packet_mouse_system_mouse(buf: *mut u8) {
-    // SAFETY: the caller promises a full packet behind `buf`.
-    let buf = unsafe { &*buf.cast::<[u8; MOUSEBUFSIZE]>() };
-    packet_mouse_system(state(), buf);
-}
-
-/// Decode a Microsoft packet.  `mouse_packet_microsoft_mouse()` in C.
-///
-/// # Safety
-///
-/// Same contract as `mouse_packet_mouse_system_mouse()`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn mouse_packet_microsoft_mouse(buf: *mut u8) {
-    // SAFETY: the caller promises a full packet behind `buf`.
-    let buf = unsafe { &*buf.cast::<[u8; MOUSEBUFSIZE]>() };
-    packet_microsoft(state(), buf);
-}
-
-/// Decode an IBM PS/2 packet.  `mouse_packet_ibm_ps2_mouse()` in C.
-///
-/// # Safety
-///
-/// Same contract as `mouse_packet_mouse_system_mouse()`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn mouse_packet_ibm_ps2_mouse(buf: *mut u8) {
-    // SAFETY: the caller promises a full packet behind `buf`.
-    let buf = unsafe { &*buf.cast::<[u8; MOUSEBUFSIZE]>() };
-    packet_ibm_ps2(state(), buf);
 }

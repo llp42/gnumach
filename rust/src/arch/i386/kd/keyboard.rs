@@ -23,13 +23,13 @@ const WHICH_BUTTON: [u16; 4] = [0, 1, 2, 3];
 /// Read the exported `kd_state`.
 fn state_bits() -> c_int {
     // SAFETY: a plain integer written at SPLKD.
-    unsafe { kd_state }
+    unsafe { KD_STATE }
 }
 
 /// Write the exported `kd_state`.
 fn set_state_bits(value: c_int) {
     // SAFETY: as above.
-    unsafe { kd_state = value };
+    unsafe { KD_STATE = value };
 }
 
 /// The current keyboard mode.
@@ -38,7 +38,7 @@ fn mode() -> c_int {
 }
 
 /// `do_modifier()`: the new state for a modifier key.
-fn modifier(state_in: c_int, c: u8, up: bool) -> c_int {
+pub(crate) fn modifier(state_in: c_int, c: u8, up: bool) -> c_int {
     let mut st = state_in;
     match c {
         K_ALTSC => {
@@ -76,7 +76,7 @@ fn modifier(state_in: c_int, c: u8, up: bool) -> c_int {
 }
 
 /// `kdstate2idx()`: the key_map column for a modifier state.
-fn state2idx(state_in: c_uint, extended: bool) -> c_uint {
+pub(crate) fn state2idx(state_in: c_uint, extended: bool) -> c_uint {
     let st = state_in as c_int;
     let mut state_idx = NORM_STATE;
     if !extended && st != KS_NORMAL {
@@ -94,26 +94,26 @@ fn state2idx(state_in: c_uint, extended: bool) -> c_uint {
 }
 
 /// Wait for the input buffer and send a byte to the keyboard.
-fn senddata(ch: u8) {
+pub(crate) fn senddata(ch: u8) {
     while unsafe { glue::pio_inb(K_STATUS) } & K_IBUF_FUL != 0 {}
     unsafe { glue::pio_outb(K_RDWR, ch) };
     state().last_sent = ch;
 }
 
 /// Wait for the input buffer and send a command to the keyboard.
-fn sendcmd(ch: u8) {
+pub(crate) fn sendcmd(ch: u8) {
     while unsafe { glue::pio_inb(K_STATUS) } & K_IBUF_FUL != 0 {}
     unsafe { glue::pio_outb(K_CMD, ch) };
 }
 
 /// Wait for a data byte from the keyboard.
-fn getdata() -> u8 {
+pub(crate) fn getdata() -> u8 {
     while unsafe { glue::pio_inb(K_STATUS) } & K_OBUF_FUL == 0 {}
     unsafe { glue::pio_inb(K_RDWR) }
 }
 
 /// Complete a pending keyboard command.
-fn handle_ack() {
+pub(crate) fn handle_ack() {
     match state().kd_ack {
         Ack::SetLeds => {
             set_leds2();
@@ -130,7 +130,7 @@ fn handle_ack() {
 }
 
 /// Resend a missed keyboard command or data byte.
-fn resend() {
+pub(crate) fn resend() {
     if state().kd_ack == Ack::NotWaiting {
         // SAFETY: a literal format with no arguments.
         unsafe { glue::printf(c"unexpected RESEND from keyboard\n".as_ptr()) };
@@ -139,20 +139,8 @@ fn resend() {
     }
 }
 
-/// The LED byte for a keyboard state.
-fn leds_for_state(state_in: c_int) -> u8 {
-    let mut result = 0;
-    if state_in & KS_NLKED != 0 {
-        result |= K_LED_NUMLK;
-    }
-    if state_in & KS_CLKED != 0 {
-        result |= K_LED_CAPSLK;
-    }
-    result
-}
-
 /// Start setting the LEDs.
-fn set_leds1(val: u8) {
+pub(crate) fn set_leds1(val: u8) {
     if state().kd_ack != Ack::NotWaiting {
         return;
     }
@@ -162,18 +150,12 @@ fn set_leds1(val: u8) {
 }
 
 /// Send the LED byte after the command ack.
-fn set_leds2() {
+pub(crate) fn set_leds2() {
     senddata(state().kd_nextled);
 }
 
-/// `set_kd_state()`: set the state and update the LEDs.
-fn set_kd_state_impl(newstate: c_int) {
-    set_state_bits(newstate);
-    set_leds1(leds_for_state(newstate));
-}
-
 /// `cnsetleds()`: set the LEDs without interrupts.
-fn cnsetleds_impl(val: u8) {
+pub(crate) fn cnsetleds_impl(val: u8) {
     senddata(K_CMD_LEDS);
     let _ = getdata(); // assume ACK
     senddata(val);
@@ -204,8 +186,7 @@ fn kbent_set(row: usize, col: usize, value: [u8; NUMOUTPUT]) {
 
 /// `mouse_button()` with the event type the magic keys use.
 fn mouse_button(which: u16, direction: u8) {
-    // SAFETY: called at SPLKD.
-    unsafe { kd_mouse::mouse_button(which, direction) };
+    kd_mouse::mouse_button(which, direction);
 }
 
 /// `mouse_moved()` with a delta scaled by the magic scale.
@@ -214,12 +195,11 @@ fn mouse_move(dx: c_int, dy: c_int) {
         mm_delta_x: dx as i16,
         mm_delta_y: dy as i16,
     };
-    // SAFETY: called at SPLKD.
-    unsafe { kd_mouse::mouse_moved(mm) };
+    kd_mouse::mouse_moved(mm);
 }
 
 /// `kd_kbd_magic()`: the keyboard-as-mouse sequences.
-fn kbd_magic(scancode: c_int) -> c_int {
+pub(crate) fn kbd_magic(scancode: c_int) -> c_int {
     if state().kd_kbd_mouse == 2 {
         // SAFETY: a literal format with one integer.
         unsafe { glue::printf(c"sc = %x\n".as_ptr(), scancode) };
@@ -317,9 +297,8 @@ fn intr() {
     // We may have seen a mouse event.
     if unsafe { glue::pio_inb(K_STATUS) } & 0x20 == 0x20 {
         let sc = unsafe { glue::pio_inb(K_RDWR) };
-        if unsafe { kd_mouse::mouse_in_use } != 0 {
-            // SAFETY: the keyboard driver owns the device.
-            unsafe { kd_mouse::mouse_handle_byte(sc) };
+        if unsafe { kd_mouse::MOUSE_IN_USE } != 0 {
+            kd_mouse::mouse_handle_byte(sc);
         } else {
             // SAFETY: a literal format with one integer.
             unsafe { glue::printf(c"M%xI".as_ptr(), sc as c_int) };
@@ -342,8 +321,7 @@ fn intr() {
     {
         return;
     } else if mode() == KB_EVENT {
-        // SAFETY: the event queue runs at SPLKD too.
-        unsafe { kd_enqsc(scancode) };
+        kd_enqsc(scancode);
         return;
     }
 
@@ -407,134 +385,16 @@ pub unsafe extern "C" fn kdintr(_vec: c_int) {
     intr();
 }
 
-/// Complete a pending keyboard command.  `kd_handle_ack()` in C.
-///
-/// # Safety
-///
-/// Entered from the interrupt path at `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_handle_ack() {
-    handle_ack();
-}
-
-/// Resend a missed keyboard command or data byte.  `kd_resend()` in C.
-///
-/// # Safety
-///
-/// Entered from the interrupt path at `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_resend() {
-    resend();
-}
-
-/// Change the keyboard state for a modifier key.  `do_modifier()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn do_modifier(
-    state_in: c_int,
-    c: u8,
-    up: c_int,
-) -> c_int {
-    modifier(state_in, c, up != 0)
-}
-
-/// Check for a magic key combination.  `kdcheckmagic()` in C.
-///
-/// # Safety
-///
-/// Entered from the interrupt path at `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kdcheckmagic(scancode: u8) -> c_int {
-    checkmagic(scancode)
-}
-
-/// The key_map column for a modifier state.
-/// `kdstate2idx()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kdstate2idx(
-    state_in: c_uint,
-    extended: c_int,
-) -> c_uint {
-    state2idx(state_in, extended != 0)
-}
-
-/// Uppercase test.  `kd_isupper()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_isupper(c: u8) -> c_int {
-    c_int::from(c.is_ascii_uppercase())
-}
-
-/// Lowercase test.  `kd_islower()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_islower(c: u8) -> c_int {
-    c_int::from(c.is_ascii_lowercase())
-}
-
-/// Wait for the input buffer and send a byte.  `kd_senddata()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`; this polls the controller.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_senddata(ch: u8) {
-    senddata(ch);
-}
-
-/// Wait for the input buffer and send a command.  `kd_sendcmd()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`; this polls the controller.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_sendcmd(ch: u8) {
-    sendcmd(ch);
-}
-
-/// Wait for a data byte from the keyboard.  `kd_getdata()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`; this polls the controller.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_getdata() -> u8 {
-    getdata()
-}
-
-/// Write the keyboard controller command register.
-/// `kd_cmdreg_write()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`; this polls the controller.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_cmdreg_write(val: c_int) {
+/// Wait for the input buffer and write the controller command register,
+/// which `kd_mouse.rs` uses for its PS/2 sequences.
+pub(crate) fn cmdreg_write(val: c_int) {
     sendcmd(KC_CMD_WRITE);
     senddata(val as u8);
 }
 
-/// Drain pending keyboard bytes, printing them.  `kd_mouse_drain()` in
-/// C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`; this polls the controller.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_mouse_drain() {
+/// Drain pending keyboard bytes, printing them; `kd_mouse.rs` closes a
+/// PS/2 mouse with this.
+pub(crate) fn mouse_drain() {
     while unsafe { glue::pio_inb(K_STATUS) } & K_IBUF_FUL != 0 {}
     let mut i = unsafe { glue::pio_inb(K_STATUS) };
     while i & K_OBUF_FUL != 0 {
@@ -551,102 +411,21 @@ pub unsafe extern "C" fn kd_mouse_drain() {
     }
 }
 
-/// Set `kd_state` and update the LEDs.  `set_kd_state()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn set_kd_state(newstate: c_int) {
-    set_kd_state_impl(newstate);
-}
-
-/// LED byte for a keyboard state.  `state2leds()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn state2leds(state_in: c_int) -> u8 {
-    leds_for_state(state_in)
-}
-
-/// Start setting the LEDs.  `kd_setleds1()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_setleds1(val: u8) {
-    set_leds1(val);
-}
-
-/// Send the LED byte after the command ack.  `kd_setleds2()` in C.
-///
-/// # Safety
-///
-/// Entered from the interrupt path at `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_setleds2() {
-    set_leds2();
-}
-
-/// Like `kd_setleds[12]`, but not interrupt-based.  `cnsetleds()` in C.
-///
-/// # Safety
-///
-/// The caller must hold `SPLKD` and the controller must answer.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn cnsetleds(val: u8) {
-    cnsetleds_impl(val);
-}
-
-/// Keyboard-as-mouse sequences.  `kd_kbd_magic()` in C.
-///
-/// # Safety
-///
-/// Entered from the interrupt path at `SPLKD`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kd_kbd_magic(scancode: c_int) -> c_int {
-    kbd_magic(scancode)
-}
-
-/// Read a key map entry.  `kdgetkbent()` in C.
-///
-/// # Safety
-///
-/// `kbent` must point at a valid entry with `kb_index`/`kb_state` in
-/// range.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kdgetkbent(kbent: *mut KbEntry) -> c_int {
+/// Read a key map entry into `kb`: the `kdgetkbent()` core.
+pub(crate) fn entry_get(kb: &mut KbEntry) {
     let o_pri = unsafe { glue::spltty() };
-    // SAFETY: the caller promises a valid entry.
-    let kb = unsafe { &mut *kbent };
-    let value = kbent_get(kb.kb_index as usize, charidx(kb.kb_state as c_int));
-    kb.kb_value = value;
+    kb.kb_value =
+        kbent_get(kb.kb_index as usize, charidx(kb.kb_state as c_int));
     unsafe { glue::splx(o_pri) };
-    0
 }
 
-/// Write a key map entry.  `kdsetkbent()` in C.
-///
-/// # Safety
-///
-/// `kbent` must point at a valid entry with `kb_index`/`kb_state` in
-/// range.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kdsetkbent(
-    kbent: *mut KbEntry,
-    _flags: c_int,
-) -> c_int {
+/// Write a key map entry from `kb`: the `kdsetkbent()` core.
+pub(crate) fn entry_set(kb: &KbEntry) {
     let o_pri = unsafe { glue::spltty() };
-    // SAFETY: the caller promises a valid entry.
-    let kb = unsafe { &*kbent };
     kbent_set(
         kb.kb_index as usize,
         charidx(kb.kb_state as c_int),
         kb.kb_value,
     );
     unsafe { glue::splx(o_pri) };
-    0
 }

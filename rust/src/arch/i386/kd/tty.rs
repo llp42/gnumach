@@ -228,8 +228,7 @@ pub unsafe extern "C" fn kdopen(
         tp.t_ospeed = B115200;
         tp.t_ispeed = B115200;
         tp.t_flags = KD_TTY_FLAGS;
-        // SAFETY: the driver initializes once.
-        unsafe { kdinit() };
+        kdinit();
     }
     tp.t_state |= TS_CARR_ON;
     unsafe { glue::kd_simple_unlock_irq(o_pri, lock()) };
@@ -291,7 +290,7 @@ pub unsafe extern "C" fn kdmmap(
         return usize::MAX;
     }
     // i386_btop(): shift by I386_PGSHIFT.
-    let base = unsafe { super::kd_bitmap_start };
+    let base = unsafe { super::KD_BITMAP_START };
     (base.wrapping_add(off)) >> 12
 }
 
@@ -324,17 +323,16 @@ pub unsafe extern "C" fn kdgetstat(
             return D_INVALID_OPERATION;
         }
         unsafe {
-            *data = super::kd_state;
+            *data = super::KD_STATE;
             *count = 1;
         }
         D_SUCCESS
     } else if flavor == KDGKBENT {
         // SAFETY: the caller passes a `struct kbentry`.
-        let result = unsafe {
-            super::keyboard::kdgetkbent(data.cast::<super::KbEntry>())
-        };
+        let kb = unsafe { &mut *data.cast::<super::KbEntry>() };
+        super::keyboard::entry_get(kb);
         unsafe { *count = 1 };
-        result
+        D_SUCCESS
     } else {
         // SAFETY: the tty layer handles its own flavors.
         unsafe { glue::tty_get_status(ptr(tty()), flavor, data, count) }
@@ -358,28 +356,25 @@ pub unsafe extern "C" fn kdsetstat(
             return D_INVALID_OPERATION;
         }
         // SAFETY: the caller passes a `struct kbentry`.
-        unsafe {
-            super::keyboard::kdsetkbent(data.cast::<super::KbEntry>(), 0)
-        }
+        let kb = unsafe { &*data.cast::<super::KbEntry>() };
+        super::keyboard::entry_set(kb);
+        D_SUCCESS
     } else if flavor == KDSETBELL {
         if count < 1 {
             return D_INVALID_OPERATION;
         }
         // SAFETY: one integer behind `data`.
-        unsafe { super::console::kdsetbell(*data, 0) }
+        let val = unsafe { *data };
+        super::console::set_bell(val, 0)
     } else {
         // SAFETY: the tty layer handles its own flavors.
         unsafe { glue::tty_set_status(ptr(tty()), flavor, data, count) }
     }
 }
 
-/// Start output.  `kdstart()` in C.
-///
-/// # Safety
-///
-/// The tty layer calls this at `spltty`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kdstart(tp: *mut Tty) {
+/// Start output.  `kdstart()` in C; the tty layer calls this at
+/// `spltty`.
+unsafe extern "C" fn kdstart(tp: *mut Tty) {
     // SAFETY: the tty layer passes the driver's own tty.
     let tp = unsafe { &mut *tp };
     if tp.t_state & TS_TTSTOP != 0 {
@@ -402,7 +397,7 @@ pub unsafe extern "C" fn kdstart(tp: *mut Tty) {
         // Drop priority for long screen updates.
         // SAFETY: the clock's soft interrupt level is the driver's.
         let o_pri = unsafe { glue::splsoftclock() };
-        unsafe { super::esc::kd_putc_esc(ch as u8) };
+        super::esc::putc_esc(ch as u8);
         unsafe { glue::splx(o_pri) };
     }
     // SAFETY: `ttlowat[]` is the tty layer's.
@@ -419,9 +414,4 @@ pub unsafe extern "C" fn kdstart(tp: *mut Tty) {
 }
 
 /// Stop output: nothing to do.  `kdstop()` in C.
-///
-/// # Safety
-///
-/// The tty layer calls this at `spltty`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kdstop(_tp: *mut Tty, _flags: c_int) {}
+unsafe extern "C" fn kdstop(_tp: *mut Tty, _flags: c_int) {}
