@@ -953,7 +953,7 @@ MIG-generated `.c` live only under `build-*/` and are not ported.
 | `pcb.c` | 919 | PCB/context (anchor) | 5 | `switch_context` asm, fpu |
 | `trap.c` | 532 | trap entry bodies (anchor) | 5 | `alltraps`/`all_intrs` |
 
-### i386/i386at/ (14 files, 7,428 LOC)
+### i386/i386at/ (13 files, 4,395 LOC)
 
 | File | LOC | Role | Friction | Blockers |
 |---|---:|---|---:|---|
@@ -970,11 +970,10 @@ MIG-generated `.c` live only under `build-*/` and are not ported.
 | `pic_isa.c` | 56 | ISA IRQ tables | 3 | pic/ipl |
 | `com.c` | 893 | 8250 serial | 4 | tty, spl, pio |
 | `model_dep.c` | 545 | machine init/bootstrap (anchor) | 5 | asm, pmap, percpu |
-| `kd.c` | 3033 | keyboard/VGA tty | 5 | ported except the tty entry points (see below) |
 
-`kd_queue.c`, `kd_event.c` and `kd_mouse.c` are ported, and `kd.c`'s
-device core followed; what is left of `kd.c` is the tty half.  The
-four entries below keep the detail §4.1 gives the `kern/` files.
+`kd_queue.c`, `kd_event.c`, `kd_mouse.c` and `kd.c` are ported; §9
+records them.  The four entries below keep the detail §4.1 gives the
+`kern/` files.
 
 #### `i386/i386at/kd_queue.c` — 109 lines — ported
 * **Rust home.** `src/utils/kd_queue.rs`, shared by both x86 kernels.
@@ -1041,31 +1040,36 @@ four entries below keep the detail §4.1 gives the `kern/` files.
   use.  `tests/kd_event.c` and `tests/test-kd-event.c` pin the
   interpreter, since the suite never opens `/dev/kbd`.
 
-#### `i386/i386at/kd.c` — 3033 lines — device core ported
+#### `i386/i386at/kd.c` — 3033 lines — ported
 * **Role.** The keyboard/VGA console: the scan-code interrupt and
   modifier state machine, the escape parser that draws the console,
-  the EGA text and bitmap display backends, the console entry points
-  and the key map.
+  the EGA text and bitmap display backends, the console entry points,
+  the key map and the tty device entry points.
 * **Rust home.** `src/arch/i386/kd/` split by role: `keyboard.rs`,
-  `esc.rs`, `display.rs`, `console.rs`, `keymap.rs` (the 89-row map,
-  generated from the C table) and `mod.rs` (state and `kdinit()`).
-  The `kd_dput`/`kd_dmvup`/... table of `kdsoft.h` stays exported so a
+  `esc.rs`, `display.rs`, `console.rs`, `tty.rs` (the `struct tty`
+  mirror and kdopen/close/read/write, get/set status, mmap,
+  portdeath, kdstart), `keymap.rs` (the 89-row map, generated from the
+  C table) and `mod.rs` (state and `kdinit()`).  The
+  `kd_dput`/`kd_dmvup`/... table of `kdsoft.h` stays exported so a
   backend can still be swapped.
-* **Ported C externs, in place.** `kd_state` and `kd_bitmap_start`
-  stay exported for the C `kdgetstat()`/`kdmmap()`, and the five
-  exported callbacks the remaining tty code needs are C shims in
-  `kd.c` itself: `kd_tty_rint()`, `kd_tty_init()`, `kd_phystokv()`,
-  `kd_rebootflag()` and `kd_hz()`.
-* **What is still C.** The tty device entry points (`kdopen()`,
-  `kdclose()`, `kdread()`, `kdwrite()`, `kdgetstat()`, `kdsetstat()`,
-  `kdmmap()`, `kdportdeath()`, `kdstart()`, `kdstop()`) and the
-  `kd_tty` storage, because `struct tty` and its embedded
-  `simple_lock_irq` macros have no Rust layout yet.  It is ~100 lines
-  of the C file's 3033; the second slice moves them and deletes the
-  file.
+* **The tty wall.** `tty.rs` mirrors `struct tty` `#[repr(C)]` field
+  for field, with the offsets pinned per target (`t_lock`, `t_inq`,
+  `t_outq`, `t_state`, `t_line`, the delayed queues, `t_timeout` and
+  the size); `kd_tty` is Rust storage now, and `ttychars()` initializes
+  its queues.  The lock macros, the `linesw[]` switch, `ttlowat[]` and
+  `phystokv()` are the shims in the new `i386/i386at/kd_glue.c`;
+  `char_open`/`ttychars`/`ttyclose`/`tty_get_status`/`tty_set_status`/
+  `tty_portdeath`/`tty_queue_completion`/`getc` and the `hz`/
+  `rebootflag` data come through `glue.rs`.  `kd_state` and
+  `kd_bitmap_start` stay exported Rust statics.
+* **`kd.c` is gone.** The file, its Makefrag entries and the five
+  shims it briefly hosted (`kd_tty_rint`, `kd_tty_init`, `kd_phystokv`,
+  `kd_rebootflag`, `kd_hz`) are deleted.
 * **Tests.** `tests/kd.c` and `tests/test-kd.c` pin the escape parser
   (command dispatch, positions, attributes) and the modifier state
-  machine, since the suite runs `console=com0`.
+  machine, since the suite runs `console=com0`; the tty entry points
+  are reachable only at a real console, so they are compile/link and
+  offset-assert gated.
 
 ### i386/intel/, x86_64/, util/, chips/
 

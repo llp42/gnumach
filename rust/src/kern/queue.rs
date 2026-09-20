@@ -51,6 +51,17 @@ const _: () = assert!(
 );
 
 impl QueueEntry {
+    /// An unlinked entry with null links: the image a C `static` began
+    /// with, for storage whose head is `init_head()`ed later.  It must
+    /// not be treated as a queue head until then.
+    pub(crate) const fn unlinked() -> Self {
+        Self {
+            next: ptr::null_mut(),
+            prev: ptr::null_mut(),
+            _pin: PhantomPinned,
+        }
+    }
+
     /// Views an already-allocated entry as pinned.
     ///
     /// # Safety

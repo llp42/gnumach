@@ -41,7 +41,7 @@ fn putc(ch: u8) {
                     glue::timeout(
                         Some(super::kd_belloff),
                         core::ptr::null_mut(),
-                        glue::kd_hz() / 8,
+                        glue::hz / 8,
                     )
                 };
                 state().kd_bellstate = true;

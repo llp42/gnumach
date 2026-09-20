@@ -287,7 +287,7 @@ fn checkmagic(scancode: u8) -> c_int {
 
     if st.magic_state & (KS_CTLED | KS_ALTED) == (KS_CTLED | KS_ALTED)
         && scancode == K_DELSC
-        && unsafe { glue::kd_rebootflag() } != 0
+        && unsafe { glue::rebootflag } != 0
     {
         // SAFETY: the caller asked for a reboot with ctl-alt-del.
         unsafe { super::kdreboot() };
@@ -387,9 +387,8 @@ fn intr() {
             }
             // Put the character (or sequence) on the input queue.
             while c != K_DONE && char_idx <= max {
-                // SAFETY: the tty shim feeds the line discipline at
-                // SPLKD.
-                unsafe { glue::kd_tty_rint(c) };
+                // SAFETY: the tty feeds the line discipline at SPLKD.
+                super::tty::line_rint(c);
                 c = unsafe { KEY_MAP[scancode as usize][char_idx] };
                 char_idx += 1;
             }

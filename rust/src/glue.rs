@@ -8,7 +8,7 @@
 //! shim is declared below like any other C function.
 
 use crate::arch::types::VmOffset;
-use core::ffi::{c_char, c_int, c_uint, c_void};
+use core::ffi::{c_char, c_int, c_short, c_uint, c_void};
 
 // `panic()` in <kern/debug.h> is a macro over `Panic()`.
 unsafe extern "C" {
@@ -55,6 +55,7 @@ unsafe extern "C" {
     // <machine/spl.h>: asm functions, `SPLKD` is a macro over `spltty`.
     pub fn splhi() -> c_int;
     pub fn spltty() -> c_int;
+    pub fn splsoftclock() -> c_int;
     pub fn splx(level: c_int) -> c_int;
 
     // <i386at/com.h>
@@ -68,14 +69,53 @@ unsafe extern "C" {
     pub fn kdinit();
     pub fn kd_setleds1(value: u8);
 
-    // Shims in i386/i386at/kd.c, for what the Rust kd driver cannot
-    // reach until the tty layer moves: the line discipline feed, the
-    // input buffer allocation, `phystokv`, `rebootflag` and `hz`.
-    pub fn kd_tty_rint(c: u8);
-    pub fn kd_tty_init();
-    pub fn kd_phystokv(addr: VmOffset) -> VmOffset;
-    pub fn kd_rebootflag() -> c_int;
-    pub fn kd_hz() -> c_int;
+    // <device/tty.h> and <device/cirbuf.h>
+    pub fn ttychars(tp: *mut c_void);
+    pub fn char_open(
+        dev: c_int,
+        tp: *mut c_void,
+        mode: c_int,
+        ior: *mut c_void,
+    ) -> c_int;
+    pub fn ttyclose(tp: *mut c_void);
+    pub fn tty_get_status(
+        tp: *mut c_void,
+        flavor: c_uint,
+        data: *mut c_int,
+        count: *mut u32,
+    ) -> c_int;
+    pub fn tty_set_status(
+        tp: *mut c_void,
+        flavor: c_uint,
+        data: *mut c_int,
+        count: u32,
+    ) -> c_int;
+    pub fn tty_portdeath(tp: *mut c_void, port: *mut c_void) -> c_int;
+    pub fn tty_queue_completion(queue: *mut c_void);
+    pub fn getc(buf: *mut c_void) -> c_int;
+
+    // Shims in i386/i386at/kd_glue.c, for the tty lock macros, the
+    // line discipline switch, `ttlowat[]` and `phystokv()`.
+    pub fn kd_simple_lock_irq(lock: *mut c_void) -> c_int;
+    pub fn kd_simple_unlock_irq(s: c_int, lock: *mut c_void);
+    pub fn kd_simple_lock(lock: *mut c_void);
+    pub fn kd_simple_unlock(lock: *mut c_void);
+    pub fn kd_ldisc_read(
+        line: c_int,
+        tp: *mut c_void,
+        ior: *mut c_void,
+    ) -> c_int;
+    pub fn kd_ldisc_write(
+        line: c_int,
+        tp: *mut c_void,
+        ior: *mut c_void,
+    ) -> c_int;
+    pub fn kd_ldisc_rint(line: c_int, c: c_uint, tp: *mut c_void);
+    pub fn kd_ttlowat(speed: c_int) -> c_short;
+
+    // <kern/mach_clock.h> and <i386/i386at/model_dep.c>
+    pub static hz: c_int;
+    pub static rebootflag: c_int;
 
     // Shims for the C macros Rust cannot call: see i386/i386/pio_glue.c.
     pub fn pio_inb(port: u16) -> u8;

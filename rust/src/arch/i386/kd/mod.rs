@@ -21,6 +21,7 @@ pub mod display;
 pub mod esc;
 pub mod keyboard;
 pub mod keymap;
+pub mod tty;
 
 use crate::glue;
 use crate::utils::delay::delay;
@@ -369,7 +370,7 @@ pub unsafe extern "C" fn kdinit() {
     }
 
     // Allocate the input buffer.
-    unsafe { glue::kd_tty_init() };
+    tty::ttychars_init();
 }
 
 /// `cnpollc()` in C: switch the console between polled and interrupted.

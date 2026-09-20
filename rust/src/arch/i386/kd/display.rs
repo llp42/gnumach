@@ -154,6 +154,15 @@ unsafe extern "C" fn charclear(to: c_short, count: c_int, chattr: c_char) {
 /// No-op reset.  `kd_noopreset()` in C.
 unsafe extern "C" fn kd_noopreset() {}
 
+/// `phystokv()` of <i386/i386/vm_param.h>.
+fn phystokv(addr: usize) -> usize {
+    #[cfg(target_pointer_width = "64")]
+    const BASE: usize = 0xffff_ffff_8000_0000;
+    #[cfg(target_pointer_width = "32")]
+    const BASE: usize = 0xc000_0000;
+    addr.wrapping_add(BASE)
+}
+
 /// The current hardware cursor position.  `xga_getpos()` in C.
 fn xga_getpos() -> c_short {
     let s = state();
@@ -178,13 +187,13 @@ fn xga_getpos() -> c_short {
 pub unsafe extern "C" fn kd_xga_init() {
     {
         let s = state();
-        s.vid_start = unsafe { glue::kd_phystokv(EGA_START) } as *mut u8;
+        s.vid_start = phystokv(EGA_START) as *mut u8;
         s.kd_index_reg = EGA_IDX_REG as c_short;
         s.kd_io_reg = EGA_IO_REG as c_short;
         s.kd_lines = 25;
         s.kd_cols = 80;
         // Clear the first 200 bytes of the bitmap.
-        let addr = unsafe { glue::kd_phystokv(C_BITMAP_START) } as *mut u8;
+        let addr = phystokv(C_BITMAP_START) as *mut u8;
         // SAFETY: the bitmap base is mapped by the boot.
         unsafe { core::ptr::write_bytes(addr, 0, 200) };
     }
