@@ -185,7 +185,11 @@ into Rust).  Layer = the highest prerequisite layer from §2.
   private `Color` enum), as is the insertion-point slot, packed by
   `rbtree_slot()` and unpacked by `rbtree_insert_slot()`; the
   null-child index rule and the "stale node after remove" contract are
-  preserved.
+  preserved.  The child sides are a private `Side` enum — the ABI's
+  `c_int` directions convert once at the boundary — and `Rbtree`/
+  `RbtreeNode` have `new()` and `unlinked()`/`init()` constructors
+  that the C entry points and the tests share.  Every `unsafe` block
+  carries its own `// SAFETY:` note.
 * **Boundary.** Nine `unsafe extern "C"` symbols:
   `rbtree_insert_rebalance`, `rbtree_remove`, `rbtree_nearest`,
   `rbtree_firstlast`, plus the leaf operations `rbtree_init`,
@@ -205,6 +209,12 @@ into Rust).  Layer = the highest prerequisite layer from §2.
   `rbtree_slot_parent`/`rbtree_slot_index` and the `RBTREE_COLOR_*`,
   `RBTREE_PARENT_MASK` and `RBTREE_SLOT_*` macros, so C no longer
   encodes a color or unpacks a slot.
+* **Panics (cleanup).** `expect` remains only where the red-black
+  rules re-derive a link (rotate's child, a red node's grandparent,
+  the brother and its far child).  The insert and remove restructurings
+  track the parent across a swap and the successor's parent down the
+  descent, which removed three of them; a corrupt tree panics with a
+  message where C would fault.
 * **Tests.** `rbtree.rs` carries `#[cfg(test)]` tests that reimplement
   the macro protocols (insert, lookup_slot/insert_slot,
   lookup_nearest) and check the red-black rules after every mutation,

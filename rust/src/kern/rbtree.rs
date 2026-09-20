@@ -57,6 +57,42 @@ impl Color {
     }
 }
 
+/// A child side.  The C boundary passes it as `c_int` 0/1; internally
+/// the typed side keeps the rotations and walks free of index math.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Side {
+    Left,
+    Right,
+}
+
+impl Side {
+    /// The children array index.
+    const fn index(self) -> usize {
+        match self {
+            Side::Left => LEFT,
+            Side::Right => RIGHT,
+        }
+    }
+
+    /// The other side.
+    const fn opposite(self) -> Side {
+        match self {
+            Side::Left => Side::Right,
+            Side::Right => Side::Left,
+        }
+    }
+
+    /// The side a C direction/index argument stands for; anything but
+    /// `RBTREE_LEFT` counts as right, like `rbtree_d2i()`.
+    const fn from_int(direction: c_int) -> Side {
+        if direction == RBTREE_LEFT {
+            Side::Left
+        } else {
+            Side::Right
+        }
+    }
+}
+
 /// `RBTREE_SLOT_*` of <kern/rbtree_i.h>: how `rbtree_slot()` packs an
 /// insertion point.
 const SLOT_INDEX_MASK: usize = 0x1;
@@ -84,6 +120,31 @@ const _: () = assert!(align_of::<RbtreeNode>() >= 4);
 const _: () = assert!(offset_of!(RbtreeNode, children) == size_of::<usize>());
 const _: () = assert!(size_of::<Rbtree>() == size_of::<*mut RbtreeNode>());
 const _: () = assert!(align_of::<Rbtree>() == align_of::<*mut RbtreeNode>());
+
+impl Rbtree {
+    /// An empty tree; `rbtree_init()` uses this.
+    const fn new() -> Self {
+        Self { root: None }
+    }
+}
+
+impl RbtreeNode {
+    /// Node storage with null links, before `init()` or
+    /// `rbtree_node_init()` makes it an unlinked tree node.
+    const fn unlinked() -> Self {
+        Self {
+            parent: 0,
+            children: [None, None],
+        }
+    }
+
+    /// Make this node unlinked: parent itself, red, null children.
+    /// `rbtree_node_init()` uses this.
+    fn init(&mut self) {
+        *self = Self::unlinked();
+        self.parent = ptr::from_ref(self).addr() | Color::Red.bit();
+    }
+}
 
 /// View a raw node the caller promises is non-null.
 ///
@@ -201,16 +262,16 @@ unsafe fn set_black(node: NonNull<RbtreeNode>) {
 unsafe fn child_index(
     node: Option<NonNull<RbtreeNode>>,
     parent: NonNull<RbtreeNode>,
-) -> c_int {
+) -> Side {
     // SAFETY: the caller promises a valid parent.
     if unsafe { (*parent.as_ptr()).children[LEFT] } == node {
-        RBTREE_LEFT
+        Side::Left
     } else {
-        RBTREE_RIGHT
+        Side::Right
     }
 }
 
-/// Rotate the tree rooted at `node` in `direction`.  `rbtree_rotate()`
+/// Rotate the tree rooted at `node` toward `side`.  `rbtree_rotate()`
 /// in C.
 ///
 /// # Safety
@@ -220,31 +281,33 @@ unsafe fn child_index(
 unsafe fn rotate(
     tree: NonNull<Rbtree>,
     node: NonNull<RbtreeNode>,
-    direction: c_int,
+    side: Side,
 ) {
-    let left = direction as usize;
-    let right = 1 - left;
-    // SAFETY: the caller promises a linked node with the right subtree.
+    let other = side.opposite();
+    // SAFETY: the caller promises a linked node with the opposite
+    // subtree.
     let parent = unsafe { get_parent(node) };
-    let rnode = unsafe { (*node.as_ptr()).children[right] }
+    // SAFETY: as above.
+    let rnode = unsafe { (*node.as_ptr()).children[other.index()] }
         .expect("rbtree: rotate at a node without its child");
 
     // SAFETY: the caller promises all of these nodes are valid.
     unsafe {
-        (*node.as_ptr()).children[right] = (*rnode.as_ptr()).children[left];
+        (*node.as_ptr()).children[other.index()] =
+            (*rnode.as_ptr()).children[side.index()];
 
-        if let Some(child) = (*rnode.as_ptr()).children[left] {
+        if let Some(child) = (*rnode.as_ptr()).children[side.index()] {
             set_parent(child, Some(node));
         }
 
-        (*rnode.as_ptr()).children[left] = Some(node);
+        (*rnode.as_ptr()).children[side.index()] = Some(node);
         set_parent(rnode, parent);
 
         match parent {
             None => (*tree.as_ptr()).root = Some(rnode),
             Some(p) => {
                 let index = child_index(Some(node), p);
-                (*p.as_ptr()).children[index as usize] = Some(rnode);
+                (*p.as_ptr()).children[index.index()] = Some(rnode);
             }
         }
 
@@ -260,7 +323,7 @@ unsafe fn rotate(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rbtree_init(tree: *mut Rbtree) {
     // SAFETY: the caller promises valid storage.
-    unsafe { (*tree).root = None };
+    unsafe { *tree = Rbtree::new() };
 }
 
 /// Initialize a node, which is in no tree while its parent is itself.
@@ -272,10 +335,7 @@ pub unsafe extern "C" fn rbtree_init(tree: *mut Rbtree) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rbtree_node_init(node: *mut RbtreeNode) {
     // SAFETY: the caller promises valid storage.
-    unsafe {
-        (*node).parent = node.addr() | Color::Red.bit();
-        (*node).children = [None, None];
-    }
+    unsafe { (*node).init() };
 }
 
 /// Convert a comparison result into a child index (0 or 1).
@@ -285,12 +345,14 @@ pub unsafe extern "C" fn rbtree_node_init(node: *mut RbtreeNode) {
 /// function so the Rust owns the convention.
 #[unsafe(no_mangle)]
 pub extern "C" fn rbtree_d2i(diff: c_int) -> c_int {
-    if diff <= 0 { RBTREE_LEFT } else { RBTREE_RIGHT }
+    let side = if diff <= 0 { Side::Left } else { Side::Right };
+    side.index() as c_int
 }
 
 /// Translate an insertion point into a slot.  `rbtree_slot()` in C.
 ///
-/// `parent` may be null, which is the empty tree's slot 0.
+/// `parent` may be null, which is the empty tree's slot 0.  `index` is
+/// the child side the C macro found, 0 or 1.
 #[unsafe(no_mangle)]
 pub extern "C" fn rbtree_slot(parent: *mut RbtreeNode, index: c_int) -> usize {
     parent.addr() | index as usize
@@ -335,6 +397,7 @@ pub unsafe extern "C" fn rbtree_insert_rebalance(
     let tree = unsafe { non_null(tree) };
     let mut node = unsafe { non_null(node) };
     let mut parent = NonNull::new(parent);
+    let index = Side::from_int(index);
 
     // SAFETY: the caller promises valid nodes and an unlinked node.
     unsafe {
@@ -344,7 +407,7 @@ pub unsafe extern "C" fn rbtree_insert_rebalance(
 
         match parent {
             None => (*tree.as_ptr()).root = Some(node),
-            Some(p) => (*p.as_ptr()).children[index as usize] = Some(node),
+            Some(p) => (*p.as_ptr()).children[index.index()] = Some(node),
         }
     }
 
@@ -365,10 +428,11 @@ pub unsafe extern "C" fn rbtree_insert_rebalance(
         let grand_parent = unsafe { get_parent(p) }
             .expect("rbtree: red node without a grandparent");
         // SAFETY: as above.
-        let left = unsafe { child_index(Some(p), grand_parent) } as usize;
-        let right = 1 - left;
+        let left = unsafe { child_index(Some(p), grand_parent) };
+        let right = left.opposite();
         // SAFETY: as above.
-        let uncle = unsafe { (*grand_parent.as_ptr()).children[right] };
+        let uncle =
+            unsafe { (*grand_parent.as_ptr()).children[right.index()] };
 
         // Uncle is red: flip colors and repeat at the grandparent.
         if let Some(uncle) = uncle {
@@ -381,29 +445,32 @@ pub unsafe extern "C" fn rbtree_insert_rebalance(
                     set_red(grand_parent);
                 }
                 node = grand_parent;
+                // SAFETY: as above.
                 parent = unsafe { get_parent(node) };
                 continue;
             }
         }
 
-        // Node is the right child of its parent: rotate left at the
-        // parent and swap the two.
+        // Node is the right child of its parent: rotate at the parent
+        // and blacken the node, which takes its place.
         // SAFETY: as above.
-        if unsafe { (*p.as_ptr()).children[right] } == Some(node) {
+        let final_parent = if unsafe { (*p.as_ptr()).children[right.index()] }
+            == Some(node)
+        {
             // SAFETY: as above.
-            unsafe { rotate(tree, p, left as c_int) };
-            // The old node takes the parent's place for the last step.
-            parent = Some(node);
-        }
+            unsafe { rotate(tree, p, left) };
+            node
+        } else {
+            p
+        };
 
-        // Node is the left child: recolor, rotate right at the
-        // grandparent, and leave.
-        let p = parent.expect("rbtree: red node without a parent");
+        // Node is the left child: recolor, rotate at the grandparent,
+        // and leave.
         // SAFETY: as above.
         unsafe {
-            set_black(p);
+            set_black(final_parent);
             set_red(grand_parent);
-            rotate(tree, grand_parent, right as c_int);
+            rotate(tree, grand_parent, right);
         }
         break;
     }
@@ -430,7 +497,7 @@ pub unsafe extern "C" fn rbtree_remove(
     let mut parent: Option<NonNull<RbtreeNode>>;
     let color: Color;
 
-    // SAFETY: the caller promises valid nodes.
+    // SAFETY: the caller promises a valid node.
     let (left, right) = unsafe {
         (
             (*node.as_ptr()).children[LEFT],
@@ -438,105 +505,106 @@ pub unsafe extern "C" fn rbtree_remove(
         )
     };
 
-    if left.is_none() {
+    match (left, right) {
         // Node has at most one child.
-        child = right;
-        // SAFETY: as above.
-        color = unsafe { get_color(node) };
-        parent = unsafe { get_parent(node) };
+        (None, right) => {
+            child = right;
+            // SAFETY: as above.
+            color = unsafe { get_color(node) };
+            // SAFETY: as above.
+            parent = unsafe { get_parent(node) };
 
-        // SAFETY: as above.
-        unsafe {
-            if let Some(c) = child {
-                set_parent(c, parent);
-            }
-
-            match parent {
-                None => (*tree.as_ptr()).root = child,
-                Some(p) => {
-                    let index = child_index(Some(node), p);
-                    (*p.as_ptr()).children[index as usize] = child;
-                }
-            }
-        }
-    } else if right.is_none() {
-        child = left;
-        // SAFETY: as above.
-        color = unsafe { get_color(node) };
-        parent = unsafe { get_parent(node) };
-
-        // SAFETY: as above.
-        unsafe {
-            if let Some(c) = child {
-                set_parent(c, parent);
-            }
-
-            match parent {
-                None => (*tree.as_ptr()).root = child,
-                Some(p) => {
-                    let index = child_index(Some(node), p);
-                    (*p.as_ptr()).children[index as usize] = child;
-                }
-            }
-        }
-    } else {
-        // Two children: replace the node with its successor.
-        let mut successor = right.expect("rbtree: right child");
-        // SAFETY: as above.
-        while let Some(l) = unsafe { (*successor.as_ptr()).children[LEFT] } {
-            successor = l;
-        }
-
-        // SAFETY: as above.
-        color = unsafe { get_color(successor) };
-        child = unsafe { (*successor.as_ptr()).children[RIGHT] };
-        parent = unsafe { get_parent(node) };
-
-        // SAFETY: as above.
-        unsafe {
-            match parent {
-                None => (*tree.as_ptr()).root = Some(successor),
-                Some(p) => {
-                    let index = child_index(Some(node), p);
-                    (*p.as_ptr()).children[index as usize] = Some(successor);
-                }
-            }
-        }
-
-        // The successor's original parent decides the next step.
-        // SAFETY: as above.
-        let successor_parent = unsafe { get_parent(successor) };
-
-        // Set parent directly to keep the original color.
-        // SAFETY: as above.
-        unsafe {
-            (*successor.as_ptr()).parent = (*node.as_ptr()).parent;
-            (*successor.as_ptr()).children[LEFT] =
-                (*node.as_ptr()).children[LEFT];
-            if let Some(l) = (*successor.as_ptr()).children[LEFT] {
-                set_parent(l, Some(successor));
-            }
-        }
-
-        if Some(node) == successor_parent {
-            parent = Some(successor);
-        } else {
-            let successor_parent =
-                successor_parent.expect("rbtree: successor without a parent");
             // SAFETY: as above.
             unsafe {
-                (*successor.as_ptr()).children[RIGHT] =
-                    (*node.as_ptr()).children[RIGHT];
-                if let Some(r) = (*successor.as_ptr()).children[RIGHT] {
-                    set_parent(r, Some(successor));
+                if let Some(c) = child {
+                    set_parent(c, parent);
                 }
 
-                (*successor_parent.as_ptr()).children[LEFT] = child;
-                if let Some(c) = child {
-                    set_parent(c, Some(successor_parent));
+                match parent {
+                    None => (*tree.as_ptr()).root = child,
+                    Some(p) => {
+                        let index = child_index(Some(node), p);
+                        (*p.as_ptr()).children[index.index()] = child;
+                    }
                 }
             }
-            parent = Some(successor_parent);
+        }
+        (left, None) => {
+            child = left;
+            // SAFETY: as above.
+            color = unsafe { get_color(node) };
+            // SAFETY: as above.
+            parent = unsafe { get_parent(node) };
+
+            // SAFETY: as above.
+            unsafe {
+                if let Some(c) = child {
+                    set_parent(c, parent);
+                }
+
+                match parent {
+                    None => (*tree.as_ptr()).root = child,
+                    Some(p) => {
+                        let index = child_index(Some(node), p);
+                        (*p.as_ptr()).children[index.index()] = child;
+                    }
+                }
+            }
+        }
+        // Two children: replace the node with its successor.
+        (Some(_), Some(right)) => {
+            let mut successor = right;
+            let mut successor_parent = node;
+            // SAFETY: as above.
+            while let Some(l) = unsafe { (*successor.as_ptr()).children[LEFT] }
+            {
+                successor_parent = successor;
+                successor = l;
+            }
+
+            // SAFETY: as above.
+            color = unsafe { get_color(successor) };
+            child = unsafe { (*successor.as_ptr()).children[RIGHT] };
+            parent = unsafe { get_parent(node) };
+
+            // SAFETY: as above.
+            unsafe {
+                match parent {
+                    None => (*tree.as_ptr()).root = Some(successor),
+                    Some(p) => {
+                        let index = child_index(Some(node), p);
+                        (*p.as_ptr()).children[index.index()] =
+                            Some(successor);
+                    }
+                }
+
+                // Set parent directly to keep the original color.
+                (*successor.as_ptr()).parent = (*node.as_ptr()).parent;
+                (*successor.as_ptr()).children[LEFT] =
+                    (*node.as_ptr()).children[LEFT];
+                if let Some(l) = (*successor.as_ptr()).children[LEFT] {
+                    set_parent(l, Some(successor));
+                }
+            }
+
+            if successor_parent == node {
+                parent = Some(successor);
+            } else {
+                // SAFETY: as above.
+                unsafe {
+                    (*successor.as_ptr()).children[RIGHT] =
+                        (*node.as_ptr()).children[RIGHT];
+                    if let Some(r) = (*successor.as_ptr()).children[RIGHT] {
+                        set_parent(r, Some(successor));
+                    }
+
+                    (*successor_parent.as_ptr()).children[LEFT] = child;
+                    if let Some(c) = child {
+                        set_parent(c, Some(successor_parent));
+                    }
+                }
+                parent = Some(successor_parent);
+            }
         }
     }
 
@@ -560,66 +628,74 @@ pub unsafe extern "C" fn rbtree_remove(
         };
 
         // SAFETY: as above.
-        let left = unsafe { child_index(child, p) } as usize;
-        let right = 1 - left;
+        let side = unsafe { child_index(child, p) };
+        let other = side.opposite();
         // SAFETY: as above.
-        let mut brother = unsafe { (*p.as_ptr()).children[right] }
+        let mut brother = unsafe { (*p.as_ptr()).children[other.index()] }
             .expect("rbtree: black node without a brother");
 
-        // Brother is red: recolor and rotate left at the parent so that
-        // the brother becomes black.
+        // Brother is red: recolor and rotate at the parent so that the
+        // brother becomes black.
         // SAFETY: as above.
         if unsafe { is_red(brother) } {
             // SAFETY: as above.
             unsafe {
                 set_black(brother);
                 set_red(p);
-                rotate(tree, p, left as c_int);
+                rotate(tree, p, side);
             }
-            brother = unsafe { (*p.as_ptr()).children[right] }
+            // SAFETY: as above.
+            brother = unsafe { (*p.as_ptr()).children[other.index()] }
                 .expect("rbtree: black node without a brother");
         }
 
         // SAFETY: as above.
-        let brother_left = unsafe { (*brother.as_ptr()).children[left] };
-        let brother_right = unsafe { (*brother.as_ptr()).children[right] };
+        let brother_side =
+            unsafe { (*brother.as_ptr()).children[side.index()] };
+        // SAFETY: as above.
+        let brother_other =
+            unsafe { (*brother.as_ptr()).children[other.index()] };
 
         // Brother has no red child: recolor and repeat at the parent.
-        let left_black = brother_left.is_none_or(|n| unsafe { is_black(n) });
-        let right_black = brother_right.is_none_or(|n| unsafe { is_black(n) });
-        if left_black && right_black {
+        // SAFETY: as above.
+        let side_black = brother_side.is_none_or(|n| unsafe { is_black(n) });
+        // SAFETY: as above.
+        let other_black = brother_other.is_none_or(|n| unsafe { is_black(n) });
+        if side_black && other_black {
             // SAFETY: as above.
             unsafe { set_red(brother) };
             child = Some(p);
+            // SAFETY: as above.
             parent = unsafe { get_parent(p) };
             continue;
         }
 
-        // Brother's right child is black: recolor and rotate right at
-        // the brother.
-        if right_black {
-            let brother_left =
-                brother_left.expect("rbtree: black node without a red child");
+        // Brother's far child is black: recolor and rotate at the
+        // brother.
+        if other_black {
+            let brother_side =
+                brother_side.expect("rbtree: black node without a red child");
             // SAFETY: as above.
             unsafe {
-                set_black(brother_left);
+                set_black(brother_side);
                 set_red(brother);
-                rotate(tree, brother, right as c_int);
+                rotate(tree, brother, other);
             }
-            brother = unsafe { (*p.as_ptr()).children[right] }
+            // SAFETY: as above.
+            brother = unsafe { (*p.as_ptr()).children[other.index()] }
                 .expect("rbtree: black node without a brother");
         }
 
         // Exchange the parent and brother colors, blacken the brother's
-        // right child, rotate left at the parent, and leave.
+        // far child, rotate at the parent, and leave.
         // SAFETY: as above.
         unsafe {
             set_color(brother, get_color(p));
             set_black(p);
-            let brother_right = (*brother.as_ptr()).children[right]
-                .expect("rbtree: brother without a right child");
-            set_black(brother_right);
-            rotate(tree, p, left as c_int);
+            let brother_other = (*brother.as_ptr()).children[other.index()]
+                .expect("rbtree: brother without a far child");
+            set_black(brother_other);
+            rotate(tree, p, side);
         }
         break;
     }
@@ -648,7 +724,7 @@ pub unsafe extern "C" fn rbtree_nearest(
         parent.as_ptr()
     } else {
         // SAFETY: the caller promises a valid node.
-        unsafe { walk(parent.as_ptr(), direction) }
+        unsafe { walk(parent.as_ptr(), Side::from_int(direction)) }
     }
 }
 
@@ -663,13 +739,14 @@ pub unsafe extern "C" fn rbtree_firstlast(
     direction: c_int,
 ) -> *mut RbtreeNode {
     let mut prev: Option<NonNull<RbtreeNode>> = None;
+    let side = Side::from_int(direction);
     // SAFETY: the caller promises a valid tree.
     let mut cur = unsafe { (*tree).root };
 
     while let Some(node) = cur {
         prev = Some(node);
         // SAFETY: as above.
-        cur = unsafe { (*node.as_ptr()).children[direction as usize] };
+        cur = unsafe { (*node.as_ptr()).children[side.index()] };
     }
 
     prev.map_or(ptr::null_mut(), NonNull::as_ptr)
@@ -681,9 +758,8 @@ pub unsafe extern "C" fn rbtree_firstlast(
 /// # Safety
 ///
 /// `node` must be null or a valid, linked node.
-unsafe fn walk(node: *mut RbtreeNode, direction: c_int) -> *mut RbtreeNode {
-    let left = direction as usize;
-    let right = 1 - left;
+unsafe fn walk(node: *mut RbtreeNode, side: Side) -> *mut RbtreeNode {
+    let other = side.opposite();
 
     let mut node = match NonNull::new(node) {
         None => return ptr::null_mut(),
@@ -691,10 +767,11 @@ unsafe fn walk(node: *mut RbtreeNode, direction: c_int) -> *mut RbtreeNode {
     };
 
     // SAFETY: the caller promises a valid node.
-    if let Some(mut child) = unsafe { (*node.as_ptr()).children[left] } {
+    if let Some(mut child) = unsafe { (*node.as_ptr()).children[side.index()] }
+    {
         loop {
             // SAFETY: as above.
-            match unsafe { (*child.as_ptr()).children[right] } {
+            match unsafe { (*child.as_ptr()).children[other.index()] } {
                 Some(next) => child = next,
                 None => {
                     node = child;
@@ -712,7 +789,7 @@ unsafe fn walk(node: *mut RbtreeNode, direction: c_int) -> *mut RbtreeNode {
             let index = unsafe { child_index(Some(node), parent) };
             node = parent;
 
-            if index as usize == right {
+            if index == other {
                 break;
             }
         }
@@ -737,26 +814,15 @@ mod tests {
     fn entries(keys: &[u32]) -> Vec<Entry> {
         let mut v = Vec::with_capacity(keys.len());
         for &key in keys {
-            v.push(Entry {
-                node: RbtreeNode {
-                    parent: 0,
-                    children: [None, None],
-                },
-                key,
-            });
-        }
-        for entry in &mut v {
-            // SAFETY: the storage is alive and not in any tree.
-            unsafe { rbtree_node_init(node_of(entry)) };
+            let mut node = RbtreeNode::unlinked();
+            node.init();
+            v.push(Entry { node, key });
         }
         v
     }
 
     fn new_tree() -> Rbtree {
-        let mut tree = Rbtree { root: None };
-        // SAFETY: the storage is alive.
-        unsafe { rbtree_init(&mut tree) };
-        tree
+        Rbtree::new()
     }
 
     fn node_of(entry: &Entry) -> *mut RbtreeNode {
@@ -800,6 +866,7 @@ mod tests {
             let diff = entry.key as c_int - unsafe { key_of(cur) } as c_int;
             prev = cur;
             index = rbtree_d2i(diff);
+            // SAFETY: the caller promises valid links.
             cur = unsafe {
                 (*cur).children[index as usize]
                     .map_or(ptr::null_mut(), NonNull::as_ptr)
@@ -834,6 +901,7 @@ mod tests {
             }
             prev = cur;
             index = rbtree_d2i(diff);
+            // SAFETY: the caller promises valid links.
             cur = unsafe {
                 (*cur).children[index as usize]
                     .map_or(ptr::null_mut(), NonNull::as_ptr)
@@ -867,6 +935,7 @@ mod tests {
             }
             prev = cur;
             index = rbtree_d2i(diff);
+            // SAFETY: the caller promises valid links.
             cur = unsafe {
                 (*cur).children[index as usize]
                     .map_or(ptr::null_mut(), NonNull::as_ptr)
@@ -899,6 +968,7 @@ mod tests {
             } else {
                 RBTREE_RIGHT
             };
+            // SAFETY: the caller promises valid links.
             cur = unsafe {
                 (*cur).children[side as usize]
                     .map_or(ptr::null_mut(), NonNull::as_ptr)
@@ -931,8 +1001,11 @@ mod tests {
         if let Some(node) = node {
             // SAFETY: the caller promises a valid node.
             let children = unsafe { (*node.as_ptr()).children };
+            // SAFETY: the caller promises valid links.
             unsafe { collect_in_order(children[LEFT], keys) };
+            // SAFETY: the caller promises a node inside an Entry.
             keys.push(unsafe { key_of(node.as_ptr()) });
+            // SAFETY: as above.
             unsafe { collect_in_order(children[RIGHT], keys) };
         }
     }
@@ -963,6 +1036,7 @@ mod tests {
         // SAFETY: the caller promises a valid node.
         let children = unsafe { (*node.as_ptr()).children };
 
+        // SAFETY: as above.
         for child in children {
             if let Some(child) = child {
                 // SAFETY: the links of a valid node point at nodes.
@@ -974,8 +1048,10 @@ mod tests {
             }
         }
 
+        // SAFETY: the caller promises a valid node.
         if unsafe { is_red(node) } {
             for child in children {
+                // SAFETY: as above.
                 assert!(
                     child.is_none_or(|c| unsafe { is_black(c) }),
                     "red node with a red child"
@@ -983,10 +1059,13 @@ mod tests {
             }
         }
 
+        // SAFETY: the caller promises valid links.
         let left = children[LEFT].map_or(1, |c| unsafe { check_node(c) });
+        // SAFETY: as above.
         let right = children[RIGHT].map_or(1, |c| unsafe { check_node(c) });
         assert_eq!(left, right, "black height");
 
+        // SAFETY: the caller promises a valid node.
         if unsafe { is_red(node) } {
             left
         } else {
@@ -1143,11 +1222,13 @@ mod tests {
             let prev = if prev.is_null() {
                 None
             } else {
+                // SAFETY: the probe returned a linked node.
                 Some(unsafe { key_of(prev) })
             };
             let next = if next.is_null() {
                 None
             } else {
+                // SAFETY: as above.
                 Some(unsafe { key_of(next) })
             };
             assert_eq!(prev, expected.0, "previous of {probe}");
