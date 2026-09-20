@@ -12,6 +12,13 @@ use super::*;
 use crate::glue;
 use core::ffi::{c_char, c_int, c_short};
 
+/// The CRT cursor shape scanlines the firmware default is replaced
+/// with when it left them zero.
+const CURSOR_START_SCANLINE: u8 = 14;
+const CURSOR_STOP_SCANLINE: u8 = 15;
+/// Bytes of the bitmap the C cleared at initialization.
+const BITMAP_CLEAR_BYTES: usize = 200;
+
 type Dput = unsafe extern "C" fn(c_short, c_char, c_char);
 type Dclear = unsafe extern "C" fn(c_short, c_int, c_char);
 type Dmv = unsafe extern "C" fn(c_short, c_short, c_int);
@@ -20,22 +27,22 @@ type Dreset = unsafe extern "C" fn();
 
 /// `kd_dput` of <i386at/kdsoft.h>.
 #[unsafe(no_mangle)]
-pub static mut kd_dput: Dput = charput;
+pub static mut kd_dput: Dput = text_put;
 /// `kd_dmvup` of <i386at/kdsoft.h>.
 #[unsafe(no_mangle)]
-pub static mut kd_dmvup: Dmv = charmvup;
+pub static mut kd_dmvup: Dmv = move_up;
 /// `kd_dmvdown` of <i386at/kdsoft.h>.
 #[unsafe(no_mangle)]
-pub static mut kd_dmvdown: Dmv = charmvdown;
+pub static mut kd_dmvdown: Dmv = move_down;
 /// `kd_dclear` of <i386at/kdsoft.h>.
 #[unsafe(no_mangle)]
-pub static mut kd_dclear: Dclear = charclear;
+pub static mut kd_dclear: Dclear = text_clear;
 /// `kd_dsetcursor` of <i386at/kdsoft.h>.
 #[unsafe(no_mangle)]
-pub static mut kd_dsetcursor: Dsetcursor = charsetcursor;
+pub static mut kd_dsetcursor: Dsetcursor = set_cursor;
 /// `kd_dreset` of <i386at/kdsoft.h>.
 #[unsafe(no_mangle)]
-pub static mut kd_dreset: Dreset = kd_noopreset;
+pub static mut kd_dreset: Dreset = noop_reset;
 
 // Safe operations for the escape engine.
 
@@ -91,8 +98,8 @@ pub(crate) fn scrolldn() {
     dclear(0, (ONE_LINE / ONE_SPACE) as c_int, state().kd_attr);
 }
 
-/// Put an attributed character for EGA/CGA.  `charput()` in C.
-unsafe extern "C" fn charput(pos: c_short, ch: c_char, chattr: c_char) {
+/// Put an attributed character for EGA/CGA.  `text_put()` in C.
+unsafe extern "C" fn text_put(pos: c_short, ch: c_char, chattr: c_char) {
     let s = state();
     // SAFETY: `vid_start` is the mapped screen and `pos` is in range.
     unsafe {
@@ -101,8 +108,8 @@ unsafe extern "C" fn charput(pos: c_short, ch: c_char, chattr: c_char) {
     }
 }
 
-/// Set the hardware cursor for EGA/CGA.  `charsetcursor()` in C.
-unsafe extern "C" fn charsetcursor(newpos: c_short) {
+/// Set the hardware cursor for EGA/CGA.  `set_cursor()` in C.
+unsafe extern "C" fn set_cursor(newpos: c_short) {
     let curpos = newpos / ONE_SPACE;
     let s = state();
     // SAFETY: the CRTC index/data pair is the driver's.
@@ -115,8 +122,8 @@ unsafe extern "C" fn charsetcursor(newpos: c_short) {
     s.kd_curpos = newpos;
 }
 
-/// Block move up for EGA/CGA.  `charmvup()` in C.
-unsafe extern "C" fn charmvup(from: c_short, to: c_short, count: c_int) {
+/// Block move up for EGA/CGA.  `move_up()` in C.
+unsafe extern "C" fn move_up(from: c_short, to: c_short, count: c_int) {
     let s = state();
     // SAFETY: both offsets are inside the screen.
     unsafe {
@@ -128,8 +135,8 @@ unsafe extern "C" fn charmvup(from: c_short, to: c_short, count: c_int) {
     };
 }
 
-/// Block move down for EGA/CGA.  `charmvdown()` in C.
-unsafe extern "C" fn charmvdown(from: c_short, to: c_short, count: c_int) {
+/// Block move down for EGA/CGA.  `move_down()` in C.
+unsafe extern "C" fn move_down(from: c_short, to: c_short, count: c_int) {
     let s = state();
     // SAFETY: both offsets are inside the screen.
     unsafe {
@@ -141,8 +148,8 @@ unsafe extern "C" fn charmvdown(from: c_short, to: c_short, count: c_int) {
     };
 }
 
-/// Fast clear for EGA/CGA.  `charclear()` in C.
-unsafe extern "C" fn charclear(to: c_short, count: c_int, chattr: c_char) {
+/// Fast clear for EGA/CGA.  `text_clear()` in C.
+unsafe extern "C" fn text_clear(to: c_short, count: c_int, chattr: c_char) {
     let s = state();
     let value = (((chattr as u8) as c_int) << 8) + K_SPACE as c_int;
     // SAFETY: the offset is inside the screen.
@@ -151,8 +158,8 @@ unsafe extern "C" fn charclear(to: c_short, count: c_int, chattr: c_char) {
     };
 }
 
-/// No-op reset.  `kd_noopreset()` in C.
-unsafe extern "C" fn kd_noopreset() {}
+/// No-op reset.  `noop_reset()` in C.
+unsafe extern "C" fn noop_reset() {}
 
 /// `phystokv()` of <i386/i386/vm_param.h>.
 fn phystokv(addr: usize) -> usize {
@@ -163,8 +170,8 @@ fn phystokv(addr: usize) -> usize {
     addr.wrapping_add(BASE)
 }
 
-/// The current hardware cursor position.  `xga_getpos()` in C.
-fn xga_getpos() -> c_short {
+/// The current hardware cursor position.  `get_cursor()` in C.
+fn get_cursor() -> c_short {
     let s = state();
     // SAFETY: the CRTC index/data pair is the driver's.
     unsafe {
@@ -190,7 +197,7 @@ pub(crate) fn xga_init() {
         // Clear the first 200 bytes of the bitmap.
         let addr = phystokv(C_BITMAP_START) as *mut u8;
         // SAFETY: the bitmap base is mapped by the boot.
-        unsafe { core::ptr::write_bytes(addr, 0, 200) };
+        unsafe { core::ptr::write_bytes(addr, 0, BITMAP_CLEAR_BYTES) };
     }
 
     let mut start: u8;
@@ -213,19 +220,19 @@ pub(crate) fn xga_init() {
         unsafe {
             let s = state();
             glue::pio_outb(s.kd_index_reg as u16, C_START);
-            glue::pio_outb(s.kd_io_reg as u16, 14);
+            glue::pio_outb(s.kd_io_reg as u16, CURSOR_START_SCANLINE);
             glue::pio_outb(s.kd_index_reg as u16, C_STOP);
-            glue::pio_outb(s.kd_io_reg as u16, 15);
+            glue::pio_outb(s.kd_io_reg as u16, CURSOR_STOP_SCANLINE);
         }
     }
 
-    setpos(xga_getpos());
+    setpos(get_cursor());
 }
 
 // The bitmap backend.  Private safe helpers, exported C entry points.
 
 /// Character position to bit addresses.  `bmpch2bit()` in C.
-fn ch2bit(pos: c_short) -> (c_short, c_short) {
+fn char_to_bit(pos: c_short) -> (c_short, c_short) {
     let s = state();
     let xch = (pos / ONE_SPACE) % s.kd_cols;
     let ych = pos / (ONE_SPACE * s.kd_cols);
@@ -236,7 +243,7 @@ fn ch2bit(pos: c_short) -> (c_short, c_short) {
 }
 
 /// The frame-buffer pointer for a bit address.  `bit2fbptr()` in C.
-fn fbptr(xb: c_short, yb: c_short) -> *mut u8 {
+fn fb_ptr(xb: c_short, yb: c_short) -> *mut u8 {
     let s = state();
     s.vid_start.wrapping_add(
         yb as usize * s.fb_byte_width as usize + (xb / 8) as usize,
@@ -251,10 +258,10 @@ fn put(pos: c_short, ch: c_char, chattr: c_char) {
         ch = K_QUES;
     }
     let mask = if chattr as u8 == KA_REVERSE { 0xff } else { 0 };
-    let (xbit, ybit) = ch2bit(pos);
+    let (xbit, ybit) = char_to_bit(pos);
     // SAFETY: the bitmap backend set the font and frame buffer up.
     unsafe {
-        let mut to = fbptr(xbit, ybit);
+        let mut to = fb_ptr(xbit, ybit);
         let mut from =
             s.font_start.add(ch as usize * s.char_byte_width as usize);
         for _ in 0..s.char_height {
@@ -267,15 +274,15 @@ fn put(pos: c_short, ch: c_char, chattr: c_char) {
     }
 }
 
-/// Copy one character within the frame buffer.  `bmpcp1char()` in C.
+/// Copy one character within the frame buffer.  `copy_char()` in C.
 fn cp1char(from: c_short, to: c_short) {
     let s = state();
-    let (from_xbit, from_ybit) = ch2bit(from);
-    let (to_xbit, to_ybit) = ch2bit(to);
+    let (from_xbit, from_ybit) = char_to_bit(from);
+    let (to_xbit, to_ybit) = char_to_bit(to);
     // SAFETY: the bitmap backend set the frame buffer up.
     unsafe {
-        let mut tp = fbptr(to_xbit, to_ybit);
-        let mut fp = fbptr(from_xbit, from_ybit);
+        let mut tp = fb_ptr(to_xbit, to_ybit);
+        let mut fp = fb_ptr(from_xbit, from_ybit);
         for _ in 0..s.char_height {
             for j in 0..s.char_byte_width {
                 *tp.add(j as usize) = *fp.add(j as usize);
@@ -289,11 +296,11 @@ fn cp1char(from: c_short, to: c_short) {
 /// Paint the cursor bits.  `bmppaintcsr()` in C.
 fn paintcsr(pos: c_short, val: u8) {
     let s = state();
-    let (xbit, mut ybit) = ch2bit(pos);
+    let (xbit, mut ybit) = char_to_bit(pos);
     ybit += s.char_height;
     // SAFETY: the cursor block is inside the frame buffer.
     unsafe {
-        let mut cp = fbptr(xbit, ybit);
+        let mut cp = fb_ptr(xbit, ybit);
         for _ in 0..s.cursor_height {
             for byte in 0..s.char_byte_width {
                 *cp.add(byte as usize) = val;
@@ -323,8 +330,8 @@ pub unsafe extern "C" fn bmpput(pos: c_short, ch: c_char, chattr: c_char) {
 pub unsafe extern "C" fn bmpmvup(from: c_short, to: c_short, count: c_int) {
     let mut from = from;
     let mut to = to;
-    let (mut from_xbit, from_ybit) = ch2bit(from);
-    let (mut to_xbit, to_ybit) = ch2bit(to);
+    let (mut from_xbit, from_ybit) = char_to_bit(from);
+    let (mut to_xbit, to_ybit) = char_to_bit(to);
     let s = state();
     if from_xbit == s.xstart
         && to_xbit == s.xstart
@@ -341,8 +348,8 @@ pub unsafe extern "C" fn bmpmvup(from: c_short, to: c_short, count: c_int) {
         // SAFETY: the whole-line block is inside the frame buffer.
         unsafe {
             glue::kd_slmscu(
-                fbptr(from_xbit, from_ybit).cast(),
-                fbptr(to_xbit, to_ybit).cast(),
+                fb_ptr(from_xbit, from_ybit).cast(),
+                fb_ptr(to_xbit, to_ybit).cast(),
                 bytes / SLAMBPW,
             )
         };
@@ -366,8 +373,8 @@ pub unsafe extern "C" fn bmpmvup(from: c_short, to: c_short, count: c_int) {
 pub unsafe extern "C" fn bmpmvdown(from: c_short, to: c_short, count: c_int) {
     let mut from = from;
     let mut to = to;
-    let (mut from_xbit, from_ybit) = ch2bit(from);
-    let (mut to_xbit, to_ybit) = ch2bit(to);
+    let (mut from_xbit, from_ybit) = char_to_bit(from);
+    let (mut to_xbit, to_ybit) = char_to_bit(to);
     let s = state();
     let last = s.xstart + (s.kd_cols - 1) * s.char_width;
     if from_xbit == last && to_xbit == last && count % s.kd_cols as c_int == 0
@@ -383,8 +390,8 @@ pub unsafe extern "C" fn bmpmvdown(from: c_short, to: c_short, count: c_int) {
         // SAFETY: the whole-line block is inside the frame buffer.
         unsafe {
             glue::kd_slmscd(
-                fbptr(from_xbit, from_ybit).cast(),
-                fbptr(to_xbit, to_ybit).cast(),
+                fb_ptr(from_xbit, from_ybit).cast(),
+                fb_ptr(to_xbit, to_ybit).cast(),
                 bytes / SLAMBPW,
             )
         };
@@ -465,7 +472,7 @@ pub unsafe extern "C" fn bmpch2bit(
     xb: *mut c_short,
     yb: *mut c_short,
 ) {
-    let (x, y) = ch2bit(pos);
+    let (x, y) = char_to_bit(pos);
     // SAFETY: the caller promises both pointers are valid.
     unsafe {
         *xb = x;
@@ -480,5 +487,5 @@ pub unsafe extern "C" fn bmpch2bit(
 /// `xb` and `yb` must name a bit inside the frame buffer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn bit2fbptr(xb: c_short, yb: c_short) -> *mut u8 {
-    fbptr(xb, yb)
+    fb_ptr(xb, yb)
 }

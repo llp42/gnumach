@@ -20,6 +20,19 @@ use core::ffi::{c_int, c_uint};
 /// (`MOUSE_LEFT`, `MOUSE_MIDDLE`, `MOUSE_RIGHT` of <device/input.h>).
 const WHICH_BUTTON: [u16; 4] = [0, 1, 2, 3];
 
+// The scancodes the magic-key "mouse" uses.
+const K_F1SC: c_int = 0x3b;
+const K_F2SC: c_int = 0x3c;
+const K_F3SC: c_int = 0x3d;
+const K_KP_HOME: c_int = 0x47;
+const K_UPSC: c_int = 0x48;
+const K_KP_PGUP: c_int = 0x49;
+const K_LEFTSC: c_int = 0x4b;
+const K_RIGHTSC: c_int = 0x4d;
+const K_KP_END: c_int = 0x4f;
+const K_DOWNSC: c_int = 0x50;
+const K_KP_PGDN: c_int = 0x51;
+
 /// Read the exported `kd_state`.
 fn state_bits() -> c_int {
     // SAFETY: a plain integer written at SPLKD.
@@ -76,7 +89,7 @@ pub(crate) fn modifier(state_in: c_int, c: u8, up: bool) -> c_int {
 }
 
 /// `kdstate2idx()`: the key_map column for a modifier state.
-pub(crate) fn state2idx(state_in: c_uint, extended: bool) -> c_uint {
+pub(crate) fn state2idx(state_in: c_uint, extended: bool) -> usize {
     let st = state_in as c_int;
     let mut state_idx = NORM_STATE;
     if !extended && st != KS_NORMAL {
@@ -90,7 +103,7 @@ pub(crate) fn state2idx(state_in: c_uint, extended: bool) -> c_uint {
             state_idx = ALT_STATE;
         }
     }
-    charidx(state_idx) as c_uint
+    charidx(state_idx)
 }
 
 /// Wait for the input buffer and send a byte to the keyboard.
@@ -155,7 +168,7 @@ pub(crate) fn set_leds2() {
 }
 
 /// `cnsetleds()`: set the LEDs without interrupts.
-pub(crate) fn cnsetleds_impl(val: u8) {
+pub(crate) fn cn_set_leds(val: u8) {
     senddata(K_CMD_LEDS);
     let _ = getdata(); // assume ACK
     senddata(val);
@@ -163,7 +176,7 @@ pub(crate) fn cnsetleds_impl(val: u8) {
 }
 
 /// `kdgetkbent()`: read a key map entry.
-fn kbent_get(row: usize, col: usize) -> [u8; NUMOUTPUT] {
+fn map_get(row: usize, col: usize) -> [u8; NUMOUTPUT] {
     // SAFETY: the caller checks the indexes.
     unsafe {
         [
@@ -175,7 +188,7 @@ fn kbent_get(row: usize, col: usize) -> [u8; NUMOUTPUT] {
 }
 
 /// `kdsetkbent()`: write a key map entry.
-fn kbent_set(row: usize, col: usize, value: [u8; NUMOUTPUT]) {
+fn map_set(row: usize, col: usize, value: [u8; NUMOUTPUT]) {
     // SAFETY: the caller checks the indexes.
     unsafe {
         KEY_MAP[row][col] = value[0];
@@ -190,7 +203,7 @@ fn mouse_button(which: u16, direction: u8) {
 }
 
 /// `mouse_moved()` with a delta scaled by the magic scale.
-fn mouse_move(dx: c_int, dy: c_int) {
+fn motion(dx: c_int, dy: c_int) {
     let mm = crate::utils::kd_queue::MouseMotion {
         mm_delta_x: dx as i16,
         mm_delta_y: dy as i16,
@@ -208,8 +221,8 @@ pub(crate) fn kbd_magic(scancode: c_int) -> c_int {
     match scancode {
         // f1 f2 f3, with the C switch's fallthrough: 0x3b yields 1,
         // 0x3c 2, 0x3d 3.
-        0x3b..=0x3d => {
-            let new_button = scancode - 0x3b + 1;
+        K_F1SC | K_F2SC | K_F3SC => {
+            let new_button = scancode - K_F1SC + 1;
             let s = state();
             let old = s.kd_kbd_magic_button;
             if old != 0 && new_button != old {
@@ -225,24 +238,24 @@ pub(crate) fn kbd_magic(scancode: c_int) -> c_int {
             }
         }
         // right left up down
-        0x4d => mouse_move(state().kd_kbd_magic_scale, 0),
-        0x4b => mouse_move(-state().kd_kbd_magic_scale, 0),
-        0x48 => mouse_move(0, state().kd_kbd_magic_scale),
-        0x50 => mouse_move(0, -state().kd_kbd_magic_scale),
+        K_RIGHTSC => motion(state().kd_kbd_magic_scale, 0),
+        K_LEFTSC => motion(-state().kd_kbd_magic_scale, 0),
+        K_UPSC => motion(0, state().kd_kbd_magic_scale),
+        K_DOWNSC => motion(0, -state().kd_kbd_magic_scale),
         // home pageup end pagedown
-        0x47 => mouse_move(
+        K_KP_HOME => motion(
             -2 * state().kd_kbd_magic_scale,
             2 * state().kd_kbd_magic_scale,
         ),
-        0x49 => mouse_move(
+        K_KP_PGUP => motion(
             2 * state().kd_kbd_magic_scale,
             2 * state().kd_kbd_magic_scale,
         ),
-        0x4f => mouse_move(
+        K_KP_END => motion(
             -2 * state().kd_kbd_magic_scale,
             -2 * state().kd_kbd_magic_scale,
         ),
-        0x51 => mouse_move(
+        K_KP_PGDN => motion(
             2 * state().kd_kbd_magic_scale,
             -2 * state().kd_kbd_magic_scale,
         ),
@@ -252,13 +265,13 @@ pub(crate) fn kbd_magic(scancode: c_int) -> c_int {
 }
 
 /// `kdcheckmagic()`: the magic key sequences.
-fn checkmagic(scancode: u8) -> c_int {
-    if scancode == 0x46 {
+fn checkmagic(scancode: u8) -> bool {
+    if scancode == K_SLCKSC {
         // Scroll lock: toggle the keyboard-as-mouse hack.
         let s = state();
         s.kd_kbd_mouse = c_int::from(s.kd_kbd_mouse == 0);
         s.kd_kbd_magic_button = 0;
-        return 1;
+        return true;
     }
     let up = scancode & K_UP != 0;
     let scancode = if up { scancode & !K_UP } else { scancode };
@@ -272,7 +285,7 @@ fn checkmagic(scancode: u8) -> c_int {
         // SAFETY: the caller asked for a reboot with ctl-alt-del.
         unsafe { super::kdreboot() };
     }
-    0
+    false
 }
 
 /// The keyboard IRQ handler.  `kdintr()` in C.
@@ -295,7 +308,7 @@ fn intr() {
     }
 
     // We may have seen a mouse event.
-    if unsafe { glue::pio_inb(K_STATUS) } & 0x20 == 0x20 {
+    if unsafe { glue::pio_inb(K_STATUS) } & K_AUX_OBUF_FUL == K_AUX_OBUF_FUL {
         let sc = unsafe { glue::pio_inb(K_RDWR) };
         if unsafe { kd_mouse::MOUSE_IN_USE } != 0 {
             kd_mouse::mouse_handle_byte(sc);
@@ -317,7 +330,7 @@ fn intr() {
         handle_ack();
         return;
     } else if (state().kd_kbd_mouse != 0 && kbd_magic(scancode as c_int) != 0)
-        || checkmagic(scancode) != 0
+        || checkmagic(scancode)
     {
         return;
     } else if mode() == KB_EVENT {
@@ -332,7 +345,7 @@ fn intr() {
     if (scancode as usize) < NUMKEYS {
         // Look up in the map, then process.
         let mut char_idx =
-            state2idx(state_bits() as c_uint, state().kd_extended) as usize;
+            state2idx(state_bits() as c_uint, state().kd_extended);
         let mut c = unsafe { KEY_MAP[scancode as usize][char_idx] };
         if c == K_SCAN {
             char_idx += 1;
@@ -414,15 +427,14 @@ pub(crate) fn mouse_drain() {
 /// Read a key map entry into `kb`: the `kdgetkbent()` core.
 pub(crate) fn entry_get(kb: &mut KbEntry) {
     let o_pri = unsafe { glue::spltty() };
-    kb.kb_value =
-        kbent_get(kb.kb_index as usize, charidx(kb.kb_state as c_int));
+    kb.kb_value = map_get(kb.kb_index as usize, charidx(kb.kb_state as c_int));
     unsafe { glue::splx(o_pri) };
 }
 
 /// Write a key map entry from `kb`: the `kdsetkbent()` core.
 pub(crate) fn entry_set(kb: &KbEntry) {
     let o_pri = unsafe { glue::spltty() };
-    kbent_set(
+    map_set(
         kb.kb_index as usize,
         charidx(kb.kb_state as c_int),
         kb.kb_value,

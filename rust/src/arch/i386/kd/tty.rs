@@ -16,6 +16,7 @@ use crate::glue;
 use crate::kern::queue::QueueEntry;
 use core::ffi::{c_char, c_int, c_short, c_uint, c_void};
 use core::mem::{offset_of, size_of};
+use core::ptr::NonNull;
 use core::sync::atomic::AtomicU32;
 
 /// `TS_*` of <device/tty.h>.
@@ -41,10 +42,12 @@ const KDSKBENT: c_uint = 0x8005_6b02;
 /// `KDSETBELL` of <i386at/kd.h>.
 const KDSETBELL: c_uint = 0x8004_6b04;
 
-/// `D_INVALID_OPERATION` of <device/device_types.h>.
-const D_INVALID_OPERATION: c_int = 2505;
-/// `D_SUCCESS`.
-const D_SUCCESS: c_int = 0;
+use crate::arch::i386::io_req::{D_INVALID_OPERATION, D_SUCCESS};
+
+/// `kdmmap()` refuses offsets past this.
+const MAP_LIMIT: usize = 128 * 1024;
+/// `kdmmap()`'s failure value, as `(vm_offset_t)-1`.
+const MAP_FAILED: usize = usize::MAX;
 
 /// `struct slock` of <kern/lock.h>: one natural word.
 ///
@@ -74,7 +77,7 @@ pub struct Tty {
     t_lock: SimpleLock,
     t_inq: Cirbuf,
     t_outq: Cirbuf,
-    t_addr: *mut c_char,
+    t_addr: Option<NonNull<c_char>>,
     t_dev: c_int,
     t_start: Option<unsafe extern "C" fn(*mut Tty)>,
     t_stop: Option<unsafe extern "C" fn(*mut Tty, c_int)>,
@@ -88,13 +91,13 @@ pub struct Tty {
     t_delayed_read: QueueEntry,
     t_delayed_write: QueueEntry,
     t_delayed_open: QueueEntry,
-    t_timeout: *mut c_void,
+    t_timeout: Option<NonNull<c_void>>,
     t_getstat: Option<
         unsafe extern "C" fn(u16, c_uint, *mut c_int, *mut u32) -> c_int,
     >,
     t_setstat:
         Option<unsafe extern "C" fn(u16, c_uint, *mut c_int, u32) -> c_int>,
-    t_tops: *mut c_void,
+    t_tops: Option<NonNull<c_void>>,
 }
 
 // The C layout, as both configured kernels see it: the lock first, the
@@ -147,7 +150,7 @@ impl Tty {
                 c_cc: 0,
                 c_hog: 0,
             },
-            t_addr: core::ptr::null_mut(),
+            t_addr: None,
             t_dev: 0,
             t_start: None,
             t_stop: None,
@@ -161,10 +164,10 @@ impl Tty {
             t_delayed_read: QueueEntry::unlinked(),
             t_delayed_write: QueueEntry::unlinked(),
             t_delayed_open: QueueEntry::unlinked(),
-            t_timeout: core::ptr::null_mut(),
+            t_timeout: None,
             t_getstat: None,
             t_setstat: None,
-            t_tops: core::ptr::null_mut(),
+            t_tops: None,
         }
     }
 }
@@ -286,8 +289,8 @@ pub unsafe extern "C" fn kdmmap(
     off: usize,
     _prot: c_int,
 ) -> usize {
-    if off >= 128 * 1024 {
-        return usize::MAX;
+    if off >= MAP_LIMIT {
+        return MAP_FAILED;
     }
     // i386_btop(): shift by I386_PGSHIFT.
     let base = unsafe { super::KD_BITMAP_START };

@@ -1072,6 +1072,11 @@ records them.  The four entries below keep the detail §4.1 gives the
   Rust-to-Rust glue declarations are gone, and `kd.h`/`kd_mouse.h`/
   `kd_event.h` no longer declare the retired symbols; `kd_state`,
   `kd_bitmap_start`, `kb_mode` and `mouse_in_use` are crate-private.
+* **Idioms (cleanup).** Named scancode/controller constants, `bool`
+  and `usize` internal returns, device return codes shared from
+  `io_req.rs`, `Option<NonNull<_>>` for the tty's inert pointers, and
+  private names that read as Rust (`cn_set_leds`, `char_to_bit`,
+  `fb_ptr`, `motion`, ...).
 * **Tests.** `tests/kd.c` and `tests/test-kd.c` pin the escape parser
   (command dispatch, positions, attributes) and the modifier state
   machine.  `tests/test-kd-dev.c` drives the driver through its

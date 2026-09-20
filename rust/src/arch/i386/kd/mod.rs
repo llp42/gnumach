@@ -9,12 +9,10 @@
 //! debugger polls).  `console.rs` holds the console entry points and
 //! `kd_event.rs`'s line discipline feed.
 //!
-//! The tty device entry points (`kdopen()`, `kdclose()`, `kdread()`,
-//! `kdwrite()`, `kdgetstat()`, `kdsetstat()`, `kdmmap()`,
-//! `kdportdeath()`, `kdstart()`, `kdstop()`) still live in C with
-//! `kd_tty` while the tty layer has no Rust layout; the C file reaches
-//! this module through three shims (`kd_tty_rint()`, `kd_tty_init()`,
-//! `kd_phystokv()`, `kd_rebootflag()`).
+//! `tty.rs` holds the tty device entry points and `keymap.rs` the
+//! scan-code table.  Everything is Rust now; only the 23 symbols that
+//! `conf.c`, `cons_conf.c`, the platform tables and `model_dep.c`
+//! reference stay `extern "C"` (see MIGRATE.md).
 
 pub mod console;
 pub mod display;
@@ -68,6 +66,12 @@ pub(crate) const K_RDWR: u16 = 0x60;
 pub(crate) const K_PORTB: u16 = 0x61;
 pub(crate) const K_STATUS: u16 = 0x64;
 pub(crate) const K_CMD: u16 = 0x64;
+/// An auxiliary (mouse) byte waits in the controller output buffer.
+pub(crate) const K_AUX_OBUF_FUL: u8 = 0x20;
+/// The keyboard-controller reset command.
+pub(crate) const KC_CMD_RESET: u8 = 0xfe;
+/// The scroll-lock scancode, which toggles the keyboard-as-mouse hack.
+pub(crate) const K_SLCKSC: u8 = 0x46;
 pub(crate) const K_OBUF_FUL: u8 = 0x01;
 pub(crate) const K_IBUF_FUL: u8 = 0x02;
 pub(crate) const K_SPKRDATA: u8 = 0x02;
@@ -354,7 +358,7 @@ pub(crate) fn kdinit() {
     // NUM-LOCK from being set on the NEC Versa.
     unsafe {
         KD_STATE = KS_NORMAL;
-        keyboard::cnsetleds_impl(KS_NORMAL as u8);
+        keyboard::cn_set_leds(KS_NORMAL as u8);
     }
 
     // Allocate the input buffer.
@@ -398,7 +402,7 @@ pub unsafe extern "C" fn cnpollc(on: c_int) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kdreboot() {
     unsafe { (display::kd_dreset)() };
-    keyboard::sendcmd(0xfe);
+    keyboard::sendcmd(KC_CMD_RESET);
     delay(1000000);
     unsafe { glue::cpu_shutdown() };
 }

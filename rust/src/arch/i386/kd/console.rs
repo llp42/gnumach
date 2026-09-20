@@ -14,8 +14,7 @@ use core::ffi::{c_int, c_uint};
 const KD_BELLON: c_int = 1;
 const KD_BELLOFF: c_int = 0;
 
-/// `KDGSTATE`-style device returns.
-const D_INVALID_OPERATION: c_int = 2505;
+use crate::arch::i386::io_req::D_INVALID_OPERATION;
 
 /// Probe the console.  `kdcnprobe()` in C.
 ///
@@ -96,7 +95,9 @@ pub(crate) fn maygetc() -> c_int {
 
         let mut up = false;
         // We would come here for mouse events in the debugger.
-        if unsafe { glue::pio_inb(K_STATUS) } & 0x20 == 0x20 {
+        if unsafe { glue::pio_inb(K_STATUS) } & K_AUX_OBUF_FUL
+            == K_AUX_OBUF_FUL
+        {
             let sc = unsafe { glue::pio_inb(K_RDWR) };
             // SAFETY: a literal format with one integer.
             unsafe { glue::printf(c"M%xP".as_ptr(), sc as c_int) };
@@ -131,7 +132,7 @@ pub(crate) fn maygetc() -> c_int {
             let mut char_idx = super::keyboard::state2idx(
                 unsafe { KD_STATE } as c_uint,
                 state().kd_extended,
-            ) as usize;
+            );
             let mut c = unsafe { KEY_MAP[scancode as usize][char_idx] };
             if c == K_SCAN {
                 char_idx += 1;

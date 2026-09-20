@@ -13,8 +13,8 @@
 //! access with `spltty()`/`splx()`, and the C file's globals are the
 //! `STATE` below under that serialization.
 //!
-//! `mouse_in_use` and `mouse_handle_byte()` stay exported symbols:
-//! `i386/i386at/kd.c` reads the first and calls the second.
+//! `kdintr()` reads `MOUSE_IN_USE` and calls `mouse_handle_byte()`;
+//! only the four conf.c device entries stay `extern "C"`.
 
 use super::io_req::{
     D_ALREADY_OPEN, D_INVALID_OPERATION, D_INVALID_SIZE, D_IO_QUEUED,
