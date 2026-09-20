@@ -174,25 +174,34 @@ into Rust).  Layer = the highest prerequisite layer from §2.
 
 ### 4.1 Detailed entries
 
-#### `kern/rbtree.c` — 463 lines — friction 2/5
-* **Role.** Red-black tree over intrusive nodes; color bit packed in the
-  parent pointer (2-bit mask, `rbtree_i.h:60-74`).
-* **Exports.** `rbtree_insert_rebalance`, `rbtree_remove`,
-  `rbtree_nearest`, `rbtree_firstlast`, `rbtree_walk`,
-  `rbtree_postwalk_deepest`, `rbtree_postwalk_unlink`.
-* **Dependencies — why.** `nm -u` is empty; the only callees are the
-  `static inline` helpers in `rbtree_i.h` (`rbtree_parent`,
-  `rbtree_d2i`, masks) and `unlikely`.  Callers (`slab.c:812-855`,
-  `vm/vm_map.c:183-482`) reach it through the generic macros in
-  `rbtree.h`, which embed their `cmp_fn` at each call site.
-* **Blockers.** None.  The seven functions are the smallest
-  self-contained dependency of `slab.c`; doing this first shortens the
-  slab port later.
-* **Boundary / notes.** `#[repr(C)] RbtreeNode { parent: usize,
-  children: [*mut RbtreeNode; 2] }` with explicit masks; all seven stay
-  `unsafe extern "C"`.  The header macros stay C for `vm_map.c`/`slab.c`.
-  Preserve the remove-path "stale node" behaviour (`rbtree_i.h` comment)
-  and `NULL`-terminated postwalks.
+#### `kern/rbtree.c` — 463 lines — ported
+* **Role.** Red-black tree over intrusive nodes; the color bit is
+  packed in the parent pointer (2-bit masks, `rbtree_i.h:60-74`).
+* **Rust home.** `src/kern/rbtree.rs`.  `RbtreeNode` and `Rbtree` are
+  `#[repr(C)]` mirrors whose links are `Option<NonNull<_>>` (the null
+  niche keeps the C layout); size, alignment and the children offset
+  are asserted on the Rust side and mirrored with `_Static_assert`s in
+  `rbtree_i.h`.  The packed color, the null-child index rule, the
+  insertion-point slot protocol (still C, in `rbtree_slot*`) and the
+  "stale node after remove" contract are preserved.
+* **Boundary.** Four `unsafe extern "C"` symbols:
+  `rbtree_insert_rebalance`, `rbtree_remove`, `rbtree_nearest`,
+  `rbtree_firstlast`.  The generic macros stay C in `rbtree.h` for
+  `slab.c` and `vm/vm_map.c`, and because only they embed `cmp_fn`,
+  the Rust half takes no callbacks at all.
+* **Prune (cleanup).** `rbtree_lookup`, `rbtree_empty`,
+  `rbtree_node_unlinked`, `rbtree_prev`/`rbtree_next`,
+  `rbtree_for_each_remove`, `rbtree_check_alignment`,
+  `rbtree_check_index` and the `rbtree_parent` inline had no callers,
+  and went together with the three exports only they used
+  (`rbtree_walk`, `rbtree_postwalk_deepest`, `rbtree_postwalk_unlink`).
+* **Tests.** `rbtree.rs` carries `#[cfg(test)]` tests that reimplement
+  the macro protocols (insert, lookup_slot/insert_slot,
+  lookup_nearest) and check the red-black rules after every mutation;
+  `tests/test-rbtree-rs` compiles them for the host in `make check`.
+  `vm/vm_map.c`'s two trees and `kern/slab.c`'s active-slab tree (used
+  by every non-direct cache, `slab.c:641-652`) also exercise the four
+  functions through the qemu suite.
 
 #### `kern/timer.c` — 236 lines — friction 3/5
 * **Role.** Per-thread and per-CPU statistical timers (microseconds and
@@ -1181,12 +1190,12 @@ generated `.server.h`; the unmarshalling, `TypeCheck` and
 
 Tier 1 — no new infrastructure:
 
-1. `kern/rbtree.c` — 0 undefined symbols; unlocks slab later.
+1. `kern/rbtree.c` — 0 undefined symbols; unlocks slab later.  Ported.
 2. `ipc/ipc_thread.c` — 0 undefined; header macros only.
 3. `util/atoi.c` — 0 undefined; needs a `tests/` copy in the same
    commit.
 4. `ipc/ipc_target.c` — one call to `ipc_mqueue_init` (shim or defer).
-5. `i386/i386at/mem.c`, `i386/i386at/mbinfo.c` — one or two leaf calls.
+5. `i386/i386at/mem.c`, `i386/i386at/mbinfo.c` — one or two leaf calls.  Ported.
 6. `i386/i386/ast_check.c`, `i386/i386/hardclock.c` — tiny, asm-free.
 7. `kern/boot_script.c` — isolated, allocation callbacks only.
 
@@ -1220,7 +1229,7 @@ Tier 4 — the anchors (`thread`, `task`, `sched_prim`, `ipc_mig`,
   `glue.rs` declarations for `thread_sleep`/`thread_wakeup`,
   `kalloc`/`kmem_cache`, and `copyin`/`copyout`; and the `#[repr(C)]`
   mirror pattern with compile-time asserts for the first shared struct.
-* **Phase 2 — infrastructure.**  `rbtree` (done in Phase 0), `timer`,
+* **Phase 2 — infrastructure.**  `rbtree` (ported), `timer`,
   `kmutex`, then `slab`/`kalloc` shims, then `rdxtree` → `lock.c` →
   `eventcount.c`.
 * **Phase 3 — scheduler surface.**  `mach_factor`, `thread_swap`,
@@ -1235,7 +1244,9 @@ Tier 4 — the anchors (`thread`, `task`, `sched_prim`, `ipc_mig`,
   `startup`/`bootstrap`, then `printf`'s engine and the drivers.
 
 Exit criterion for every step is unchanged: both qemu architectures
-green, `rustfmt`/`clippy` clean, no new undefined symbols.
+green, `rustfmt`/`clippy` clean, no new undefined symbols.  A module
+that needs nothing from the kernel may add host tests like the
+rbtree's; see §8.
 
 ## 8. Deletions and test-side copies
 
@@ -1248,6 +1259,11 @@ green, `rustfmt`/`clippy` clean, no new undefined symbols.
   the surrounding code.  `rdxtree.h:49` and `vm/vm_external.h:49` have
   `#if 0` blocks to check the same way.  `kern/boot_script.c`'s
   `boot_script_define_function` has no callers.
+* Host-side Rust tests: `rust/src/kern/rbtree.rs` is free of kernel
+  calls and `crate::` imports, so it carries `#[cfg(test)]` tests and
+  `tests/test-rbtree-rs` compiles it for the host as part of
+  `make check`.  It is the exception, not a second build path; every
+  other port is exercised through the running kernel.
 * Test-linked routines: `util/atoi.c` and `kern/printf.c` are compiled
   into the user tests (`tests/user-qemu.mk:137`); a port of either is
   not a port until `tests/` has its own C copy.  `tests/kd_queue.c`,
@@ -1265,6 +1281,7 @@ green, `rustfmt`/`clippy` clean, no new undefined symbols.
 | `i386/i386/loose_ends.c` (`delay`) | `src/utils/delay.rs` | `87d85e0c` |
 | `util/byteorder.c` | `src/utils/byteorder.rs` | `7ad91b7b` |
 | `kern/elf-load.c` | `src/kern/elf_load.rs` | `308594ca` |
+| `kern/rbtree.c` | `src/kern/rbtree.rs` | `9445e08b` … `f3f30264` |
 | `i386/i386at/mbinfo.c` | `src/arch/i386/mbinfo.rs` | `21fcbe0b` |
 | `i386/i386at/mem.c` | `src/arch/i386/mem.rs` | `548186d3` |
 | `i386/i386at/kd_queue.c` | `src/utils/kd_queue.rs` | `ed2502e9` |
