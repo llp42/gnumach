@@ -926,6 +926,20 @@ MIG-generated `.c` live only under `build-*/` and are not ported.
 | `vm_page.c` | 2214 | page allocation/queues | 5 | pmap, percpu, page lock |
 | `vm_resident.c` | 1071 | resident page table/free lists | 5 | pmap, queues, slab |
 
+The `vm_map` port is under way (M0).  `rust/src/vm/vm_map.rs`
+mirrors `vm_map_links`, `vm_map_entry`, `vm_map_header`, `vm_map`,
+`vm_map_version`, `vm_map_copy` (all three variants) and
+`vm_map_copyin_args_data` `#[repr(C)]`, with size, alignment and
+field offsets pinned by `const` assertions; the structs C names get
+paired `_Static_assert`s in `vm/vm_map.h`, while the copy variants
+and `vm_map_version` are pinned Rust-side only.  The bitfield words
+are one `u32` each with named bit constants, and `projected_on` has a
+`Projection` view.  `rust/src/kern/list.rs` mirrors `kern/list.h` and
+`rust/src/kern/lock.rs` adds `SimpleLock` (the `struct slock` word)
+and the `LockData` layout; `VmProt` moved to `rust/src/vm/types.rs`,
+where `VmInherit` also lives.  No function has moved yet, so the C
+definitions are unchanged and no adapter exists.
+
 ### ipc/ (18 files, 13,002 LOC)
 
 | File | LOC | Role | Friction | Blockers |

@@ -354,6 +354,218 @@ typedef	struct vm_map_copyin_args_data {
 #define	VM_MAP_COPYIN_ARGS_NULL	((vm_map_copyin_args_t) 0)
 
 /*
+ * The Rust port mirrors these structures in rust/src/vm/vm_map.rs, and
+ * its compile-time asserts pin the same layout.  The assertions here
+ * fail on this side of the contract if anyone changes the C.  The
+ * bitfield words are not named in C, so the offset of the first field
+ * after each one is what pins them; the Rust side asserts the word
+ * itself against that offset.
+ */
+#ifdef __x86_64__
+_Static_assert(sizeof(struct vm_map_links) == 32,
+	       "vm_map_links layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_links, next) == 8,
+	       "vm_map_links layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_links, start) == 16,
+	       "vm_map_links layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_links, end) == 24,
+	       "vm_map_links layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(sizeof(struct vm_map_entry) == 152,
+	       "vm_map_entry layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(_Alignof(struct vm_map_entry) == 8,
+	       "vm_map_entry layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_entry, tree_node) == 32,
+	       "vm_map_entry layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_entry, gap_node) == 56,
+	       "vm_map_entry layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_entry, gap_list) == 80,
+	       "vm_map_entry layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_entry, gap_size) == 96,
+	       "vm_map_entry layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_entry, object) == 104,
+	       "vm_map_entry layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_entry, offset) == 112,
+	       "vm_map_entry layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_entry, protection) == 124,
+	       "vm_map_entry layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_entry, projected_on) == 144,
+	       "vm_map_entry layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(sizeof(struct vm_map_header) == 56,
+	       "vm_map_header layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_header, tree) == 32,
+	       "vm_map_header layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_header, gap_tree) == 40,
+	       "vm_map_header layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_header, nentries) == 48,
+	       "vm_map_header layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(sizeof(struct vm_map) == 168,
+	       "vm_map layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map, hdr) == 16,
+	       "vm_map layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map, pmap) == 72,
+	       "vm_map layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map, ref_lock) == 108,
+	       "vm_map layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map, hint) == 112,
+	       "vm_map layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map, first_free) == 128,
+	       "vm_map layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map, timestamp) == 140,
+	       "vm_map layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map, size_max_limit) == 160,
+	       "vm_map layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(sizeof(struct vm_map_copy) == 560,
+	       "vm_map_copy layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_copy, offset) == 8,
+	       "vm_map_copy layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_copy, c_u) == 24,
+	       "vm_map_copy layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_entry, max_protection) == 128,
+	       "vm_map_entry layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_entry, inheritance) == 132,
+	       "vm_map_entry layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_entry, wired_count) == 136,
+	       "vm_map_entry layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_entry, wired_access) == 140,
+	       "vm_map_entry layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map, size) == 80,
+	       "vm_map layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map, size_wired) == 88,
+	       "vm_map layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map, size_none) == 96,
+	       "vm_map layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map, ref_count) == 104,
+	       "vm_map layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map, hint_lock) == 120,
+	       "vm_map layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map, name) == 144,
+	       "vm_map layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map, size_cur_limit) == 152,
+	       "vm_map layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(sizeof(struct vm_map_version) == 4,
+	       "vm_map_version layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_copy, c_u.c_o.object) == 24,
+	       "vm_map_copy layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_copy, c_u.c_p.page_list) == 24,
+	       "vm_map_copy layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_copy, c_u.c_p.npages) == 536,
+	       "vm_map_copy layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_copy, c_u.c_p.cont) == 544,
+	       "vm_map_copy layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_copy, c_u.c_p.cont_args) == 552,
+	       "vm_map_copy layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(sizeof(struct vm_map_copyin_args_data) == 48,
+	       "vm_map_copyin_args layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_copyin_args_data, src_len) == 16,
+	       "vm_map_copyin_args layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_copyin_args_data, destroy_addr) == 24,
+	       "vm_map_copyin_args layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_copyin_args_data, steal_pages) == 40,
+	       "vm_map_copyin_args layout changed; update rust/src/vm/vm_map.rs");
+#else
+_Static_assert(sizeof(struct vm_map_links) == 16,
+	       "vm_map_links layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_links, next) == 4,
+	       "vm_map_links layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_links, start) == 8,
+	       "vm_map_links layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_links, end) == 12,
+	       "vm_map_links layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(sizeof(struct vm_map_entry) == 88,
+	       "vm_map_entry layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(_Alignof(struct vm_map_entry) == 4,
+	       "vm_map_entry layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_entry, tree_node) == 16,
+	       "vm_map_entry layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_entry, gap_node) == 28,
+	       "vm_map_entry layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_entry, gap_list) == 40,
+	       "vm_map_entry layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_entry, gap_size) == 48,
+	       "vm_map_entry layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_entry, object) == 52,
+	       "vm_map_entry layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_entry, offset) == 56,
+	       "vm_map_entry layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_entry, protection) == 64,
+	       "vm_map_entry layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_entry, projected_on) == 84,
+	       "vm_map_entry layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(sizeof(struct vm_map_header) == 28,
+	       "vm_map_header layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_header, tree) == 16,
+	       "vm_map_header layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_header, gap_tree) == 20,
+	       "vm_map_header layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_header, nentries) == 24,
+	       "vm_map_header layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(sizeof(struct vm_map) == 96,
+	       "vm_map layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map, hdr) == 12,
+	       "vm_map layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map, pmap) == 40,
+	       "vm_map layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map, ref_lock) == 60,
+	       "vm_map layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map, hint) == 64,
+	       "vm_map layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map, first_free) == 72,
+	       "vm_map layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map, timestamp) == 80,
+	       "vm_map layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map, size_max_limit) == 92,
+	       "vm_map layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(sizeof(struct vm_map_copy) == 280,
+	       "vm_map_copy layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_copy, offset) == 4,
+	       "vm_map_copy layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_copy, c_u) == 12,
+	       "vm_map_copy layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_entry, max_protection) == 68,
+	       "vm_map_entry layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_entry, inheritance) == 72,
+	       "vm_map_entry layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_entry, wired_count) == 76,
+	       "vm_map_entry layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_entry, wired_access) == 80,
+	       "vm_map_entry layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map, size) == 44,
+	       "vm_map layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map, size_wired) == 48,
+	       "vm_map layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map, size_none) == 52,
+	       "vm_map layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map, ref_count) == 56,
+	       "vm_map layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map, hint_lock) == 68,
+	       "vm_map layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map, name) == 84,
+	       "vm_map layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map, size_cur_limit) == 88,
+	       "vm_map layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(sizeof(struct vm_map_version) == 4,
+	       "vm_map_version layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_copy, c_u.c_o.object) == 12,
+	       "vm_map_copy layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_copy, c_u.c_p.page_list) == 12,
+	       "vm_map_copy layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_copy, c_u.c_p.npages) == 268,
+	       "vm_map_copy layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_copy, c_u.c_p.cont) == 272,
+	       "vm_map_copy layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_copy, c_u.c_p.cont_args) == 276,
+	       "vm_map_copy layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(sizeof(struct vm_map_copyin_args_data) == 24,
+	       "vm_map_copyin_args layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_copyin_args_data, src_len) == 8,
+	       "vm_map_copyin_args layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_copyin_args_data, destroy_addr) == 12,
+	       "vm_map_copyin_args layout changed; update rust/src/vm/vm_map.rs");
+_Static_assert(offsetof(struct vm_map_copyin_args_data, steal_pages) == 20,
+	       "vm_map_copyin_args layout changed; update rust/src/vm/vm_map.rs");
+#endif
+
+/*
  *	Macros:		vm_map_lock, etc. [internal use only]
  *	Description:
  *		Perform locking on the data portion of a map.

@@ -4,6 +4,8 @@
 //! Kernel facilities; mirrors `kern/`.
 
 pub mod elf_load;
+pub mod list;
+pub mod lock;
 pub mod queue;
 pub mod rbtree;
 pub mod smp;

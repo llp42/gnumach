@@ -38,42 +38,9 @@
 #![allow(non_camel_case_types)]
 
 use crate::arch::types::{VmOffset, VmSize};
+use crate::vm::types::VmProt;
 use core::ffi::{c_int, c_void};
 use core::mem::{MaybeUninit, size_of};
-
-/// `vm_prot_t` of <mach/vm_prot.h>: a set of bits.
-///
-/// `#[repr(transparent)]`, so it keeps the ABI of the `c_int` it wraps.
-#[derive(Clone, Copy)]
-#[repr(transparent)]
-pub struct VmProt(c_int);
-
-impl VmProt {
-    /// `VM_PROT_NONE`.
-    pub const NONE: Self = Self(0x0);
-    /// `VM_PROT_READ`.
-    pub const READ: Self = Self(0x1);
-    /// `VM_PROT_WRITE`.
-    pub const WRITE: Self = Self(0x2);
-    /// `VM_PROT_EXECUTE`.
-    pub const EXECUTE: Self = Self(0x4);
-    /// `VM_PROT_ALL`: read, write and execute.
-    pub const ALL: Self = Self(Self::READ.0 | Self::WRITE.0 | Self::EXECUTE.0);
-}
-
-impl core::ops::BitOr for VmProt {
-    type Output = Self;
-
-    fn bitor(self, rhs: Self) -> Self {
-        Self(self.0 | rhs.0)
-    }
-}
-
-impl core::ops::BitOrAssign for VmProt {
-    fn bitor_assign(&mut self, rhs: Self) {
-        self.0 |= rhs.0;
-    }
-}
 
 /// `exec_sectype_t` of <mach/exec/exec.h>: a set of bits.  The low
 /// three are `VmProt`'s read/write/execute bits; the rest tell
@@ -84,11 +51,11 @@ pub struct ExecSectype(c_int);
 
 impl ExecSectype {
     /// `EXEC_SECTYPE_READ`.
-    pub const READ: Self = Self(VmProt::READ.0);
+    pub const READ: Self = Self(VmProt::READ.bits());
     /// `EXEC_SECTYPE_WRITE`.
-    pub const WRITE: Self = Self(VmProt::WRITE.0);
+    pub const WRITE: Self = Self(VmProt::WRITE.bits());
     /// `EXEC_SECTYPE_EXECUTE`.
-    pub const EXECUTE: Self = Self(VmProt::EXECUTE.0);
+    pub const EXECUTE: Self = Self(VmProt::EXECUTE.bits());
     /// `EXEC_SECTYPE_ALLOC`.
     pub const ALLOC: Self = Self(0x0100);
     /// `EXEC_SECTYPE_LOAD`.
