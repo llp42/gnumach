@@ -7,7 +7,9 @@
 //! small C shim function beside the header that defines it, and that
 //! shim is declared below like any other C function.
 
-use crate::arch::types::VmOffset;
+use crate::arch::types::{VmOffset, VmSize};
+use crate::kern::lock::LockData;
+use crate::vm::types::Pmap;
 use core::ffi::{c_char, c_int, c_short, c_uint, c_void};
 
 // `panic()` in <kern/debug.h> is a macro over `Panic()`.
@@ -136,4 +138,53 @@ unsafe extern "C" {
     // <ipc/ipc_thread_glue.c>: the ith_next/ith_prev pair of a thread,
     // as one `struct ipc_thread_links *`.
     pub fn ipc_thread_glue_links(thread: *mut c_void) -> *mut c_void;
+
+    // <kern/lock.c>: the sleep-capable recursive lock whose layout is
+    // `kern/lock.rs`'s `LockData`.  Only `vm/vm_map.c` uses them so far.
+    pub fn lock_init(lock: *mut LockData, can_sleep: c_int);
+    pub fn lock_read(lock: *mut LockData);
+    pub fn lock_write(lock: *mut LockData);
+    pub fn lock_done(lock: *mut LockData);
+
+    // <kern/slab.h>.  `kmem_cache_alloc` returns the object address as
+    // the C code does; the caller turns it into a pointer.
+    pub fn kmem_cache_alloc(cache: *mut c_void) -> VmOffset;
+    pub fn kmem_cache_free(cache: *mut c_void, obj: VmOffset);
+
+    // The three caches of `vm/vm_map.c`, which still defines them.
+    pub static mut vm_map_cache: c_void;
+    pub static mut vm_map_entry_cache: c_void;
+    pub static mut vm_map_copy_cache: c_void;
+
+    // <vm/vm_kern.c>.  The map is passed as an opaque handle here:
+    // `VmMap` is `!Unpin` (it embeds a list), and the C signature only
+    // needs the address.
+    pub fn projected_buffer_collect(map: *mut c_void) -> c_int;
+
+    // <vm/vm_map.c>, until its own milestone replaces the call.
+    pub fn vm_map_delete(
+        map: *mut c_void,
+        start: VmOffset,
+        end: VmOffset,
+    ) -> c_int;
+
+    // <vm/pmap.h> and <i386/intel/pmap.h>.
+    pub fn pmap_destroy(pmap: *mut Pmap);
+    pub static kernel_pmap: *mut Pmap;
+
+    // <vm/vm_page.h>.
+    pub fn vm_page_mem_size() -> VmSize;
+
+    // Shims in vm/vm_map_glue.c: the thread privilege bump the map
+    // lock performs through `current_thread()`, and the machine-dependent
+    // `pmap_attribute` macro.  Both die when their owners move.
+    pub fn vm_map_glue_privilege_inc();
+    pub fn vm_map_glue_privilege_dec();
+    pub fn vm_map_glue_pmap_attribute(
+        pmap: *mut Pmap,
+        address: VmOffset,
+        size: VmSize,
+        attribute: c_uint,
+        value: *mut c_int,
+    ) -> c_int;
 }

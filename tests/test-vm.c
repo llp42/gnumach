@@ -22,6 +22,8 @@
 #include <mach/machine/vm_param.h>
 #include <mach/std_types.h>
 #include <mach/mach_types.h>
+#include <mach/vm_attributes.h>
+#include <mach/vm_sync.h>
 #include <mach/vm_wire.h>
 #include <mach/vm_param.h>
 
@@ -170,6 +172,54 @@ void test_vm_limit()
   ASSERT_RET(err, "deallocation failed");
 }
 
+static void test_machine_attribute()
+{
+  kern_return_t err;
+  vm_machine_attribute_val_t value = 0;
+
+  /* The range check rejects an address beyond the map maximum. */
+  printf("vm_machine_attribute refuses an out-of-range address\n");
+  err = vm_machine_attribute(mach_task_self(), VM_MAX_ADDRESS, 1,
+                             (vm_machine_attribute_t)0, &value);
+  ASSERT(err == KERN_INVALID_ARGUMENT,
+         "an address past the map must be refused");
+
+  /* The x86 pmap_attribute macro is the constant
+     KERN_INVALID_ADDRESS, so an in-range request reports exactly it;
+     this exercises the moved lock/unlock and the pmap shim. */
+  printf("vm_machine_attribute reports the pmap's answer\n");
+  err = vm_machine_attribute(mach_task_self(), 0, 1,
+                             (vm_machine_attribute_t)0, &value);
+  ASSERT(err == KERN_INVALID_ADDRESS,
+         "pmap_attribute is unimplemented on x86");
+}
+
+static void test_msync()
+{
+  kern_return_t err;
+
+  /* An empty page-aligned range has nothing to synchronize. */
+  printf("vm_msync accepts an empty aligned range\n");
+  err = vm_msync(mach_task_self(), 0, 0, VM_SYNC_ASYNCHRONOUS);
+  ASSERT_RET(err, "vm_msync of an empty range must succeed");
+
+  /* The flag validation refuses both directions at once. */
+  printf("vm_msync refuses both sync flags at once\n");
+  err = vm_msync(mach_task_self(), 0, 0,
+                 VM_SYNC_ASYNCHRONOUS | VM_SYNC_SYNCHRONOUS);
+  ASSERT(err == KERN_INVALID_ARGUMENT,
+         "both sync flags must be refused");
+
+  /* A range with work in it still reports the C TODO. */
+  printf("vm_msync of real work reports the C TODO\n");
+  err = vm_msync(mach_task_self(), 0, 1, VM_SYNC_ASYNCHRONOUS);
+  ASSERT(err == KERN_INVALID_ARGUMENT,
+         "a non-empty msync is not implemented yet");
+  err = vm_msync(mach_task_self(), 1, 0, VM_SYNC_ASYNCHRONOUS);
+  ASSERT(err == KERN_INVALID_ARGUMENT,
+         "an unaligned empty range rounds up to work");
+}
+
 int main(int argc, char *argv[], int envc, char *envp[])
 {
   printf("VM_MIN_ADDRESS=0x%p\n", VM_MIN_ADDRESS);
@@ -177,5 +227,7 @@ int main(int argc, char *argv[], int envc, char *envp[])
   test_wire();
   test_memobj();
   test_vm_limit();
+  test_machine_attribute();
+  test_msync();
   return 0;
 }

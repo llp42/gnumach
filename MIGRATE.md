@@ -926,8 +926,8 @@ MIG-generated `.c` live only under `build-*/` and are not ported.
 | `vm_page.c` | 2214 | page allocation/queues | 5 | pmap, percpu, page lock |
 | `vm_resident.c` | 1071 | resident page table/free lists | 5 | pmap, queues, slab |
 
-The `vm_map` port is under way (M0).  `rust/src/vm/vm_map.rs`
-mirrors `vm_map_links`, `vm_map_entry`, `vm_map_header`, `vm_map`,
+The `vm_map` port is under way (M1).  `rust/src/vm/vm_map.rs` mirrors
+`vm_map_links`, `vm_map_entry`, `vm_map_header`, `vm_map`,
 `vm_map_version`, `vm_map_copy` (all three variants) and
 `vm_map_copyin_args_data` `#[repr(C)]`, with size, alignment and
 field offsets pinned by `const` assertions; the structs C names get
@@ -937,8 +937,22 @@ are one `u32` each with named bit constants, and `projected_on` has a
 `Projection` view.  `rust/src/kern/list.rs` mirrors `kern/list.h` and
 `rust/src/kern/lock.rs` adds `SimpleLock` (the `struct slock` word)
 and the `LockData` layout; `VmProt` moved to `rust/src/vm/types.rs`,
-where `VmInherit` also lives.  No function has moved yet, so the C
-definitions are unchanged and no adapter exists.
+where `VmInherit` also lives.
+
+Eleven exported routines have moved to the native core in
+`rust/src/vm/vm_map.rs`, behind the adapters of
+`rust/src/vm/vm_map_ffi.rs`: `vm_map_setup`, `vm_map_create`,
+`vm_map_lock`, `vm_map_unlock`, `vm_map_copy_limits`,
+`vm_map_reference`, `vm_map_deallocate`, `vm_map_lookup_entry`,
+`vm_map_verify`, `vm_map_machine_attribute` and `vm_map_msync`.  The
+C definitions are deleted; what remains of `vm/vm_map.c` calls the
+Rust symbols.  `vm/vm_map_glue.c` carries the two shims Rust cannot
+reach (`current_thread()->vm_privilege`, the `pmap_attribute` macro)
+and `rust/src/kern/rbtree.rs` gained the `init`/`lookup_nearest`
+methods the map uses.  `tests/test-vm.c` pins the machine-attribute
+bounds check and the msync flag/rounding behavior.  The file, the
+statics and the `vm_initialize`-era globals still wait for their
+milestones.
 
 ### ipc/ (18 files, 13,002 LOC)
 

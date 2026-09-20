@@ -152,6 +152,46 @@ impl Rbtree {
         Self { root: None }
     }
 
+    /// Reset the tree to empty.  `rbtree_init()` in C.
+    pub(crate) fn init(&mut self) {
+        self.root = None;
+    }
+
+    /// Walk to the node whose comparison is zero, or the nearest in
+    /// `direction` when none is.  The C `rbtree_lookup_nearest()`
+    /// macro, with the comparison moved into `cmp`: it receives each
+    /// visited node and returns the ordering of the key against it.
+    pub(crate) fn lookup_nearest<F>(
+        &self,
+        cmp: F,
+        direction: c_int,
+    ) -> Option<NonNull<RbtreeNode>>
+    where
+        F: Fn(NonNull<RbtreeNode>) -> c_int,
+    {
+        let mut prev = self.root;
+        let mut index = -1;
+        let mut cur = self.root;
+
+        while let Some(node) = cur {
+            let diff = cmp(node);
+            if diff == 0 {
+                return Some(node);
+            }
+            prev = cur;
+            index = rbtree_d2i(diff);
+            // SAFETY: the caller promises a valid tree, so a visited
+            // node's children are valid nodes or null.
+            cur = unsafe {
+                (*node.as_ptr()).children[Side::from_int(index).index()]
+            };
+        }
+
+        // SAFETY: `prev` is null or the last valid node visited.
+        let found = unsafe { nearest(prev.map(NodeRef), index, direction) };
+        found.map(|node| node.0)
+    }
+
     /// The root, if any.
     fn root(&self) -> Option<NodeRef> {
         self.root.map(NodeRef)
@@ -1189,6 +1229,33 @@ mod tests {
     }
 
     #[test]
+    fn init_empties_tree() {
+        let v = entries(&[1, 2, 3]);
+        let mut tree = new_tree();
+
+        // SAFETY: `v` is stable, each entry inserted once.
+        unsafe {
+            for entry in &v {
+                insert(&mut tree, entry);
+            }
+        }
+        assert_eq!(unsafe { keys_in_order(&mut tree) }, [1, 2, 3]);
+
+        tree.init();
+        assert!(tree.root.is_none());
+        assert!(unsafe { keys_in_order(&mut tree) }.is_empty());
+
+        // A tree that was reset accepts fresh nodes.
+        let fresh = entries(&[4]);
+        // SAFETY: `fresh` is stable and unlinked.
+        unsafe {
+            insert(&mut tree, &fresh[0]);
+            check(&mut tree);
+        }
+        assert_eq!(unsafe { keys_in_order(&mut tree) }, [4]);
+    }
+
+    #[test]
     fn single_node() {
         let v = entries(&[7]);
         let mut tree = new_tree();
@@ -1307,6 +1374,21 @@ mod tests {
             };
             assert_eq!(prev, expected.0, "previous of {probe}");
             assert_eq!(next, expected.1, "next of {probe}");
+
+            // The Rust-native method walks the same tree with the same
+            // protocol as `rbtree_lookup_nearest()`.
+            let cmp = |node: NonNull<RbtreeNode>| {
+                // SAFETY: the method only visits linked nodes.
+                probe as c_int - unsafe { key_of(node.as_ptr()) } as c_int
+            };
+            let method_prev = tree.lookup_nearest(cmp, RBTREE_LEFT);
+            let method_next = tree.lookup_nearest(cmp, RBTREE_RIGHT);
+            let method_prev =
+                method_prev.map(|n| unsafe { key_of(n.as_ptr()) });
+            let method_next =
+                method_next.map(|n| unsafe { key_of(n.as_ptr()) });
+            assert_eq!(method_prev, expected.0, "native previous of {probe}");
+            assert_eq!(method_next, expected.1, "native next of {probe}");
         }
 
         // Remove in another random order, checking after every step.

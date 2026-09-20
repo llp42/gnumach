@@ -171,106 +171,13 @@ void vm_map_init(void)
 	 */
 }
 
-void vm_map_setup(
-	vm_map_t	map,
-	pmap_t		pmap,
-	vm_offset_t	min, 
-	vm_offset_t	max)
-{
-	vm_map_first_entry(map) = vm_map_to_entry(map);
-	vm_map_last_entry(map)  = vm_map_to_entry(map);
-	map->hdr.nentries = 0;
-	rbtree_init(&map->hdr.tree);
-	rbtree_init(&map->hdr.gap_tree);
-
-	map->size = 0;
-	map->size_wired = 0;
-	map->size_none = 0;
-	map->ref_count = 1;
-	map->pmap = pmap;
-	map->min_offset = min;
-	map->max_offset = max;
-	map->wiring_required = FALSE;
-	map->wait_for_space = FALSE;
-	map->first_free = vm_map_to_entry(map);
-	map->hint = vm_map_to_entry(map);
-	map->name = NULL;
-	/* TODO add to default limit the swap size */
-	if (pmap != kernel_pmap) {
-		map->size_cur_limit = vm_page_mem_size();
-		map->size_max_limit = vm_page_mem_size();
-	} else {
-		map->size_cur_limit = (~0UL);
-		map->size_max_limit = (~0UL);
-	}
-	vm_map_lock_init(map);
-	simple_lock_init(&map->ref_lock);
-	simple_lock_init(&map->hint_lock);
-}
-
 /*
- *	vm_map_create:
- *
- *	Creates and returns a new empty VM map with
- *	the given physical map structure, and having
- *	the given lower and upper address bounds.
+ *	vm_map_setup, vm_map_create, vm_map_lock, vm_map_unlock,
+ *	vm_map_copy_limits, vm_map_reference, vm_map_deallocate,
+ *	vm_map_lookup_entry, vm_map_verify, vm_map_machine_attribute
+ *	and vm_map_msync live in rust/src/vm/vm_map_ffi.rs now; their
+ *	prototypes are unchanged in vm_map.h.
  */
-vm_map_t vm_map_create(
-	pmap_t		pmap,
-	vm_offset_t	min, 
-	vm_offset_t	max)
-{
-	vm_map_t	result;
-
-	result = (vm_map_t) kmem_cache_alloc(&vm_map_cache);
-	if (result == VM_MAP_NULL)
-		return VM_MAP_NULL;
-
-	vm_map_setup(result, pmap, min, max);
-
-	return(result);
-}
-
-void vm_map_lock(struct vm_map *map)
-{
-	lock_write(&map->lock);
-
-	/*
-	 *	XXX Memory allocation may occur while a map is locked,
-	 *	for example when clipping entries. If the system is running
-	 *	low on memory, allocating may block until pages are
-	 *	available. But if a map used by the default pager is
-	 *	kept locked, a deadlock occurs.
-	 *
-	 *	This workaround temporarily elevates the current thread
-	 *	VM privileges to avoid that particular deadlock, and does
-	 *	so regardless of the map for convenience, and because it's
-	 *	currently impossible to predict which map the default pager
-	 *	may depend on.
-	 *
-	 *	This workaround isn't reliable, and only makes exhaustion
-	 *	less likely. In particular pageout may cause lots of data
-	 *	to be passed between the kernel and the pagers, often
-	 *	in the form of large copy maps. Making the minimum
-	 *	number of pages depend on the total number of pages
-	 *	should make exhaustion even less likely.
-	 */
-
-	if (current_thread()) {
-		current_thread()->vm_privilege++;
-	}
-
-	map->timestamp++;
-}
-
-void vm_map_unlock(struct vm_map *map)
-{
-	if (current_thread()) {
-		current_thread()->vm_privilege--;
-	}
-
-	lock_write_done(&map->lock);
-}
 
 /*
  *     Enforces the VM limit of a target map.
@@ -299,17 +206,6 @@ vm_map_enforce_limit(
 	}
 
 	return KERN_SUCCESS;
-}
-
-/*
- *    Copies the limits from source to destination map.
- *    Called by task_create_kernel with the src_map locked.
- */
-void
-vm_map_copy_limits(vm_map_t dst_map, vm_map_t src_map)
-{
-	dst_map->size_cur_limit = src_map->size_cur_limit;
-	dst_map->size_max_limit = src_map->size_max_limit;
 }
 
 /*
@@ -560,54 +456,6 @@ vm_map_gap_remove(struct vm_map_header *hdr, struct vm_map_entry *entry)
 	MACRO_END
 
 /*
- *	vm_map_reference:
- *
- *	Creates another valid reference to the given map.
- *
- */
-void vm_map_reference(vm_map_t map)
-{
-	if (map == VM_MAP_NULL)
-		return;
-
-	simple_lock(&map->ref_lock);
-	map->ref_count++;
-	simple_unlock(&map->ref_lock);
-}
-
-/*
- *	vm_map_deallocate:
- *
- *	Removes a reference from the specified map,
- *	destroying it if no references remain.
- *	The map should not be locked.
- */
-void vm_map_deallocate(vm_map_t map)
-{
-	int		c;
-
-	if (map == VM_MAP_NULL)
-		return;
-
-	simple_lock(&map->ref_lock);
-	c = --map->ref_count;
-	simple_unlock(&map->ref_lock);
-
-	/* Check the refcount */
-	if (c > 0) {
-		return;
-	}
-
-	/* If no more references, call vm_map_delete without locking the map */
-	projected_buffer_collect(map);
-	(void) vm_map_delete(map, map->min_offset, map->max_offset);
-
-	pmap_destroy(map->pmap);
-
-	kmem_cache_free(&vm_map_cache, (vm_offset_t) map);
-}
-
-/*
  *	SAVE_HINT:
  *
  *	Saves the specified entry as the hint for
@@ -619,66 +467,6 @@ void vm_map_deallocate(vm_map_t map)
 		(map)->hint = (value); \
 		simple_unlock(&(map)->hint_lock); \
 	MACRO_END
-
-/*
- *	vm_map_lookup_entry:	[ internal use only ]
- *
- *	Finds the map entry containing (or
- *	immediately preceding) the specified address
- *	in the given map; the entry is returned
- *	in the "entry" parameter.  The boolean
- *	result indicates whether the address is
- *	actually contained in the map.
- */
-boolean_t vm_map_lookup_entry(
-	vm_map_t	map,
-	vm_offset_t	address,
-	vm_map_entry_t	*entry)		/* OUT */
-{
-	struct rbtree_node	*node;
-	vm_map_entry_t		hint;
-
-	/*
-	 *	First, make a quick check to see if we are already
-	 *	looking at the entry we want (which is often the case).
-	 */
-
-	simple_lock(&map->hint_lock);
-	hint = map->hint;
-	simple_unlock(&map->hint_lock);
-
-	if ((hint != vm_map_to_entry(map)) && (address >= hint->vme_start)) {
-		if (address < hint->vme_end) {
-			*entry = hint;
-			return(TRUE);
-		} else {
-			vm_map_entry_t next = hint->vme_next;
-
-			if ((next == vm_map_to_entry(map))
-			    || (address < next->vme_start)) {
-				*entry = hint;
-				return(FALSE);
-			}
-		}
-	}
-
-	/*
-	 *	If the hint didn't help, use the red-black tree.
-	 */
-
-	node = rbtree_lookup_nearest(&map->hdr.tree, address,
-				     vm_map_entry_cmp_lookup, RBTREE_LEFT);
-
-	if (node == NULL) {
-		*entry = vm_map_to_entry(map);
-		SAVE_HINT(map, *entry);
-		return(FALSE);
-	} else {
-		*entry = rbtree_entry(node, struct vm_map_entry, tree_node);
-		SAVE_HINT(map, *entry);
-		return((address < (*entry)->vme_end) ? TRUE : FALSE);
-	}
-}
 
 /*
  * Find a range of available space from the specified map.
@@ -4942,21 +4730,6 @@ kern_return_t vm_map_lookup(
  *	since the given version.  If successful, the map
  *	will not change until vm_map_verify_done() is called.
  */
-boolean_t	vm_map_verify(
-	vm_map_t		map,
-	vm_map_version_t 	*version)	/* REF */
-{
-	boolean_t	result;
-
-	vm_map_lock_read(map);
-	result = (map->timestamp == version->main_timestamp);
-
-	if (!result)
-		vm_map_unlock_read(map);
-
-	return(result);
-}
-
 /*
  *	vm_map_verify_done:
  *
@@ -5172,70 +4945,10 @@ vm_map_coalesce_entry(
 
 
 /*
- *	Routine:	vm_map_machine_attribute
- *	Purpose:
- *		Provide machine-specific attributes to mappings,
- *		such as cachability etc. for machines that provide
- *		them.  NUMA architectures and machines with big/strange
- *		caches will use this.
- *	Note:
- *		Responsibilities for locking and checking are handled here,
- *		everything else in the pmap module. If any non-volatile
- *		information must be kept, the pmap module should handle
- *		it itself. [This assumes that attributes do not
- *		need to be inherited, which seems ok to me]
+ *	Routine:	vm_map_machine_attribute and vm_map_msync live in
+ *	rust/src/vm/vm_map_ffi.rs; their prototypes are unchanged in
+ *	vm_map.h.
  */
-kern_return_t vm_map_machine_attribute(
-	vm_map_t	map,
-	vm_offset_t	address,
-	vm_size_t	size,
-	vm_machine_attribute_t	attribute,
-	vm_machine_attribute_val_t* value)		/* IN/OUT */
-{
-	kern_return_t	ret;
-
-	if (address < vm_map_min(map) ||
-	    (address + size) > vm_map_max(map))
-		return KERN_INVALID_ARGUMENT;
-
-	vm_map_lock(map);
-
-	ret = pmap_attribute(map->pmap, address, size, attribute, value);
-
-	vm_map_unlock(map);
-
-	return ret;
-}
-
-/*
- *	Routine:	vm_map_msync
- *	Purpose:
- *		Synchronize out pages of the given map out to their memory
- *		manager, if any.
- */
-kern_return_t vm_map_msync(
-	vm_map_t	map,
-	vm_offset_t	address,
-	vm_size_t	size,
-	vm_sync_t	sync_flags)
-{
-	if (map == VM_MAP_NULL)
-		return KERN_INVALID_ARGUMENT;
-
-	if ((sync_flags & (VM_SYNC_ASYNCHRONOUS | VM_SYNC_SYNCHRONOUS)) ==
-			 (VM_SYNC_ASYNCHRONOUS | VM_SYNC_SYNCHRONOUS))
-		return KERN_INVALID_ARGUMENT;
-
-	size =	round_page(address + size) - trunc_page(address);
-	address = trunc_page(address);
-
-	if (size == 0)
-		return KERN_SUCCESS;
-
-	/* TODO */
-
-	return KERN_INVALID_ARGUMENT;
-}
 
 
 

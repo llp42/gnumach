@@ -3,5 +3,7 @@
 
 //! Virtual memory; mirrors `vm/`.
 
+pub mod error;
 pub mod types;
 pub mod vm_map;
+pub mod vm_map_ffi;
