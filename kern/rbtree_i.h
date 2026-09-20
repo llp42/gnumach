@@ -67,59 +67,37 @@ _Static_assert(offsetof(struct rbtree_node, children)
                "rbtree node layout changed; update rust/src/kern/rbtree.rs");
 
 /*
- * Masks applied on the parent member of a node to obtain either the
- * color or the parent address.
+ * The parent/color and slot bit encodings live in
+ * rust/src/kern/rbtree.rs; the structs above and their asserts pin the
+ * part C still has to agree on.  The leaf operations are Rust now:
  */
-#define RBTREE_COLOR_MASK   0x1UL
-#define RBTREE_PARENT_MASK  (~0x3UL)
 
 /*
- * Node colors.
+ * Initialize a tree.
  */
-#define RBTREE_COLOR_RED    0
-#define RBTREE_COLOR_BLACK  1
+void rbtree_init(struct rbtree *tree);
 
 /*
- * Masks applied on slots to obtain either the child index or the parent
- * address.
+ * Initialize a node; it is in no tree while its parent points to itself.
  */
-#define RBTREE_SLOT_INDEX_MASK  0x1UL
-#define RBTREE_SLOT_PARENT_MASK (~RBTREE_SLOT_INDEX_MASK)
+void rbtree_node_init(struct rbtree_node *node);
 
 /*
  * Convert the result of a comparison into an index in the children array
- * (0 or 1).
- *
- * This function is mostly used when looking up a node.
+ * (0 or 1).  The lookup macros call this once per level.
  */
-static inline int rbtree_d2i(int diff)
-{
-    return !(diff <= 0);
-}
+int rbtree_d2i(int diff);
 
 /*
  * Translate an insertion point into a slot.
  */
-static inline unsigned long rbtree_slot(struct rbtree_node *parent, int index)
-{
-    return (unsigned long)parent | index;
-}
+unsigned long rbtree_slot(struct rbtree_node *parent, int index);
 
 /*
- * Extract the parent address from a slot.
+ * Insert a node at an insertion point obtained from rbtree_lookup_slot().
  */
-static inline struct rbtree_node * rbtree_slot_parent(unsigned long slot)
-{
-    return (struct rbtree_node *)(slot & RBTREE_SLOT_PARENT_MASK);
-}
-
-/*
- * Extract the index from a slot.
- */
-static inline int rbtree_slot_index(unsigned long slot)
-{
-    return slot & RBTREE_SLOT_INDEX_MASK;
-}
+void rbtree_insert_slot(struct rbtree *tree, unsigned long slot,
+                        struct rbtree_node *node);
 
 /*
  * Insert a node in a tree, rebalancing it if necessary.

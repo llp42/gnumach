@@ -52,25 +52,12 @@ struct rbtree;
 #include "rbtree_i.h"
 
 /*
- * Initialize a tree.
- */
-static inline void rbtree_init(struct rbtree *tree)
-{
-    tree->root = NULL;
-}
-
-/*
- * Initialize a node.
+ * rbtree_init(), rbtree_node_init(), rbtree_insert_slot(), rbtree_slot()
+ * and rbtree_d2i() live in rust/src/kern/rbtree.rs and rbtree_i.h
+ * declares them.
  *
  * A node is in no tree when its parent points to itself.
  */
-static inline void rbtree_node_init(struct rbtree_node *node)
-{
-
-    node->parent = (unsigned long)node | RBTREE_COLOR_RED;
-    node->children[RBTREE_LEFT] = NULL;
-    node->children[RBTREE_RIGHT] = NULL;
-}
 
 /*
  * Macro that evaluates to the address of the structure containing the
@@ -193,18 +180,9 @@ MACRO_END
  * is obtained by calling rbtree_lookup_slot(). In addition, the new node
  * must not compare equal to an existing node in the tree (i.e. the slot
  * must denote a null node).
+ *
+ * Defined in rust/src/kern/rbtree.rs; rbtree_i.h declares it.
  */
-static inline void
-rbtree_insert_slot(struct rbtree *tree, unsigned long slot,
-                   struct rbtree_node *node)
-{
-    struct rbtree_node *parent;
-    int index;
-
-    parent = rbtree_slot_parent(slot);
-    index = rbtree_slot_index(slot);
-    rbtree_insert_rebalance(tree, parent, index, node);
-}
 
 /*
  * Remove a node from a tree.

@@ -181,27 +181,38 @@ into Rust).  Layer = the highest prerequisite layer from §2.
   `#[repr(C)]` mirrors whose links are `Option<NonNull<_>>` (the null
   niche keeps the C layout); size, alignment and the children offset
   are asserted on the Rust side and mirrored with `_Static_assert`s in
-  `rbtree_i.h`.  The packed color, the null-child index rule, the
-  insertion-point slot protocol (still C, in `rbtree_slot*`) and the
-  "stale node after remove" contract are preserved.
-* **Boundary.** Four `unsafe extern "C"` symbols:
+  `rbtree_i.h`.  The parent/color bit encoding is Rust-only now (a
+  private `Color` enum), as is the insertion-point slot, packed by
+  `rbtree_slot()` and unpacked by `rbtree_insert_slot()`; the
+  null-child index rule and the "stale node after remove" contract are
+  preserved.
+* **Boundary.** Nine `unsafe extern "C"` symbols:
   `rbtree_insert_rebalance`, `rbtree_remove`, `rbtree_nearest`,
-  `rbtree_firstlast`.  The generic macros stay C in `rbtree.h` for
-  `slab.c` and `vm/vm_map.c`, and because only they embed `cmp_fn`,
-  the Rust half takes no callbacks at all.
+  `rbtree_firstlast`, plus the leaf operations `rbtree_init`,
+  `rbtree_node_init`, `rbtree_insert_slot`, `rbtree_slot` and
+  `rbtree_d2i`.  `rbtree_d2i()` is called once per tree level by the
+  lookup macros; the call is the price of keeping the index rule with
+  the tree.  The generic macros stay C in `rbtree.h` for `slab.c` and
+  `vm/vm_map.c`, and because only they embed `cmp_fn`, the Rust half
+  takes no callbacks at all; `rbtree_entry`/`structof` stay macros.
 * **Prune (cleanup).** `rbtree_lookup`, `rbtree_empty`,
   `rbtree_node_unlinked`, `rbtree_prev`/`rbtree_next`,
   `rbtree_for_each_remove`, `rbtree_check_alignment`,
   `rbtree_check_index` and the `rbtree_parent` inline had no callers,
   and went together with the three exports only they used
   (`rbtree_walk`, `rbtree_postwalk_deepest`, `rbtree_postwalk_unlink`).
+  Moving the leaf inlines to Rust then pruned
+  `rbtree_slot_parent`/`rbtree_slot_index` and the `RBTREE_COLOR_*`,
+  `RBTREE_PARENT_MASK` and `RBTREE_SLOT_*` macros, so C no longer
+  encodes a color or unpacks a slot.
 * **Tests.** `rbtree.rs` carries `#[cfg(test)]` tests that reimplement
   the macro protocols (insert, lookup_slot/insert_slot,
-  lookup_nearest) and check the red-black rules after every mutation;
-  `tests/test-rbtree-rs` compiles them for the host in `make check`.
-  `vm/vm_map.c`'s two trees and `kern/slab.c`'s active-slab tree (used
-  by every non-direct cache, `slab.c:641-652`) also exercise the four
-  functions through the qemu suite.
+  lookup_nearest) and check the red-black rules after every mutation,
+  plus the node colors and the slot round-trip; `tests/test-rbtree-rs`
+  compiles them for the host in `make check`.  `vm/vm_map.c`'s two
+  trees and `kern/slab.c`'s active-slab tree (used by every non-direct
+  cache, `slab.c:641-652`) also exercise the functions through the
+  qemu suite.
 
 #### `kern/timer.c` — 236 lines — friction 3/5
 * **Role.** Per-thread and per-CPU statistical timers (microseconds and

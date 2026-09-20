@@ -30,11 +30,37 @@ pub const RBTREE_RIGHT: c_int = 1;
 const LEFT: usize = RBTREE_LEFT as usize;
 const RIGHT: usize = RBTREE_RIGHT as usize;
 
-/// `RBTREE_COLOR_*` and the parent masks of <kern/rbtree_i.h>.
+/// The parent masks of <kern/rbtree_i.h>.
 const COLOR_MASK: usize = 0x1;
 const PARENT_MASK: usize = !0x3;
-const COLOR_RED: c_int = 0;
-const COLOR_BLACK: c_int = 1;
+
+/// The two colors of a red-black node.  The value never leaves this
+/// module: C only ever sees the low bit of `parent`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Color {
+    Red,
+    Black,
+}
+
+impl Color {
+    /// The low bit stored in `parent`.
+    const fn bit(self) -> usize {
+        match self {
+            Color::Red => 0,
+            Color::Black => 1,
+        }
+    }
+
+    /// The color a stored low bit stands for.
+    const fn from_bit(bit: usize) -> Color {
+        if bit == 0 { Color::Red } else { Color::Black }
+    }
+}
+
+/// `RBTREE_SLOT_*` of <kern/rbtree_i.h>: how `rbtree_slot()` packs an
+/// insertion point.
+const SLOT_INDEX_MASK: usize = 0x1;
+const SLOT_PARENT_MASK: usize = !SLOT_INDEX_MASK;
 
 /// `struct rbtree_node`: a parent address with the color in its low
 /// bit, and the two children.
@@ -87,9 +113,9 @@ unsafe fn get_parent(
 /// # Safety
 ///
 /// `node` must point at a valid node.
-unsafe fn get_color(node: NonNull<RbtreeNode>) -> c_int {
+unsafe fn get_color(node: NonNull<RbtreeNode>) -> Color {
     // SAFETY: the caller promises a valid node.
-    unsafe { ((*node.as_ptr()).parent & COLOR_MASK) as c_int }
+    unsafe { Color::from_bit((*node.as_ptr()).parent & COLOR_MASK) }
 }
 
 /// Whether a node is red.
@@ -99,7 +125,7 @@ unsafe fn get_color(node: NonNull<RbtreeNode>) -> c_int {
 /// `node` must point at a valid node.
 unsafe fn is_red(node: NonNull<RbtreeNode>) -> bool {
     // SAFETY: the caller promises a valid node.
-    unsafe { get_color(node) == COLOR_RED }
+    unsafe { get_color(node) == Color::Red }
 }
 
 /// Whether a node is black.
@@ -109,7 +135,7 @@ unsafe fn is_red(node: NonNull<RbtreeNode>) -> bool {
 /// `node` must point at a valid node.
 unsafe fn is_black(node: NonNull<RbtreeNode>) -> bool {
     // SAFETY: the caller promises a valid node.
-    unsafe { get_color(node) == COLOR_BLACK }
+    unsafe { get_color(node) == Color::Black }
 }
 
 /// Set the parent, retaining the color.  `rbtree_set_parent()` in C.
@@ -134,11 +160,11 @@ unsafe fn set_parent(
 /// # Safety
 ///
 /// `node` must point at a valid node.
-unsafe fn set_color(node: NonNull<RbtreeNode>, new_color: c_int) {
+unsafe fn set_color(node: NonNull<RbtreeNode>, new_color: Color) {
     // SAFETY: the caller promises a valid node.
     unsafe {
         let node = node.as_ptr();
-        (*node).parent = ((*node).parent & PARENT_MASK) | new_color as usize;
+        (*node).parent = ((*node).parent & PARENT_MASK) | new_color.bit();
     }
 }
 
@@ -149,7 +175,7 @@ unsafe fn set_color(node: NonNull<RbtreeNode>, new_color: c_int) {
 /// `node` must point at a valid node.
 unsafe fn set_red(node: NonNull<RbtreeNode>) {
     // SAFETY: the caller promises a valid node.
-    unsafe { set_color(node, COLOR_RED) };
+    unsafe { set_color(node, Color::Red) };
 }
 
 /// Paint a node black.
@@ -159,7 +185,7 @@ unsafe fn set_red(node: NonNull<RbtreeNode>) {
 /// `node` must point at a valid node.
 unsafe fn set_black(node: NonNull<RbtreeNode>) {
     // SAFETY: the caller promises a valid node.
-    unsafe { set_color(node, COLOR_BLACK) };
+    unsafe { set_color(node, Color::Black) };
 }
 
 /// Index of a node, or of a null child, in its parent's children.
@@ -226,6 +252,69 @@ unsafe fn rotate(
     }
 }
 
+/// Initialize a tree.  `rbtree_init()` in C.
+///
+/// # Safety
+///
+/// `tree` must point at storage for a `struct rbtree`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rbtree_init(tree: *mut Rbtree) {
+    // SAFETY: the caller promises valid storage.
+    unsafe { (*tree).root = None };
+}
+
+/// Initialize a node, which is in no tree while its parent is itself.
+/// `rbtree_node_init()` in C.
+///
+/// # Safety
+///
+/// `node` must point at storage for a `struct rbtree_node`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rbtree_node_init(node: *mut RbtreeNode) {
+    // SAFETY: the caller promises valid storage.
+    unsafe {
+        (*node).parent = node.addr() | Color::Red.bit();
+        (*node).children = [None, None];
+    }
+}
+
+/// Convert a comparison result into a child index (0 or 1).
+/// `rbtree_d2i()` in C.
+///
+/// The C lookup macros call this once per level; it is a boundary
+/// function so the Rust owns the convention.
+#[unsafe(no_mangle)]
+pub extern "C" fn rbtree_d2i(diff: c_int) -> c_int {
+    if diff <= 0 { RBTREE_LEFT } else { RBTREE_RIGHT }
+}
+
+/// Translate an insertion point into a slot.  `rbtree_slot()` in C.
+///
+/// `parent` may be null, which is the empty tree's slot 0.
+#[unsafe(no_mangle)]
+pub extern "C" fn rbtree_slot(parent: *mut RbtreeNode, index: c_int) -> usize {
+    parent.addr() | index as usize
+}
+
+/// Insert at an insertion point.  `rbtree_insert_slot()` in C.
+///
+/// # Safety
+///
+/// `tree` must be valid, `node` must be unlinked caller storage, and
+/// `slot` must come from `rbtree_slot()` on this tree.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rbtree_insert_slot(
+    tree: *mut Rbtree,
+    slot: usize,
+    node: *mut RbtreeNode,
+) {
+    let parent = ptr::with_exposed_provenance_mut(slot & SLOT_PARENT_MASK);
+    let index = (slot & SLOT_INDEX_MASK) as c_int;
+    // SAFETY: the caller promises a valid tree, an unlinked node and a
+    // slot that names a point in it.
+    unsafe { rbtree_insert_rebalance(tree, parent, index, node) };
+}
+
 /// Insert a node and rebalance.  `rbtree_insert_rebalance()` in C.
 ///
 /// The caller's `rbtree_insert()` macro has already found the insertion
@@ -250,7 +339,7 @@ pub unsafe extern "C" fn rbtree_insert_rebalance(
     // SAFETY: the caller promises valid nodes and an unlinked node.
     unsafe {
         (*node.as_ptr()).parent =
-            parent.map_or(0, |p| p.as_ptr().addr()) | COLOR_RED as usize;
+            parent.map_or(0, |p| p.as_ptr().addr()) | Color::Red.bit();
         (*node.as_ptr()).children = [None, None];
 
         match parent {
@@ -339,7 +428,7 @@ pub unsafe extern "C" fn rbtree_remove(
 
     let mut child: Option<NonNull<RbtreeNode>>;
     let mut parent: Option<NonNull<RbtreeNode>>;
-    let color: c_int;
+    let color: Color;
 
     // SAFETY: the caller promises valid nodes.
     let (left, right) = unsafe {
@@ -452,7 +541,7 @@ pub unsafe extern "C" fn rbtree_remove(
     }
 
     // Update the colors; a null child counts as a black leaf.
-    if color == COLOR_RED {
+    if color == Color::Red {
         return;
     }
 
@@ -656,7 +745,18 @@ mod tests {
                 key,
             });
         }
+        for entry in &mut v {
+            // SAFETY: the storage is alive and not in any tree.
+            unsafe { rbtree_node_init(node_of(entry)) };
+        }
         v
+    }
+
+    fn new_tree() -> Rbtree {
+        let mut tree = Rbtree { root: None };
+        // SAFETY: the storage is alive.
+        unsafe { rbtree_init(&mut tree) };
+        tree
     }
 
     fn node_of(entry: &Entry) -> *mut RbtreeNode {
@@ -682,11 +782,6 @@ mod tests {
         unsafe { (*entry_of(node)).key }
     }
 
-    /// `rbtree_d2i()` of <kern/rbtree_i.h>.
-    fn d2i(diff: i64) -> c_int {
-        if diff <= 0 { RBTREE_LEFT } else { RBTREE_RIGHT }
-    }
-
     /// The C `rbtree_insert()` macro.
     ///
     /// # Safety
@@ -702,9 +797,9 @@ mod tests {
 
         while !cur.is_null() {
             // SAFETY: as above; the walk follows valid children.
-            let diff = entry.key as i64 - unsafe { key_of(cur) } as i64;
+            let diff = entry.key as c_int - unsafe { key_of(cur) } as c_int;
             prev = cur;
-            index = d2i(diff);
+            index = rbtree_d2i(diff);
             cur = unsafe {
                 (*cur).children[index as usize]
                     .map_or(ptr::null_mut(), NonNull::as_ptr)
@@ -733,37 +828,19 @@ mod tests {
 
         while !cur.is_null() {
             // SAFETY: as above.
-            let diff = key as i64 - unsafe { key_of(cur) } as i64;
+            let diff = key as c_int - unsafe { key_of(cur) } as c_int;
             if diff == 0 {
                 break;
             }
             prev = cur;
-            index = d2i(diff);
+            index = rbtree_d2i(diff);
             cur = unsafe {
                 (*cur).children[index as usize]
                     .map_or(ptr::null_mut(), NonNull::as_ptr)
             };
         }
 
-        (cur, prev.addr() | index as usize)
-    }
-
-    /// The C `rbtree_insert_slot()` inline: unpack the slot and
-    /// rebalance.
-    ///
-    /// # Safety
-    ///
-    /// The slot must come from `lookup_slot` on this tree and the key
-    /// must be absent.
-    unsafe fn insert_slot(
-        tree: *mut Rbtree,
-        slot: usize,
-        node: *mut RbtreeNode,
-    ) {
-        let parent = ptr::with_exposed_provenance_mut(slot & !1usize);
-        let index = (slot & 1) as c_int;
-        // SAFETY: the caller promises a valid slot and node.
-        unsafe { rbtree_insert_rebalance(tree, parent, index, node) };
+        (cur, rbtree_slot(prev, index))
     }
 
     /// The C `rbtree_lookup_nearest()` macro in `direction`.
@@ -784,12 +861,12 @@ mod tests {
 
         while !cur.is_null() {
             // SAFETY: as above.
-            let diff = key as i64 - unsafe { key_of(cur) } as i64;
+            let diff = key as c_int - unsafe { key_of(cur) } as c_int;
             if diff == 0 {
                 break;
             }
             prev = cur;
-            index = d2i(diff);
+            index = rbtree_d2i(diff);
             cur = unsafe {
                 (*cur).children[index as usize]
                     .map_or(ptr::null_mut(), NonNull::as_ptr)
@@ -943,7 +1020,7 @@ mod tests {
 
     #[test]
     fn empty_tree() {
-        let mut tree = Rbtree { root: None };
+        let mut tree = new_tree();
 
         // SAFETY: the tree is valid, and null arguments are allowed.
         unsafe {
@@ -952,6 +1029,7 @@ mod tests {
             assert!(
                 rbtree_nearest(ptr::null_mut(), -1, RBTREE_LEFT).is_null()
             );
+            assert_eq!(rbtree_slot(ptr::null_mut(), 0), 0);
             assert!(keys_in_order(&mut tree).is_empty());
             assert_eq!(check(&mut tree), 1);
         }
@@ -960,7 +1038,7 @@ mod tests {
     #[test]
     fn single_node() {
         let v = entries(&[7]);
-        let mut tree = Rbtree { root: None };
+        let mut tree = new_tree();
 
         // SAFETY: one entry, inserted once, then removed.
         unsafe {
@@ -981,11 +1059,26 @@ mod tests {
     }
 
     #[test]
+    fn node_colors() {
+        let v = entries(&[1]);
+        let mut tree = new_tree();
+
+        // SAFETY: one entry, inserted once.
+        unsafe {
+            // A fresh node is red; the root turns black on insertion.
+            let node = NonNull::new_unchecked(node_of(&v[0]));
+            assert_eq!(get_color(node), Color::Red);
+            insert(&mut tree, &v[0]);
+            assert_eq!(get_color(tree.root.unwrap()), Color::Black);
+        }
+    }
+
+    #[test]
     fn ascending_and_descending() {
         let keys: Vec<u32> = (0..128).collect();
 
         let v = entries(&keys);
-        let mut tree = Rbtree { root: None };
+        let mut tree = new_tree();
         // SAFETY: `v` is stable, each entry inserted once.
         unsafe {
             for entry in &v {
@@ -1001,7 +1094,7 @@ mod tests {
         }
 
         let reversed = entries(&keys);
-        let mut tree = Rbtree { root: None };
+        let mut tree = new_tree();
         // SAFETY: as above, with fresh entries.
         unsafe {
             for entry in reversed.iter().rev() {
@@ -1018,7 +1111,7 @@ mod tests {
         let keys: Vec<u32> = (0..count).collect();
         let mut rng = Rng(0x1234_5678);
         let v = entries(&keys);
-        let mut tree = Rbtree { root: None };
+        let mut tree = new_tree();
         let mut model: Vec<u32> = Vec::new();
 
         for &key in &shuffled(&keys, &mut rng) {
@@ -1082,7 +1175,7 @@ mod tests {
     fn lookup_slot_matches_insert() {
         let keys: Vec<u32> = (0..64).collect();
         let v = entries(&keys);
-        let mut tree = Rbtree { root: None };
+        let mut tree = new_tree();
         let mut model: Vec<u32> = Vec::new();
         let mut rng = Rng(0x9e37_79b9);
 
@@ -1091,7 +1184,9 @@ mod tests {
             let (found, slot) = unsafe { lookup_slot(&mut tree, key) };
             assert!(found.is_null(), "key {key} already present");
             // SAFETY: the slot came from this tree.
-            unsafe { insert_slot(&mut tree, slot, node_of(&v[key as usize])) };
+            unsafe {
+                rbtree_insert_slot(&mut tree, slot, node_of(&v[key as usize]))
+            };
             let pos = model.partition_point(|&k| k < key);
             model.insert(pos, key);
             // SAFETY: the tree is valid.
@@ -1110,7 +1205,7 @@ mod tests {
     fn remove_inner_nodes() {
         let keys: Vec<u32> = (1..=15).collect();
         let v = entries(&keys);
-        let mut tree = Rbtree { root: None };
+        let mut tree = new_tree();
         let mut model = keys.clone();
 
         // SAFETY: `v` is stable, each entry inserted once.
