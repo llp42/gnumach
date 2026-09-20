@@ -310,8 +310,8 @@ into Rust).  Layer = the highest prerequisite layer from §2.
   `kmem_cache rdxtree_node_cache` (`rdxtree.c:118`).  The `llsync_*`
   macros are plain assignments here; safe only because callers hold the
   IPC space lock — do not present it as lock-free.
-* **Blockers.** `rbtree.rs` first (slab dependency), then slab itself or
-  a minimal shim for the node cache.  The inline header API stays C,
+* **Blockers.** Slab itself or a minimal shim for the node cache (its
+  `rbtree` dependency is ported).  The inline header API stays C,
   calling the Rust `_common` symbols.
 * **Boundary / notes.** `struct rdxtree_node` is private, so a Rust
   `Node` enum (`Stored(NonNull<u8>)` / child) can be native.  Gotchas:
@@ -725,15 +725,15 @@ into Rust).  Layer = the highest prerequisite layer from §2.
   `vm_page_lookup_pa`, `set_priv`/`get_priv`) because slabs are made of
   pages and the bufctl/buftag live at computed offsets *inside* the
   buffers (`slab.c:298,310`); `kmem_alloc_wired` for bootstrap;
-  `rbtree.c`; simple locks; `elapsed_ticks`/`hz` for GC.
-* **Blockers.** `rbtree.rs` first, L3 VM page shims, a lock wrapper.
+  `rbtree.rs`; simple locks; `elapsed_ticks`/`hz` for GC.
+* **Blockers.** L3 VM page shims, a lock wrapper.
   Metadata is pointer arithmetic in caller memory — needs raw pointers
   and deliberate bounds, not slices.
 * **Boundary / notes.** `cache->lock` must be dropped before
   `kmem_slab_create` and emptiness revalidated (`:411,734-736`);
   `cache->ctor` callbacks stay C.  This is the file that unlocks `kalloc`
-  for everyone; port it after the rbtree and the page shims but before
-  the larger consumers.
+  for everyone; port it after the page shims but before the larger
+  consumers.
 
 #### `kern/thread.c` — 2593 lines — friction 5/5
 * **Role.** Thread object lifecycle (create/suspend/resume/halt/terminate/
@@ -1188,25 +1188,26 @@ generated `.server.h`; the unmarshalling, `TypeCheck` and
 
 ## 6. Least-friction candidates, in order
 
+Ported from this list so far: `kern/rbtree.c`, `i386/i386at/kd_queue.c`,
+`i386/i386at/mem.c` and `i386/i386at/mbinfo.c` (see §9).
+
 Tier 1 — no new infrastructure:
 
-1. `kern/rbtree.c` — 0 undefined symbols; unlocks slab later.  Ported.
-2. `ipc/ipc_thread.c` — 0 undefined; header macros only.
-3. `util/atoi.c` — 0 undefined; needs a `tests/` copy in the same
+1. `ipc/ipc_thread.c` — 0 undefined; header macros only.
+2. `util/atoi.c` — 0 undefined; needs a `tests/` copy in the same
    commit.
-4. `ipc/ipc_target.c` — one call to `ipc_mqueue_init` (shim or defer).
-5. `i386/i386at/mem.c`, `i386/i386at/mbinfo.c` — one or two leaf calls.  Ported.
-6. `i386/i386/ast_check.c`, `i386/i386/hardclock.c` — tiny, asm-free.
-7. `kern/boot_script.c` — isolated, allocation callbacks only.
+3. `ipc/ipc_target.c` — one call to `ipc_mqueue_init` (shim or defer).
+4. `i386/i386/ast_check.c`, `i386/i386/hardclock.c` — tiny, asm-free.
+5. `kern/boot_script.c` — isolated, allocation callbacks only.
 
 Tier 2 — after the first shims (percpu, locks, `struct` mirrors):
 
-9. `kern/timer.c` — needs `cpu_number` accessor only.
-10. `kern/kmutex.c`, `kern/mach_factor.c`, `kern/thread_swap.c` — need
+6. `kern/timer.c` — needs `cpu_number` accessor only.
+7. `kern/kmutex.c`, `kern/mach_factor.c`, `kern/thread_swap.c` — need
     the lock/sleep layer.
-11. `kern/syscall_sw.c` — the trap table can move once entry layout is
+8. `kern/syscall_sw.c` — the trap table can move once entry layout is
     `#[repr(C)]`; the routines it names need not have moved.
-12. `device/cirbuf.c`, `device/dev_name.c`, `chips/busses.c`,
+9. `device/cirbuf.c`, `device/dev_name.c`, `chips/busses.c`,
     `vm/vm_external.c`, `ipc/ipc_table.c`, `i386/i386/pit.c`,
     `i386/i386/irq.c`, `i386/i386/machine_task.c` — small, one or two
     leaf dependencies.
@@ -1281,13 +1282,13 @@ rbtree's; see §8.
 | `i386/i386/loose_ends.c` (`delay`) | `src/utils/delay.rs` | `87d85e0c` |
 | `util/byteorder.c` | `src/utils/byteorder.rs` | `7ad91b7b` |
 | `kern/elf-load.c` | `src/kern/elf_load.rs` | `308594ca` |
-| `kern/rbtree.c` | `src/kern/rbtree.rs` | `9445e08b` … `f3f30264` |
-| `i386/i386at/mbinfo.c` | `src/arch/i386/mbinfo.rs` | `21fcbe0b` |
-| `i386/i386at/mem.c` | `src/arch/i386/mem.rs` | `548186d3` |
 | `i386/i386at/kd_queue.c` | `src/utils/kd_queue.rs` | `ed2502e9` |
 | `i386/i386at/kd_mouse.c` | `src/arch/i386/kd_mouse.rs` | `64f44fa8` |
 | `i386/i386at/kd_event.c` | `src/arch/i386/kd_event.rs` | `5d6a289a` |
-| `i386/i386at/kd.c` | `src/arch/i386/kd/` | `009b05af` … `4b1c909a` |
+| `i386/i386at/kd.c` | `src/arch/i386/kd/` | `009b05af` … `f1512f88` |
+| `i386/i386at/mem.c` | `src/arch/i386/mem.rs` | `548186d3` |
+| `i386/i386at/mbinfo.c` | `src/arch/i386/mbinfo.rs` | `21fcbe0b` |
+| `kern/rbtree.c` | `src/kern/rbtree.rs` | `9445e08b` … `f3f30264` |
 
 Deleted dead code: `device/blkio.c` (unreachable block pager path) and
 the `#if 0` profiling facility (`profil.h`, `profilparam.h`,
