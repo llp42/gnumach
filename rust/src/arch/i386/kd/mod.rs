@@ -198,7 +198,7 @@ pub(crate) struct State {
     pub(crate) kd_extended: bool,
     pub(crate) kd_pollc: c_int,
     pub(crate) old_kb_mode: c_int,
-    pub(crate) sit_for_0: c_int,
+    pub(crate) sit_for_0: bool,
 
     pub(crate) kd_attr: u8,
     pub(crate) kd_color: u8,
@@ -231,7 +231,7 @@ impl State {
             kd_extended: false,
             kd_pollc: 0,
             old_kb_mode: 0,
-            sit_for_0: 1,
+            sit_for_0: true,
             kd_attr: KA_NORMAL,
             kd_color: KA_NORMAL,
             kd_attrflags: 0,

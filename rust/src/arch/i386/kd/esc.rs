@@ -5,9 +5,9 @@
 //! collects escape sequences, and `kd_parserest()` interprets the ANSI
 //! commands the console writes.
 //!
-//! The exported functions are the C entry points; the private ones are
-//! the same operations for use inside the module, so the interpreter
-//! stays safe code and the `unsafe` blocks stay at the boundary.
+//! `putc()` and `putc_esc()` are the module's two entry points; behind
+//! them the drawing and the interpreter are safe Rust, and `unsafe`
+//! stops at the `display.rs` boundary.
 
 use super::display::{
     dclear, dmvdown, dmvup, dput, scrolldn, scrollup, setpos,
@@ -16,192 +16,435 @@ use super::*;
 use crate::glue;
 use core::ffi::{c_int, c_short};
 
-/// `kd_bellon()`, for use inside the module.
-fn bellon() {
-    super::kd_bellon();
+/// The most `\e[...]` parameters the C parser kept.
+const MAX_PARAMS: usize = 16;
+
+/// Whether an escape sequence is complete or still collecting bytes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Progress {
+    /// A command byte was seen and acted on; the sequence is done.
+    Done,
+    /// Nothing to act on yet; the collected bytes stay put.
+    Incomplete,
 }
 
-// Safe operations for the interpreter.
-
+/// Draw one character, applying the control specials.
+/// `kd_putc()` in C.
 pub(crate) fn putc(ch: u8) {
-    if ch == 0 && state().sit_for_0 != 0 {
+    if ch == 0 && state().sit_for_0 {
         return;
     }
     match ch {
-        K_LF => down(),
-        K_CR => cr(),
-        K_BS => left(),
+        K_LF => move_down(),
+        K_CR => carriage_return(),
+        K_BS => move_left(),
         K_HT => tab(),
-        K_BEL => {
-            if !state().kd_bellstate {
-                bellon();
-                // SAFETY: the timer is the clock's, at SPLKD.
-                unsafe {
-                    glue::timeout(
-                        Some(super::kd_belloff),
-                        core::ptr::null_mut(),
-                        glue::hz / 8,
-                    )
-                };
-                state().kd_bellstate = true;
-            }
-        }
+        K_BEL => ring_bell(),
         _ => {
-            let s = state();
-            dput(s.kd_curpos, ch, s.kd_attr);
-            right();
+            let (pos, attr) = cursor();
+            dput(pos, ch, attr);
+            move_right();
         }
     }
 }
 
-fn parseesc() {
+/// Sound the bell until the timeout switches it off.
+fn ring_bell() {
+    if state().kd_bellstate {
+        return;
+    }
+    super::kd_bellon();
+    // SAFETY: the timeout table is the driver's and SPLKD is held.
+    unsafe {
+        glue::timeout(
+            Some(super::kd_belloff),
+            core::ptr::null_mut(),
+            glue::hz / 8,
+        );
+    }
+    state().kd_bellstate = true;
+}
+
+/// Collect one character, or replay a completed escape sequence.
+/// `kd_putc_esc()` in C.
+pub(crate) fn putc_esc(c: u8) {
+    let spt = state().esc_spt;
+
+    if c == K_ESC {
+        if spt == 0 {
+            let s = state();
+            s.esc_seq[0] = K_ESC;
+            s.esc_spt = 1;
+            s.esc_seq[1] = 0;
+        } else {
+            putc(K_ESC);
+            state().esc_spt = 0;
+        }
+    } else if spt != 0 {
+        if spt > K_MAXESC - 1 {
+            // The sequence outgrew the buffer; drop the byte and start
+            // over, as the C did.
+            state().esc_spt = 0;
+            return;
+        }
+        {
+            let s = state();
+            s.esc_seq[spt] = c;
+            s.esc_spt = spt + 1;
+            s.esc_seq[spt + 1] = 0;
+        }
+        if parse_escape() == Progress::Done {
+            state().esc_spt = 0;
+        }
+    } else {
+        putc(c);
+    }
+}
+
+/// Interpret the sequence just collected, or say it is not finished.
+/// `kd_parseesc()` in C.
+fn parse_escape() -> Progress {
     let seq = state().esc_seq;
     match seq[1] {
         b'c' => {
-            cls();
+            clear_screen();
             home();
-            state().esc_spt = 0;
+            Progress::Done
         }
-        b'[' => parserest(&seq, 2),
-        0 => {}
+        b'[' => parse_parameters(&seq, 2),
+        0 => Progress::Incomplete,
         c => {
             putc(c);
-            state().esc_spt = 0;
+            Progress::Done
         }
     }
 }
 
-fn up() {
+/// The ANSI interpreter for the bytes after `\e[`.  `kd_parserest()` in
+/// C.
+fn parse_parameters(seq: &[u8], start: usize) -> Progress {
+    let mut cp = start;
+    let mut number: [Option<c_int>; MAX_PARAMS] = [None; MAX_PARAMS];
+    let mut last = 0;
+
+    if seq[cp] == b'?' || seq[cp] == b'<' {
+        // Unsupported `\e[?...` and `\e[<...`: a final byte is dropped
+        // silently, anything else is odd and gets drawn.
+        cp += 1;
+        return match seq[cp] {
+            0 => Progress::Incomplete,
+            c => {
+                if !is_final_byte(c) {
+                    putc(c);
+                }
+                Progress::Done
+            }
+        };
+    }
+
+    loop {
+        let (used, value) = take_number(seq, cp);
+        cp += used;
+        number[last] = value;
+        if last == MAX_PARAMS - 1 || seq[cp] != b';' {
+            break;
+        }
+        last += 1;
+        cp += 1;
+    }
+
+    // The count parameter of the cursor commands; absent means one, and
+    // zero means none, matching the C's `while (number[0]--)` loops.
+    let count = number[0].unwrap_or(1);
+
+    match seq[cp] {
+        b'm' => set_attributes(&number[..=last]),
+        b'@' => insert_chars(count),
+        b'A' => repeat(count, move_up),
+        b'B' => repeat(count, move_down),
+        b'C' => repeat(count, move_right),
+        b'D' => repeat(count, move_left),
+        b'E' => {
+            carriage_return();
+            repeat(count, move_down);
+        }
+        b'F' => {
+            carriage_return();
+            repeat(count, move_up);
+        }
+        b'G' => {
+            let pos = state().kd_curpos;
+            setpos(
+                beg_of_line(pos)
+                    + zero_based(number[0]) as c_short * ONE_SPACE,
+            );
+        }
+        b'f' | b'H' => {
+            if number[0].is_none() && number[1].is_none() {
+                home();
+            } else {
+                let mut newpos = zero_based(number[0]) as c_short * ONE_LINE;
+                newpos += zero_based(number[1]) as c_short * ONE_SPACE;
+                if newpos < 0 {
+                    newpos = 0; // upper left
+                }
+                if newpos > ONE_PAGE {
+                    newpos = ONE_PAGE - ONE_SPACE; // lower right
+                }
+                setpos(newpos);
+            }
+        }
+        b'J' => match number[0] {
+            None | Some(0) => clear_to_bottom(),
+            Some(1) => clear_from_top(),
+            Some(2) => clear_screen(),
+            _ => {}
+        },
+        b'K' => match number[0] {
+            None | Some(0) => clear_to_line_end(),
+            Some(1) => clear_from_line_start(),
+            Some(2) => erase_line(),
+            _ => {}
+        },
+        b'L' => insert_lines(count),
+        b'M' => delete_lines(count),
+        b'P' => delete_chars(count),
+        b'S' => repeat(count, scrollup),
+        b'T' => repeat(count, scrolldn),
+        b'X' => erase_chars(count),
+        0 => return Progress::Incomplete,
+        c => {
+            if !is_final_byte(c) {
+                putc(c);
+            }
+        }
+    }
+    Progress::Done
+}
+
+/// Apply one `\e[...m` attribute list and refresh `kd_attr`.  The C did
+/// this inline in `kd_parserest()`.
+fn set_attributes(values: &[Option<c_int>]) {
+    let (mut flags, mut color) = {
+        let s = state();
+        (s.kd_attrflags, s.kd_color)
+    };
+    for value in values {
+        match *value {
+            None | Some(0) => {
+                flags = 0;
+                color = KA_NORMAL;
+            }
+            Some(1) => {
+                flags |= KAX_BOLD;
+                flags &= !KAX_DIM;
+            }
+            Some(2) => {
+                flags |= KAX_DIM;
+                flags &= !KAX_BOLD;
+            }
+            Some(4) => flags |= KAX_UNDERLINE,
+            Some(5) => flags |= KAX_BLINK,
+            Some(7) => flags |= KAX_REVERSE,
+            Some(8) => flags |= KAX_INVISIBLE,
+            Some(21 | 22) => flags &= !(KAX_BOLD | KAX_DIM),
+            Some(24) => flags &= !KAX_UNDERLINE,
+            Some(25) => flags &= !KAX_BLINK,
+            Some(27) => flags &= !KAX_REVERSE,
+            Some(38) => {
+                flags |= KAX_UNDERLINE;
+                color = (color & 0xf0) | (KA_NORMAL & 0x0f);
+            }
+            Some(39) => {
+                flags &= !KAX_UNDERLINE;
+                color = (color & 0xf0) | (KA_NORMAL & 0x0f);
+            }
+            Some(v) if (30..=37).contains(&v) => {
+                let c = COLOR_TABLE[(v - 30) as usize];
+                color = (color & 0xf0) | c;
+            }
+            Some(v) if (40..=47).contains(&v) => {
+                let c = COLOR_TABLE[(v - 40) as usize];
+                color = (color & 0x0f) | (c << 4);
+            }
+            _ => {}
+        }
+    }
+    {
+        let s = state();
+        s.kd_attrflags = flags;
+        s.kd_color = color;
+    }
+    update_attr();
+}
+
+/// `kd_update_kd_attr()` in C: blend `kd_attrflags` and `kd_color` into
+/// `kd_attr`.
+fn update_attr() {
     let s = state();
-    if s.kd_curpos < ONE_LINE {
+    let mut attr = s.kd_color;
+    if s.kd_attrflags & KAX_UNDERLINE != 0 {
+        attr = (attr & 0xf0) | KAX_COL_UNDERLINE;
+    } else if s.kd_attrflags & KAX_DIM != 0 {
+        attr = (attr & 0xf0) | KAX_COL_DIM;
+    }
+    if s.kd_attrflags & KAX_REVERSE != 0 {
+        attr = reverse_video(attr);
+    }
+    if s.kd_attrflags & KAX_BLINK != 0 {
+        attr ^= 0x80;
+    }
+    if s.kd_attrflags & KAX_BOLD != 0 {
+        attr ^= 0x08;
+    }
+    s.kd_attr = attr;
+}
+
+/// The `reverse_video_char()` macro of <i386at/kd.c>.
+fn reverse_video(attr: u8) -> u8 {
+    (attr & 0x88) | (attr.rotate_left(4) & 0x77)
+}
+
+/// `kd_up()` in C: one line up, scrolling the screen down at the top.
+fn move_up() {
+    let pos = state().kd_curpos;
+    if pos < ONE_LINE {
         scrolldn();
     } else {
-        setpos(s.kd_curpos - ONE_LINE);
+        setpos(pos - ONE_LINE);
     }
 }
 
-fn down() {
-    let s = state();
-    if s.kd_curpos >= ONE_PAGE - ONE_LINE {
-        scrollup();
-    } else {
-        setpos(s.kd_curpos + ONE_LINE);
-    }
-}
-
-fn right() {
-    let s = state();
-    if s.kd_curpos < ONE_PAGE - ONE_SPACE {
-        setpos(s.kd_curpos + ONE_SPACE);
-    } else {
-        scrollup();
-        setpos(beg_of_line(s.kd_curpos));
-    }
-}
-
-fn left() {
+/// `kd_down()` in C: one line down, scrolling the screen up at the
+/// bottom.
+fn move_down() {
     let pos = state().kd_curpos;
-    if 0 < pos {
+    if pos >= ONE_PAGE - ONE_LINE {
+        scrollup();
+    } else {
+        setpos(pos + ONE_LINE);
+    }
+}
+
+/// `kd_right()` in C: one cell right, scrolling at the line end.
+fn move_right() {
+    let pos = state().kd_curpos;
+    if pos < ONE_PAGE - ONE_SPACE {
+        setpos(pos + ONE_SPACE);
+    } else {
+        scrollup();
+        setpos(beg_of_line(pos));
+    }
+}
+
+/// `kd_left()` in C: one cell left, stopping at the screen start.
+fn move_left() {
+    let pos = state().kd_curpos;
+    if pos > 0 {
         setpos(pos - ONE_SPACE);
     }
 }
 
-fn cr() {
+/// `kd_cr()` in C.
+fn carriage_return() {
     setpos(beg_of_line(state().kd_curpos));
 }
 
+/// `kd_home()` in C.
 fn home() {
     setpos(0);
 }
 
-fn cls() {
-    let s = state();
-    dclear(0, (ONE_PAGE / ONE_SPACE) as c_int, s.kd_attr);
-}
-
-fn cltobcur() {
-    let s = state();
-    let start = s.kd_curpos;
-    let count = (ONE_PAGE - s.kd_curpos) / ONE_SPACE;
-    dclear(start, count as c_int, s.kd_attr);
-}
-
-fn cltopcur() {
-    let s = state();
-    let count = (s.kd_curpos + ONE_SPACE) / ONE_SPACE;
-    dclear(0, count as c_int, s.kd_attr);
-}
-
-fn cltoecur() {
-    let s = state();
-    let hold = beg_of_line(s.kd_curpos) + ONE_LINE;
-    let mut i = s.kd_curpos;
-    while i < hold {
-        dput(i, K_SPACE, s.kd_attr);
-        i += ONE_SPACE;
+/// `kd_tab()` in C: spaces up to the next multiple of eight.
+fn tab() {
+    let pos = state().kd_curpos;
+    let spaces = 8 - current_column(pos) % 8;
+    let mut i = 0;
+    while i < spaces {
+        putc(b' ');
+        i += 1;
     }
 }
 
-fn clfrbcur() {
-    let s = state();
-    let mut i = beg_of_line(s.kd_curpos);
-    while i <= s.kd_curpos {
-        dput(i, K_SPACE, s.kd_attr);
-        i += ONE_SPACE;
-    }
+/// `kd_cls()` in C: blank the whole screen.
+fn clear_screen() {
+    let (_, attr) = cursor();
+    dclear(0, (ONE_PAGE / ONE_SPACE) as c_int, attr);
 }
 
-fn eraseln() {
-    let s = state();
-    let stop = beg_of_line(s.kd_curpos) + ONE_LINE;
-    let mut i = beg_of_line(s.kd_curpos);
-    while i < stop {
-        dput(i, K_SPACE, s.kd_attr);
-        i += ONE_SPACE;
-    }
+/// `kd_cltobcur()` in C: blank from the cursor to the screen bottom.
+fn clear_to_bottom() {
+    let (pos, attr) = cursor();
+    let count = (ONE_PAGE - pos) / ONE_SPACE;
+    dclear(pos, count as c_int, attr);
 }
 
-fn erase(number: c_int) {
-    let s = state();
-    let mut stop = s.kd_curpos + ONE_SPACE * number as c_short;
-    let line_end = beg_of_line(s.kd_curpos) + ONE_LINE;
+/// `kd_cltopcur()` in C: blank from the screen top to the cursor.
+fn clear_from_top() {
+    let (pos, attr) = cursor();
+    let count = (pos + ONE_SPACE) / ONE_SPACE;
+    dclear(0, count as c_int, attr);
+}
+
+/// `kd_cltoecur()` in C: blank from the cursor to the line end.
+fn clear_to_line_end() {
+    let (pos, attr) = cursor();
+    blank(pos, beg_of_line(pos) + ONE_LINE, attr);
+}
+
+/// `kd_clfrbcur()` in C: blank from the line start through the cursor.
+fn clear_from_line_start() {
+    let (pos, attr) = cursor();
+    blank(beg_of_line(pos), pos + ONE_SPACE, attr);
+}
+
+/// `kd_eraseln()` in C: blank the whole line.
+fn erase_line() {
+    let (pos, attr) = cursor();
+    blank(beg_of_line(pos), beg_of_line(pos) + ONE_LINE, attr);
+}
+
+/// `kd_erase()` in C: blank `number` cells from the cursor, stopping at
+/// the line end.
+fn erase_chars(number: c_int) {
+    let (pos, attr) = cursor();
+    let mut stop = pos + ONE_SPACE * number as c_short;
+    let line_end = beg_of_line(pos) + ONE_LINE;
     if stop > line_end {
         stop = line_end;
     }
-    let mut i = s.kd_curpos;
-    while i < stop {
-        dput(i, K_SPACE, s.kd_attr);
-        i += ONE_SPACE;
-    }
+    blank(pos, stop, attr);
 }
 
-fn insch(number: c_int) {
+/// `kd_insch()` in C: open `number` cells for characters at the cursor.
+fn insert_chars(number: c_int) {
     if number <= 0 {
         return;
     }
-    let s = state();
-    let nextline = beg_of_line(s.kd_curpos) + ONE_LINE;
+    let (pos, attr) = cursor();
+    let nextline = beg_of_line(pos) + ONE_LINE;
     let mut insbytes = number * ONE_SPACE as c_int;
-    if s.kd_curpos as c_int + insbytes > nextline as c_int {
-        insbytes = nextline as c_int - s.kd_curpos as c_int;
+    if pos as c_int + insbytes > nextline as c_int {
+        insbytes = nextline as c_int - pos as c_int;
     }
     let to = nextline - ONE_SPACE;
     let from = to - insbytes as c_short;
-    if from >= s.kd_curpos {
-        let count = ((from - s.kd_curpos + ONE_SPACE) / ONE_SPACE) as c_int;
+    if from >= pos {
+        let count = ((from - pos + ONE_SPACE) / ONE_SPACE) as c_int;
         dmvdown(from, to, count);
     }
     let count = insbytes / ONE_SPACE as c_int;
-    dclear(s.kd_curpos, count, s.kd_attr);
+    dclear(pos, count, attr);
 }
 
-fn delln(number: c_int) {
+/// `kd_delln()` in C: delete `number` lines at the cursor.
+fn delete_lines(number: c_int) {
     if number <= 0 {
         return;
     }
-    let s = state();
+    let (pos, attr) = cursor();
     let mut delbytes = number * ONE_LINE as c_int;
-    let to = beg_of_line(s.kd_curpos);
+    let to = beg_of_line(pos);
     if to as c_int + delbytes >= ONE_PAGE as c_int {
         delbytes = ONE_PAGE as c_int - to as c_int;
     }
@@ -212,15 +455,16 @@ fn delln(number: c_int) {
     }
     let to = ONE_PAGE - delbytes as c_short;
     let count = delbytes / ONE_SPACE as c_int;
-    dclear(to, count, s.kd_attr);
+    dclear(to, count, attr);
 }
 
-fn insln(number: c_int) {
+/// `kd_insln()` in C: open `number` lines at the cursor.
+fn insert_lines(number: c_int) {
     if number <= 0 {
         return;
     }
-    let s = state();
-    let top = beg_of_line(s.kd_curpos);
+    let (pos, attr) = cursor();
+    let top = beg_of_line(pos);
     let mut insbytes = number * ONE_LINE as c_int;
     if top as c_int + insbytes > ONE_PAGE as c_int {
         insbytes = ONE_PAGE as c_int - top as c_int;
@@ -232,84 +476,63 @@ fn insln(number: c_int) {
         dmvdown(from, to, count);
     }
     let count = insbytes / ONE_SPACE as c_int;
-    dclear(top, count, s.kd_attr);
+    dclear(top, count, attr);
 }
 
-fn delch(number: c_int) {
+/// `kd_delch()` in C: delete `number` cells at the cursor.
+fn delete_chars(number: c_int) {
     if number <= 0 {
         return;
     }
-    let s = state();
-    let nextline = beg_of_line(s.kd_curpos) + ONE_LINE;
+    let (pos, attr) = cursor();
+    let nextline = beg_of_line(pos) + ONE_LINE;
     let mut delbytes = number * ONE_SPACE as c_int;
-    if s.kd_curpos as c_int + delbytes > nextline as c_int {
-        delbytes = nextline as c_int - s.kd_curpos as c_int;
+    if pos as c_int + delbytes > nextline as c_int {
+        delbytes = nextline as c_int - pos as c_int;
     }
-    if (s.kd_curpos as c_int + delbytes) < nextline as c_int {
-        let from = s.kd_curpos + delbytes as c_short;
-        let to = s.kd_curpos;
+    if (pos as c_int + delbytes) < nextline as c_int {
+        let from = pos + delbytes as c_short;
+        let to = pos;
         let count = ((nextline - from) / ONE_SPACE) as c_int;
         dmvup(from, to, count);
     }
     let to = nextline - delbytes as c_short;
     let count = delbytes / ONE_SPACE as c_int;
-    dclear(to, count, s.kd_attr);
+    dclear(to, count, attr);
 }
 
-fn tab() {
-    let n = 8 - current_column(state().kd_curpos) % 8;
-    let mut i = 0;
-    while i < n {
-        putc(b' ');
-        i += 1;
+/// Blank `from..to`, one cell at a time.
+fn blank(from: c_short, to: c_short, attr: u8) {
+    let mut pos = from;
+    while pos < to {
+        dput(pos, K_SPACE, attr);
+        pos += ONE_SPACE;
     }
 }
 
-/// The `reverse_video_char()` macro of <i386at/kd.c>.
-fn reverse_video_char(a: u8) -> u8 {
-    (a & 0x88) | ((a.wrapping_shr(4) | a.wrapping_shl(4)) & 0x77)
-}
-
-/// `kd_update_kd_attr()` in C: blend `kd_attrflags` and `kd_color`.
-fn update_kd_attr() {
-    let s = state();
-    let mut attr = s.kd_color;
-    if s.kd_attrflags & KAX_UNDERLINE != 0 {
-        attr = (attr & 0xf0) | KAX_COL_UNDERLINE;
-    } else if s.kd_attrflags & KAX_DIM != 0 {
-        attr = (attr & 0xf0) | KAX_COL_DIM;
-    }
-    if s.kd_attrflags & KAX_REVERSE != 0 {
-        attr = reverse_video_char(attr);
-    }
-    if s.kd_attrflags & KAX_BLINK != 0 {
-        attr ^= 0x80;
-    }
-    if s.kd_attrflags & KAX_BOLD != 0 {
-        attr ^= 0x08;
-    }
-    s.kd_attr = attr;
-}
-
-/// Run `f` `n` times, for the `while (number[0]--)` loops.
+/// Run `f` `n` times; zero or less runs nothing, as the C loops did.
 fn repeat(n: c_int, f: fn()) {
-    let mut i = 0;
-    while i < n {
+    for _ in 0..n {
         f();
-        i += 1;
     }
+}
+
+/// An ANSI final byte: the command that ends a `\e[...` sequence.
+fn is_final_byte(byte: u8) -> bool {
+    (b'@'..=b'~').contains(&byte)
+}
+
+/// The cursor position and the attribute to draw with.
+fn cursor() -> (c_short, u8) {
+    let s = state();
+    (s.kd_curpos, s.kd_attr)
 }
 
 /// A `\e[<n>G` column or `\e[<n>;<m>H` row/column parameter: absent and
 /// zero both mean the first column or row, and a value above zero counts
-/// from one.  A value at or below zero passes through; `take_number()`
-/// cannot produce a negative one, so only the zero case is reachable.
+/// from one.  `take_number()` cannot produce a negative one.
 fn zero_based(n: Option<c_int>) -> c_int {
-    match n {
-        None => 0,
-        Some(n) if n > 0 => n - 1,
-        Some(n) => n,
-    }
+    n.map_or(0, |value| value.saturating_sub(1))
 }
 
 /// The leading decimal digits of `seq` at `cp`: the number of bytes they
@@ -322,237 +545,4 @@ fn take_number(seq: &[u8], cp: usize) -> (usize, Option<c_int>) {
         .ok()
         .and_then(|s| s.parse::<c_int>().ok());
     (digits, number)
-}
-
-/// The ANSI interpreter.  `parserest()` in C.
-fn parserest(seq: &[u8; K_MAXESC], start: usize) {
-    let mut cp = start;
-    let mut number: [Option<c_int>; 16] = [None; 16];
-    let mut npar: usize = 0;
-    let mut question = false;
-    let mut angle = false;
-
-    if seq[cp] == b'?' {
-        question = true;
-        cp += 1;
-    } else if seq[cp] == b'<' {
-        angle = true;
-        cp += 1;
-    }
-
-    loop {
-        let (used, n) = take_number(seq, cp);
-        cp += used;
-        number[npar] = n;
-        if seq[cp] != b';' {
-            break;
-        }
-        npar += 1;
-        if npar > 15 {
-            break;
-        }
-        cp += 1;
-        if seq[cp] == 0 {
-            break;
-        }
-    }
-    let np = npar.min(15);
-
-    if question || angle {
-        // Unsupported `\e[?...` and `\e[<...` sequences.
-        match seq[cp] {
-            0 => {}
-            c if (b'@'..=b'~').contains(&c) => state().esc_spt = 0,
-            c => {
-                putc(c);
-                state().esc_spt = 0;
-            }
-        }
-        return;
-    }
-
-    match seq[cp] {
-        b'm' => {
-            for value in &number[..=np] {
-                match *value {
-                    None | Some(0) => {
-                        state().kd_attrflags = 0;
-                        state().kd_color = KA_NORMAL;
-                    }
-                    Some(1) => {
-                        state().kd_attrflags |= KAX_BOLD;
-                        state().kd_attrflags &= !KAX_DIM;
-                    }
-                    Some(2) => {
-                        state().kd_attrflags |= KAX_DIM;
-                        state().kd_attrflags &= !KAX_BOLD;
-                    }
-                    Some(4) => state().kd_attrflags |= KAX_UNDERLINE,
-                    Some(5) => state().kd_attrflags |= KAX_BLINK,
-                    Some(7) => state().kd_attrflags |= KAX_REVERSE,
-                    Some(8) => state().kd_attrflags |= KAX_INVISIBLE,
-                    Some(21 | 22) => {
-                        state().kd_attrflags &= !(KAX_BOLD | KAX_DIM);
-                    }
-                    Some(24) => state().kd_attrflags &= !KAX_UNDERLINE,
-                    Some(25) => state().kd_attrflags &= !KAX_BLINK,
-                    Some(27) => state().kd_attrflags &= !KAX_REVERSE,
-                    Some(38) => {
-                        state().kd_attrflags |= KAX_UNDERLINE;
-                        state().kd_color =
-                            (state().kd_color & 0xf0) | (KA_NORMAL & 0x0f);
-                    }
-                    Some(39) => {
-                        state().kd_attrflags &= !KAX_UNDERLINE;
-                        state().kd_color =
-                            (state().kd_color & 0xf0) | (KA_NORMAL & 0x0f);
-                    }
-                    Some(v) if (30..=37).contains(&v) => {
-                        let c = COLOR_TABLE[(v - 30) as usize];
-                        state().kd_color = (state().kd_color & 0xf0) | c;
-                    }
-                    Some(v) if (40..=47).contains(&v) => {
-                        let c = COLOR_TABLE[(v - 40) as usize];
-                        state().kd_color =
-                            (state().kd_color & 0x0f) | (c << 4);
-                    }
-                    _ => {}
-                }
-            }
-            update_kd_attr();
-            state().esc_spt = 0;
-        }
-        b'@' => {
-            insch(number[0].unwrap_or(1));
-            state().esc_spt = 0;
-        }
-        b'A' => {
-            repeat(number[0].unwrap_or(1), up);
-            state().esc_spt = 0;
-        }
-        b'B' => {
-            repeat(number[0].unwrap_or(1), down);
-            state().esc_spt = 0;
-        }
-        b'C' => {
-            repeat(number[0].unwrap_or(1), right);
-            state().esc_spt = 0;
-        }
-        b'D' => {
-            repeat(number[0].unwrap_or(1), left);
-            state().esc_spt = 0;
-        }
-        b'E' => {
-            cr();
-            repeat(number[0].unwrap_or(1), down);
-            state().esc_spt = 0;
-        }
-        b'F' => {
-            cr();
-            repeat(number[0].unwrap_or(1), up);
-            state().esc_spt = 0;
-        }
-        b'G' => {
-            setpos(
-                beg_of_line(state().kd_curpos)
-                    + zero_based(number[0]) as c_short * ONE_SPACE,
-            );
-            state().esc_spt = 0;
-        }
-        b'f' | b'H' => {
-            if number[0].is_none() && number[1].is_none() {
-                home();
-                state().esc_spt = 0;
-                return;
-            }
-            let mut newpos = zero_based(number[0]) as c_short * ONE_LINE;
-            newpos += zero_based(number[1]) as c_short * ONE_SPACE;
-            if newpos < 0 {
-                newpos = 0; // upper left
-            }
-            if newpos > ONE_PAGE {
-                newpos = ONE_PAGE - ONE_SPACE; // lower right
-            }
-            setpos(newpos);
-            state().esc_spt = 0;
-        }
-        b'J' => {
-            match number[0] {
-                None | Some(0) => cltobcur(),
-                Some(1) => cltopcur(),
-                Some(2) => cls(),
-                _ => {}
-            }
-            state().esc_spt = 0;
-        }
-        b'K' => {
-            match number[0] {
-                None | Some(0) => cltoecur(),
-                Some(1) => clfrbcur(),
-                Some(2) => eraseln(),
-                _ => {}
-            }
-            state().esc_spt = 0;
-        }
-        b'L' => {
-            insln(number[0].unwrap_or(1));
-            state().esc_spt = 0;
-        }
-        b'M' => {
-            delln(number[0].unwrap_or(1));
-            state().esc_spt = 0;
-        }
-        b'P' => {
-            delch(number[0].unwrap_or(1));
-            state().esc_spt = 0;
-        }
-        b'S' => {
-            repeat(number[0].unwrap_or(1), scrollup);
-            state().esc_spt = 0;
-        }
-        b'T' => {
-            repeat(number[0].unwrap_or(1), scrolldn);
-            state().esc_spt = 0;
-        }
-        b'X' => {
-            erase(number[0].unwrap_or(1));
-            state().esc_spt = 0;
-        }
-        0 => {}
-        c => {
-            if !(b'@'..=b'~').contains(&c) {
-                putc(c);
-            }
-            state().esc_spt = 0;
-        }
-    }
-}
-
-/// Collect one character, or replay an escape sequence.
-/// `kd_putc_esc()` in C.
-pub(crate) fn putc_esc(c: u8) {
-    let s = state();
-    if c == K_ESC {
-        if s.esc_spt == 0 {
-            let sp = s.esc_spt;
-            s.esc_seq[sp] = K_ESC;
-            s.esc_spt = sp + 1;
-            s.esc_seq[s.esc_spt] = 0;
-        } else {
-            putc(K_ESC);
-            s.esc_spt = 0;
-        }
-    } else if s.esc_spt != 0 {
-        if s.esc_spt > K_MAXESC - 1 {
-            s.esc_spt = 0;
-        } else {
-            let sp = s.esc_spt;
-            s.esc_seq[sp] = c;
-            s.esc_spt = sp + 1;
-            s.esc_seq[s.esc_spt] = 0;
-            parseesc();
-        }
-    } else {
-        putc(c);
-    }
 }
