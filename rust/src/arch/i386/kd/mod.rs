@@ -57,7 +57,9 @@ pub(crate) fn charidx(state_idx: c_int) -> usize {
     state_idx as usize * NUMOUTPUT
 }
 
-/// `K_MAXESC` in <i386at/kd.c>: the escape sequence buffer.
+/// `K_MAXESC` in <i386at/kd.c>: the escape sequence bytes, terminator
+/// excluded.  The C sized `esc_seq` at exactly this and still wrote the
+/// terminator one past it; the Rust keeps the byte the C was missing.
 pub(crate) const K_MAXESC: usize = 32;
 
 // Keyboard controller ports, <i386at/kd.h>.
@@ -210,7 +212,7 @@ pub(crate) struct State {
     pub(crate) kd_index_reg: c_short,
     pub(crate) kd_io_reg: c_short,
 
-    pub(crate) esc_seq: [u8; K_MAXESC],
+    pub(crate) esc_seq: [u8; K_MAXESC + 1],
     pub(crate) esc_spt: usize,
 
     pub(crate) kd_ack: Ack,
@@ -241,7 +243,7 @@ impl State {
             vid_start: EGA_START as *mut u8,
             kd_index_reg: EGA_IDX_REG as c_short,
             kd_io_reg: EGA_IO_REG as c_short,
-            esc_seq: [0; K_MAXESC],
+            esc_seq: [0; K_MAXESC + 1],
             esc_spt: 0,
             kd_ack: Ack::NotWaiting,
             last_sent: 0,

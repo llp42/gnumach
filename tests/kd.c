@@ -15,7 +15,9 @@ static const unsigned char color_table[] = {
 	0, 4, 2, 6, 1, 5, 3, 7, 8, 12, 10, 14, 9, 13, 11, 15
 };
 
-static u_char esc_seq[K_MAXESC];
+/* One byte more than K_MAXESC: the C wrote the NUL one past the
+ * array, so the copy carries the terminator byte the kernel now has. */
+static u_char esc_seq[K_MAXESC + 1];
 static int esc_spt;
 static csrpos_t kd_curpos;
 static u_char kd_attr;

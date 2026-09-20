@@ -243,6 +243,21 @@ test_unknown(void)
 }
 
 static void
+test_long_sequence(void)
+{
+	/* Thirty digits after "\e[" fill the 32-byte sequence buffer;
+	 * the byte that would write the terminator past it is dropped,
+	 * and the next sequence parses normally. */
+	test_kd_reset(0);
+	feed("\x1b[111111111111111111111111111111");
+	ASSERT(test_kd_ops() == 0, "long: filled buffer");
+	feed("A");
+	ASSERT(test_kd_ops() == 0, "long: byte dropped");
+	feed("\x1b[1m");
+	ASSERT(test_kd_attr() == (KA_NORMAL ^ 0x08), "long: parser recovers");
+}
+
+static void
 test_tab_more(void)
 {
 	/* At column 0, a tab is eight spaces. */
@@ -369,6 +384,7 @@ main(int argc, char *argv[], int envc, char *envp[])
 	test_position_more();
 	test_clear();
 	test_unknown();
+	test_long_sequence();
 	test_tab_more();
 	test_incomplete();
 	test_attr_more();

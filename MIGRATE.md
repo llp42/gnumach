@@ -1178,14 +1178,22 @@ detail §4.1 gives the `kern/` files.
   instead of wrapping into a repeat count, an SGR attribute or a
   row/column as `mach_atoi()`'s accumulator did.  `test-kd-dev` pins
   the reset with an 11-digit parameter.
+* **Escape buffer (fix).** `esc_seq` is `K_MAXESC + 1` bytes.  The C
+  sized the array for the sequence bytes and wrote the NUL terminator
+  one past it; the port turned that write into a Rust bounds panic,
+  so a 32-byte sequence halted the kernel.  The extra byte carries the
+  terminator, and the byte after a full buffer is dropped and the
+  parser starts over, as the C's guard intended.  `tests/kd.c`'s copy
+  got the same byte, and `test-kd-dev` writes a full sequence.
 * **Tests.** `tests/kd.c` and `tests/test-kd.c` pin the escape parser
-  (command dispatch, positions, attributes) and the modifier state
-  machine.  `tests/test-kd-dev.c` drives the driver through its
-  device: it opens `/dev/kd` (running `kdinit()`, the display and the
-  tty setup), sets the keyboard mode and key map, writes an escape
-  sequence and reads the VGA text back through `/dev/mem`, maps the kd
-  bitmap, and checks `/dev/kbd`'s record size against the `KdEvent`
-  mirror; the qemu suite runs it on both arches.  `tests/test-kd-intr.c`
+  (command dispatch, positions, attributes, a full buffer) and the
+  modifier state machine.  `tests/test-kd-dev.c` drives the driver
+  through its device: it opens `/dev/kd` (running `kdinit()`, the
+  display and the tty setup), sets the keyboard mode and key map,
+  writes an escape sequence -- including one that fills the buffer --
+  and reads the VGA text back through `/dev/mem`, maps the kd bitmap,
+  and checks `/dev/kbd`'s record size against the `KdEvent` mirror;
+  the qemu suite runs it on both arches.  `tests/test-kd-intr.c`
   goes one step further: the runner waits for its ready marker, injects
   a keystroke through a qemu monitor socket (`tests/hmp_send.c`), and
   the test reads the resulting scan codes back from `/dev/kbd`, so

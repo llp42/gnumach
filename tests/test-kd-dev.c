@@ -76,7 +76,9 @@ test_kd_write(mach_port_t kd)
 {
 	static const char seq[] = "\033[2J\033[1;1HX"
 		"\033[1;2H\033[1mY"
-		"\033[1;3H\033[99999999999mZ";
+		"\033[1;3H\033[99999999999mZ"
+		"\033[1;4H\033[111111111111111111111111111111A"
+		"\033[1mW";
 	int written = 0;
 	kern_return_t err;
 
@@ -117,6 +119,12 @@ test_kd_vga(mach_port_t kd)
 	ASSERT(vga[3] == 0x0f, "vga: 'Y' not bold");
 	ASSERT(vga[4] == 'Z', "vga: 'Z' not on screen");
 	ASSERT(vga[5] == 0x07, "vga: overflow parameter not absent");
+
+	/* The 32-byte sequence fills the escape buffer; 'A' is dropped
+	 * instead of written past it, so 'W' lands at the next position
+	 * with the bold attribute the fresh sequence set. */
+	ASSERT(vga[6] == 'W', "vga: 'W' not on screen");
+	ASSERT(vga[7] == 0x0f, "vga: 'W' not bold");
 
 	err = vm_deallocate(mach_task_self(), (vm_address_t)vga, size);
 	ASSERT_RET(err, "vm_deallocate vga");
