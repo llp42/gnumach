@@ -41,7 +41,6 @@ libkernel_a_SOURCES += \
 	i386/i386/ldt.h \
 	i386/i386/lock.h \
 	i386/i386/locore.h \
-	i386/i386/loose_ends.c \
 	i386/i386/loose_ends.h \
 	i386/i386/mach_param.h \
 	i386/i386/machine_routines.h \

@@ -72,9 +72,10 @@ arrives, and `mise run test` decides whether it is correct.
   SeqCst)`) and `cpu_number()`, which is a `%gs`-segment asm macro
   (`percpu_get`) — a C macro needs a glue shim in `src/glue.rs` per
   `rust/AGENTS.md`, or the percpu read lands in `src/arch/` as asm.
-- `i386/i386/loose_ends.c` (44) — `delay()`, plus the exported data
-  symbol `cpuspeed`.  The only callee is the file-local `DELAY`
-  busy-loop macro.  The port exports a `#[unsafe(no_mangle)] static`.
+- ~~`i386/i386/loose_ends.c`~~ **ported** — now
+  `rust/src/utils/delay.rs`: `delay()` over a private `CPU_SPEED`,
+  with a `black_box` standing in for the C's volatile counter; the
+  unread `cpuspeed` data symbol is gone.
 - `kern/elf-load.c` (104) — `exec_load()`.  The only external facility
   used is `alloca()` for the program-header table; Rust has no alloca,
   so the port first replaces it with a bounded on-stack array (and a

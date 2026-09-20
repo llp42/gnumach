@@ -8,6 +8,7 @@ MACH_RS_SRCS = \
 	rust/src/kern/smp.rs \
 	rust/src/lib.rs \
 	rust/src/panic.rs \
+	rust/src/utils/delay.rs \
 	rust/src/utils/mod.rs \
 	rust/src/utils/string.rs
 
