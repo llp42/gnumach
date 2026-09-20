@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! Kernel facilities; mirrors `kern/`.
+//! Machine-dependent code; mirrors the C tree's `machine/` headers.
 
-pub mod elf_load;
-pub mod queue;
-pub mod smp;
+pub mod types;

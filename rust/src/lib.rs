@@ -9,6 +9,7 @@
 #![no_builtins]
 #![deny(unsafe_op_in_unsafe_fn)]
 
+pub mod arch;
 pub mod glue;
 pub mod kern;
 pub mod utils;

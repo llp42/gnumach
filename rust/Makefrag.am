@@ -2,7 +2,10 @@
 
 # The crate, as rustc sees it: one root, and the modules it pulls in.
 MACH_RS_SRCS = \
+	rust/src/arch.rs \
+	rust/src/arch/types.rs \
 	rust/src/glue.rs \
+	rust/src/kern/elf_load.rs \
 	rust/src/kern/mod.rs \
 	rust/src/kern/queue.rs \
 	rust/src/kern/smp.rs \

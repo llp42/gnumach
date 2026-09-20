@@ -77,10 +77,30 @@ arrives, and `mise run test` decides whether it is correct.
   `rust/src/utils/delay.rs`: `delay()` over a private `CPU_SPEED`,
   with a `black_box` standing in for the C's volatile counter; the
   unread `cpuspeed` data symbol is gone.
-- `kern/elf-load.c` (104) — `exec_load()`.  The only external facility
-  used is `alloca()` for the program-header table; Rust has no alloca,
-  so the port first replaces it with a bounded on-stack array (and a
-  check of `e_phnum` against that bound).
+- ~~`kern/elf-load.c`~~ **ported** — now `rust/src/kern/elf_load.rs`:
+  `exec_load()` identifies the image and dispatches to `exec_load32()`
+  or `exec_load64()`, two typed paths mirroring each other, in place
+  of the C's compile-time `Elf_Ehdr`/`Elf_Phdr` typedef.  Both classes
+  load on x86_64; i686 rejects ELF64 with `EX_WRONG_ARCH` rather than
+  truncating its addresses.  The program headers are read one at a
+  time in place of the C's `alloca()` table, so their count stays
+  unbounded; a stride smaller than the header's size is rejected as
+  `EX_CORRUPT`, which removes the C's out-of-bounds read, while a
+  larger one is accepted (and a table cut short inside an entry's
+  stride padding still loads, because only the header's size is read,
+  where the C's one-shot `e_phnum * e_phentsize` read failed).
+  Consequences of reading the table one entry at a time: an `e_phnum`
+  of zero reads no table at all, where the C issued a zero-size read
+  that `boot_read` could fail for an out-of-module `e_phoff`; the
+  caller's `exec_info_t` is zeroed once the image is recognized, and
+  its `entry`/`stack_prot` are written only after the whole image has
+  loaded, where the C wrote `entry` before reading the table and
+  `stack_prot` before applying the entries, so an error there left them
+  set (a segment already applied is not undone by a later failure, as
+  in the C, but a table read failing partway has no C counterpart: the
+  C read the whole table first); and a file shorter than the header
+  reports bad `EI_DATA`/unknown `EI_CLASS` as `EX_WRONG_ARCH` where the
+  C's short header read reported `EX_NOT_EXECUTABLE`.
 
 ## Arch-asm candidate
 
