@@ -44,8 +44,10 @@ EXTRA_DIST += \
 	tests/include/mach/mig_support.h \
 	tests/include/sys/reboot.h \
 	tests/include/util/atoi.h \
+	tests/hmp_send.c \
 	tests/kd.c \
 	tests/kd.h \
+	tests/kd_device.h \
 	tests/kd_event.c \
 	tests/kd_event.h \
 	tests/kd_mouse.c \
@@ -57,3 +59,4 @@ EXTRA_DIST += \
 
 clean-local: $(USER_TESTS_CLEAN)
 	rm -fr tests/include-mach tests/test-multiboot tests/errlist.c tests/mig-out
+	rm -f tests/hmp-send

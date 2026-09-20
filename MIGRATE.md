@@ -1072,7 +1072,11 @@ records them.  The four entries below keep the detail §4.1 gives the
   tty setup), sets the keyboard mode and key map, writes an escape
   sequence and reads the VGA text back through `/dev/mem`, maps the kd
   bitmap, and checks `/dev/kbd`'s record size against the `KdEvent`
-  mirror; the qemu suite runs it on both arches.
+  mirror; the qemu suite runs it on both arches.  `tests/test-kd-intr.c`
+  goes one step further: the runner waits for its ready marker, injects
+  a keystroke through a qemu monitor socket (`tests/hmp_send.c`), and
+  the test reads the resulting scan codes back from `/dev/kbd`, so
+  `kdintr()` and the event queue are executed too.
 
 ### i386/intel/, x86_64/, util/, chips/
 

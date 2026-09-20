@@ -178,7 +178,10 @@ tests/module-%: $(srcdir)/tests/test-%.c $(SRC_TESTLIB) $(MACH_TESTINSTALL)
 
 GRUB_MKRESCUE ?= grub-mkrescue
 GNUMACH_ARGS = console=com0
-QEMU_OPTS = -m 2047 -nographic -no-reboot -monitor none -serial stdio -boot d
+QEMU_OPTS = -m 2047 -nographic -no-reboot -serial stdio -boot d
+# Tests that need keystrokes replace this with a monitor socket.
+QEMU_MONITOR ?= -monitor none
+QEMU_KEYS ?=
 QEMU_GDB_PORT ?= 1234
 
 if HOST_ix86
@@ -211,12 +214,25 @@ tests/test-%: tests/test-%.iso $(srcdir)/tests/run-qemu.sh.template
 	< $(srcdir)/tests/run-qemu.sh.template			\
 		sed -e "s|TESTNAME|$(subst tests/test-,,$@)|g"	\
 		    -e "s/QEMU_OPTS/$(QEMU_OPTS)/g"		\
+		    -e "s|QEMU_MONITOR|$(QEMU_MONITOR)|g"	\
+		    -e "s|QEMU_KEYS|$(QEMU_KEYS)|g"		\
 		    -e "s/QEMU_BIN/$(QEMU_BIN)/g"			\
 		    -e "s/TEST_START_MARKER/$(TEST_START_MARKER)/g"	\
 		    -e "s/TEST_SUCCESS_MARKER/$(TEST_SUCCESS_MARKER)/g"	\
 		    -e "s/TEST_FAILURE_MARKER/$(TEST_FAILURE_MARKER)/g"	\
 		>$@
 	chmod +x $@
+
+# The keystroke test needs the qemu monitor on a socket, and the host
+# helper that sends "sendkey" to it.
+tests/test-kd-intr: QEMU_MONITOR = -monitor unix:tests/test-kd-intr.mon,server,nowait
+tests/test-kd-intr: QEMU_KEYS = shift-a
+tests/test-kd-intr: tests/hmp-send
+
+HOST_CC = $(filter-out -m32,$(CC))
+
+tests/hmp-send: $(srcdir)/tests/hmp_send.c
+	$(HOST_CC) -O2 -o $@ $<
 
 clean-test-%:
 	rm -f tests/test-$* tests/test-$*.iso tests/test-$*.log tests/test-$*.raw tests/test-$*.trs tests/module-$*
@@ -228,6 +244,7 @@ USER_TESTS := \
 	tests/test-gsync \
 	tests/test-kd \
 	tests/test-kd-dev \
+	tests/test-kd-intr \
 	tests/test-kd-event \
 	tests/test-kd-mouse \
 	tests/test-kd-queue \

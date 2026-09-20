@@ -17,10 +17,29 @@
 
 set -e
 
-cmd="QEMU_BIN QEMU_OPTS -cdrom tests/test-TESTNAME.iso"
+cmd="QEMU_BIN QEMU_OPTS QEMU_MONITOR -cdrom tests/test-TESTNAME.iso"
 log="tests/test-TESTNAME.raw"
 
 echo "temp log $log"
+
+rm -f "$log"
+
+# Tests that ask for keystrokes get a qemu monitor on a unix socket;
+# once the guest says it is ready, the host helper sends "sendkey".
+if [ -n "QEMU_KEYS" ]; then
+    (
+        n=0
+        while [ $n -lt 60 ]; do
+            if grep -q 'KD_READY' "$log" 2>/dev/null; then
+                break
+            fi
+            sleep 1
+            n=$((n + 1))
+        done
+        sleep 1
+        ./tests/hmp-send tests/test-TESTNAME.mon QEMU_KEYS
+    ) &
+fi
 
 if which QEMU_BIN >/dev/null ; then
     if ! timeout -v --foreground --kill-after=3 120s $cmd \
