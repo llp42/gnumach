@@ -4,16 +4,7 @@ mode: subagent
 temperature: 0.1
 permission:
   edit: deny
-  bash:
-    "*": ask
-    "git status*": allow
-    "git diff*": allow
-    "git log*": allow
-    "git show*": allow
-    "git grep*": allow
-    "rg *": allow
-    "nm *": allow
-    "rustfmt --check*": allow
+  bash: allow
   webfetch: allow
 ---
 
