@@ -37,7 +37,6 @@ arrives, and `mise run test` decides whether it is correct.
   `queue_iterate()` is the only macro left in `kern/queue.h`.
   `QueueEntry` is `!Unpin` with `Pin`-based mutators, and
   `--enable-queue-debug` compiles read-only link invariant checks.
-- `device/blkio.c` (66) — `block_io_mmap()`, `minphys()`.  Zero calls.
 - ~~`kern/smp.c`~~ **ported** — now `rust/src/kern/smp.rs`: the two
   routines over a private `AtomicU8` that starts at one and rejects
   zero, so the getter is a plain load.  `smp_info` was file-local (its
@@ -89,6 +88,12 @@ arrives, and `mise run test` decides whether it is correct.
   `mov %dbN` inline-asm macros from `i386/i386/proc_reg.h`, and
   `current_thread()` is the `%gs` percpu macro.  The port belongs in
   `src/arch/<arch>/` with `core::arch::asm` or per-cpu glue shims.
+
+## Excluded: dead code
+
+- ~~`device/blkio.c`~~ — deleted: `minphys()` had no callers, and
+  `block_io_mmap()` was never installed as a `d_mmap`, so the block
+  pager path in `device/dev_pager.c` was unreachable.
 
 ## Excluded: self-contained by accident
 

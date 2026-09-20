@@ -83,7 +83,6 @@ WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 #include <device/conf.h>
 #include <device/tty.h>
 #include <device/io_req.h>
-#include <device/buf.h>
 #include <vm/vm_kern.h>
 #include <i386/db_interface.h>
 #include <i386/irq.h>

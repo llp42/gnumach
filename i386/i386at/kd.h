@@ -76,7 +76,6 @@ WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 #include <sys/types.h>
 #include <device/cons.h>
 #include <device/io_req.h>
-#include <device/buf.h>
 #include <device/input.h>
 #include <device/tty.h>
 #include <i386at/kdsoft.h>

@@ -57,7 +57,6 @@
 #include <device/io_req.h>
 #include <device/memory_object_reply.user.h>
 #include <device/dev_pager.h>
-#include <device/blkio.h>
 #include <device/conf.h>
 
 /*
@@ -116,10 +115,6 @@ struct dev_pager {
 	ipc_port_t	pager_name;	/* Known name port */
 	mach_device_t	device;		/* Device handle */
 	vm_offset_t	offset;		/* offset within the pager, in bytes*/
-	int		type;		/* to distinguish */
-#define DEV_PAGER_TYPE	0
-#define CHAR_PAGER_TYPE	1
-	/* char pager specifics */
 	int		prot;
 	vm_size_t	size;
 };
@@ -394,11 +389,6 @@ kern_return_t	device_pager_setup(
 	d->offset = offset;
 	d->prot = prot;
 	d->size = round_page(size);
-	if (device->dev_ops->d_mmap == block_io_mmap) {
-		d->type = DEV_PAGER_TYPE;
-	} else {
-		d->type = CHAR_PAGER_TYPE;
-	}
 
 	dev_pager_hash_insert(d->pager, d);
 	dev_device_hash_insert(d->device, d->offset, d);
@@ -418,6 +408,7 @@ kern_return_t	device_pager_data_request(
 {
 	dev_pager_t	ds;
 	kern_return_t	ret;
+	vm_object_t	object;
 
 	if (device_pager_debug)
 		printf("(device_pager)data_request: pager=%p, offset=0x%lx, length=0x%lx\n",
@@ -430,36 +421,29 @@ kern_return_t	device_pager_data_request(
 	if (ds->pager_request != pager_request)
 		panic("(device_pager)data_request: bad pager_request");
 
-	if (ds->type == CHAR_PAGER_TYPE) {
-	    vm_object_t			object;
-
-	    object = vm_object_lookup(pager_request);
-	    if (object == VM_OBJECT_NULL) {
-		    (void) r_memory_object_data_error(pager_request,
-						      offset, length,
-						      KERN_FAILURE);
-		    dev_pager_deallocate(ds);
-		    return (KERN_SUCCESS);
-	    }
-
-	    ret = vm_object_page_map(object,
-				     offset, length,
-				     device_map_page, (void *)ds);
-
-	    if (ret != KERN_SUCCESS) {
-		    (void) r_memory_object_data_error(pager_request,
-						      offset, length,
-						      ret);
-		    vm_object_deallocate(object);
-		    dev_pager_deallocate(ds);
-		    return (KERN_SUCCESS);
-	    }
-
-	    vm_object_deallocate(object);
+	object = vm_object_lookup(pager_request);
+	if (object == VM_OBJECT_NULL) {
+		(void) r_memory_object_data_error(pager_request,
+						  offset, length,
+						  KERN_FAILURE);
+		dev_pager_deallocate(ds);
+		return (KERN_SUCCESS);
 	}
-	else {
-	    panic("(device_pager)data_request: dev pager");
+
+	ret = vm_object_page_map(object,
+				 offset, length,
+				 device_map_page, (void *)ds);
+
+	if (ret != KERN_SUCCESS) {
+		(void) r_memory_object_data_error(pager_request,
+						  offset, length,
+						  ret);
+		vm_object_deallocate(object);
+		dev_pager_deallocate(ds);
+		return (KERN_SUCCESS);
 	}
+
+	vm_object_deallocate(object);
 
 	dev_pager_deallocate(ds);
 
@@ -558,18 +542,12 @@ kern_return_t device_pager_init_pager(
 	ds->pager_request = pager_request;
 	ds->pager_name = pager_name;
 
-	if (ds->type == CHAR_PAGER_TYPE) {
-	    /*
-	     * Reply that the object is ready
-	     */
-	    (void) r_memory_object_ready(pager_request,
-					 FALSE,	/* do not cache */
-					 MEMORY_OBJECT_COPY_NONE);
-	} else {
-	    (void) r_memory_object_ready(pager_request,
-					 TRUE,	/* cache */
-					 MEMORY_OBJECT_COPY_DELAY);
-	}
+	/*
+	 * Reply that the object is ready
+	 */
+	(void) r_memory_object_ready(pager_request,
+				     FALSE,	/* do not cache */
+				     MEMORY_OBJECT_COPY_NONE);
 
 	dev_pager_deallocate(ds);
 	return (KERN_SUCCESS);
