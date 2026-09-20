@@ -34,7 +34,6 @@ MACH_RS_SRCS = \
 EXTRA_DIST += \
 	$(MACH_RS_SRCS) \
 	rust-toolchain.toml \
-	rust/AGENTS.md \
 	rust/compiler_builtins_stub.rs \
 	rust/rustfmt.toml \
 	rust/targets/i686-gnumach.json \

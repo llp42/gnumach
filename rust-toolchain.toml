@@ -16,10 +16,11 @@
 # drift apart without a word.
 #
 # `rust-src' is required: `core' is compiled from source for a target of our
-# own, see rust/AGENTS.md.  `clippy' and `rustfmt' are here for the same
-# reason: the build lints and format-checks the Rust half, so both are as
-# required as the compiler.  rustup installs the components listed here along
-# with the toolchain itself, so `rustup component add' is not a separate step.
+# own, see AGENTS.md at the top of the tree.  `clippy' and `rustfmt' are here
+# for the same reason: the build lints and format-checks the Rust half, so
+# both are as required as the compiler.  rustup installs the components listed
+# here along with the toolchain itself, so `rustup component add' is not a
+# separate step.
 
 [toolchain]
 channel = "stable"

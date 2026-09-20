@@ -223,6 +223,7 @@ EXTRA_DIST += \
 	Makefile.in.dep.patch
 
 EXTRA_DIST += \
+	AGENTS.md \
 	DEVELOPMENT \
 	MIGRATE.md
 

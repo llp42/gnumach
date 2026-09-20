@@ -8,7 +8,7 @@ boundary would sit.  It replaces the earlier leaf-only list: the method
 there (`nm -u` survivors) still finds the easiest first steps, but it
 cannot say anything about the 90% of the kernel that is coupled.
 
-The port contract itself is in `rust/AGENTS.md`; this file is the map,
+The port contract itself is in `AGENTS.md`; this file is the map,
 not the rules.  Read the map top to bottom if you are choosing work,
 or jump to `kern/<file>.c` for a specific file.
 
@@ -84,7 +84,7 @@ Rust story.  This is the "why" behind every blocker in §4.
 
 ## 3. Boundary law — write Rust, keep the C edge thin
 
-Distilled from the ports so far and `rust/AGENTS.md`:
+Distilled from the ports so far and `AGENTS.md`:
 
 * **Safe core, unsafe edge.**  `queue.rs` is the template: safe
   operations over a `!Unpin` `QueueEntry` (`rust/src/kern/queue.rs:111`),
