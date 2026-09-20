@@ -119,7 +119,6 @@ libkernel_a_SOURCES += \
 	kern/processor.c \
 	kern/processor.h \
 	kern/queue.h \
-	kern/rbtree.c \
 	kern/rbtree.h \
 	kern/rbtree_i.h \
 	kern/rdxtree.c \

@@ -20,6 +20,7 @@ MACH_RS_SRCS = \
 	rust/src/kern/elf_load.rs \
 	rust/src/kern/mod.rs \
 	rust/src/kern/queue.rs \
+	rust/src/kern/rbtree.rs \
 	rust/src/kern/smp.rs \
 	rust/src/lib.rs \
 	rust/src/panic.rs \

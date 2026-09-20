@@ -5,4 +5,5 @@
 
 pub mod elf_load;
 pub mod queue;
+pub mod rbtree;
 pub mod smp;

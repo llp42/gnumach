@@ -26,6 +26,8 @@
 #ifndef _KERN_RBTREE_I_H
 #define _KERN_RBTREE_I_H
 
+#include <stddef.h>
+
 
 /*
  * Red-black node structure.
@@ -52,6 +54,17 @@ struct rbtree_node {
 struct rbtree {
     struct rbtree_node *root;
 };
+
+/*
+ * The Rust port mirrors both structures (rust/src/kern/rbtree.rs), and
+ * its compile-time asserts pin the same layout.  These fail on this
+ * side of the contract if anyone changes the C.
+ */
+_Static_assert(sizeof(struct rbtree_node) == 3 * sizeof(unsigned long),
+               "rbtree node layout changed; update rust/src/kern/rbtree.rs");
+_Static_assert(offsetof(struct rbtree_node, children)
+               == sizeof(unsigned long),
+               "rbtree node layout changed; update rust/src/kern/rbtree.rs");
 
 /*
  * Masks applied on the parent member of a node to obtain either the
