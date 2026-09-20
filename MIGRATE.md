@@ -12,8 +12,9 @@ The port contract itself is in `rust/AGENTS.md`; this file is the map,
 not the rules.  Read the map top to bottom if you are choosing work,
 or jump to `kern/<file>.c` for a specific file.
 
-Mechanical data in this file was produced from a clean tree (all six
-prior port commits applied) with `nm -g --defined-only` and `nm -u` over
+The mechanical data (the `Undef` counts in particular) is an
+audit-time snapshot: it was produced from a clean tree with the first
+six port commits applied, using `nm -g --defined-only` and `nm -u` over
 `build-64/*.o`, source-level inspection of every macro, `static inline`
 helper, function-pointer call and assembly escape, and a survey of MIG
 inputs (`*.srv`, `*.cli`, `*.defs`) against their generated `*.server.c`
@@ -56,7 +57,7 @@ Rust story.  This is the "why" behind every blocker in §4.
 
 | Layer | C machinery | Rust must first provide | Blocks |
 |---|---|---|---|
-| **L0 pure** | string ops (already Rust), byte order (Rust), parser tables | nothing | `rbtree.c`, `ipc_thread.c`, `atoi.c` |
+| **L0 pure** | string ops (already Rust), byte order (Rust), parser tables | nothing | `ipc_thread.c`, `atoi.c` |
 | **L1 types** | `struct thread`, `task`, `processor`, `processor_set`, `ipc_port`, `vm_map` read/written field-by-field, sometimes by asm (`i386asm.sym`) | `#[repr(C)]` mirror + offset/size `const` asserts, or C accessor shims; decision on who owns the layout | everything in `kern/` |
 | **L2 locks/IRQ/percpu** | `simple_lock`/`_simple_lock` (inline `xchg` macros), `spl*` (`spl.S`, per-CPU `curr_ipl`), `simple_lock_irq`, `percpu_get`/`current_thread()` (`%gs`), `__sync_synchronize`, `cpu_pause` | A `SpinLock` type `repr(transparent)` over `natural_t` so C macros keep working; an `IrqGuard` over `splx`; a per-CPU accessor in `src/arch/`; C shims for the lock/percpu/spl macros (first real shim customers) | `lock.c`, `kmutex.c`, `eventcount.c`, `priority.c`, `timer.c`, scheduler/IPC/VM files |
 | **L3 memory** | `kalloc`/`kfree`, `kmem_cache_*` (slab), `kmem_alloc_wired`, `vm_page_*` | the same C API behind thin shims; optionally later a `GlobalAlloc` over `kalloc` (an explicit design decision, not a quiet add) | `slab.c` itself, `rdxtree.c`, `syscall_emulation.c`, `processor.c`, `task.c` |
@@ -83,7 +84,7 @@ Rust story.  This is the "why" behind every blocker in §4.
 
 ## 3. Boundary law — write Rust, keep the C edge thin
 
-Distilled from the six ports so far and `rust/AGENTS.md`:
+Distilled from the ports so far and `rust/AGENTS.md`:
 
 * **Safe core, unsafe edge.**  `queue.rs` is the template: safe
   operations over a `!Unpin` `QueueEntry` (`rust/src/kern/queue.rs:111`),
@@ -122,17 +123,19 @@ Distilled from the six ports so far and `rust/AGENTS.md`:
   the user tests (`tests/user-qemu.mk:137`); moving either requires a
   `tests/` copy in the same commit.
 
-What Rust still lacks (as of the elf-load port): an allocator over
+What Rust still lacks (as of the rbtree port): an allocator over
 `kalloc`/`kmem_cache`, an RAII lock/IRQ layer, per-CPU access, a struct
 binding strategy beyond hand-written mirrors (no bindgen by design), a
-`printf`/`log` glue, and any `src/arch/<arch>/` module.  §4's blockers
-name which missing piece each file needs.
+`printf`/`log` glue, and a shared `src/arch/<arch>/` platform module
+(drivers have opened `src/arch/i386/`, but there is no spl or per-CPU
+layer yet).  §4's blockers name which missing piece each file needs.
 
 ## 4. `kern/` — file-by-file map
 
-Undef = undefined symbols in the x86_64 object after the six completed
-ports (queue and string routines are Rust now, so they appear as calls
-into Rust).  Layer = the highest prerequisite layer from §2.
+Undef = undefined symbols in the x86_64 object at audit time, after
+the first six ports (queue and string routines are Rust now, so they
+appear as calls into Rust).  Layer = the highest prerequisite layer
+from §2.
 
 ### 4.0 Summary table
 
@@ -171,6 +174,9 @@ into Rust).  Layer = the highest prerequisite layer from §2.
 | `sched_prim.c` | 1912 | 47 | L1+L4+L6 | **5** | `src/kern/sched_prim.rs` |
 | `ipc_mig.c` | 1019 | 58 | L5+L6 | **5** | `src/kern/ipc_mig.rs` |
 | `exception.c` | 974 | 32 | L5+L6 | **5** | `src/kern/exception.rs` |
+
+`rbtree.c` has since been ported; its entry below and the §9 table
+are current.
 
 ### 4.1 Detailed entries
 
