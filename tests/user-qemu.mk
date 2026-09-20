@@ -242,6 +242,7 @@ USER_TESTS := \
 	tests/test-hello \
 	tests/test-mach_host \
 	tests/test-gsync \
+	tests/test-mbinfo \
 	tests/test-kd \
 	tests/test-kd-dev \
 	tests/test-kd-intr \

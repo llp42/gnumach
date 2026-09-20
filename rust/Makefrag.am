@@ -12,6 +12,7 @@ MACH_RS_SRCS = \
 	rust/src/arch/i386/kd/mod.rs \
 	rust/src/arch/i386/kd_event.rs \
 	rust/src/arch/i386/kd_mouse.rs \
+	rust/src/arch/i386/mbinfo.rs \
 	rust/src/arch/i386/mem.rs \
 	rust/src/arch/i386/mod.rs \
 	rust/src/arch/types.rs \
@@ -23,6 +24,7 @@ MACH_RS_SRCS = \
 	rust/src/lib.rs \
 	rust/src/panic.rs \
 	rust/src/utils/byteorder.rs \
+	rust/src/utils/cell.rs \
 	rust/src/utils/delay.rs \
 	rust/src/utils/kd_queue.rs \
 	rust/src/utils/mod.rs \

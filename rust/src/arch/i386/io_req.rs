@@ -65,6 +65,11 @@ impl IoReq {
         self.done = Some(done);
     }
 
+    /// `io_data`: the buffer `device_read_alloc()` set up.
+    pub fn data(&self) -> *mut c_char {
+        self.data
+    }
+
     /// Set `io_residual` to the bytes not done.
     pub fn set_residual(&mut self, residual: c_long) {
         self.residual = residual;

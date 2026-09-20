@@ -259,12 +259,7 @@ impl State {
     }
 }
 
-/// A singleton cell.  The kernel's `SPLKD` serialization is what makes
-/// the `Sync` promise true: every access goes through `kd()`.
-pub(crate) struct SyncCell<T>(pub(crate) UnsafeCell<T>);
-
-// SAFETY: all access is serialized by SPLKD; see `kd()`.
-unsafe impl<T> Sync for SyncCell<T> {}
+pub(crate) use crate::utils::cell::SyncCell;
 
 /// The driver's one state object: the keyboard, display, parser and
 /// console state, the tty, and the few values other modules share.

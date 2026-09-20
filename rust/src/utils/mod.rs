@@ -4,6 +4,7 @@
 //! Code that is the same on every machine.
 
 pub mod byteorder;
+pub(crate) mod cell;
 pub mod delay;
 pub mod kd_queue;
 pub mod string;
