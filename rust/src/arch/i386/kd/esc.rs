@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! The kd output engine: `kd_putc()` draws one character, `kd_putc_esc()`
-//! collects escape sequences, and `kd_parserest()` interprets the ANSI
-//! commands the console writes.
+//! The kd output engine of <i386at/kd.c>: `kd_putc()` draws one
+//! character, `kd_putc_esc()` collects escape sequences, and
+//! `kd_parserest()` interprets the ANSI commands the console writes.
 //!
 //! `putc()` and `putc_esc()` are the module's two entry points; behind
 //! them the drawing and the interpreter are safe Rust, and `unsafe`
@@ -127,19 +127,12 @@ fn parse_parameters(seq: &[u8], start: usize) -> Progress {
     let mut number: [Option<c_int>; MAX_PARAMS] = [None; MAX_PARAMS];
     let mut last = 0;
 
-    if seq[cp] == b'?' || seq[cp] == b'<' {
-        // Unsupported `\e[?...` and `\e[<...`: a final byte is dropped
-        // silently, anything else is odd and gets drawn.
+    // `\e[?...` and `\e[<...` are unsupported; their numbers are still
+    // consumed, and then a final byte is dropped silently while
+    // anything else is odd and gets drawn.
+    let private = seq[cp] == b'?' || seq[cp] == b'<';
+    if private {
         cp += 1;
-        return match seq[cp] {
-            0 => Progress::Incomplete,
-            c => {
-                if !is_final_byte(c) {
-                    putc(c);
-                }
-                Progress::Done
-            }
-        };
     }
 
     loop {
@@ -151,6 +144,18 @@ fn parse_parameters(seq: &[u8], start: usize) -> Progress {
         }
         last += 1;
         cp += 1;
+    }
+
+    if private {
+        return match seq[cp] {
+            0 => Progress::Incomplete,
+            c => {
+                if !is_final_byte(c) {
+                    putc(c);
+                }
+                Progress::Done
+            }
+        };
     }
 
     // The count parameter of the cursor commands; absent means one, and
@@ -532,7 +537,11 @@ fn cursor() -> (c_short, u8) {
 /// zero both mean the first column or row, and a value above zero counts
 /// from one.  `take_number()` cannot produce a negative one.
 fn zero_based(n: Option<c_int>) -> c_int {
-    n.map_or(0, |value| value.saturating_sub(1))
+    match n {
+        None => 0,
+        Some(value) if value > 0 => value - 1,
+        Some(value) => value,
+    }
 }
 
 /// The leading decimal digits of `seq` at `cp`: the number of bytes they

@@ -78,7 +78,10 @@ test_kd_write(mach_port_t kd)
 		"\033[1;2H\033[1mY"
 		"\033[1;3H\033[99999999999mZ"
 		"\033[1;4H\033[111111111111111111111111111111A"
-		"\033[1mW";
+		"\033[1mW"
+		"\033[2;5H\033[0G\033[0mQ"
+		"\033[1;6H\033[?25h\033[<1;2m\033[0mR"
+		"\033[1;1H\033[0G";
 	int written = 0;
 	kern_return_t err;
 
@@ -110,6 +113,8 @@ test_kd_vga(mach_port_t kd)
 		     VM_PROT_READ | VM_PROT_WRITE, VM_INHERIT_NONE);
 	ASSERT_RET(err, "vm_map vga");
 
+	/* The sequence ends with "\e[0G" at home, which must not scroll:
+	 * 'X' and 'Y' would move down a line if it did. */
 	ASSERT(vga[0] == 'X', "vga: 'X' not on screen");
 	ASSERT(vga[1] == 0x07, "vga: attribute not KA_NORMAL");
 
@@ -125,6 +130,17 @@ test_kd_vga(mach_port_t kd)
 	 * with the bold attribute the fresh sequence set. */
 	ASSERT(vga[6] == 'W', "vga: 'W' not on screen");
 	ASSERT(vga[7] == 0x0f, "vga: 'W' not bold");
+
+	/* "\e[0G" is column 1 of the current line, not the cell before
+	 * it: from column 5 of line 2, 'Q' lands at byte 160, not 158. */
+	ASSERT(vga[160] == 'Q', "vga: zero G parameter not column 1");
+	ASSERT(vga[161] == 0x07, "vga: 'Q' not normal");
+	ASSERT(vga[158] == 0x20, "vga: zero G parameter landed early");
+
+	/* The unsupported "\e[?..." and "\e[<..." sequences draw
+	 * nothing, so 'R' lands right where the cursor was. */
+	ASSERT(vga[10] == 'R', "vga: private sequence not dropped");
+	ASSERT(vga[11] == 0x07, "vga: 'R' not normal");
 
 	err = vm_deallocate(mach_task_self(), (vm_address_t)vga, size);
 	ASSERT_RET(err, "vm_deallocate vga");

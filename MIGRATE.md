@@ -1190,8 +1190,9 @@ detail §4.1 gives the `kern/` files.
   modifier state machine.  `tests/test-kd-dev.c` drives the driver
   through its device: it opens `/dev/kd` (running `kdinit()`, the
   display and the tty setup), sets the keyboard mode and key map,
-  writes an escape sequence -- including one that fills the buffer --
-  and reads the VGA text back through `/dev/mem`, maps the kd bitmap,
+  writes an escape sequence -- one that fills the buffer, a zero
+  parameter and an unsupported private sequence -- and reads the VGA
+  text back through `/dev/mem`, maps the kd bitmap,
   and checks `/dev/kbd`'s record size against the `KdEvent` mirror;
   the qemu suite runs it on both arches.  `tests/test-kd-intr.c`
   goes one step further: the runner waits for its ready marker, injects
