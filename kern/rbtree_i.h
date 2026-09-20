@@ -87,22 +87,6 @@ _Static_assert(offsetof(struct rbtree_node, children)
 #define RBTREE_SLOT_PARENT_MASK (~RBTREE_SLOT_INDEX_MASK)
 
 /*
- * Return true if the given pointer is suitably aligned.
- */
-static inline int rbtree_check_alignment(const struct rbtree_node *node)
-{
-    return ((unsigned long)node & (~RBTREE_PARENT_MASK)) == 0;
-}
-
-/*
- * Return true if the given index is a valid child index.
- */
-static inline int rbtree_check_index(int index)
-{
-    return index == (index & 1);
-}
-
-/*
  * Convert the result of a comparison into an index in the children array
  * (0 or 1).
  *
@@ -111,14 +95,6 @@ static inline int rbtree_check_index(int index)
 static inline int rbtree_d2i(int diff)
 {
     return !(diff <= 0);
-}
-
-/*
- * Return the parent of a node.
- */
-static inline struct rbtree_node * rbtree_parent(const struct rbtree_node *node)
-{
-    return (struct rbtree_node *)(node->parent & RBTREE_PARENT_MASK);
 }
 
 /*
@@ -173,24 +149,5 @@ struct rbtree_node * rbtree_nearest(struct rbtree_node *parent, int index,
  * or RBTREE_RIGHT (to obtain the last one).
  */
 struct rbtree_node * rbtree_firstlast(const struct rbtree *tree, int direction);
-
-/*
- * Return the node next to, or previous to the given node.
- *
- * The direction parameter is either RBTREE_LEFT (to obtain the previous node)
- * or RBTREE_RIGHT (to obtain the next one).
- */
-struct rbtree_node * rbtree_walk(struct rbtree_node *node, int direction);
-
-/*
- * Return the left-most deepest node of a tree, which is the starting point of
- * the postorder traversal performed by rbtree_for_each_remove().
- */
-struct rbtree_node * rbtree_postwalk_deepest(const struct rbtree *tree);
-
-/*
- * Unlink a node from its tree and return the next (right) node in postorder.
- */
-struct rbtree_node * rbtree_postwalk_unlink(struct rbtree_node *node);
 
 #endif /* _KERN_RBTREE_I_H */

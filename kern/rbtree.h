@@ -73,57 +73,10 @@ static inline void rbtree_node_init(struct rbtree_node *node)
 }
 
 /*
- * Return true if node is in no tree.
- */
-static inline int rbtree_node_unlinked(const struct rbtree_node *node)
-{
-    return rbtree_parent(node) == node;
-}
-
-/*
  * Macro that evaluates to the address of the structure containing the
  * given node based on the given type and member.
  */
 #define rbtree_entry(node, type, member) structof(node, type, member)
-
-/*
- * Return true if tree is empty.
- */
-static inline int rbtree_empty(const struct rbtree *tree)
-{
-    return tree->root == NULL;
-}
-
-/*
- * Look up a node in a tree.
- *
- * Note that implementing the lookup algorithm as a macro gives two benefits:
- * First, it avoids the overhead of a callback function. Next, the type of the
- * cmp_fn parameter isn't rigid. The only guarantee offered by this
- * implementation is that the key parameter is the first parameter given to
- * cmp_fn. This way, users can pass only the value they need for comparison
- * instead of e.g. allocating a full structure on the stack.
- *
- * See rbtree_insert().
- */
-#define rbtree_lookup(tree, key, cmp_fn)                \
-MACRO_BEGIN                                             \
-    struct rbtree_node *___cur;                         \
-    int ___diff;                                        \
-                                                        \
-    ___cur = (tree)->root;                              \
-                                                        \
-    while (___cur != NULL) {                            \
-        ___diff = cmp_fn(key, ___cur);                  \
-                                                        \
-        if (___diff == 0)                               \
-            break;                                      \
-                                                        \
-        ___cur = ___cur->children[rbtree_d2i(___diff)]; \
-    }                                                   \
-                                                        \
-    ___cur;                                             \
-MACRO_END
 
 /*
  * Look up a node or one of its nearest nodes in a tree.
@@ -269,30 +222,5 @@ void rbtree_remove(struct rbtree *tree, struct rbtree_node *node);
  * Return the last node of a tree.
  */
 #define rbtree_last(tree) rbtree_firstlast(tree, RBTREE_RIGHT)
-
-/*
- * Return the node previous to the given node.
- */
-#define rbtree_prev(node) rbtree_walk(node, RBTREE_LEFT)
-
-/*
- * Return the node next to the given node.
- */
-#define rbtree_next(node) rbtree_walk(node, RBTREE_RIGHT)
-
-/*
- * Forge a loop to process all nodes of a tree, removing them when visited.
- *
- * This macro can only be used to destroy a tree, so that the resources used
- * by the entries can be released by the user. It basically removes all nodes
- * without doing any color checking.
- *
- * After completion, all nodes and the tree root member are stale.
- */
-#define rbtree_for_each_remove(tree, node, tmp)         \
-for (node = rbtree_postwalk_deepest(tree),              \
-     tmp = rbtree_postwalk_unlink(node);                \
-     node != NULL;                                      \
-     node = tmp, tmp = rbtree_postwalk_unlink(node))
 
 #endif /* _KERN_RBTREE_H */

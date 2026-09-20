@@ -559,7 +559,7 @@ pub unsafe extern "C" fn rbtree_nearest(
         parent.as_ptr()
     } else {
         // SAFETY: the caller promises a valid node.
-        unsafe { rbtree_walk(parent.as_ptr(), direction) }
+        unsafe { walk(parent.as_ptr(), direction) }
     }
 }
 
@@ -586,16 +586,13 @@ pub unsafe extern "C" fn rbtree_firstlast(
     prev.map_or(ptr::null_mut(), NonNull::as_ptr)
 }
 
-/// The node next to, or previous to, a node.  `rbtree_walk()` in C.
+/// The node next to, or previous to, a node.  `rbtree_walk()` in C,
+/// uncalled by C after the port, so it is private.
 ///
 /// # Safety
 ///
 /// `node` must be null or a valid, linked node.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn rbtree_walk(
-    node: *mut RbtreeNode,
-    direction: c_int,
-) -> *mut RbtreeNode {
+unsafe fn walk(node: *mut RbtreeNode, direction: c_int) -> *mut RbtreeNode {
     let left = direction as usize;
     let right = 1 - left;
 
@@ -635,81 +632,6 @@ pub unsafe extern "C" fn rbtree_walk(
     node.as_ptr()
 }
 
-/// The left-most deepest node of `node`.  `rbtree_find_deepest()` in C.
-///
-/// # Safety
-///
-/// `node` must be a valid node.
-unsafe fn find_deepest(mut node: NonNull<RbtreeNode>) -> NonNull<RbtreeNode> {
-    loop {
-        let parent = node;
-        // SAFETY: the caller promises a valid node.
-        node = match unsafe { (*node.as_ptr()).children[LEFT] } {
-            Some(child) => child,
-            None => {
-                // SAFETY: as above.
-                match unsafe { (*parent.as_ptr()).children[RIGHT] } {
-                    Some(child) => child,
-                    None => return parent,
-                }
-            }
-        };
-    }
-}
-
-/// The start of a postorder traversal.  `rbtree_postwalk_deepest()` in C.
-///
-/// # Safety
-///
-/// `tree` must be a valid tree.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn rbtree_postwalk_deepest(
-    tree: *const Rbtree,
-) -> *mut RbtreeNode {
-    // SAFETY: the caller promises a valid tree.
-    match unsafe { (*tree).root } {
-        None => ptr::null_mut(),
-        // SAFETY: as above.
-        Some(node) => unsafe { find_deepest(node) }.as_ptr(),
-    }
-}
-
-/// Unlink a node and return the next node in postorder.
-/// `rbtree_postwalk_unlink()` in C.
-///
-/// # Safety
-///
-/// `node` must be null or a valid node whose left subtree has already
-/// been unlinked by the traversal.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn rbtree_postwalk_unlink(
-    node: *mut RbtreeNode,
-) -> *mut RbtreeNode {
-    let Some(node) = NonNull::new(node) else {
-        return ptr::null_mut();
-    };
-    // SAFETY: the caller promises a valid, linked node.
-    let Some(parent) = (unsafe { get_parent(node) }) else {
-        return ptr::null_mut();
-    };
-
-    // SAFETY: as above.
-    unsafe {
-        let index = child_index(Some(node), parent);
-        (*parent.as_ptr()).children[index as usize] = None;
-
-        match (*parent.as_ptr()).children[RIGHT] {
-            None => parent.as_ptr(),
-            Some(node) => find_deepest(node).as_ptr(),
-        }
-    }
-}
-
-/// Host unit tests; `tests/test-rbtree-rs` compiles this file with
-/// `rustc --test` and runs them.  They exercise the C macro protocols
-/// (insert, lookup_slot/insert_slot, lookup_nearest) the way
-/// `vm/vm_map.c` and `kern/slab.c` use them, and check the red-black
-/// rules after every mutation.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -909,7 +831,8 @@ mod tests {
         ptr::null_mut()
     }
 
-    /// The keys in order, by walking first to last.
+    /// The keys in order, with an independent traversal so a broken
+    /// link or walk cannot agree with itself.
     ///
     /// # Safety
     ///
@@ -917,15 +840,24 @@ mod tests {
     unsafe fn keys_in_order(tree: *mut Rbtree) -> Vec<u32> {
         let mut keys = Vec::new();
         // SAFETY: the caller promises a valid tree.
-        let mut node = unsafe { rbtree_firstlast(tree, RBTREE_LEFT) };
-
-        while !node.is_null() {
-            // SAFETY: as above; walk follows linked nodes.
-            keys.push(unsafe { key_of(node) });
-            node = unsafe { rbtree_walk(node, RBTREE_RIGHT) };
-        }
-
+        unsafe { collect_in_order((*tree).root, &mut keys) };
         keys
+    }
+
+    /// # Safety
+    ///
+    /// `node` must be null or a valid node.
+    unsafe fn collect_in_order(
+        node: Option<NonNull<RbtreeNode>>,
+        keys: &mut Vec<u32>,
+    ) {
+        if let Some(node) = node {
+            // SAFETY: the caller promises a valid node.
+            let children = unsafe { (*node.as_ptr()).children };
+            unsafe { collect_in_order(children[LEFT], keys) };
+            keys.push(unsafe { key_of(node.as_ptr()) });
+            unsafe { collect_in_order(children[RIGHT], keys) };
+        }
     }
 
     /// Verify the red-black rules and parent links; returns the black
@@ -1017,12 +949,10 @@ mod tests {
         unsafe {
             assert!(rbtree_firstlast(&tree, RBTREE_LEFT).is_null());
             assert!(rbtree_firstlast(&tree, RBTREE_RIGHT).is_null());
-            assert!(rbtree_walk(ptr::null_mut(), RBTREE_LEFT).is_null());
             assert!(
                 rbtree_nearest(ptr::null_mut(), -1, RBTREE_LEFT).is_null()
             );
-            assert!(rbtree_postwalk_deepest(&tree).is_null());
-            assert!(rbtree_postwalk_unlink(ptr::null_mut()).is_null());
+            assert!(keys_in_order(&mut tree).is_empty());
             assert_eq!(check(&mut tree), 1);
         }
     }
@@ -1039,8 +969,7 @@ mod tests {
 
             assert_eq!(rbtree_firstlast(&tree, RBTREE_LEFT), node);
             assert_eq!(rbtree_firstlast(&tree, RBTREE_RIGHT), node);
-            assert!(rbtree_walk(node, RBTREE_LEFT).is_null());
-            assert!(rbtree_walk(node, RBTREE_RIGHT).is_null());
+            assert_eq!(keys_in_order(&mut tree), [7]);
             check(&mut tree);
 
             rbtree_remove(&mut tree, node);
@@ -1205,33 +1134,5 @@ mod tests {
         }
 
         assert!(tree.root.is_none());
-    }
-
-    #[test]
-    fn postwalk_destroys() {
-        let keys: Vec<u32> = (0..100).collect();
-        let v = entries(&keys);
-        let mut tree = Rbtree { root: None };
-        let mut rng = Rng(0xdead_beef);
-
-        // SAFETY: `v` is stable, each entry inserted once.
-        unsafe {
-            for &key in &shuffled(&keys, &mut rng) {
-                insert(&mut tree, &v[key as usize]);
-            }
-            check(&mut tree);
-        }
-
-        let mut removed = Vec::new();
-        // SAFETY: the tree is valid; the traversal unlinks as it goes.
-        let mut node = unsafe { rbtree_postwalk_deepest(&tree) };
-        while !node.is_null() {
-            removed.push(unsafe { key_of(node) });
-            // SAFETY: as above.
-            node = unsafe { rbtree_postwalk_unlink(node) };
-        }
-
-        removed.sort_unstable();
-        assert_eq!(removed, keys);
     }
 }
