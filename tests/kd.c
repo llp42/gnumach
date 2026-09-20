@@ -90,7 +90,15 @@ static void kd_right(void) { record(TEST_KD_RIGHT, 0); }
 static void kd_left(void) { record(TEST_KD_LEFT, 0); }
 static void kd_cr(void) { record(TEST_KD_CR, 0); }
 static void kd_home(void) { record(TEST_KD_HOME, 0); }
-static void kd_tab(void) { record(TEST_KD_TAB, 0); }
+static void kd_putc(u_char ch);
+static void
+kd_tab(void)
+{
+	int i;
+
+	for (i = 8 - (CURRENT_COLUMN(kd_curpos) % 8); i > 0; i--)
+		kd_putc(' ');
+}
 static void kd_cls(void) { record(TEST_KD_CLS, 0); }
 static void kd_scrollup(void) { record(TEST_KD_SCROLLUP, 0); }
 static void kd_scrolldn(void) { record(TEST_KD_SCROLLDN, 0); }

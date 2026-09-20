@@ -227,6 +227,7 @@ USER_TESTS := \
 	tests/test-mach_host \
 	tests/test-gsync \
 	tests/test-kd \
+	tests/test-kd-dev \
 	tests/test-kd-event \
 	tests/test-kd-mouse \
 	tests/test-kd-queue \

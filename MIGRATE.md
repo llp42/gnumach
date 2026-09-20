@@ -1067,9 +1067,12 @@ records them.  The four entries below keep the detail §4.1 gives the
   `kd_rebootflag`, `kd_hz`) are deleted.
 * **Tests.** `tests/kd.c` and `tests/test-kd.c` pin the escape parser
   (command dispatch, positions, attributes) and the modifier state
-  machine, since the suite runs `console=com0`; the tty entry points
-  are reachable only at a real console, so they are compile/link and
-  offset-assert gated.
+  machine.  `tests/test-kd-dev.c` drives the driver through its
+  device: it opens `/dev/kd` (running `kdinit()`, the display and the
+  tty setup), sets the keyboard mode and key map, writes an escape
+  sequence and reads the VGA text back through `/dev/mem`, maps the kd
+  bitmap, and checks `/dev/kbd`'s record size against the `KdEvent`
+  mirror; the qemu suite runs it on both arches.
 
 ### i386/intel/, x86_64/, util/, chips/
 

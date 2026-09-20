@@ -22,16 +22,19 @@ static void
 test_plain(void)
 {
 	test_kd_reset(0);
-	feed("a\r\n\b\t\x07");
-	ASSERT(test_kd_ops() == 7, "plain: seven events");
+	feed("a\r\n\b");
+	ASSERT(test_kd_ops() == 5, "plain: five events");
 	ASSERT(test_kd_event(0)->op == TEST_KD_PUT, "plain: put");
 	ASSERT(test_kd_event(0)->arg == 'a', "plain: put arg");
 	ASSERT(test_kd_event(1)->op == TEST_KD_RIGHT, "plain: right");
 	ASSERT(test_kd_event(2)->op == TEST_KD_CR, "plain: cr");
 	ASSERT(test_kd_event(3)->op == TEST_KD_DOWN, "plain: down");
 	ASSERT(test_kd_event(4)->op == TEST_KD_LEFT, "plain: left");
-	ASSERT(test_kd_event(5)->op == TEST_KD_TAB, "plain: tab");
-	ASSERT(test_kd_event(6)->op == TEST_KD_BELL, "plain: bell");
+
+	test_kd_reset(0);
+	feed("\x07");
+	ASSERT(test_kd_ops() == 1, "plain: bell event");
+	ASSERT(test_kd_event(0)->op == TEST_KD_BELL, "plain: bell");
 }
 
 static void
@@ -164,6 +167,150 @@ test_attr(void)
 }
 
 static void
+test_cursor_more(void)
+{
+	test_kd_reset(0);
+	feed("\x1b[2B");
+	ASSERT(test_kd_ops() == 2, "cursor more: two downs");
+	ASSERT(test_kd_event(1)->op == TEST_KD_DOWN, "cursor more: down");
+
+	test_kd_reset(0);
+	feed("\x1b[3C");
+	ASSERT(test_kd_ops() == 3, "cursor more: three rights");
+	ASSERT(test_kd_event(2)->op == TEST_KD_RIGHT, "cursor more: right");
+
+	test_kd_reset(0);
+	feed("\x1b[2E");
+	ASSERT(test_kd_ops() == 3, "cursor more: cr and two downs");
+	ASSERT(test_kd_event(0)->op == TEST_KD_CR, "cursor more: E cr");
+	ASSERT(test_kd_event(1)->op == TEST_KD_DOWN, "cursor more: E down");
+
+	test_kd_reset(0);
+	feed("\x1b[2F");
+	ASSERT(test_kd_ops() == 3, "cursor more: cr and two ups");
+	ASSERT(test_kd_event(0)->op == TEST_KD_CR, "cursor more: F cr");
+	ASSERT(test_kd_event(1)->op == TEST_KD_UP, "cursor more: F up");
+
+	/* Zero counts run no command, as in the C `while (n--)`. */
+	test_kd_reset(0);
+	feed("\x1b[0A");
+	ASSERT(test_kd_ops() == 0, "cursor more: zero count");
+}
+
+static void
+test_position_more(void)
+{
+	/* 1-based column: "\e[4G" is column 4, i.e. 3 * 2. */
+	test_kd_reset(0);
+	feed("\x1b[4G");
+	ASSERT(test_kd_ops() == 1, "position more: one setpos");
+	ASSERT(test_kd_event(0)->arg == 6, "position more: column");
+
+	/* Out-of-range row/column clamps to the lower right. */
+	test_kd_reset(0);
+	feed("\x1b[999;999H");
+	ASSERT(test_kd_event(0)->arg == ONE_PAGE - ONE_SPACE,
+	       "position more: clamped");
+
+	/* Large counts repeat. */
+	test_kd_reset(0);
+	feed("\x1b[999A");
+	ASSERT(test_kd_ops() == 999, "position more: 999 ups");
+	ASSERT(test_kd_event(0)->op == TEST_KD_UP, "position more: first up");
+	ASSERT(test_kd_event(63)->op == TEST_KD_UP, "position more: last up");
+}
+
+static void
+test_unknown(void)
+{
+	/* `\e[?...` and `\e[<...` unsupported commands are dropped. */
+	test_kd_reset(0);
+	feed("\x1b[?25h");
+	ASSERT(test_kd_ops() == 0, "unknown: question dropped");
+	test_kd_reset(0);
+	feed("\x1b[<1;2m");
+	ASSERT(test_kd_ops() == 0, "unknown: angle dropped");
+	/* A bare printable command byte is dropped too. */
+	test_kd_reset(0);
+	feed("\x1b[Z");
+	ASSERT(test_kd_ops() == 0, "unknown: Z dropped");
+	/* An incomplete sequence runs nothing until the byte arrives. */
+	test_kd_reset(0);
+	feed("\x1b[");
+	ASSERT(test_kd_ops() == 0, "unknown: incomplete");
+	feed("Z");
+	ASSERT(test_kd_ops() == 0, "unknown: completed drop");
+}
+
+static void
+test_tab_more(void)
+{
+	/* At column 0, a tab is eight spaces. */
+	test_kd_reset(0);
+	feed("\t");
+	ASSERT(test_kd_ops() == 16, "tab more: eight spaces");
+	ASSERT(test_kd_event(0)->op == TEST_KD_PUT, "tab more: put");
+	ASSERT(test_kd_event(15)->op == TEST_KD_RIGHT, "tab more: right");
+
+	/* At column 74 the tab advances six spaces. */
+	test_kd_reset(148);
+	feed("\t");
+	ASSERT(test_kd_ops() == 12, "tab more: six spaces");
+}
+
+static void
+test_incomplete(void)
+{
+	test_kd_reset(0);
+	feed("\x1b[");
+	ASSERT(test_kd_ops() == 0, "incomplete: open");
+	feed("1");
+	ASSERT(test_kd_ops() == 0, "incomplete: parameter");
+	feed(";");
+	ASSERT(test_kd_ops() == 0, "incomplete: semicolon");
+	feed("5");
+	ASSERT(test_kd_ops() == 0, "incomplete: parameter");
+	feed("m");
+	ASSERT(test_kd_ops() == 0, "incomplete: attribute");
+	/* 1 sets bold, 5 blinks: 7 ^ 0x08 ^ 0x80. */
+	ASSERT(test_kd_attr() == (KA_NORMAL ^ 0x08 ^ 0x80),
+	       "incomplete: bold and blink");
+}
+
+static void
+test_attr_more(void)
+{
+	/* Bold, then foreground yellow (3 -> color_table[3] = 6) and
+	 * background blue (4 -> color_table[4] = 1); bold flips bit 3. */
+	test_kd_reset(0);
+	feed("\x1b[1;33;44m");
+	ASSERT(test_kd_attr() == (0x16 ^ 0x08), "attr more: bold + colors");
+
+	/* 22 clears bold and dim, leaving the color. */
+	feed("\x1b[22m");
+	ASSERT(test_kd_attr() == 0x16, "attr more: 22 clears bold");
+
+	/* 4 underlines with the bright foreground. */
+	feed("\x1b[4m");
+	ASSERT(test_kd_attr() == ((0x16 & 0xf0) | KAX_COL_UNDERLINE),
+	       "attr more: underline");
+
+	/* 24 clears underline. */
+	feed("\x1b[24m");
+	ASSERT(test_kd_attr() == 0x16, "attr more: 24 clears underline");
+
+	/* 39 clears underline and resets the foreground. */
+	feed("\x1b[39m");
+	ASSERT(test_kd_attr() == ((0x16 & 0xf0) | (KA_NORMAL & 0x0f)),
+	       "attr more: 39 resets fg");
+
+	/* An unknown number leaves the attributes alone. */
+	feed("\x1b[99m");
+	ASSERT(test_kd_attr() == ((0x16 & 0xf0) | (KA_NORMAL & 0x0f)),
+	       "attr more: unknown no-op");
+}
+
+static void
 test_modifier(void)
 {
 	int st = KS_NORMAL;
@@ -217,8 +364,14 @@ main(int argc, char *argv[], int envc, char *envp[])
 {
 	test_plain();
 	test_cursor();
+	test_cursor_more();
 	test_position();
+	test_position_more();
 	test_clear();
+	test_unknown();
+	test_tab_more();
+	test_incomplete();
+	test_attr_more();
 	test_edit();
 	test_scroll();
 	test_attr();
