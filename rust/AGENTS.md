@@ -104,10 +104,13 @@ convenient to write.
 
 `mise run test` — the project's own `make check`, booting every
 `tests/module-*` under qemu on x86_64 and i386 — is what decides whether a
-port is correct.  There are no host-side Rust unit tests and no second build
-path to maintain.  A ported routine is verified by being exercised through the
+port is correct.  A ported routine is verified by being exercised through the
 running kernel; if it has behaviour the suite does not reach, the test to add
-is a C one under `tests/`, beside the others.
+is a C one under `tests/`, beside the others.  The one exception is a module
+that needs nothing from the kernel and keeps out of `crate::`: it may carry
+`#[cfg(test)]` tests, which `tests/test-rbtree-rs` compiles for the host as
+part of `make check`.  That is not a second build path for the kernel — the
+module is still compiled into `libmach-rs.a` like any other.
 
 `.githooks/pre-commit` runs the whole suite on every commit, deliberately and
 without a file-extension filter.

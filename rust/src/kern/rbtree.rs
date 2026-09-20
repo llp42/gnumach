@@ -704,3 +704,534 @@ pub unsafe extern "C" fn rbtree_postwalk_unlink(
         }
     }
 }
+
+/// Host unit tests; `tests/test-rbtree-rs` compiles this file with
+/// `rustc --test` and runs them.  They exercise the C macro protocols
+/// (insert, lookup_slot/insert_slot, lookup_nearest) the way
+/// `vm/vm_map.c` and `kern/slab.c` use them, and check the red-black
+/// rules after every mutation.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::mem::offset_of;
+
+    /// A keyed entry: the node comes first, so a node pointer can be
+    /// mapped back to its key.
+    #[repr(C)]
+    struct Entry {
+        node: RbtreeNode,
+        key: u32,
+    }
+
+    fn entries(keys: &[u32]) -> Vec<Entry> {
+        let mut v = Vec::with_capacity(keys.len());
+        for &key in keys {
+            v.push(Entry {
+                node: RbtreeNode {
+                    parent: 0,
+                    children: [None, None],
+                },
+                key,
+            });
+        }
+        v
+    }
+
+    fn node_of(entry: &Entry) -> *mut RbtreeNode {
+        &entry.node as *const RbtreeNode as *mut RbtreeNode
+    }
+
+    /// The entry a node lives in.
+    ///
+    /// # Safety
+    ///
+    /// `node` must point at the `node` field of an `Entry`.
+    unsafe fn entry_of(node: *const RbtreeNode) -> *const Entry {
+        // SAFETY: the caller promises the node field's address.
+        (unsafe { (node as *const u8).sub(offset_of!(Entry, node)) })
+            as *const Entry
+    }
+
+    /// # Safety
+    ///
+    /// As `entry_of`.
+    unsafe fn key_of(node: *const RbtreeNode) -> u32 {
+        // SAFETY: the caller promises a node inside an Entry.
+        unsafe { (*entry_of(node)).key }
+    }
+
+    /// `rbtree_d2i()` of <kern/rbtree_i.h>.
+    fn d2i(diff: i64) -> c_int {
+        if diff <= 0 { RBTREE_LEFT } else { RBTREE_RIGHT }
+    }
+
+    /// The C `rbtree_insert()` macro.
+    ///
+    /// # Safety
+    ///
+    /// `tree` and `entry` must be valid, and the entry's key absent.
+    unsafe fn insert(tree: *mut Rbtree, entry: &Entry) {
+        let node = node_of(entry);
+        let mut prev: *mut RbtreeNode = ptr::null_mut();
+        let mut index = -1;
+        // SAFETY: the caller promises a valid tree.
+        let mut cur =
+            unsafe { (*tree).root.map_or(ptr::null_mut(), NonNull::as_ptr) };
+
+        while !cur.is_null() {
+            // SAFETY: as above; the walk follows valid children.
+            let diff = entry.key as i64 - unsafe { key_of(cur) } as i64;
+            prev = cur;
+            index = d2i(diff);
+            cur = unsafe {
+                (*cur).children[index as usize]
+                    .map_or(ptr::null_mut(), NonNull::as_ptr)
+            };
+        }
+
+        // SAFETY: the caller promises the entry is unlinked.
+        unsafe { rbtree_insert_rebalance(tree, prev, index, node) };
+    }
+
+    /// The C `rbtree_lookup_slot()` macro: the node and an insertion
+    /// point packed as `parent | index`.
+    ///
+    /// # Safety
+    ///
+    /// `tree` must be valid.
+    unsafe fn lookup_slot(
+        tree: *mut Rbtree,
+        key: u32,
+    ) -> (*mut RbtreeNode, usize) {
+        let mut prev: *mut RbtreeNode = ptr::null_mut();
+        let mut index = 0;
+        // SAFETY: the caller promises a valid tree.
+        let mut cur =
+            unsafe { (*tree).root.map_or(ptr::null_mut(), NonNull::as_ptr) };
+
+        while !cur.is_null() {
+            // SAFETY: as above.
+            let diff = key as i64 - unsafe { key_of(cur) } as i64;
+            if diff == 0 {
+                break;
+            }
+            prev = cur;
+            index = d2i(diff);
+            cur = unsafe {
+                (*cur).children[index as usize]
+                    .map_or(ptr::null_mut(), NonNull::as_ptr)
+            };
+        }
+
+        (cur, prev.addr() | index as usize)
+    }
+
+    /// The C `rbtree_insert_slot()` inline: unpack the slot and
+    /// rebalance.
+    ///
+    /// # Safety
+    ///
+    /// The slot must come from `lookup_slot` on this tree and the key
+    /// must be absent.
+    unsafe fn insert_slot(
+        tree: *mut Rbtree,
+        slot: usize,
+        node: *mut RbtreeNode,
+    ) {
+        let parent = ptr::with_exposed_provenance_mut(slot & !1usize);
+        let index = (slot & 1) as c_int;
+        // SAFETY: the caller promises a valid slot and node.
+        unsafe { rbtree_insert_rebalance(tree, parent, index, node) };
+    }
+
+    /// The C `rbtree_lookup_nearest()` macro in `direction`.
+    ///
+    /// # Safety
+    ///
+    /// `tree` must be valid.
+    unsafe fn lookup_nearest(
+        tree: *mut Rbtree,
+        key: u32,
+        direction: c_int,
+    ) -> *mut RbtreeNode {
+        let mut prev: *mut RbtreeNode = ptr::null_mut();
+        let mut index = -1;
+        // SAFETY: the caller promises a valid tree.
+        let mut cur =
+            unsafe { (*tree).root.map_or(ptr::null_mut(), NonNull::as_ptr) };
+
+        while !cur.is_null() {
+            // SAFETY: as above.
+            let diff = key as i64 - unsafe { key_of(cur) } as i64;
+            if diff == 0 {
+                break;
+            }
+            prev = cur;
+            index = d2i(diff);
+            cur = unsafe {
+                (*cur).children[index as usize]
+                    .map_or(ptr::null_mut(), NonNull::as_ptr)
+            };
+        }
+
+        if cur.is_null() {
+            // SAFETY: as above.
+            cur = unsafe { rbtree_nearest(prev, index, direction) };
+        }
+        cur
+    }
+
+    /// # Safety
+    ///
+    /// `tree` must be valid.
+    unsafe fn find(tree: *mut Rbtree, key: u32) -> *mut RbtreeNode {
+        // SAFETY: the caller promises a valid tree.
+        let mut cur =
+            unsafe { (*tree).root.map_or(ptr::null_mut(), NonNull::as_ptr) };
+
+        while !cur.is_null() {
+            // SAFETY: as above.
+            let node_key = unsafe { key_of(cur) };
+            if node_key == key {
+                return cur;
+            }
+            let side = if key < node_key {
+                RBTREE_LEFT
+            } else {
+                RBTREE_RIGHT
+            };
+            cur = unsafe {
+                (*cur).children[side as usize]
+                    .map_or(ptr::null_mut(), NonNull::as_ptr)
+            };
+        }
+
+        ptr::null_mut()
+    }
+
+    /// The keys in order, by walking first to last.
+    ///
+    /// # Safety
+    ///
+    /// `tree` must be valid.
+    unsafe fn keys_in_order(tree: *mut Rbtree) -> Vec<u32> {
+        let mut keys = Vec::new();
+        // SAFETY: the caller promises a valid tree.
+        let mut node = unsafe { rbtree_firstlast(tree, RBTREE_LEFT) };
+
+        while !node.is_null() {
+            // SAFETY: as above; walk follows linked nodes.
+            keys.push(unsafe { key_of(node) });
+            node = unsafe { rbtree_walk(node, RBTREE_RIGHT) };
+        }
+
+        keys
+    }
+
+    /// Verify the red-black rules and parent links; returns the black
+    /// height.
+    ///
+    /// # Safety
+    ///
+    /// `tree` must be valid.
+    unsafe fn check(tree: *mut Rbtree) -> usize {
+        // SAFETY: the caller promises a valid tree.
+        match unsafe { (*tree).root } {
+            None => 1,
+            Some(root) => {
+                // SAFETY: as above.
+                assert_eq!(unsafe { get_parent(root) }, None, "root parent");
+                assert!(unsafe { is_black(root) }, "root is black");
+                unsafe { check_node(root) }
+            }
+        }
+    }
+
+    /// # Safety
+    ///
+    /// `node` must be a valid node.
+    unsafe fn check_node(node: NonNull<RbtreeNode>) -> usize {
+        // SAFETY: the caller promises a valid node.
+        let children = unsafe { (*node.as_ptr()).children };
+
+        for child in children {
+            if let Some(child) = child {
+                // SAFETY: the links of a valid node point at nodes.
+                assert_eq!(
+                    unsafe { get_parent(child) },
+                    Some(node),
+                    "parent link"
+                );
+            }
+        }
+
+        if unsafe { is_red(node) } {
+            for child in children {
+                assert!(
+                    child.is_none_or(|c| unsafe { is_black(c) }),
+                    "red node with a red child"
+                );
+            }
+        }
+
+        let left = children[LEFT].map_or(1, |c| unsafe { check_node(c) });
+        let right = children[RIGHT].map_or(1, |c| unsafe { check_node(c) });
+        assert_eq!(left, right, "black height");
+
+        if unsafe { is_red(node) } {
+            left
+        } else {
+            left + 1
+        }
+    }
+
+    struct Rng(u32);
+
+    impl Rng {
+        fn next(&mut self) -> u32 {
+            let mut x = self.0;
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            self.0 = x;
+            x
+        }
+    }
+
+    /// A Fisher-Yates shuffle of `keys`, so the mutation order is
+    /// random but reproducible.
+    fn shuffled(keys: &[u32], rng: &mut Rng) -> Vec<u32> {
+        let mut v = keys.to_vec();
+        for i in (1..v.len()).rev() {
+            let j = (rng.next() as usize) % (i + 1);
+            v.swap(i, j);
+        }
+        v
+    }
+
+    #[test]
+    fn empty_tree() {
+        let mut tree = Rbtree { root: None };
+
+        // SAFETY: the tree is valid, and null arguments are allowed.
+        unsafe {
+            assert!(rbtree_firstlast(&tree, RBTREE_LEFT).is_null());
+            assert!(rbtree_firstlast(&tree, RBTREE_RIGHT).is_null());
+            assert!(rbtree_walk(ptr::null_mut(), RBTREE_LEFT).is_null());
+            assert!(
+                rbtree_nearest(ptr::null_mut(), -1, RBTREE_LEFT).is_null()
+            );
+            assert!(rbtree_postwalk_deepest(&tree).is_null());
+            assert!(rbtree_postwalk_unlink(ptr::null_mut()).is_null());
+            assert_eq!(check(&mut tree), 1);
+        }
+    }
+
+    #[test]
+    fn single_node() {
+        let v = entries(&[7]);
+        let mut tree = Rbtree { root: None };
+
+        // SAFETY: one entry, inserted once, then removed.
+        unsafe {
+            insert(&mut tree, &v[0]);
+            let node = node_of(&v[0]);
+
+            assert_eq!(rbtree_firstlast(&tree, RBTREE_LEFT), node);
+            assert_eq!(rbtree_firstlast(&tree, RBTREE_RIGHT), node);
+            assert!(rbtree_walk(node, RBTREE_LEFT).is_null());
+            assert!(rbtree_walk(node, RBTREE_RIGHT).is_null());
+            check(&mut tree);
+
+            rbtree_remove(&mut tree, node);
+            assert!(tree.root.is_none());
+            // The removed node is stale, not relinked to itself.
+            assert_ne!((*node).parent & PARENT_MASK, node.addr());
+            assert_eq!(check(&mut tree), 1);
+        }
+    }
+
+    #[test]
+    fn ascending_and_descending() {
+        let keys: Vec<u32> = (0..128).collect();
+
+        let v = entries(&keys);
+        let mut tree = Rbtree { root: None };
+        // SAFETY: `v` is stable, each entry inserted once.
+        unsafe {
+            for entry in &v {
+                insert(&mut tree, entry);
+                check(&mut tree);
+            }
+            assert_eq!(keys_in_order(&mut tree), keys);
+            assert_eq!(rbtree_firstlast(&tree, RBTREE_LEFT), node_of(&v[0]));
+            assert_eq!(
+                rbtree_firstlast(&tree, RBTREE_RIGHT),
+                node_of(&v[127])
+            );
+        }
+
+        let reversed = entries(&keys);
+        let mut tree = Rbtree { root: None };
+        // SAFETY: as above, with fresh entries.
+        unsafe {
+            for entry in reversed.iter().rev() {
+                insert(&mut tree, entry);
+                check(&mut tree);
+            }
+            assert_eq!(keys_in_order(&mut tree), keys);
+        }
+    }
+
+    #[test]
+    fn random_insert_remove() {
+        let count = 257u32;
+        let keys: Vec<u32> = (0..count).collect();
+        let mut rng = Rng(0x1234_5678);
+        let v = entries(&keys);
+        let mut tree = Rbtree { root: None };
+        let mut model: Vec<u32> = Vec::new();
+
+        for &key in &shuffled(&keys, &mut rng) {
+            // SAFETY: `v` is stable, each entry inserted once.
+            unsafe { insert(&mut tree, &v[key as usize]) };
+            let pos = model.partition_point(|&k| k < key);
+            model.insert(pos, key);
+            // SAFETY: the tree is valid.
+            unsafe { check(&mut tree) };
+            assert_eq!(unsafe { keys_in_order(&mut tree) }, model);
+        }
+
+        // The nearest node, on both sides of every key.
+        for probe in 0..count + 2 {
+            let expected = match model.binary_search(&probe) {
+                Ok(_) => (Some(probe), Some(probe)),
+                Err(pos) => (
+                    pos.checked_sub(1).map(|i| model[i]),
+                    model.get(pos).copied(),
+                ),
+            };
+            // SAFETY: the tree is valid.
+            let (prev, next) = unsafe {
+                (
+                    lookup_nearest(&mut tree, probe, RBTREE_LEFT),
+                    lookup_nearest(&mut tree, probe, RBTREE_RIGHT),
+                )
+            };
+            let prev = if prev.is_null() {
+                None
+            } else {
+                Some(unsafe { key_of(prev) })
+            };
+            let next = if next.is_null() {
+                None
+            } else {
+                Some(unsafe { key_of(next) })
+            };
+            assert_eq!(prev, expected.0, "previous of {probe}");
+            assert_eq!(next, expected.1, "next of {probe}");
+        }
+
+        // Remove in another random order, checking after every step.
+        for &key in &shuffled(&keys, &mut rng) {
+            // SAFETY: the tree still holds every entry.
+            let node = unsafe { find(&mut tree, key) };
+            assert!(!node.is_null(), "missing key {key}");
+            // SAFETY: the node is linked in the tree.
+            unsafe { rbtree_remove(&mut tree, node) };
+            let pos = model.binary_search(&key).unwrap();
+            model.remove(pos);
+            // SAFETY: the tree is valid.
+            unsafe { check(&mut tree) };
+            assert_eq!(unsafe { keys_in_order(&mut tree) }, model);
+        }
+
+        assert!(tree.root.is_none());
+    }
+
+    #[test]
+    fn lookup_slot_matches_insert() {
+        let keys: Vec<u32> = (0..64).collect();
+        let v = entries(&keys);
+        let mut tree = Rbtree { root: None };
+        let mut model: Vec<u32> = Vec::new();
+        let mut rng = Rng(0x9e37_79b9);
+
+        for &key in &shuffled(&keys, &mut rng) {
+            // SAFETY: `v` is stable and the key is not in the tree yet.
+            let (found, slot) = unsafe { lookup_slot(&mut tree, key) };
+            assert!(found.is_null(), "key {key} already present");
+            // SAFETY: the slot came from this tree.
+            unsafe { insert_slot(&mut tree, slot, node_of(&v[key as usize])) };
+            let pos = model.partition_point(|&k| k < key);
+            model.insert(pos, key);
+            // SAFETY: the tree is valid.
+            unsafe { check(&mut tree) };
+            assert_eq!(unsafe { keys_in_order(&mut tree) }, model);
+        }
+
+        for &key in &keys {
+            // SAFETY: the tree is valid.
+            let (found, _) = unsafe { lookup_slot(&mut tree, key) };
+            assert_eq!(found, unsafe { find(&mut tree, key) });
+        }
+    }
+
+    #[test]
+    fn remove_inner_nodes() {
+        let keys: Vec<u32> = (1..=15).collect();
+        let v = entries(&keys);
+        let mut tree = Rbtree { root: None };
+        let mut model = keys.clone();
+
+        // SAFETY: `v` is stable, each entry inserted once.
+        unsafe {
+            for entry in &v {
+                insert(&mut tree, entry);
+            }
+        }
+
+        // The root first, then every shape of two-children node.
+        for &key in &[8u32, 4, 12, 2, 6, 10, 14, 1, 3, 5, 7, 9, 11, 13, 15] {
+            // SAFETY: the tree still holds every entry.
+            let node = unsafe { find(&mut tree, key) };
+            assert!(!node.is_null(), "missing key {key}");
+            // SAFETY: the node is linked in the tree.
+            unsafe { rbtree_remove(&mut tree, node) };
+            model.retain(|&k| k != key);
+            // SAFETY: the tree is valid.
+            unsafe { check(&mut tree) };
+            assert_eq!(unsafe { keys_in_order(&mut tree) }, model);
+        }
+
+        assert!(tree.root.is_none());
+    }
+
+    #[test]
+    fn postwalk_destroys() {
+        let keys: Vec<u32> = (0..100).collect();
+        let v = entries(&keys);
+        let mut tree = Rbtree { root: None };
+        let mut rng = Rng(0xdead_beef);
+
+        // SAFETY: `v` is stable, each entry inserted once.
+        unsafe {
+            for &key in &shuffled(&keys, &mut rng) {
+                insert(&mut tree, &v[key as usize]);
+            }
+            check(&mut tree);
+        }
+
+        let mut removed = Vec::new();
+        // SAFETY: the tree is valid; the traversal unlinks as it goes.
+        let mut node = unsafe { rbtree_postwalk_deepest(&tree) };
+        while !node.is_null() {
+            removed.push(unsafe { key_of(node) });
+            // SAFETY: as above.
+            node = unsafe { rbtree_postwalk_unlink(node) };
+        }
+
+        removed.sort_unstable();
+        assert_eq!(removed, keys);
+    }
+}

@@ -21,6 +21,7 @@ dnl 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 #
 
 AC_CONFIG_FILES([tests/test-multiboot], [chmod +x tests/test-multiboot])
+AC_CONFIG_FILES([tests/test-rbtree-rs], [chmod +x tests/test-rbtree-rs])
 
 
 [if test x"$enable_user32" = xyes ; then
