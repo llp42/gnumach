@@ -57,7 +57,7 @@ Rust story.  This is the "why" behind every blocker in §4.
 
 | Layer | C machinery | Rust must first provide | Blocks |
 |---|---|---|---|
-| **L0 pure** | string ops (already Rust), byte order (Rust), parser tables | nothing | `ipc_thread.c`, `atoi.c` |
+| **L0 pure** | string ops (already Rust), byte order (Rust), parser tables | nothing | `atoi.c` |
 | **L1 types** | `struct thread`, `task`, `processor`, `processor_set`, `ipc_port`, `vm_map` read/written field-by-field, sometimes by asm (`i386asm.sym`) | `#[repr(C)]` mirror + offset/size `const` asserts, or C accessor shims; decision on who owns the layout | everything in `kern/` |
 | **L2 locks/IRQ/percpu** | `simple_lock`/`_simple_lock` (inline `xchg` macros), `spl*` (`spl.S`, per-CPU `curr_ipl`), `simple_lock_irq`, `percpu_get`/`current_thread()` (`%gs`), `__sync_synchronize`, `cpu_pause` | A `SpinLock` type `repr(transparent)` over `natural_t` so C macros keep working; an `IrqGuard` over `splx`; a per-CPU accessor in `src/arch/`; C shims for the lock/percpu/spl macros (first real shim customers) | `lock.c`, `kmutex.c`, `eventcount.c`, `priority.c`, `timer.c`, scheduler/IPC/VM files |
 | **L3 memory** | `kalloc`/`kfree`, `kmem_cache_*` (slab), `kmem_alloc_wired`, `vm_page_*` | the same C API behind thin shims; optionally later a `GlobalAlloc` over `kalloc` (an explicit design decision, not a quiet add) | `slab.c` itself, `rdxtree.c`, `syscall_emulation.c`, `processor.c`, `task.c` |
@@ -948,6 +948,27 @@ MIG-generated `.c` live only under `build-*/` and are not ported.
 | `ipc_right.c` | 1844 | rights translation (anchor) | 5 | entry/space/table/marequest |
 | `mach_msg.c` | 1648 | `mach_msg_trap` (anchor) | 5 | copyin/out, locore/pcb, sched |
 
+`ipc_thread.c` is ported; its §9 row comes with the port commit.  The
+entry below keeps the detail §4.1 gives the `kern/` files.
+
+#### `ipc/ipc_thread.c` — 103 lines — ported
+* **Role.** The LIFO stack of threads waiting on a message queue or
+  blocked on a port; the links are `ith_next`/`ith_prev` inside
+  `struct thread`.
+* **Rust home.** `src/ipc/ipc_thread.rs`: `IpcThreadQueue` with
+  `init`/`first`/`enqueue`/`dequeue`/`rmqueue`/`rmqueue_first`, and
+  `ThreadRef` for a thread and its links.  The queue is Rust-native and
+  the C side is seven adapters.
+* **Bridges.** `struct thread` is still C, so the module asks the new
+  `ipc/ipc_thread_glue.c` for a view of the `ith_next`/`ith_prev` pair
+  (asserted adjacent in C); `glue.rs` declares the shim.
+* **Header.** `ipc_thread.h` keeps the struct and the prototypes only:
+  every macro became a function, the dead `ipc_thread_queue_empty()`
+  is gone, and the 18 former-macro call sites use the functions.
+* **Tests.** Qemu only: `test-machmsg`, `test-mach_port`,
+  `test-syscalls`, `test-task` and `test-threads` move rights and
+  messages through the queues.
+
 ### device/ (12 files, 7,580 LOC)
 
 | File | LOC | Role | Friction | Blockers |
@@ -1219,25 +1240,25 @@ generated `.server.h`; the unmarshalling, `TypeCheck` and
 ## 6. Least-friction candidates, in order
 
 Ported from this list so far: `kern/rbtree.c`, `i386/i386at/kd_queue.c`,
-`i386/i386at/mem.c` and `i386/i386at/mbinfo.c` (see §9).
+`i386/i386at/mem.c`, `i386/i386at/mbinfo.c` and `ipc/ipc_thread.c`
+(see §9).
 
 Tier 1 — no new infrastructure:
 
-1. `ipc/ipc_thread.c` — 0 undefined; header macros only.
-2. `util/atoi.c` — 0 undefined; needs a `tests/` copy in the same
+1. `util/atoi.c` — 0 undefined; needs a `tests/` copy in the same
    commit.
-3. `ipc/ipc_target.c` — one call to `ipc_mqueue_init` (shim or defer).
-4. `i386/i386/ast_check.c`, `i386/i386/hardclock.c` — tiny, asm-free.
-5. `kern/boot_script.c` — isolated, allocation callbacks only.
+2. `ipc/ipc_target.c` — one call to `ipc_mqueue_init` (shim or defer).
+3. `i386/i386/ast_check.c`, `i386/i386/hardclock.c` — tiny, asm-free.
+4. `kern/boot_script.c` — isolated, allocation callbacks only.
 
 Tier 2 — after the first shims (percpu, locks, `struct` mirrors):
 
-6. `kern/timer.c` — needs `cpu_number` accessor only.
-7. `kern/kmutex.c`, `kern/mach_factor.c`, `kern/thread_swap.c` — need
+5. `kern/timer.c` — needs `cpu_number` accessor only.
+6. `kern/kmutex.c`, `kern/mach_factor.c`, `kern/thread_swap.c` — need
     the lock/sleep layer.
-8. `kern/syscall_sw.c` — the trap table can move once entry layout is
+7. `kern/syscall_sw.c` — the trap table can move once entry layout is
     `#[repr(C)]`; the routines it names need not have moved.
-9. `device/cirbuf.c`, `device/dev_name.c`, `chips/busses.c`,
+8. `device/cirbuf.c`, `device/dev_name.c`, `chips/busses.c`,
     `vm/vm_external.c`, `ipc/ipc_table.c`, `i386/i386/pit.c`,
     `i386/i386/irq.c`, `i386/i386/machine_task.c` — small, one or two
     leaf dependencies.

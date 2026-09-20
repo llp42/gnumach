@@ -50,7 +50,7 @@ libkernel_a_SOURCES += \
 	ipc/ipc_table.h \
 	ipc/ipc_target.c \
 	ipc/ipc_target.h \
-	ipc/ipc_thread.c \
+	ipc/ipc_thread_glue.c \
 	ipc/ipc_thread.h \
 	ipc/ipc_types.h \
 	ipc/mach_msg.c \

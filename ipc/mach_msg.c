@@ -786,13 +786,13 @@ mach_msg_trap(
 			 *	with a sequence number in this case.
 			 */
 
-			ipc_thread_enqueue_macro(
+			ipc_thread_enqueue(
 				&rcv_mqueue->imq_threads, self);
 			self->ith_state = MACH_RCV_IN_PROGRESS;
 			self->ith_msize = MACH_MSG_SIZE_MAX;
 			simple_unlock(&(rcv_mqueue)->imq_lock_data);
 
-			ipc_thread_rmqueue_first_macro(
+			ipc_thread_rmqueue_first(
 				&dest_mqueue->imq_threads, receiver);
 			simple_unlock(&(dest_mqueue)->imq_lock_data);
 
@@ -818,13 +818,13 @@ mach_msg_trap(
 				dest_port->ip_msgcount++;
 				ip_unlock(dest_port);
 
-				ipc_thread_enqueue_macro(
+				ipc_thread_enqueue(
 					&rcv_mqueue->imq_threads, self);
 				self->ith_state = MACH_RCV_IN_PROGRESS;
 				self->ith_msize = MACH_MSG_SIZE_MAX;
 				simple_unlock(&(rcv_mqueue)->imq_lock_data);
 
-				ipc_thread_rmqueue_first_macro(
+				ipc_thread_rmqueue_first(
 					&dest_mqueue->imq_threads, receiver);
 				receiver->ith_state = MACH_MSG_SUCCESS;
 				receiver->ith_kmsg = kmsg;
@@ -864,7 +864,7 @@ mach_msg_trap(
 		 *	time asleep in rcv_mqueue.
 		 */
 
-		ipc_thread_enqueue_macro(&rcv_mqueue->imq_threads, self);
+		ipc_thread_enqueue(&rcv_mqueue->imq_threads, self);
 		self->ith_state = MACH_RCV_IN_PROGRESS;
 		self->ith_msize = MACH_MSG_SIZE_MAX;
 		simple_unlock(&(rcv_mqueue)->imq_lock_data);
@@ -873,7 +873,7 @@ mach_msg_trap(
 		 *	Finish extracting receiver from dest_mqueue.
 		 */
 
-		ipc_thread_rmqueue_first_macro(
+		ipc_thread_rmqueue_first(
 			&dest_mqueue->imq_threads, receiver);
 		kmsg->ikm_header.msgh_seqno = dest_port->ip_seqno++;
 		simple_unlock(&(dest_mqueue)->imq_lock_data);

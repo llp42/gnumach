@@ -440,7 +440,7 @@ exception_raise(
 	 *	holding the extra ref for reply_port.
 	 */
 
-	ipc_thread_enqueue_macro(&reply_mqueue->imq_threads, self);
+	ipc_thread_enqueue(&reply_mqueue->imq_threads, self);
 	self->ith_state = MACH_RCV_IN_PROGRESS;
 	self->ith_msize = MACH_MSG_SIZE_MAX;
 	simple_unlock(&(reply_mqueue)->imq_lock_data);
@@ -449,7 +449,7 @@ exception_raise(
 	 *	Finish extracting receiver from dest_mqueue.
 	 */
 
-	ipc_thread_rmqueue_first_macro(
+	ipc_thread_rmqueue_first(
 		&dest_mqueue->imq_threads, receiver);
 	simple_unlock(&(dest_mqueue)->imq_lock_data);
 

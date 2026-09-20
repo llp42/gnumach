@@ -11,6 +11,7 @@
 
 pub mod arch;
 pub mod glue;
+pub mod ipc;
 pub mod kern;
 pub mod utils;
 

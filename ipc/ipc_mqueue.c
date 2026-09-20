@@ -341,7 +341,7 @@ ipc_mqueue_send(
 			break;
 		}
 
-		ipc_thread_rmqueue_first_macro(receivers, receiver);
+		ipc_thread_rmqueue_first(receivers, receiver);
 
 		if (kmsg->ikm_header.msgh_size <= receiver->ith_msize) {
 			/* got a successful receiver */
@@ -545,7 +545,7 @@ ipc_mqueue_receive(
 		} else
 			thread_will_wait(self);
 
-		ipc_thread_enqueue_macro(&mqueue->imq_threads, self);
+		ipc_thread_enqueue(&mqueue->imq_threads, self);
 		self->ith_state = MACH_RCV_IN_PROGRESS;
 		self->ith_msize = max_size;
 

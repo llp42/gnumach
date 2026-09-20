@@ -50,55 +50,23 @@ typedef struct ipc_thread_queue {
 } *ipc_thread_queue_t;
 
 
-#define	ipc_thread_links_init(thread)		\
-MACRO_BEGIN					\
-	(thread)->ith_next = (thread);		\
-	(thread)->ith_prev = (thread);		\
-MACRO_END
+/*
+ * The operations are Rust now (rust/src/ipc/ipc_thread.rs); ipc_thread.c
+ * is gone and the former header macros are functions.  The unused
+ * ipc_thread_queue_empty() was not carried over.
+ */
 
-#define	ipc_thread_queue_init(queue)		\
-MACRO_BEGIN					\
-	(queue)->ithq_base = THREAD_NULL;		\
-MACRO_END
+/* Make a thread's links point at itself, i.e. unlinked */
+extern void ipc_thread_links_init(
+	ipc_thread_t		thread);
 
-#define	ipc_thread_queue_empty(queue)	((queue)->ithq_base == THREAD_NULL)
+/* Empty a queue */
+extern void ipc_thread_queue_init(
+	ipc_thread_queue_t	queue);
 
-#define	ipc_thread_queue_first(queue)	((queue)->ithq_base)
-
-#define	ipc_thread_rmqueue_first_macro(queue, thread)			\
-MACRO_BEGIN								\
-	ipc_thread_t _next;						\
-									\
-									\
-	_next = (thread)->ith_next;					\
-	if (_next == (thread)) {					\
-		(queue)->ithq_base = THREAD_NULL;				\
-	} else {							\
-		ipc_thread_t _prev = (thread)->ith_prev;		\
-									\
-		(queue)->ithq_base = _next;				\
-		_next->ith_prev = _prev;				\
-		_prev->ith_next = _next;				\
-		ipc_thread_links_init(thread);				\
-	}								\
-MACRO_END
-
-#define	ipc_thread_enqueue_macro(queue, thread)				\
-MACRO_BEGIN								\
-	ipc_thread_t _first = (queue)->ithq_base;			\
-									\
-	if (_first == THREAD_NULL) {					\
-		(queue)->ithq_base = (thread);				\
-	} else {							\
-		ipc_thread_t _last = _first->ith_prev;			\
-									\
-		(thread)->ith_next = _first;				\
-		(thread)->ith_prev = _last;				\
-		_first->ith_prev = (thread);				\
-		_last->ith_next = (thread);				\
-		(queue)->ithq_base = (thread);				\
-	}								\
-MACRO_END
+/* The first thread of a queue, or THREAD_NULL */
+extern ipc_thread_t ipc_thread_queue_first(
+	ipc_thread_queue_t	queue);
 
 /* Enqueue a thread on a message queue */
 extern void ipc_thread_enqueue(
@@ -111,6 +79,11 @@ extern ipc_thread_t ipc_thread_dequeue(
 
 /* Remove a thread from a message queue */
 extern void ipc_thread_rmqueue(
+	ipc_thread_queue_t	queue,
+	ipc_thread_t		thread);
+
+/* Remove the first thread from a message queue */
+extern void ipc_thread_rmqueue_first(
 	ipc_thread_queue_t	queue,
 	ipc_thread_t		thread);
 
