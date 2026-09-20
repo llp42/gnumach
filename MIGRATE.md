@@ -1158,6 +1158,7 @@ green, `rustfmt`/`clippy` clean, no new undefined symbols.
 | `util/byteorder.c` | `src/utils/byteorder.rs` | `7ad91b7b` |
 | `kern/elf-load.c` | `src/kern/elf_load.rs` | `308594ca` |
 | `i386/i386at/kd_queue.c` | `src/utils/kd_queue.rs` | `ed2502e9` |
+| `i386/i386at/kd_mouse.c` | `src/arch/i386/kd_mouse.rs` | `64f44fa8` |
 
 Deleted dead code: `device/blkio.c` (unreachable block pager path) and
 the `#if 0` profiling facility (`profil.h`, `profilparam.h`,
