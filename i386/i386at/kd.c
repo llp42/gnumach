@@ -149,6 +149,18 @@ int  	kd_state	= KS_NORMAL;
 int	kb_mode		= KB_ASCII;	/* event/ascii */
 
 /*
+ * C shim for the Rust keyboard-event driver, which sets the mode:
+ * see rust/src/glue.rs.
+ */
+void kbd_set_mode (int mode);
+
+void
+kbd_set_mode (int mode)
+{
+	kb_mode = mode;
+}
+
+/*
  * State for the keyboard "mouse".
  */
 int kd_kbd_mouse = 0;

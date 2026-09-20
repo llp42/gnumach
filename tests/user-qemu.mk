@@ -133,6 +133,7 @@ TESTSRC_TESTLIB= \
 
 SRC_TESTLIB= \
 	$(srcdir)/kern/printf.c \
+	$(srcdir)/tests/kd_event.c \
 	$(srcdir)/tests/kd_mouse.c \
 	$(srcdir)/tests/kd_queue.c \
 	$(srcdir)/tests/string.c \
@@ -224,6 +225,7 @@ USER_TESTS := \
 	tests/test-hello \
 	tests/test-mach_host \
 	tests/test-gsync \
+	tests/test-kd-event \
 	tests/test-kd-mouse \
 	tests/test-kd-queue \
 	tests/test-mach_port \

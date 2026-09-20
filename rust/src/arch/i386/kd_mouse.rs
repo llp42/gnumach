@@ -16,48 +16,23 @@
 //! `mouse_in_use` and `mouse_handle_byte()` stay exported symbols:
 //! `i386/i386at/kd.c` reads the first and calls the second.
 
+use super::io_req::{
+    D_ALREADY_OPEN, D_INVALID_OPERATION, D_INVALID_SIZE, D_IO_QUEUED,
+    D_NOWAIT, D_SUCCESS, D_WOULD_BLOCK, DEV_GET_SIZE, DEV_GET_SIZE_COUNT,
+    DEV_GET_SIZE_DEVICE_SIZE, DEV_GET_SIZE_RECORD_SIZE, DevT, IoReq,
+    KERN_SUCCESS, drain,
+};
 use crate::glue;
 use crate::kern::queue::QueueEntry;
 use crate::utils::kd_queue::{KdEvent, KdEventQueue, KevType, MouseMotion};
-use core::ffi::{c_char, c_int, c_long, c_uint, c_ulong, c_void};
-use core::mem::{MaybeUninit, offset_of, size_of};
+use core::ffi::{c_int, c_long, c_uint};
+use core::mem::{MaybeUninit, size_of};
 use core::pin::Pin;
 use core::ptr::{self, NonNull};
 use core::sync::atomic::{AtomicBool, Ordering};
 
-/// `dev_t` of <sys/types.h>.
-type DevT = u16;
-
 /// `interrupt_handler_fn` of <i386/ipl.h>.
 type InterruptHandler = unsafe extern "C" fn(c_int);
-
-/// The part of `struct io_req` of <device/io_req.h> the driver touches.
-///
-/// Only a prefix: the request's first two fields are its queue chain,
-/// which is why the C passed an `io_req_t` where the queue expected a
-/// `queue_entry_t`.  The fields after `done` are never read here.
-#[repr(C)]
-#[allow(dead_code)]
-pub struct IoReq {
-    next: *mut IoReq,
-    prev: *mut IoReq,
-    device: *mut c_void,
-    dev_ptr: *mut c_char,
-    unit: c_int,
-    op: c_int,
-    mode: c_uint,
-    recnum: c_ulong,
-    data: *mut c_char,
-    count: c_long,
-    alloc_size: usize,
-    residual: c_long,
-    error: c_int,
-    done: Option<unsafe extern "C" fn(*mut IoReq) -> c_int>,
-}
-
-// The queue cast depends on the chain being the first field.
-const _: () = assert!(offset_of!(IoReq, next) == 0);
-const _: () = assert!(offset_of!(IoReq, prev) == size_of::<*mut c_void>());
 
 /// `MOUSEBUFSIZE` in <i386at/kd_mouse.h>.
 const MOUSEBUFSIZE: usize = 5;
@@ -83,20 +58,6 @@ const MICROSOFT_MOUSE7: c_int = 5;
 const MOUSE_LEFT: KevType = 1;
 const MOUSE_MIDDLE: KevType = 2;
 const MOUSE_RIGHT: KevType = 3;
-
-// Return codes, <device/device_types.h> and <mach/kern_return.h>.
-const D_IO_QUEUED: c_int = -1;
-const D_SUCCESS: c_int = 0;
-const D_WOULD_BLOCK: c_int = 2501;
-const D_ALREADY_OPEN: c_int = 2503;
-const D_INVALID_OPERATION: c_int = 2505;
-const D_INVALID_SIZE: c_int = 2507;
-const D_NOWAIT: c_uint = 0x8;
-const DEV_GET_SIZE: c_uint = 0;
-const DEV_GET_SIZE_DEVICE_SIZE: usize = 0;
-const DEV_GET_SIZE_RECORD_SIZE: usize = 1;
-const DEV_GET_SIZE_COUNT: u32 = 2;
-const KERN_SUCCESS: c_int = 0;
 
 // 8250 register offsets and bits, <i386at/i8250.h>.
 const RDAT: u16 = 0;
@@ -605,25 +566,6 @@ fn handle_byte(s: &mut State, ch: u8) {
     }
 }
 
-/// Drain up to `ior->io_count` events into the request's data buffer,
-/// returning the byte count.  The caller holds `SPLKD`.
-fn drain(s: &mut State, ior: *mut IoReq) -> c_long {
-    let mut count: c_long = 0;
-    while !s.queue.is_empty() && count < unsafe { (*ior).count } {
-        let Some(ev) = s.queue.pop_front() else {
-            break;
-        };
-        let src = (ev as *const KdEvent).cast::<u8>();
-        // SAFETY: `device_read_alloc()` allocated `io_count` bytes for
-        // `io_data`, and the loop condition keeps this event in range.
-        let dst = unsafe { (*ior).data.add(count as usize).cast::<u8>() };
-        // SAFETY: as above; `src` is the popped event.
-        unsafe { ptr::copy_nonoverlapping(src, dst, size_of::<KdEvent>()) };
-        count += size_of::<KdEvent>() as c_long;
-    }
-    count
-}
-
 /// Open the mouse.  `mouseopen()` in C.
 ///
 /// # Safety
@@ -721,7 +663,7 @@ pub unsafe extern "C" fn mouseclose(dev: DevT, _flags: c_int) {
 /// `SPLKD`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mouseread(_dev: DevT, ior: *mut IoReq) -> c_int {
-    let wanted = unsafe { (*ior).count };
+    let wanted = unsafe { (*ior).count() };
     if wanted % size_of::<KdEvent>() as c_long != 0 {
         return D_INVALID_SIZE;
     }
@@ -734,26 +676,22 @@ pub unsafe extern "C" fn mouseread(_dev: DevT, ior: *mut IoReq) -> c_int {
     // SAFETY: queueing a request and the event queue share SPLKD.
     let sp = unsafe { glue::spltty() };
     if s.queue.is_empty() {
-        if unsafe { (*ior).mode } & D_NOWAIT != 0 {
+        if unsafe { (*ior).mode() } & D_NOWAIT != 0 {
             unsafe { glue::splx(sp) };
             return D_WOULD_BLOCK;
         }
-        unsafe { (*ior).done = Some(mouse_read_done) };
+        unsafe { (*ior).set_done(mouse_read_done) };
         // SAFETY: `io_req`'s chain is its first field, and it stays at
         // its address until `iodone()`.
-        let entry = unsafe {
-            QueueEntry::pin_in_place(NonNull::new_unchecked(
-                ior.cast::<QueueEntry>(),
-            ))
-        };
+        let entry = unsafe { (*ior).queue_entry() };
         // SAFETY: the read queue is this state's, at SPLKD.
         unsafe { read_queue(s).push_back(entry) };
         unsafe { glue::splx(sp) };
         return D_IO_QUEUED;
     }
-    let count = drain(s, ior);
+    let count = drain(&mut s.queue, unsafe { &mut *ior });
     unsafe { glue::splx(sp) };
-    unsafe { (*ior).residual = (*ior).count - count };
+    unsafe { (*ior).set_residual((*ior).count() - count) };
     D_SUCCESS
 }
 
@@ -769,20 +707,16 @@ pub unsafe extern "C" fn mouse_read_done(ior: *mut IoReq) -> c_int {
     // SAFETY: as in `mouseread()`.
     let sp = unsafe { glue::spltty() };
     if s.queue.is_empty() {
-        unsafe { (*ior).done = Some(mouse_read_done) };
+        unsafe { (*ior).set_done(mouse_read_done) };
         // SAFETY: as in `mouseread()`.
-        let entry = unsafe {
-            QueueEntry::pin_in_place(NonNull::new_unchecked(
-                ior.cast::<QueueEntry>(),
-            ))
-        };
+        let entry = unsafe { (*ior).queue_entry() };
         unsafe { read_queue(s).push_back(entry) };
         unsafe { glue::splx(sp) };
         return 0;
     }
-    let count = drain(s, ior);
+    let count = drain(&mut s.queue, unsafe { &mut *ior });
     unsafe { glue::splx(sp) };
-    unsafe { (*ior).residual = (*ior).count - count };
+    unsafe { (*ior).set_residual((*ior).count() - count) };
     // SAFETY: the request is complete; its data buffer is populated.
     unsafe { glue::ds_read_done(ior.cast()) };
     1

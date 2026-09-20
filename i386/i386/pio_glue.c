@@ -8,6 +8,13 @@
 
 #include <i386/pio.h>
 
+unsigned char pio_inb(unsigned short port);
+unsigned short pio_inw(unsigned short port);
+unsigned int pio_inl(unsigned short port);
+void pio_outb(unsigned short port, unsigned char value);
+void pio_outw(unsigned short port, unsigned short value);
+void pio_outl(unsigned short port, unsigned int value);
+
 unsigned char
 pio_inb(unsigned short port)
 {
@@ -18,4 +25,28 @@ void
 pio_outb(unsigned short port, unsigned char value)
 {
 	outb(port, value);
+}
+
+unsigned short
+pio_inw(unsigned short port)
+{
+	return inw(port);
+}
+
+unsigned int
+pio_inl(unsigned short port)
+{
+	return inl(port);
+}
+
+void
+pio_outw(unsigned short port, unsigned short value)
+{
+	outw(port, value);
+}
+
+void
+pio_outl(unsigned short port, unsigned int value)
+{
+	outl(port, value);
 }

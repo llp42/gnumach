@@ -44,6 +44,8 @@ EXTRA_DIST += \
 	tests/include/mach/mig_support.h \
 	tests/include/sys/reboot.h \
 	tests/include/util/atoi.h \
+	tests/kd_event.c \
+	tests/kd_event.h \
 	tests/kd_mouse.c \
 	tests/kd_mouse.h \
 	tests/kd_queue.c \

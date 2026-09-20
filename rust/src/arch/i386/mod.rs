@@ -3,4 +3,6 @@
 
 //! The i386 tree, shared by the i686 and x86_64 kernels; mirrors `i386/`.
 
+pub mod io_req;
+pub mod kd_event;
 pub mod kd_mouse;

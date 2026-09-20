@@ -953,7 +953,7 @@ MIG-generated `.c` live only under `build-*/` and are not ported.
 | `pcb.c` | 919 | PCB/context (anchor) | 5 | `switch_context` asm, fpu |
 | `trap.c` | 532 | trap entry bodies (anchor) | 5 | `alltraps`/`all_intrs` |
 
-### i386/i386at/ (15 files, 7,820 LOC)
+### i386/i386at/ (14 files, 7,428 LOC)
 
 | File | LOC | Role | Friction | Blockers |
 |---|---:|---|---:|---|
@@ -968,13 +968,13 @@ MIG-generated `.c` live only under `build-*/` and are not ported.
 | `int_init.c` | 78 | IDT gate fill | 3 | asm stubs |
 | `ioapic.c` | 493 | IOAPIC | 3 | `cli` asm, irq routing |
 | `pic_isa.c` | 56 | ISA IRQ tables | 3 | pic/ipl |
-| `kd_event.c` | 392 | kbd/mouse events | 3 | `kd_queue`, spl |
 | `com.c` | 893 | 8250 serial | 4 | tty, spl, pio |
 | `model_dep.c` | 545 | machine init/bootstrap (anchor) | 5 | asm, pmap, percpu |
 | `kd.c` | 3033 | keyboard/VGA tty | 5 | db_interface, vga, spl |
 
-`kd_queue.c` and `kd_mouse.c` are ported; §9 records them.  The two
-entries below keep the detail §4.1 gives the `kern/` files.
+`kd_queue.c`, `kd_event.c` and `kd_mouse.c` are ported; §9 records
+them.  The three entries below keep the detail §4.1 gives the `kern/`
+files.
 
 #### `i386/i386at/kd_queue.c` — 109 lines — ported
 * **Rust home.** `src/utils/kd_queue.rs`, shared by both x86 kernels.
@@ -1016,6 +1016,29 @@ entries below keep the detail §4.1 gives the `kern/` files.
   constructors and public methods, with no layout or ABI change.
   `tests/kd_mouse.c` and `tests/test-kd-mouse.c` pin the decoders,
   since the suite never opens `/dev/mouse`.
+
+#### `i386/i386at/kd_event.c` — 392 lines — ported
+* **Role.** `/dev/kbd`: `kd.c` calls `kd_enqsc()` for every scan code,
+  the events queue up, and `kbdread()` drains them; the same file
+  carries the `X_kdb` port-command escape that `kd.c`'s `cnpollc()`
+  replays.
+* **Rust home.** `src/arch/i386/kd_event.rs`.  Every name in
+  `kd_event.h` stays a symbol: `conf.c`'s four device entries and
+  `kd.c`'s `X_kdb_enter()`/`X_kdb_exit()`/`kd_enqsc()` calls are
+  unchanged.
+* **Shared pieces.** The `IoReq` prefix mirror, the request drain and
+  the device return codes moved to `src/arch/i386/io_req.rs`, whose
+  future home is a `src/device/` module.  `pio_glue.c` gained the
+  16/32-bit shims the `X_kdb` interpreter needs, and `kd.c` a
+  `kbd_set_mode()` shim for `kb_mode`, which `kd.c` owns.
+* **Notes.** The ioctl flavors are mirrored as computed values;
+  `K_X_KDB_ENTER`/`EXIT` differ per target because their ioctl length
+  field carries `sizeof(struct X_kdb)`.  The C bound
+  `count * sizeof > sizeof` overflows for a huge `count`, so the port
+  and its test use `count > 512` instead.  `STATE` holds the two
+  command lists and the queue; the read-queue head self-links on first
+  use.  `tests/kd_event.c` and `tests/test-kd-event.c` pin the
+  interpreter, since the suite never opens `/dev/kbd`.
 
 ### i386/intel/, x86_64/, util/, chips/
 
@@ -1143,9 +1166,10 @@ green, `rustfmt`/`clippy` clean, no new undefined symbols.
   `boot_script_define_function` has no callers.
 * Test-linked routines: `util/atoi.c` and `kern/printf.c` are compiled
   into the user tests (`tests/user-qemu.mk:137`); a port of either is
-  not a port until `tests/` has its own C copy.  `tests/kd_queue.c` and
-  `tests/kd_mouse.c` are such copies already, pinning the ring-buffer
-  and mouse-packet contracts the Rust implements.
+  not a port until `tests/` has its own C copy.  `tests/kd_queue.c`,
+  `tests/kd_event.c` and `tests/kd_mouse.c` are such copies already,
+  pinning the ring-buffer, `X_kdb` and mouse-packet contracts the Rust
+  implements.
 
 ## 9. Already moved (for reference)
 

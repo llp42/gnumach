@@ -56,6 +56,9 @@ struct RpcTimeValue {
 /// `kev_type` of <device/input.h>: an event type.
 pub type KevType = u16;
 
+/// `Scancode` of <device/input.h>: a keyboard scan code.
+pub type Scancode = u8;
+
 /// `struct mouse_motion` of <device/input.h>.
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -161,6 +164,19 @@ impl KdEvent {
                 microseconds: 0,
             },
             value: KdValue { up: up as c_int },
+        }
+    }
+
+    /// A `KEYBD_EVENT` carrying scancode `sc`: what `kd_enqsc()`
+    /// builds.
+    pub const fn scancode(sc: Scancode) -> Self {
+        Self {
+            type_: 5,
+            unused_time: RpcTimeValue {
+                seconds: 0,
+                microseconds: 0,
+            },
+            value: KdValue { sc },
         }
     }
 }
