@@ -38,8 +38,11 @@ arrives, and `mise run test` decides whether it is correct.
   `QueueEntry` is `!Unpin` with `Pin`-based mutators, and
   `--enable-queue-debug` compiles read-only link invariant checks.
 - `device/blkio.c` (66) — `block_io_mmap()`, `minphys()`.  Zero calls.
-- `kern/smp.c` (49) — `smp_get_numcpus()`, `smp_set_numcpus()`.  Zero
-  calls; owns the data symbol `smp_info`.
+- ~~`kern/smp.c`~~ **ported** — now `rust/src/kern/smp.rs`: the two
+  routines over a private `AtomicU8` that starts at one and rejects
+  zero, so the getter is a plain load.  `smp_info` was file-local (its
+  struct is defined in the .c, in no header) and referenced by nothing,
+  so the symbol is gone.
 - `i386/i386at/kd_queue.c` (109) — `kdq_empty()`, `kdq_full()`,
   `kdq_get()`, `kdq_put()`, `kdq_reset()`.  Only callee: the file-local
   `q_next` macro.  A ring buffer for the keyboard/mouse event queue.

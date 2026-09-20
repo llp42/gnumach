@@ -40,6 +40,13 @@ and safe Rust can no longer move an entry once it is linked.  A
 development build configured with `--enable-queue-debug` compiles
 read-only link-invariant checks around every mutation; they never
 change the links, so the queue behaves identically.
+The generic SMP controller followed: `kern/smp.c` is gone too, replaced
+by `src/kern/smp.rs`, which keeps `smp_set_numcpus()` and
+`smp_get_numcpus()` over a private `AtomicU8`.  The count starts at one
+and the setter rejects zero, so the getter is a plain load; the probe
+publishes the value on the boot processor and every CPU reads it
+afterwards, so it is not plain state.  Its former `smp_info` symbol
+appeared in no header and was referenced by nothing, and so is gone.
 
 **Next:** work outward from the string routines.  A good candidate is a
 leaf, needs no allocation, and has a C definition that can be deleted in

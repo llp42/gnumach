@@ -4,3 +4,4 @@
 //! Kernel facilities; mirrors `kern/`.
 
 pub mod queue;
+pub mod smp;
