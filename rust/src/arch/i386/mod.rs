@@ -7,3 +7,4 @@ pub mod io_req;
 pub mod kd;
 pub mod kd_event;
 pub mod kd_mouse;
+pub mod mem;

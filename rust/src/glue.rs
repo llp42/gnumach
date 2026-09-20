@@ -132,4 +132,7 @@ unsafe extern "C" {
     // Shims for the NCOM-sized `cominfo' array: see i386/i386at/com.c.
     pub fn com_base_addr(unit: c_int) -> VmOffset;
     pub fn com_irq(unit: c_int) -> c_int;
+
+    // <i386at/biosmem.h>, used by the /dev/mem mmap hook.
+    pub fn biosmem_addr_available(addr: VmOffset) -> c_int;
 }
