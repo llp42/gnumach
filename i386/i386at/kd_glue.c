@@ -2,8 +2,8 @@
  * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
  *
  * C shims for the Rust kd driver: `struct tty`'s lock macros and line
- * discipline switch, `ttlowat[]`, and `phystokv()`, none of which Rust
- * can call directly.  See rust/src/glue.rs.
+ * discipline switch and `ttlowat[]`, none of which Rust can call
+ * directly.  See rust/src/glue.rs.
  */
 
 #include <kern/lock.h>
@@ -19,7 +19,6 @@ int kd_ldisc_read (int line, struct tty *tp, io_req_t ior);
 int kd_ldisc_write (int line, struct tty *tp, io_req_t ior);
 void kd_ldisc_rint (int line, unsigned int c, struct tty *tp);
 short kd_ttlowat (int speed);
-vm_offset_t kd_phystokv (vm_offset_t addr);
 
 spl_t
 kd_simple_lock_irq (simple_lock_irq_t l)
@@ -67,10 +66,4 @@ short
 kd_ttlowat (int speed)
 {
 	return ttlowat[speed];
-}
-
-vm_offset_t
-kd_phystokv (vm_offset_t addr)
-{
-	return phystokv(addr);
 }

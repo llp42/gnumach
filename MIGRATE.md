@@ -1240,7 +1240,7 @@ green, `rustfmt`/`clippy` clean, no new undefined symbols.
 | `i386/i386at/kd_queue.c` | `src/utils/kd_queue.rs` | `ed2502e9` |
 | `i386/i386at/kd_mouse.c` | `src/arch/i386/kd_mouse.rs` | `64f44fa8` |
 | `i386/i386at/kd_event.c` | `src/arch/i386/kd_event.rs` | `5d6a289a` |
-| `i386/i386at/kd.c` | `src/arch/i386/kd/` | `009b05af` … `5580ed22` |
+| `i386/i386at/kd.c` | `src/arch/i386/kd/` | `009b05af` … `4b1c909a` |
 
 Deleted dead code: `device/blkio.c` (unreachable block pager path) and
 the `#if 0` profiling facility (`profil.h`, `profilparam.h`,
