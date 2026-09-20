@@ -1299,7 +1299,7 @@ rbtree's; see §8.
 | `i386/i386at/kd.c` | `src/arch/i386/kd/` | `009b05af` … `f1512f88` |
 | `i386/i386at/mem.c` | `src/arch/i386/mem.rs` | `548186d3` |
 | `i386/i386at/mbinfo.c` | `src/arch/i386/mbinfo.rs` | `21fcbe0b` |
-| `kern/rbtree.c` | `src/kern/rbtree.rs` | `9445e08b` … `f3f30264` |
+| `kern/rbtree.c` | `src/kern/rbtree.rs` | `9445e08b` … `86fb6471` |
 
 Deleted dead code: `device/blkio.c` (unreachable block pager path) and
 the `#if 0` profiling facility (`profil.h`, `profilparam.h`,
