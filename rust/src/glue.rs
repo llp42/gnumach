@@ -23,6 +23,24 @@ unsafe extern "C" {
     // <kern/printf.h>
     pub fn printf(fmt: *const c_char, ...) -> c_int;
 
+    // <kern/mach_clock.h>
+    pub fn timeout(
+        fcn: Option<unsafe extern "C" fn(*mut c_void)>,
+        param: *mut c_void,
+        interval: c_int,
+    ) -> *mut c_void;
+
+    // <kern/machine.c>
+    pub fn cpu_shutdown();
+
+    // <util/atoi.h>
+    pub fn mach_atoi(s: *const u8, nump: *mut c_int) -> c_int;
+
+    // <i386at/kd.h>, the screen block moves in kdasm.S
+    pub fn kd_slmwd(start: *mut c_void, count: c_int, value: c_int);
+    pub fn kd_slmscu(from: *mut c_void, to: *mut c_void, count: c_int);
+    pub fn kd_slmscd(from: *mut c_void, to: *mut c_void, count: c_int);
+
     // <kern/sched_prim.h>
     pub fn wakeup(channel: VmOffset);
     pub fn assert_wait(event: *mut c_void, interruptible: c_int);
@@ -50,8 +68,14 @@ unsafe extern "C" {
     pub fn kdinit();
     pub fn kd_setleds1(value: u8);
 
-    // <i386at/kd.c>
-    pub fn kbd_set_mode(mode: c_int);
+    // Shims in i386/i386at/kd.c, for what the Rust kd driver cannot
+    // reach until the tty layer moves: the line discipline feed, the
+    // input buffer allocation, `phystokv`, `rebootflag` and `hz`.
+    pub fn kd_tty_rint(c: u8);
+    pub fn kd_tty_init();
+    pub fn kd_phystokv(addr: VmOffset) -> VmOffset;
+    pub fn kd_rebootflag() -> c_int;
+    pub fn kd_hz() -> c_int;
 
     // Shims for the C macros Rust cannot call: see i386/i386/pio_glue.c.
     pub fn pio_inb(port: u16) -> u8;

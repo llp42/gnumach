@@ -970,11 +970,11 @@ MIG-generated `.c` live only under `build-*/` and are not ported.
 | `pic_isa.c` | 56 | ISA IRQ tables | 3 | pic/ipl |
 | `com.c` | 893 | 8250 serial | 4 | tty, spl, pio |
 | `model_dep.c` | 545 | machine init/bootstrap (anchor) | 5 | asm, pmap, percpu |
-| `kd.c` | 3033 | keyboard/VGA tty | 5 | db_interface, vga, spl |
+| `kd.c` | 3033 | keyboard/VGA tty | 5 | ported except the tty entry points (see below) |
 
-`kd_queue.c`, `kd_event.c` and `kd_mouse.c` are ported; §9 records
-them.  The three entries below keep the detail §4.1 gives the `kern/`
-files.
+`kd_queue.c`, `kd_event.c` and `kd_mouse.c` are ported, and `kd.c`'s
+device core followed; what is left of `kd.c` is the tty half.  The
+four entries below keep the detail §4.1 gives the `kern/` files.
 
 #### `i386/i386at/kd_queue.c` — 109 lines — ported
 * **Rust home.** `src/utils/kd_queue.rs`, shared by both x86 kernels.
@@ -1030,8 +1030,8 @@ files.
 * **Shared pieces.** The `IoReq` prefix mirror, the request drain and
   the device return codes moved to `src/arch/i386/io_req.rs`, whose
   future home is a `src/device/` module.  `pio_glue.c` gained the
-  16/32-bit shims the `X_kdb` interpreter needs, and `kd.c` a
-  `kbd_set_mode()` shim for `kb_mode`, which `kd.c` owns.
+  16/32-bit shims the `X_kdb` interpreter needs; `kb_mode` moved into
+  the Rust kd module, so its `kbd_set_mode()` shim is gone.
 * **Notes.** The ioctl flavors are mirrored as computed values;
   `K_X_KDB_ENTER`/`EXIT` differ per target because their ioctl length
   field carries `sizeof(struct X_kdb)`.  The C bound
@@ -1040,6 +1040,32 @@ files.
   command lists and the queue; the read-queue head self-links on first
   use.  `tests/kd_event.c` and `tests/test-kd-event.c` pin the
   interpreter, since the suite never opens `/dev/kbd`.
+
+#### `i386/i386at/kd.c` — 3033 lines — device core ported
+* **Role.** The keyboard/VGA console: the scan-code interrupt and
+  modifier state machine, the escape parser that draws the console,
+  the EGA text and bitmap display backends, the console entry points
+  and the key map.
+* **Rust home.** `src/arch/i386/kd/` split by role: `keyboard.rs`,
+  `esc.rs`, `display.rs`, `console.rs`, `keymap.rs` (the 89-row map,
+  generated from the C table) and `mod.rs` (state and `kdinit()`).
+  The `kd_dput`/`kd_dmvup`/... table of `kdsoft.h` stays exported so a
+  backend can still be swapped.
+* **Ported C externs, in place.** `kd_state` and `kd_bitmap_start`
+  stay exported for the C `kdgetstat()`/`kdmmap()`, and the five
+  exported callbacks the remaining tty code needs are C shims in
+  `kd.c` itself: `kd_tty_rint()`, `kd_tty_init()`, `kd_phystokv()`,
+  `kd_rebootflag()` and `kd_hz()`.
+* **What is still C.** The tty device entry points (`kdopen()`,
+  `kdclose()`, `kdread()`, `kdwrite()`, `kdgetstat()`, `kdsetstat()`,
+  `kdmmap()`, `kdportdeath()`, `kdstart()`, `kdstop()`) and the
+  `kd_tty` storage, because `struct tty` and its embedded
+  `simple_lock_irq` macros have no Rust layout yet.  It is ~100 lines
+  of the C file's 3033; the second slice moves them and deletes the
+  file.
+* **Tests.** `tests/kd.c` and `tests/test-kd.c` pin the escape parser
+  (command dispatch, positions, attributes) and the modifier state
+  machine, since the suite runs `console=com0`.
 
 ### i386/intel/, x86_64/, util/, chips/
 
@@ -1168,9 +1194,9 @@ green, `rustfmt`/`clippy` clean, no new undefined symbols.
 * Test-linked routines: `util/atoi.c` and `kern/printf.c` are compiled
   into the user tests (`tests/user-qemu.mk:137`); a port of either is
   not a port until `tests/` has its own C copy.  `tests/kd_queue.c`,
-  `tests/kd_event.c` and `tests/kd_mouse.c` are such copies already,
-  pinning the ring-buffer, `X_kdb` and mouse-packet contracts the Rust
-  implements.
+  `tests/kd_event.c`, `tests/kd_mouse.c` and `tests/kd.c` are such
+  copies already, pinning the ring-buffer, `X_kdb`, mouse-packet and
+  escape-parser contracts the Rust implements.
 
 ## 9. Already moved (for reference)
 

@@ -216,8 +216,8 @@ pub unsafe extern "C" fn kbdopen(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kbdclose(_dev: DevT, _flags: c_int) {
     let sp = unsafe { glue::spltty() };
-    // SAFETY: the shim writes kd.c's mode at SPLKD.
-    unsafe { glue::kbd_set_mode(KB_ASCII) };
+    // The mode is kd's, now that the keyboard driver is Rust.
+    crate::arch::i386::kd::set_kb_mode(KB_ASCII);
     state().queue.clear();
     unsafe { glue::splx(sp) };
 }
@@ -270,9 +270,8 @@ pub unsafe extern "C" fn kbdsetstat(
     count: u32,
 ) -> c_int {
     if flavor == KDSKBDMODE {
-        // SAFETY: one integer behind `data`, and the shim writes
-        // kd.c's mode.
-        unsafe { glue::kbd_set_mode(*data) };
+        // SAFETY: one integer behind `data`, and kd owns the mode.
+        crate::arch::i386::kd::set_kb_mode(unsafe { *data });
         D_SUCCESS
     } else if flavor == KDSETLEDS {
         if count != 1 {
