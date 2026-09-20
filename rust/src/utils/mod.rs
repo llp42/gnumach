@@ -5,4 +5,5 @@
 
 pub mod byteorder;
 pub mod delay;
+pub mod kd_queue;
 pub mod string;

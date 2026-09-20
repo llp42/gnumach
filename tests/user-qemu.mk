@@ -133,6 +133,7 @@ TESTSRC_TESTLIB= \
 
 SRC_TESTLIB= \
 	$(srcdir)/kern/printf.c \
+	$(srcdir)/tests/kd_queue.c \
 	$(srcdir)/tests/string.c \
 	$(srcdir)/util/atoi.c \
 	$(TESTSRC_TESTLIB) \
@@ -222,6 +223,7 @@ USER_TESTS := \
 	tests/test-hello \
 	tests/test-mach_host \
 	tests/test-gsync \
+	tests/test-kd-queue \
 	tests/test-mach_port \
 	tests/test-vm \
 	tests/test-syscalls \
