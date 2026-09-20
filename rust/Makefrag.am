@@ -51,7 +51,9 @@ AM_RUSTFLAGS = \
 	-C panic=abort \
 	-C opt-level=2 \
 	-C force-frame-pointers=yes \
-	-C overflow-checks=off
+	-C overflow-checks=off \
+	--check-cfg 'cfg(queue_debug)' \
+	$(QUEUE_DEBUG_RUSTFLAGS)
 
 #
 # `core', compiled from the toolchain's own sources for our target.

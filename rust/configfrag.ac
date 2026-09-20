@@ -57,6 +57,20 @@ AC_CHECK_PROG([CLIPPY_DRIVER], [clippy-driver], [clippy-driver], [no])
     component add clippy'), or point CLIPPY_DRIVER= at one.])
 [fi]
 
+# Optional queue invariant checks.  `rust/src/kern/queue.rs' verifies the
+# links around every mutation under `cfg(queue_debug)'; the checks only
+# read, so a debug build runs exactly the same operations as a release
+# build.  Off by default.
+AC_ARG_ENABLE([queue-debug],
+  [AS_HELP_STRING([--enable-queue-debug],
+    [compile the Rust queue invariant checks (development only)])])
+[if test "x$enable_queue_debug" = xyes; then]
+  QUEUE_DEBUG_RUSTFLAGS='--cfg queue_debug'
+[else]
+  QUEUE_DEBUG_RUSTFLAGS=
+[fi]
+AC_SUBST([QUEUE_DEBUG_RUSTFLAGS])
+
 # `core' is compiled from source for our target, so we need its sources: a
 # release toolchain ships `core' only for the targets it knows about, and
 # none of them is a freestanding kernel.

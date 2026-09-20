@@ -1467,8 +1467,8 @@ thread_t choose_pset_thread(
 			processor_t, processor_queue);
 	    }
 	    else {
-		queue_enter_first(&(pset->idle_queue), myprocessor,
-			processor_t, processor_queue);
+		queue_enter_head(&(pset->idle_queue), myprocessor,
+			__builtin_offsetof(typeof(*myprocessor), processor_queue));
 	    }
 
 	    pset->idle_count++;

@@ -26,13 +26,21 @@ behind thirteen `extern "C"` wrappers keeping the old symbols: the four
 live routines of `kern/queue.c` (`dequeue_tail()` and `insque()` were
 dropped as uncalled), the former accessor macros `queue_init()`,
 `queue_first()`, `queue_next()`, `queue_prev()`, `queue_end()` and
-`queue_empty()`, and the generic `queue_enter()`, `queue_enter_first()`
-and `queue_remove()` operations themselves, which take the chain-field
-offset as a value.  `QueueEntry` is `#[repr(C)]`-identical to `struct
-queue_entry`, so what remains in `kern/queue.h` — three one-line
-`offsetof` wrappers and `queue_iterate()` — keeps working on the same
-layout.  (`mpqueue` is gone altogether: its only user was the dead
-`#if 0` profiling facility.)
+`queue_empty()`, and the generic `queue_enter()` and `queue_remove()`
+operations themselves, which take the chain-field offset as a value.
+(`queue_enter_first()` is gone: it had a single caller, which now calls
+`queue_enter_head()` with the `__builtin_offsetof` spelled out.)
+`QueueEntry` is `#[repr(C)]`-identical to `struct queue_entry`, so what
+remains in `kern/queue.h` — two one-line `offsetof` wrappers and
+`queue_iterate()` — keeps working on the same layout.  (`mpqueue` is
+gone altogether: its only user was the dead `#if 0` profiling
+facility.)  `QueueEntry` is `!Unpin`, and linking
+takes `Pin<&mut _>`: the C callers pin their objects by contract, the
+`extern "C"` wrappers turn that contract into a `Pin` at the boundary,
+and safe Rust can no longer move an entry once it is linked.  A
+development build configured with `--enable-queue-debug` compiles
+read-only link-invariant checks around every mutation; they never
+change the links, so the queue behaves identically.
 
 **Next:** work outward from the string routines.  A good candidate is a
 leaf, needs no allocation, and has a C definition that can be deleted in

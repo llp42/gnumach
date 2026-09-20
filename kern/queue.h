@@ -118,21 +118,6 @@ void		queue_remove_generic(queue_t, void *, size_t);
 	    __builtin_offsetof(typeof(*(elt)), field))
 
 /*
- *	Macro:		queue_enter_first
- *	Function:
- *		Insert a new element at the head of the queue.
- *	Header:
- *		void queue_enter_first(q, elt, type, field)
- *			queue_t q;
- *			<type> elt;
- *			<type> is what's in our queue
- *			<field> is the chain field in (*<type>)
- */
-#define queue_enter_first(head, elt, type, field)				\
-	queue_enter_head((head), (elt),					\
-	    __builtin_offsetof(typeof(*(elt)), field))
-
-/*
  *	Macro:		queue_remove
  *	Function:
  *		Remove an arbitrary item from the queue.
