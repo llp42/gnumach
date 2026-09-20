@@ -971,9 +971,22 @@ MIG-generated `.c` live only under `build-*/` and are not ported.
 | `com.c` | 893 | 8250 serial | 4 | tty, spl, pio |
 | `model_dep.c` | 545 | machine init/bootstrap (anchor) | 5 | asm, pmap, percpu |
 
-`kd_queue.c`, `kd_event.c`, `kd_mouse.c` and `kd.c` are ported; §9
-records them.  The four entries below keep the detail §4.1 gives the
-`kern/` files.
+`kd_queue.c`, `kd_event.c`, `kd_mouse.c`, `kd.c` and `mem.c` are
+ported; §9 records them.  The entries below keep the detail §4.1 gives
+the `kern/` files.
+
+#### `i386/i386at/mem.c` — 42 lines — ported
+* **Role.** `/dev/mem`: the mmap hook hands out pages of memory that
+  is not main RAM, so a user can look at the BIOS areas, the VGA
+  window and the like.
+* **Rust home.** `src/arch/i386/mem.rs`, shared by both x86 kernels.
+  `memmmap()` keeps its name and signature; `mem.h` stays as the C
+  declaration `conf.c`'s device switch sees.
+* **Bridges.** `biosmem_addr_available()` comes through `glue.rs`;
+  `i386_btop()` is the shift by `I386_PGSHIFT` that `vm_param.h`
+  defines.
+* **Tests.** No new test: `tests/test-kd-dev.c` opens `/dev/mem` and
+  maps the VGA text through it, so the mmap path runs on both arches.
 
 #### `i386/i386at/kd_queue.c` — 109 lines — ported
 * **Rust home.** `src/utils/kd_queue.rs`, shared by both x86 kernels.
@@ -1237,6 +1250,7 @@ green, `rustfmt`/`clippy` clean, no new undefined symbols.
 | `i386/i386/loose_ends.c` (`delay`) | `src/utils/delay.rs` | `87d85e0c` |
 | `util/byteorder.c` | `src/utils/byteorder.rs` | `7ad91b7b` |
 | `kern/elf-load.c` | `src/kern/elf_load.rs` | `308594ca` |
+| `i386/i386at/mem.c` | `src/arch/i386/mem.rs` | `548186d3` |
 | `i386/i386at/kd_queue.c` | `src/utils/kd_queue.rs` | `ed2502e9` |
 | `i386/i386at/kd_mouse.c` | `src/arch/i386/kd_mouse.rs` | `64f44fa8` |
 | `i386/i386at/kd_event.c` | `src/arch/i386/kd_event.rs` | `5d6a289a` |
