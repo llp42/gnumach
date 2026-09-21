@@ -1,4 +1,10 @@
-/* SPDX-License-Identifier: BSD-2-Clause
+/* SPDX-License-Identifier: CMU-Mach
+ * Derived from kern/strings.c, util/atoi.c and util/atoi.h:
+ *   Copyright (c) 1993 Carnegie Mellon University.
+ *   Copyright (c) 1991,1990,1989 Carnegie Mellon University.
+ *   Copyright Ing. C. Olivetti & C. S.p.A. 1988, 1989.
+ *   Copyright 1988, 1989 by Olivetti Advanced Technology Center, Inc.
+ *   Copyright 1988, 1989 by Intel Corporation.
  * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
  *
  * String routines for the test programs, plus `mach_atoi`.

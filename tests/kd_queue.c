@@ -1,4 +1,8 @@
-/* SPDX-License-Identifier: BSD-2-Clause
+/* SPDX-License-Identifier: CMU-Mach
+ * Derived from i386/i386at/kd_queue.c and i386/i386at/kd_queue.h:
+ *   Copyright (c) 1991,1990,1989 Carnegie Mellon University.
+ *   Copyright Ing. C. Olivetti & C. S.p.A. 1989.
+ *   Copyright 1988, 1989 by Olivetti Advanced Technology Center, Inc.
  * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
  *
  * The five routines of the old i386/i386at/kd_queue.c, for the test
