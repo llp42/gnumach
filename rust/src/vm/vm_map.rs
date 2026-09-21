@@ -1901,6 +1901,10 @@ impl VmMapCopy {
             (*copy.as_ptr()).offset = offset;
             (*copy.as_ptr()).size = size;
             *VmMapCopy::object(copy) = object;
+            // The C also zeroes the header link word here.  No OBJECT
+            // reader uses it, but a whole-struct copy carries it
+            // along.
+            (*VmMapCopy::header(copy).as_ptr()).links.next = None;
         }
 
         copy
@@ -4345,8 +4349,9 @@ impl VmMap {
     ///
     /// # Safety
     ///
-    /// The map must be write-locked, `where_` a live entry of it, and
-    /// `copy` a live entry-list copy the caller owns.
+    /// The map must be write-locked, or private to the caller (fork
+    /// links an entry chain into an unpublished map), `where_` a live
+    /// entry of it, and `copy` a live entry-list copy the caller owns.
     pub(crate) unsafe fn copy_insert(
         &mut self,
         mut where_: NonNull<VmMapEntry>,
@@ -4482,9 +4487,13 @@ impl VmMap {
             if src_destroy
                 && (src_object.is_null()
                     || (unsafe {
+                        // SAFETY: `src_object` is live under the map
+                        // lock; the shim reads its `temporary` bit.
                         vm_map_glue_object_is_temporary(src_object)
                     } != 0
                         && unsafe {
+                            // SAFETY: as above; the shim reads the
+                            // same object's `use_shared_copy` bit.
                             vm_map_glue_object_use_shared_copy(src_object)
                         } == 0))
             {
@@ -4520,7 +4529,11 @@ impl VmMap {
 
                     // Handle the copy-on-write obligations.
                     if src_needs_copy != 0
-                        && !unsafe { (*entry.as_ptr()).needs_copy() }
+                        && !unsafe {
+                            // SAFETY: `entry` is a live entry of the
+                            // locked map.
+                            (*entry.as_ptr()).needs_copy()
+                        }
                     {
                         // SAFETY: `entry` and `src_object` are live
                         // under the map lock; the shared case passes
@@ -4616,6 +4629,9 @@ impl VmMap {
                     };
 
                     if result != KERN_SUCCESS {
+                        // The C leaks the extra `src_object`
+                        // reference here; the port keeps that
+                        // bug-for-bug.
                         // The C disposes of the copy entry, takes and
                         // immediately releases the map lock, and
                         // discards the copy.
@@ -4646,7 +4662,11 @@ impl VmMap {
                 // Verify that the map has not substantially changed
                 // while the copy was being made.
                 if version.main_timestamp.wrapping_add(1)
-                    != unsafe { (*map.as_ptr()).timestamp }
+                    != unsafe {
+                        // SAFETY: the write lock just taken makes
+                        // this timestamp read stable.
+                        (*map.as_ptr()).timestamp
+                    }
                 {
                     // The simple comparison failed: retry the lookup
                     // and verify that the same object and offset are
@@ -4687,6 +4707,9 @@ impl VmMap {
                     };
 
                     if !verified {
+                        // The C leaks the extra `src_object`
+                        // reference here too; the port keeps that
+                        // bug-for-bug.
                         // Verification failed: start over with this
                         // top-level entry.
                         // SAFETY: `new_entry` holds the reference
