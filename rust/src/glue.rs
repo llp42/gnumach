@@ -197,6 +197,7 @@ unsafe extern "C" {
         needs_copy: c_int,
         is_shared: c_int,
     ) -> c_int;
+    pub fn vm_map_glue_object_is_temporary(object: *mut VmObject) -> c_int;
     pub fn vm_map_glue_object_make_shared(object: *mut VmObject);
     pub fn vm_map_glue_object_paging_begin(object: *mut VmObject);
     pub fn vm_map_glue_object_paging_end(object: *mut VmObject);
@@ -258,6 +259,20 @@ unsafe extern "C" {
     );
     pub fn vm_fault_unwire(map: *mut c_void, entry: *mut c_void);
     pub fn vm_fault_wire(map: *mut c_void, entry: *mut c_void);
+
+    // <vm/vm_fault.h>: copy pages between objects for the overwrite.
+    // The size is in/out and the version is the caller's map-version
+    // snapshot.
+    pub fn vm_fault_copy(
+        src_object: *mut VmObject,
+        src_offset: VmOffset,
+        src_size: *mut VmSize,
+        dst_object: *mut VmObject,
+        dst_offset: VmOffset,
+        dst_map: *mut c_void,
+        dst_version: *mut c_void,
+        interruptible: c_int,
+    ) -> c_int;
 
     // <vm/vm_object.h>.
     pub fn vm_object_shadow(

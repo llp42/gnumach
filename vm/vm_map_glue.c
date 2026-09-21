@@ -25,7 +25,9 @@
  *
  * The fork shims read `struct vm_object`'s sharing fields
  * (`shadowed`, `temporary`, `size`, `use_shared_copy`, `ref_count`);
- * they go when vm/vm_object.c moves.
+ * they go when vm/vm_object.c moves.  The overwrite's
+ * `vm_map_glue_object_is_temporary` reads the same `temporary` bit and
+ * goes with them.
  */
 
 #include <kern/thread.h>
@@ -42,6 +44,7 @@ boolean_t vm_map_glue_object_needs_shadow(
 	vm_size_t size,
 	boolean_t needs_copy,
 	boolean_t is_shared);
+boolean_t vm_map_glue_object_is_temporary(vm_object_t object);
 void vm_map_glue_object_make_shared(vm_object_t object);
 void vm_map_glue_object_paging_begin(vm_object_t object);
 void vm_map_glue_object_paging_end(vm_object_t object);
@@ -158,6 +161,12 @@ vm_map_glue_object_needs_shadow(
 {
 	return needs_copy || object->shadowed ||
 	       (object->temporary && !is_shared && object->size > size);
+}
+
+boolean_t
+vm_map_glue_object_is_temporary(vm_object_t object)
+{
+	return object->temporary;
 }
 
 void

@@ -649,7 +649,7 @@ extern kern_return_t	vm_map_copyin_page_list(vm_map_t, vm_offset_t,
 /* Place a copy into a map */
 extern kern_return_t	vm_map_copyout(vm_map_t, vm_offset_t *, vm_map_copy_t);
 /* Link a copy chain into a map at `where`.  Was static; non-static only
-   for the Rust vm_map_fork caller.  M5 restores `static` and this
+   for the Rust vm_map_fork caller.  M6 restores `static` and this
    prototype can go. */
 extern void		vm_map_copy_insert(vm_map_t, vm_map_entry_t,
 					   vm_map_copy_t);

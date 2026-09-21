@@ -614,6 +614,34 @@ pub unsafe extern "C" fn vm_map_copy_copy(
     unsafe { VmMapCopy::duplicate(copy).as_ptr() }
 }
 
+/// Overwrite previously-mapped memory with the contents of a copy.
+/// `vm_map_copy_overwrite()` in C.
+///
+/// # Safety
+///
+/// A non-null `copy` must be a live `ENTRY_LIST` copy the caller
+/// owns; on success it is consumed, on failure it is left alone.
+/// `dst_map` must be a valid, unlocked map, and the destination must
+/// lie inside it.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_map_copy_overwrite(
+    dst_map: *mut VmMap,
+    dst_addr: VmOffset,
+    copy: *mut VmMapCopy,
+    _interruptible: c_int,
+) -> c_int {
+    let Some(copy) = NonNull::new(copy) else {
+        // The C treats a null copy as nothing to do.
+        return KERN_SUCCESS;
+    };
+    // The C overwrites `interruptible` with FALSE before its first
+    // use, so the caller's value never reaches the logic and the
+    // adapter drops it.
+    // SAFETY: the caller promises a valid, unlocked map and a live
+    // copy.
+    kern_return(unsafe { (*dst_map).copy_overwrite(dst_addr, copy) })
+}
+
 /// Whether `cont` is `vm_map_copy_discard_cont()` below, which
 /// `vm_map_copy_discard()` recognizes and follows iteratively instead
 /// of recursing once per link of a page-list chain.  The C compares

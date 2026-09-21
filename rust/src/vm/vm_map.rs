@@ -37,23 +37,23 @@ use crate::glue::{
     kmem_cache_free, lock_clear_recursive, lock_done, lock_init, lock_read,
     lock_read_to_write, lock_set_recursive, lock_write, lock_write_to_read,
     pmap_create, pmap_destroy, pmap_protect, pmap_remove, printf,
-    projected_buffer_collect, thread_block, vm_fault_unwire, vm_fault_wire,
-    vm_map_cache, vm_map_copy_cache, vm_map_copy_insert, vm_map_copyin,
-    vm_map_entry_cache, vm_map_glue_object_can_release,
-    vm_map_glue_object_is_pristine_submap, vm_map_glue_object_lock,
-    vm_map_glue_object_make_shared, vm_map_glue_object_needs_shadow,
-    vm_map_glue_object_paging_begin, vm_map_glue_object_paging_end,
-    vm_map_glue_object_unlock, vm_map_glue_page_activate_if_idle,
-    vm_map_glue_page_free, vm_map_glue_page_is_absent,
-    vm_map_glue_page_is_tabled, vm_map_glue_page_object,
-    vm_map_glue_page_set_busy, vm_map_glue_page_wakeup_done,
-    vm_map_glue_pmap_attribute, vm_map_glue_pmap_copy, vm_map_glue_pmap_enter,
-    vm_map_glue_privilege_dec, vm_map_glue_privilege_inc,
-    vm_map_glue_thread_wakeup, vm_object_allocate, vm_object_coalesce,
-    vm_object_copy_temporary, vm_object_deallocate, vm_object_page_remove,
-    vm_object_pmap_protect, vm_object_pmap_remove, vm_object_reference,
-    vm_object_shadow, vm_page_copy, vm_page_grab, vm_page_lookup,
-    vm_page_mem_size, vm_page_wait, vm_submap_object,
+    projected_buffer_collect, thread_block, vm_fault_copy, vm_fault_unwire,
+    vm_fault_wire, vm_map_cache, vm_map_copy_cache, vm_map_copy_insert,
+    vm_map_copyin, vm_map_entry_cache, vm_map_glue_object_can_release,
+    vm_map_glue_object_is_pristine_submap, vm_map_glue_object_is_temporary,
+    vm_map_glue_object_lock, vm_map_glue_object_make_shared,
+    vm_map_glue_object_needs_shadow, vm_map_glue_object_paging_begin,
+    vm_map_glue_object_paging_end, vm_map_glue_object_unlock,
+    vm_map_glue_page_activate_if_idle, vm_map_glue_page_free,
+    vm_map_glue_page_is_absent, vm_map_glue_page_is_tabled,
+    vm_map_glue_page_object, vm_map_glue_page_set_busy,
+    vm_map_glue_page_wakeup_done, vm_map_glue_pmap_attribute,
+    vm_map_glue_pmap_copy, vm_map_glue_pmap_enter, vm_map_glue_privilege_dec,
+    vm_map_glue_privilege_inc, vm_map_glue_thread_wakeup, vm_object_allocate,
+    vm_object_coalesce, vm_object_copy_temporary, vm_object_deallocate,
+    vm_object_page_remove, vm_object_pmap_protect, vm_object_pmap_remove,
+    vm_object_reference, vm_object_shadow, vm_page_copy, vm_page_grab,
+    vm_page_lookup, vm_page_mem_size, vm_page_wait, vm_submap_object,
 };
 use crate::kern::list::{List, entry as list_entry};
 use crate::kern::lock::{LockData, SimpleLock};
@@ -2441,6 +2441,27 @@ impl VmMapHeader {
         }
     }
 
+    /// The guarded `vm_map_clip_end()` macro: split `entry` only when
+    /// `end` lies strictly inside it, leaving an end on the entry
+    /// boundary alone.
+    ///
+    /// # Safety
+    ///
+    /// `entry` must be a live entry of this header, and `end` at or
+    /// before its end.  The header's lock discipline is the caller's.
+    pub(crate) unsafe fn clip_end_at(
+        &mut self,
+        entry: NonNull<VmMapEntry>,
+        end: VmOffset,
+        link_gap: bool,
+    ) {
+        // SAFETY: the caller promises the entry is live.
+        if end < unsafe { (*entry.as_ptr()).links.end } {
+            // SAFETY: as above.
+            unsafe { self.clip_end(entry, end, link_gap) };
+        }
+    }
+
     /// Split `entry` at `end`, leaving the back part in a new entry.
     /// `_vm_map_clip_end()` in C.
     ///
@@ -4181,5 +4202,376 @@ impl VmMap {
         VmMap::unlock(old_map);
 
         Some(new_map)
+    }
+}
+
+impl VmMap {
+    /// Copy the memory a copy object describes over a region of this
+    /// map.  `vm_map_copy_overwrite()` in C.
+    ///
+    /// Only page-aligned entry-list copies of a nonzero size are
+    /// handled, and the destination must be writeable.  Success
+    /// consumes `copy`; on failure the caller still owns it.  The C
+    /// forces its `interruptible` argument to false before using it
+    /// (`interruptible = FALSE; /* XXX */`), so the port drops the
+    /// argument and, with it, the `contains_permanent_objects` branch
+    /// only that argument gated.
+    ///
+    /// # Safety
+    ///
+    /// `copy` must be a live `ENTRY_LIST` copy the caller owns, and
+    /// `self` must be an unlocked map with a valid pmap.
+    pub(crate) unsafe fn copy_overwrite(
+        &mut self,
+        dst_addr: VmOffset,
+        copy: NonNull<VmMapCopy>,
+    ) -> Result<(), Error> {
+        // SAFETY: the caller promises a live copy.
+        let (copy_offset, copy_size) =
+            unsafe { ((*copy.as_ptr()).offset, (*copy.as_ptr()).size) };
+
+        if copy_offset & PAGE_MASK != 0
+            || copy_size & PAGE_MASK != 0
+            || dst_addr & PAGE_MASK != 0
+        {
+            return Err(Error::InvalidArgument);
+        }
+
+        // The first pass walks the destination and reduces this to the
+        // size left in its last entry; a retry after an entry wait
+        // keeps that reduction, exactly as the C's `goto start_pass_1`
+        // does.
+        let mut size = copy_size;
+        if size == 0 {
+            // SAFETY: the caller owns the live copy; the C consumes it
+            // even when there is nothing to overwrite.
+            unsafe { VmMapCopy::discard(copy) };
+            return Ok(());
+        }
+
+        let map = NonNull::from(&mut *self);
+        let map_sentinel = self.to_entry();
+        // SAFETY: the caller promises the live `ENTRY_LIST` variant.
+        let copy_sentinel: NonNull<VmMapEntry> =
+            unsafe { VmMapCopy::header(copy) }.cast();
+
+        // Pass 1: verify that the destination is all writeable and
+        // contiguous for the whole copy.
+        let mut tmp_entry: NonNull<VmMapEntry>;
+        'pass_1: loop {
+            VmMap::lock(map);
+            let (found, looked) = self.lookup_entry(dst_addr);
+            if !found {
+                VmMap::unlock(map);
+                return Err(Error::InvalidAddress);
+            }
+            tmp_entry = looked;
+            // SAFETY: `tmp_entry` contains `dst_addr` and the map is
+            // locked; this is the guarded `vm_map_clip_start()` macro.
+            unsafe { self.hdr.clip_start_at(tmp_entry, dst_addr, true) };
+
+            let mut entry = tmp_entry;
+            loop {
+                // SAFETY: `entry` is a live entry of the locked map.
+                let (entry_start, entry_end) = unsafe {
+                    (
+                        (*entry.as_ptr()).links.start,
+                        (*entry.as_ptr()).links.end,
+                    )
+                };
+                let sub_size = entry_end.wrapping_sub(entry_start);
+                // SAFETY: as above.
+                let next = unsafe { (*entry.as_ptr()).links.next }
+                    .unwrap_or(map_sentinel);
+
+                // SAFETY: as above.
+                if unsafe { (*entry.as_ptr()).protection } & VmProt::WRITE
+                    == VmProt::NONE
+                {
+                    VmMap::unlock(map);
+                    return Err(Error::ProtectionFailure);
+                }
+
+                // SAFETY: as above.
+                if unsafe { (*entry.as_ptr()).in_transition() } {
+                    // SAFETY: as above; the C wait protocol marks the
+                    // entry and sleeps on the map's header with the
+                    // lock released.
+                    unsafe { (*entry.as_ptr()).set_needs_wakeup(true) };
+                    self.entry_wait();
+                    VmMap::unlock(map);
+                    // SAFETY: the lock was released just above.
+                    unsafe { thread_block(None) };
+                    continue 'pass_1;
+                }
+
+                if size <= sub_size {
+                    break;
+                }
+
+                // SAFETY: `next` is a live entry or the sentinel.
+                if next == map_sentinel
+                    || unsafe { (*next.as_ptr()).links.start } != entry_end
+                {
+                    VmMap::unlock(map);
+                    return Err(Error::InvalidAddress);
+                }
+
+                size = size.wrapping_sub(sub_size);
+                entry = next;
+            }
+
+            break;
+        }
+
+        // Pass 2: overwrite the data, walking the copy's entries.
+        let mut start = dst_addr;
+        loop {
+            // SAFETY: the copy holds the live `ENTRY_LIST` variant,
+            // and its chain always closes on the sentinel.
+            let copy_entry = unsafe { VmMapCopy::first_entry(copy) };
+            if copy_entry == copy_sentinel {
+                break;
+            }
+            // SAFETY: `copy_entry` is a live entry of the copy.
+            let mut copy_entry_size = unsafe {
+                (*copy_entry.as_ptr())
+                    .links
+                    .end
+                    .wrapping_sub((*copy_entry.as_ptr()).links.start)
+            };
+
+            let entry = tmp_entry;
+            // SAFETY: `entry` is a live entry of the locked map.
+            size = unsafe {
+                (*entry.as_ptr())
+                    .links
+                    .end
+                    .wrapping_sub((*entry.as_ptr()).links.start)
+            };
+
+            // SAFETY: `entry` is live and the map is locked.
+            if unsafe { (*entry.as_ptr()).links.start } != start {
+                VmMap::unlock(map);
+                return Err(Error::InvalidAddress);
+            }
+
+            // SAFETY: as above.
+            if unsafe { (*entry.as_ptr()).protection } & VmProt::WRITE
+                == VmProt::NONE
+            {
+                VmMap::unlock(map);
+                return Err(Error::ProtectionFailure);
+            }
+
+            // Adjust to the source size first.
+            if copy_entry_size < size {
+                // SAFETY: `entry` is live and the map is locked; this
+                // is the guarded `vm_map_clip_end()` macro.
+                let end = unsafe {
+                    (*entry.as_ptr()).links.start.wrapping_add(copy_entry_size)
+                };
+                unsafe { self.hdr.clip_end_at(entry, end, true) };
+                size = copy_entry_size;
+            }
+
+            // Adjust to the destination size.
+            if size < copy_entry_size {
+                // SAFETY: `copy_entry` is live in the copy.
+                let end = unsafe {
+                    (*copy_entry.as_ptr()).links.start.wrapping_add(size)
+                };
+                // SAFETY: the copy holds the live `ENTRY_LIST`
+                // variant; this is the guarded `vm_map_copy_clip_end()`
+                // macro.
+                let copy_header = unsafe { VmMapCopy::header(copy) };
+                unsafe {
+                    (*copy_header.as_ptr()).clip_end_at(copy_entry, end, false)
+                };
+                copy_entry_size = size;
+            }
+
+            // SAFETY: `entry` is live and the map is locked.
+            let object = unsafe { (*entry.as_ptr()).object.vm_object };
+            // SAFETY: as above.
+            let shared = unsafe { (*entry.as_ptr()).is_shared() };
+            // SAFETY: a non-null object is live; the shim reads its
+            // `temporary` bit, which stays C until `vm/vm_object.c`
+            // moves.
+            let temporary = !object.is_null()
+                && unsafe { vm_map_glue_object_is_temporary(object) } != 0;
+
+            if !shared && (object.is_null() || temporary) {
+                // The destination holds temporary unshared memory, so
+                // throwing it away and installing the source data is
+                // enough.
+                // SAFETY: `entry` is live and the map is locked.
+                let (old_object, old_offset) = unsafe {
+                    (
+                        (*entry.as_ptr()).object.vm_object,
+                        (*entry.as_ptr()).offset,
+                    )
+                };
+
+                // SAFETY: both entries are live; a copy entry is
+                // never a submap, so the union member written is the
+                // object.
+                unsafe {
+                    (*entry.as_ptr()).object.vm_object =
+                        (*copy_entry.as_ptr()).object.vm_object;
+                    (*entry.as_ptr()).offset = (*copy_entry.as_ptr()).offset;
+                    (*entry.as_ptr())
+                        .set_needs_copy((*copy_entry.as_ptr()).needs_copy());
+                }
+                self.entry_reset_wired(entry);
+
+                // SAFETY: `copy_entry` is linked in the copy, which
+                // this call owns.
+                let copy_header = unsafe { VmMapCopy::header(copy) };
+                unsafe {
+                    (*copy_header.as_ptr()).entry_unlink(copy_entry, false);
+                }
+                // SAFETY: the entry is unlinked and unused.
+                unsafe { VmMapEntry::dispose(copy_entry) };
+
+                // SAFETY: the old object is live and the map is
+                // locked.
+                unsafe {
+                    vm_object_pmap_protect(
+                        old_object,
+                        old_offset,
+                        size,
+                        self.pmap,
+                        (*tmp_entry.as_ptr()).links.start,
+                        VmProt::NONE.bits(),
+                    )
+                };
+
+                // SAFETY: the entry kept the reference dropped here.
+                unsafe { vm_object_deallocate(old_object) };
+
+                // Set up the next iteration: the map was not unlocked,
+                // so the next address is this entry's end and the next
+                // map entry follows it.
+                // SAFETY: `tmp_entry` is live and the map is locked.
+                start = unsafe { (*tmp_entry.as_ptr()).links.end };
+                tmp_entry = unsafe { (*tmp_entry.as_ptr()).links.next }
+                    .unwrap_or(map_sentinel);
+            } else {
+                // SAFETY: `entry` is live and the map is locked.
+                let (dst_object, dst_offset) = unsafe {
+                    (
+                        (*entry.as_ptr()).object.vm_object,
+                        (*entry.as_ptr()).offset,
+                    )
+                };
+
+                // Take an object reference and record the map version,
+                // so the map can safely be unlocked.
+                // SAFETY: the entry holds a reference to the object.
+                unsafe { vm_object_reference(dst_object) };
+                // SAFETY: the map is locked, so the timestamp is
+                // stable.
+                let mut version = VmMapVersion {
+                    main_timestamp: unsafe { (*map.as_ptr()).timestamp },
+                };
+
+                VmMap::unlock(map);
+
+                // Copy as much as possible in one pass.
+                copy_entry_size = size;
+                // SAFETY: the copy entry's object is live (the copy
+                // holds a reference), the map is unlocked and the
+                // version, size and map are valid, as `vm_fault_copy`
+                // requires.
+                let r = unsafe {
+                    vm_fault_copy(
+                        (*copy_entry.as_ptr()).object.vm_object,
+                        (*copy_entry.as_ptr()).offset,
+                        &mut copy_entry_size,
+                        dst_object,
+                        dst_offset,
+                        map.as_ptr().cast::<c_void>(),
+                        ptr::from_mut(&mut version).cast::<c_void>(),
+                        0,
+                    )
+                };
+
+                // SAFETY: the reference taken above.
+                unsafe { vm_object_deallocate(dst_object) };
+
+                // A hard error ends the copy with the map unlocked,
+                // as the C does.
+                if r != KERN_SUCCESS {
+                    return error_from_kern_return(r);
+                }
+
+                if copy_entry_size != 0 {
+                    // Dispose of the copied region.
+                    // SAFETY: `copy_entry` is live in the copy.
+                    let end = unsafe {
+                        (*copy_entry.as_ptr())
+                            .links
+                            .start
+                            .wrapping_add(copy_entry_size)
+                    };
+                    // SAFETY: the copy holds the live `ENTRY_LIST`
+                    // variant; guarded `vm_map_copy_clip_end()`.
+                    let copy_header = unsafe { VmMapCopy::header(copy) };
+                    unsafe {
+                        (*copy_header.as_ptr())
+                            .clip_end_at(copy_entry, end, false)
+                    };
+                    // SAFETY: `copy_entry` is linked in the copy,
+                    // which this call owns.
+                    unsafe {
+                        (*copy_header.as_ptr())
+                            .entry_unlink(copy_entry, false);
+                        vm_object_deallocate(
+                            (*copy_entry.as_ptr()).object.vm_object,
+                        );
+                    }
+                    // SAFETY: the entry is unlinked and unused.
+                    unsafe { VmMapEntry::dispose(copy_entry) };
+                }
+
+                // Pick up where the copy left off, using the version
+                // to avoid a lookup in the normal case.
+                start = start.wrapping_add(copy_entry_size);
+                VmMap::lock(map);
+                // SAFETY: the map is locked again.
+                if version.main_timestamp.wrapping_add(1)
+                    == unsafe { (*map.as_ptr()).timestamp }
+                {
+                    // The saved `tmp_entry` is still valid; guarded
+                    // `vm_map_clip_end()`.
+                    // SAFETY: `tmp_entry` is live and the map is
+                    // locked.
+                    unsafe { self.hdr.clip_end_at(tmp_entry, start, true) };
+                    // SAFETY: `tmp_entry` is live and the map is
+                    // locked.
+                    tmp_entry = unsafe { (*tmp_entry.as_ptr()).links.next }
+                        .unwrap_or(map_sentinel);
+                } else {
+                    let (found, looked) = self.lookup_entry(start);
+                    if !found {
+                        VmMap::unlock(map);
+                        return Err(Error::InvalidAddress);
+                    }
+                    tmp_entry = looked;
+                    // SAFETY: `tmp_entry` contains `start` and the map
+                    // is locked; the guarded `vm_map_clip_start()`
+                    // macro.
+                    unsafe { self.hdr.clip_start_at(tmp_entry, start, true) };
+                }
+            }
+        }
+
+        VmMap::unlock(map);
+
+        // SAFETY: the copy is live and this call consumed it.
+        unsafe { VmMapCopy::discard(copy) };
+
+        Ok(())
     }
 }

@@ -1026,6 +1026,19 @@ fields and expand `VM_PAGE_FREE`; they go when `vm/vm_page.c` moves.
 The copyin, copyout and overwrite routines, `vm_region` and the
 caches remain for M5b/M6.
 
+M5b ports `vm_map_copy_overwrite`: `VmMap::copy_overwrite` walks the
+destination under the map lock for a writeable, contiguous range, then
+walks the copy's entries, either swapping a temporary entry's object in
+place (protecting the old object out of the pmap) or copying through
+`vm_fault_copy` with the map unlocked and revalidating through the
+saved version.  The C forces its `interruptible` argument to `FALSE`
+before use, so the port drops the argument and the permanent-object
+branch it alone gated.  The one new shim,
+`vm_map_glue_object_is_temporary`, reads the object's `temporary` bit
+until `vm/vm_object.c` moves; `vm_map_copy_insert` stays in C and
+non-static for its `vm_map_copyout` and Rust `vm_map_fork` callers, to
+return to Rust with the copyin/copyout routines in M6.
+
 ### ipc/ (18 files, 13,002 LOC)
 
 | File | LOC | Role | Friction | Blockers |
