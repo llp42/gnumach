@@ -1233,6 +1233,11 @@ The source licenses to name in the translation case:
 A module that merges translations from several sources carries the
 strictest and reproduces every notice.
 
+Every file that is changed carries the new copyright line, with the
+year of the change; a file touched in several years lists them,
+`2026, 2027`, and a file that lacks the line gains it in the same
+commit.
+
 Use `//` in `.rs`, `dnl` in `.ac`, `/* */` in `.c` and `.h`.  Keep the
 new copyright line exactly as above.
 
