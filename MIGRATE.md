@@ -1047,8 +1047,10 @@ entry-list copy has its addresses adjusted and is linked through the C
 `VmMap::copyout_page_list`, which steals tabled pages, extends the
 entry below or creates an object and an entry, and drains continuation
 chains with the map, object and page-queue locks dropped around each
-continuation.  The C passes a null copy object to `kmem_cache_free`
-when a continuation returns no copy; the port skips that no-op free.
+continuation.  When a continuation returns no copy the C passes
+NULL to `kmem_cache_free`, which its slab layer cannot accept (the
+free path derives a bogus slab address and writes through it); the
+port skips that call.
 The C's private `vm_map_enforce_limit`, `vm_map_find_entry_anywhere`,
 `vm_map_gap_update` and `vm_map_entry_inc_wired`, whose last caller was
 this routine, go with it.  New shims read and write `struct vm_page`

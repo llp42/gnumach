@@ -559,6 +559,10 @@ pub unsafe extern "C" fn vm_map_pageable_all(
 /// Place a copy into newly-allocated space in a map.
 /// `vm_map_copyout()` in C.
 ///
+/// The address is written only on success, where the C wrote it just
+/// before the last failure point of its entry-list path; every
+/// in-tree caller ignores the slot on failure.
+///
 /// # Safety
 ///
 /// `dst_map` must be a valid, unlocked map and `dst_addr` writable

@@ -4322,6 +4322,11 @@ impl VmMap {
     /// addresses of its entries and, for wired entries, entering
     /// their pages.  The fall-through of `vm_map_copyout()` in C.
     ///
+    /// The result address is returned only on success: the C wrote
+    /// the caller's slot just before linking the copy, so a wiring
+    /// failure left it written, while this routine leaves it
+    /// untouched.  Every in-tree caller ignores the slot on failure.
+    ///
     /// # Safety
     ///
     /// `copy` must be a live entry-list copy the caller owns, and the
@@ -4490,9 +4495,11 @@ impl VmMap {
     /// at a time, with the map, the object lock and the page queue
     /// lock dropped around each continuation call and retaken after.
     ///
-    /// The C frees the copy object when a continuation returns no
-    /// copy, which is a null `kmem_cache_free`; the port skips that
-    /// free, since there is nothing to release.
+    /// When a continuation returns no copy, the C calls
+    /// `kmem_cache_free(cache, NULL)`; the slab layer cannot accept a
+    /// zero object address (its free path derives a bogus slab
+    /// address from it and writes through it), so the port skips
+    /// that call.
     ///
     /// # Safety
     ///
@@ -4638,6 +4645,13 @@ impl VmMap {
                 (*e).set_needs_copy(false);
                 (*e).wired_count = 0;
                 if must_wire {
+                    // The call deliberately precedes the
+                    // `links.start`/`links.end` writes below, so the
+                    // `size_wired` delta it computes is indeterminate:
+                    // the C increments the wiring while the entry's
+                    // bounds still hold the cache's old contents, and
+                    // the port keeps that order bug-for-bug.  A fix is
+                    // a separate, documented behaviour change.
                     self.entry_inc_wired(entry);
                     (*e).wired_access = VmProt::READ | VmProt::WRITE;
                 } else {
@@ -4779,6 +4793,12 @@ impl VmMap {
                     if cont_result != KERN_SUCCESS {
                         // The continuation failed; no address is
                         // written and the caller keeps the original.
+                        // As in `machine_attribute` above, an unnamed
+                        // `kern_return_t` from the continuation would
+                        // be reported as KERN_FAILURE by
+                        // `error_from_kern_return`; the in-tree
+                        // continuation only returns named codes, so
+                        // this is unobservable.
                         result = error_from_kern_return(cont_result);
                         VmMap::lock(map);
                         break 'pages;
@@ -4880,9 +4900,10 @@ impl VmMap {
         }
 
         // Consume on success: the last continuation copy goes first,
-        // then the original.  The C also passes a null copy object to
-        // `kmem_cache_free` here when the last continuation returned
-        // none; the port skips that free.
+        // then the original.  The C also calls `kmem_cache_free` with
+        // a NULL object here when the last continuation returned
+        // none; its slab layer cannot accept that address, and the
+        // port skips the call.
         if let Some(current_copy) = current
             && current != Some(orig_copy)
         {

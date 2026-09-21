@@ -499,7 +499,7 @@ vm_map_entry_reset_wired(vm_map_t map, vm_map_entry_t entry)
  *		The copy chain is destroyed.
  *
  *	Not static because Rust's vm_map_fork calls it; it goes back to
- *	internal linkage when the copyin/copyout routines move in M6.
+ *	internal linkage when the copyin routines move in M6.
  */
 void
 vm_map_copy_insert(struct vm_map *map, struct vm_map_entry *where,
