@@ -149,8 +149,18 @@ unsafe extern "C" {
 
     // <kern/slab.h>.  `kmem_cache_alloc` returns the object address as
     // the C code does; the caller turns it into a pointer.
+    // `kmem_cache_init` builds a cache in caller storage, which the map
+    // module still keeps in vm/vm_map_glue.c until kern/slab.c moves.
     pub fn kmem_cache_alloc(cache: *mut c_void) -> VmOffset;
     pub fn kmem_cache_free(cache: *mut c_void, obj: VmOffset);
+    pub fn kmem_cache_init(
+        cache: *mut c_void,
+        name: *const c_char,
+        size: VmSize,
+        align: VmSize,
+        ctor: Option<unsafe extern "C" fn(*mut c_void)>,
+        flags: c_int,
+    );
 
     // <kern/kalloc.h>: the page-list copyin's continuation argument
     // block, allocated for the continuation and freed after it runs.
@@ -162,10 +172,13 @@ unsafe extern "C" {
     pub fn ipc_port_copy_send(port: *mut c_void) -> *mut c_void;
     pub fn ipc_port_release_send(port: *mut c_void);
 
-    // The three caches of `vm/vm_map.c`, which still defines them.
+    // The three caches of the map module and the submap placeholder,
+    // which vm/vm_map_glue.c defines until kern/slab.c and
+    // vm/vm_object.c move.
     pub static mut vm_map_cache: c_void;
     pub static mut vm_map_entry_cache: c_void;
     pub static mut vm_map_copy_cache: c_void;
+    pub static mut vm_submap_object: *mut VmObject;
 
     // <vm/vm_kern.c>.  The map is passed as an opaque handle here:
     // `VmMap` is `!Unpin` (it embeds a list), and the C signature only
@@ -260,7 +273,6 @@ unsafe extern "C" {
         protection: c_int,
         wired: c_int,
     );
-    pub static mut vm_submap_object: *mut VmObject;
 
     // Shims in vm/vm_map_glue.c: the pager of a `struct vm_object` and
     // the task fields `vm_region_create_proxy` reads.  The object shim

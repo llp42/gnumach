@@ -248,6 +248,19 @@ pub unsafe extern "C" fn vm_map_deallocate(map: *mut VmMap) {
     }
 }
 
+/// Initialize the VM map module's caches.  `vm_map_init()` in C.
+///
+/// # Safety
+///
+/// Must be called once, before any other VM map routine, from the
+/// kernel's VM bootstrap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_map_init() {
+    // SAFETY: the caller is the VM bootstrap, and it runs before any
+    // map or entry is allocated.
+    unsafe { VmMap::init_module() };
+}
+
 /// Initialize an empty map in caller storage.  `vm_map_setup()` in C.
 ///
 /// # Safety

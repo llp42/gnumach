@@ -104,52 +104,6 @@
  *	vm_object_copy_strategically() in vm_object.c.
  */
 
-struct kmem_cache    vm_map_cache;		/* cache for vm_map structures */
-struct kmem_cache    vm_map_entry_cache;	/* cache for vm_map_entry structures */
-struct kmem_cache    vm_map_copy_cache; 	/* cache for vm_map_copy structures */
-
-/*
- *	Placeholder object for submap operations.  This object is dropped
- *	into the range by a call to vm_map_find, and removed when
- *	vm_map_submap creates the submap.
- */
-
-static struct vm_object	vm_submap_object_store;
-vm_object_t		vm_submap_object = &vm_submap_object_store;
-
-/*
- *	vm_map_init:
- *
- *	Initialize the vm_map module.  Must be called before
- *	any other vm_map routines.
- *
- *	Map and entry structures are allocated from caches -- we must
- *	initialize those caches.
- *
- *	There are two caches of interest:
- *
- *	vm_map_cache:		used to allocate maps.
- *	vm_map_entry_cache:	used to allocate map entries.
- *
- *	We make sure the map entry cache allocates memory directly from the
- *	physical allocator to avoid recursion with this module.
- */
-
-void vm_map_init(void)
-{
-	kmem_cache_init(&vm_map_cache, "vm_map", sizeof(struct vm_map), 0,
-			NULL, 0);
-	kmem_cache_init(&vm_map_entry_cache, "vm_map_entry",
-			sizeof(struct vm_map_entry), 0, NULL,
-			KMEM_CACHE_NOOFFSLAB | KMEM_CACHE_PHYSMEM);
-	kmem_cache_init(&vm_map_copy_cache, "vm_map_copy",
-			sizeof(struct vm_map_copy), 0, NULL, 0);
-
-	/*
-	 *	Submap object is initialized by vm_object_init.
-	 */
-}
-
 /*
  *	vm_map_setup, vm_map_create, vm_map_lock, vm_map_unlock,
  *	vm_map_copy_limits, vm_map_reference, vm_map_deallocate,
@@ -158,7 +112,9 @@ void vm_map_init(void)
  *	prototypes are unchanged in vm_map.h.  The whole copy family,
  *	including the page-list copyin and its continuation, and the
  *	region family (`vm_region`, `vm_region_create_proxy`) are Rust
- *	too.  Only vm_map_init and the caches remain here.
+ *	too, and so are `vm_map_init`, the caches' storage in
+ *	vm/vm_map_glue.c, and the submap placeholder.  Nothing but these
+ *	scaffolding comments remains here.
  */
 
 /*

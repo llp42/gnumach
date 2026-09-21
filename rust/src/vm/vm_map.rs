@@ -35,38 +35,39 @@ use crate::glue::{
     Panic, assert_wait, ipc_port_copy_send, ipc_port_release_send, kalloc,
     kernel_map, kernel_object, kernel_pmap, kernel_virtual_end,
     kernel_virtual_start, kfree, kmem_cache_alloc, kmem_cache_free,
-    lock_clear_recursive, lock_done, lock_init, lock_read, lock_read_to_write,
-    lock_set_recursive, lock_write, lock_write_to_read, pmap_create,
-    pmap_destroy, pmap_pageable, pmap_protect, pmap_remove, printf,
-    projected_buffer_collect, thread_block, vm_fault_copy, vm_fault_page,
-    vm_fault_unwire, vm_fault_wire, vm_map_cache, vm_map_copy_cache,
-    vm_map_entry_cache, vm_map_glue_memory_object_create_proxy,
-    vm_map_glue_object_can_coalesce, vm_map_glue_object_can_release,
-    vm_map_glue_object_extend_size, vm_map_glue_object_is_pristine_submap,
-    vm_map_glue_object_is_shadowed, vm_map_glue_object_is_temporary,
-    vm_map_glue_object_lock, vm_map_glue_object_make_shared,
-    vm_map_glue_object_needs_shadow, vm_map_glue_object_pager,
-    vm_map_glue_object_paging_begin, vm_map_glue_object_paging_end,
-    vm_map_glue_object_unlock, vm_map_glue_object_use_shared_copy,
-    vm_map_glue_page_activate_if_idle, vm_map_glue_page_clear_busy,
-    vm_map_glue_page_free, vm_map_glue_page_is_absent,
-    vm_map_glue_page_is_busy, vm_map_glue_page_is_error,
-    vm_map_glue_page_is_fictitious, vm_map_glue_page_is_precious,
-    vm_map_glue_page_is_tabled, vm_map_glue_page_object,
-    vm_map_glue_page_offset, vm_map_glue_page_protect,
-    vm_map_glue_page_queue_lock, vm_map_glue_page_queue_unlock,
-    vm_map_glue_page_set_busy, vm_map_glue_page_set_dirty,
-    vm_map_glue_page_steal, vm_map_glue_page_wakeup_done,
-    vm_map_glue_page_wire_count, vm_map_glue_pmap_attribute,
-    vm_map_glue_pmap_copy, vm_map_glue_pmap_enter, vm_map_glue_privilege_dec,
-    vm_map_glue_privilege_inc, vm_map_glue_thread_wakeup, vm_object_allocate,
-    vm_object_coalesce, vm_object_collapse, vm_object_copy_slowly,
-    vm_object_copy_strategically, vm_object_copy_temporary,
-    vm_object_deallocate, vm_object_name, vm_object_page_remove,
-    vm_object_pager_create, vm_object_pmap_protect, vm_object_pmap_remove,
-    vm_object_reference, vm_object_shadow, vm_page_activate, vm_page_copy,
-    vm_page_grab, vm_page_lookup, vm_page_mem_size, vm_page_more_fictitious,
-    vm_page_replace, vm_page_wait, vm_page_wire, vm_submap_object,
+    kmem_cache_init, lock_clear_recursive, lock_done, lock_init, lock_read,
+    lock_read_to_write, lock_set_recursive, lock_write, lock_write_to_read,
+    pmap_create, pmap_destroy, pmap_pageable, pmap_protect, pmap_remove,
+    printf, projected_buffer_collect, thread_block, vm_fault_copy,
+    vm_fault_page, vm_fault_unwire, vm_fault_wire, vm_map_cache,
+    vm_map_copy_cache, vm_map_entry_cache,
+    vm_map_glue_memory_object_create_proxy, vm_map_glue_object_can_coalesce,
+    vm_map_glue_object_can_release, vm_map_glue_object_extend_size,
+    vm_map_glue_object_is_pristine_submap, vm_map_glue_object_is_shadowed,
+    vm_map_glue_object_is_temporary, vm_map_glue_object_lock,
+    vm_map_glue_object_make_shared, vm_map_glue_object_needs_shadow,
+    vm_map_glue_object_pager, vm_map_glue_object_paging_begin,
+    vm_map_glue_object_paging_end, vm_map_glue_object_unlock,
+    vm_map_glue_object_use_shared_copy, vm_map_glue_page_activate_if_idle,
+    vm_map_glue_page_clear_busy, vm_map_glue_page_free,
+    vm_map_glue_page_is_absent, vm_map_glue_page_is_busy,
+    vm_map_glue_page_is_error, vm_map_glue_page_is_fictitious,
+    vm_map_glue_page_is_precious, vm_map_glue_page_is_tabled,
+    vm_map_glue_page_object, vm_map_glue_page_offset,
+    vm_map_glue_page_protect, vm_map_glue_page_queue_lock,
+    vm_map_glue_page_queue_unlock, vm_map_glue_page_set_busy,
+    vm_map_glue_page_set_dirty, vm_map_glue_page_steal,
+    vm_map_glue_page_wakeup_done, vm_map_glue_page_wire_count,
+    vm_map_glue_pmap_attribute, vm_map_glue_pmap_copy, vm_map_glue_pmap_enter,
+    vm_map_glue_privilege_dec, vm_map_glue_privilege_inc,
+    vm_map_glue_thread_wakeup, vm_object_allocate, vm_object_coalesce,
+    vm_object_collapse, vm_object_copy_slowly, vm_object_copy_strategically,
+    vm_object_copy_temporary, vm_object_deallocate, vm_object_name,
+    vm_object_page_remove, vm_object_pager_create, vm_object_pmap_protect,
+    vm_object_pmap_remove, vm_object_reference, vm_object_shadow,
+    vm_page_activate, vm_page_copy, vm_page_grab, vm_page_lookup,
+    vm_page_mem_size, vm_page_more_fictitious, vm_page_replace, vm_page_wait,
+    vm_page_wire, vm_submap_object,
 };
 use crate::ipc::{IpcPort, IpcSpace};
 use crate::kern::list::{List, entry as list_entry};
@@ -685,6 +686,50 @@ impl VmMap {
         unsafe {
             kmem_cache_free(addr_of_mut!(vm_map_cache), map.as_ptr().addr())
         };
+    }
+
+    /// Initialize the module's three slab caches.  `vm_map_init()` in
+    /// C.
+    ///
+    /// # Safety
+    ///
+    /// Must run once, before any other routine of this module, so the
+    /// caches are ready before the first allocation from them.
+    pub(crate) unsafe fn init_module() {
+        /// `KMEM_CACHE_NOOFFSLAB` in <kern/slab.h>.
+        const KMEM_CACHE_NOOFFSLAB: c_int = 0x1;
+        /// `KMEM_CACHE_PHYSMEM` in <kern/slab.h>.
+        const KMEM_CACHE_PHYSMEM: c_int = 0x2;
+
+        // SAFETY: the caches live in vm/vm_map_glue.c and outlive the
+        // kernel; the names are static strings; the bootstrap calls
+        // this before anything allocates from them.
+        unsafe {
+            kmem_cache_init(
+                addr_of_mut!(vm_map_cache),
+                c"vm_map".as_ptr(),
+                size_of::<VmMap>(),
+                0,
+                None,
+                0,
+            );
+            kmem_cache_init(
+                addr_of_mut!(vm_map_entry_cache),
+                c"vm_map_entry".as_ptr(),
+                size_of::<VmMapEntry>(),
+                0,
+                None,
+                KMEM_CACHE_NOOFFSLAB | KMEM_CACHE_PHYSMEM,
+            );
+            kmem_cache_init(
+                addr_of_mut!(vm_map_copy_cache),
+                c"vm_map_copy".as_ptr(),
+                size_of::<VmMapCopy>(),
+                0,
+                None,
+                0,
+            );
+        }
     }
 
     /// Initialize an empty map in caller storage.

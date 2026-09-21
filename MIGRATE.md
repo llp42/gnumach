@@ -1015,8 +1015,9 @@ M5a is the copy destruction family: `vm_map_copy_steal_pages`,
 `vm_map_copy_copy` and `vm_map_copy_discard_cont` are Rust now,
 over the copy cache and the `VmMapCopy` union.
 `vm_map_copy_steal_pages` was static and lived behind an adapter only
-while the copyin/copyout C callers lasted; its prototype and adapter
-went in M5e, and the core calls `VmMapCopy::steal_pages` directly.
+while the copyin/copyout C callers lasted; the adapter went in the
+M5d2 review fix, its prototype in M5e, and the core calls
+`VmMapCopy::steal_pages` directly.
 `vm_map_copy_discard_cont` keeps its exact symbol and signature,
 which `vm_kern.c` stores in `cpy_cont`; `vm_map_copy_discard()`
 recognizes that function through `vm_map_ffi::is_discard_cont()` and
@@ -1124,8 +1125,16 @@ pager accessors, which die with `kern/task.c` and `vm/vm_object.c`.
 The new core uses the `IpcPort`/`IpcSpace` handles of
 `rust/src/ipc/`, and `Error` gained `InvalidName` and `InvalidTask`
 for the two `kern_return_t`s the proxy call can pass through.  With
-the C definitions deleted, what remains in `vm/vm_map.c` is
-`vm_map_init` and the three caches; M6b is the delete.
+the C definitions deleted, what remained in `vm/vm_map.c` was
+`vm_map_init` and the three caches.
+
+M6b moves that last storage out: the three caches and
+`vm_submap_object` live in `vm/vm_map_glue.c` now -- C, because
+`struct kmem_cache` and `struct vm_object` are, and they move to Rust
+with kern/slab.c and vm/vm_object.c.  `vm_map_init` is
+`VmMap::init_module()` behind its adapter in `vm_map_ffi.rs`, with the
+same three names, sizes and flags.  `vm/vm_map.c` held nothing but
+comments after that, and the next commit deletes it.
 
 ### ipc/ (18 files, 13,002 LOC)
 

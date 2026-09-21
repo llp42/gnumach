@@ -42,9 +42,15 @@
  * `uint32_t` under USER32 and pointer-sized otherwise, so the guarded
  * cast from the native `vm_*` values stays on this side; it dies with
  * vm/memory_object_proxy.c.
+ *
+ * The three caches of the map module and the `vm_submap_object`
+ * placeholder are storage rather than shims: they stay here because
+ * `struct kmem_cache` and `struct vm_object` are still C.  They move
+ * to Rust with kern/slab.c and vm/vm_object.c.
  */
 
 #include <kern/mach4.server.h>
+#include <kern/slab.h>
 #include <kern/task.h>
 #include <kern/thread.h>
 #include <ipc/ipc_port.h>
@@ -121,6 +127,25 @@ kern_return_t vm_map_glue_memory_object_create_proxy(
 	vm_offset_t start,
 	vm_size_t len,
 	ipc_port_t *port);
+
+/*
+ * The map module's slab caches, and its submap placeholder.  The
+ * caches go when kern/slab.c moves, the placeholder with
+ * vm/vm_object.c.
+ */
+
+struct kmem_cache    vm_map_cache;		/* cache for vm_map structures */
+struct kmem_cache    vm_map_entry_cache;	/* cache for vm_map_entry structures */
+struct kmem_cache    vm_map_copy_cache; 	/* cache for vm_map_copy structures */
+
+/*
+ *	Placeholder object for submap operations.  This object is dropped
+ *	into the range by a call to vm_map_find, and removed when
+ *	vm_map_submap creates the submap.
+ */
+
+static struct vm_object	vm_submap_object_store;
+vm_object_t		vm_submap_object = &vm_submap_object_store;
 
 void
 vm_map_glue_privilege_inc(void)
