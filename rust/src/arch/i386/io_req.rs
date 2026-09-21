@@ -1,4 +1,9 @@
-// SPDX-License-Identifier: BSD-2-Clause
+// SPDX-License-Identifier: CMU-Mach
+// Derived from device/io_req.h, include/device/device_types.h and the
+// read loops of i386/i386at/kd_event.c and i386/i386at/kd_mouse.c:
+//   Copyright (c) 1991,1990,1989,1988 Carnegie Mellon University.
+//   Copyright Ing. C. Olivetti & C. S.p.A. 1989.
+//   Copyright 1988, 1989 by Olivetti Advanced Technology Center, Inc.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! `struct io_req` of <device/io_req.h> and the device return codes of

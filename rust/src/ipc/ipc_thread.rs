@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-2-Clause
+// SPDX-License-Identifier: CMU-Mach
 // Derived from ipc/ipc_thread.c and ipc/ipc_thread.h:
 //   Copyright (c) 1991,1990,1989 Carnegie Mellon University.
 //   Copyright (c) 1993,1994 The University of Utah and the Computer

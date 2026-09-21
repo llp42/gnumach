@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-2-Clause
+// SPDX-License-Identifier: CMU-Mach
 // Derived from util/atoi.c and util/atoi.h:
 //   Copyright (c) 1991,1990,1989 Carnegie Mellon University.
 //   Copyright Ing. C. Olivetti & C. S.p.A. 1988, 1989.

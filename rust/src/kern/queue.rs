@@ -1,4 +1,6 @@
-// SPDX-License-Identifier: BSD-2-Clause
+// SPDX-License-Identifier: CMU-Mach
+// Derived from kern/queue.c and kern/queue.h:
+//   Copyright (c) 1991,1990,1989,1988,1987 Carnegie Mellon University.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! The Mach queue package, which `kern/queue.c` used to define.

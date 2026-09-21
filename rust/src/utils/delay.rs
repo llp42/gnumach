@@ -1,4 +1,6 @@
-// SPDX-License-Identifier: BSD-2-Clause
+// SPDX-License-Identifier: CMU-Mach
+// Derived from i386/i386/loose_ends.c:
+//   Copyright (c) 1991,1990,1989 Carnegie Mellon University.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! The busy-wait delay, which `i386/i386/loose_ends.c` used to define.

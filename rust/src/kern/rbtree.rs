@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
+// Derived from kern/rbtree.c, kern/rbtree.h and kern/rbtree_i.h:
+//   Copyright (c) 2010, 2012 Richard Braun.
+//   Copyright (c) 2010, 2011 Richard Braun.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! Red-black tree, which `kern/rbtree.c` used to define.

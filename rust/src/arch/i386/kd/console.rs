@@ -1,4 +1,9 @@
-// SPDX-License-Identifier: BSD-2-Clause
+// SPDX-License-Identifier: CMU-Mach
+// Derived from i386/i386at/kd.c and i386/i386at/kd.h:
+//   Copyright (c) 1991,1990,1989 Carnegie Mellon University.
+//   Copyright Ing. C. Olivetti & C. S.p.A. 1988, 1989.
+//   Copyright 1988, 1989 by Olivetti Advanced Technology Center, Inc.
+//   Copyright 1988, 1989 by Intel Corporation.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! The kd console entry points, which <device/cons.c> calls through
