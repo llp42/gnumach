@@ -950,9 +950,17 @@ Rust symbols.  `vm/vm_map_glue.c` carries the two shims Rust cannot
 reach (`current_thread()->vm_privilege`, the `pmap_attribute` macro)
 and `rust/src/kern/rbtree.rs` gained the `init`/`lookup_nearest`
 methods the map uses.  `tests/test-vm.c` pins the machine-attribute
-bounds check and the msync flag/rounding behavior.  The file, the
-statics and the `vm_initialize`-era globals still wait for their
-milestones.
+bounds check and the msync flag/rounding behavior.
+
+M2 adds `vm_map_find_entry` and, behind it, the Rust-native gap
+machinery and entry lifecycle: `vm_map_gap_*`, `_vm_map_entry_link`,
+`_vm_map_entry_create`, `vm_map_enforce_limit` and
+`vm_map_find_entry_anywhere` are methods in `vm/vm_map.rs` now, with
+the entry tree through `Rbtree::insert_by`/`lookup_slot`/`lookup_nearest`
+and the gap lists through `List`.  The same statics stay in
+`vm/vm_map.c` for `vm_map_enter` until M4; the exported
+`vm_map_find_entry` no longer exists there.  The file and its
+remaining statics wait for their milestones.
 
 ### ipc/ (18 files, 13,002 LOC)
 

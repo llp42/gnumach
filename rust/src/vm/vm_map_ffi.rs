@@ -9,8 +9,8 @@
 //! in `vm_map.rs` takes over behind them.
 
 use crate::arch::types::{VmOffset, VmSize};
-use crate::vm::error::kern_return;
-use crate::vm::types::Pmap;
+use crate::vm::error::{KERN_SUCCESS, kern_return};
+use crate::vm::types::{Pmap, VmObject, VmProt};
 use crate::vm::vm_map::{VmMap, VmMapEntry, VmMapVersion};
 use core::ffi::{c_int, c_uint};
 use core::ptr::{self, NonNull};
@@ -91,6 +91,45 @@ pub unsafe extern "C" fn vm_map_lookup_entry(
     // SAFETY: as above.
     unsafe { entry.write(found_entry.as_ptr()) };
     c_int::from(found)
+}
+
+/// Allocate a range and an entry for it.  `vm_map_find_entry()` in C.
+///
+/// # Safety
+///
+/// `map` must be a valid map locked for writing, and both out-pointers
+/// must be writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_map_find_entry(
+    map: *mut VmMap,
+    address: *mut VmOffset,
+    size: VmSize,
+    mask: VmOffset,
+    object: *mut VmObject,
+    o_entry: *mut *mut VmMapEntry,
+    protection: VmProt,
+    max_protection: VmProt,
+) -> c_int {
+    // SAFETY: the caller promises a valid, write-locked map.
+    let map = unsafe { &mut *map };
+    match VmMap::find_entry(
+        map,
+        size,
+        mask,
+        object,
+        protection,
+        max_protection,
+    ) {
+        Ok((start, entry)) => {
+            // SAFETY: the caller promises writable out-pointers.
+            unsafe {
+                address.write(start);
+                o_entry.write(entry.as_ptr());
+            }
+            KERN_SUCCESS
+        }
+        Err(error) => error.as_kern_return(),
+    }
 }
 
 /// Add a reference to a map, if it is not null.

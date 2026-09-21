@@ -79,8 +79,21 @@ impl List {
         // SAFETY: the body only writes the link fields; the node is
         // never moved out of the pin.
         let this = unsafe { self.get_unchecked_mut() };
-        let this = NonNull::from(&mut *this);
-        // SAFETY: the caller promises the node is valid and unlinked.
+        // SAFETY: the caller promises a valid, unlinked node.
+        unsafe { List::init_head_at(NonNull::from(&mut *this)) };
+    }
+
+    /// Self-link a node through a raw pointer, so callers holding
+    /// freshly allocated, not-yet-initialized storage need not form a
+    /// reference to it.  `list_init()` in C.
+    ///
+    /// # Safety
+    ///
+    /// `this` must point at valid, aligned storage for a `List` that
+    /// is not linked into a list and stays at its address while
+    /// linked.
+    pub unsafe fn init_head_at(this: NonNull<List>) {
+        // SAFETY: the caller promises valid, unlinked storage.
         unsafe {
             (*this.as_ptr()).prev = Some(this);
             (*this.as_ptr()).next = Some(this);

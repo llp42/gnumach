@@ -192,6 +192,114 @@ impl Rbtree {
         found.map(|node| node.0)
     }
 
+    /// Walk to the node whose comparison is zero and the insertion
+    /// point for it.  The C `rbtree_lookup_slot()` macro, with `cmp`
+    /// returning the ordering of the key against each visited node.
+    /// The slot packs the point for `insert_at()`.
+    pub(crate) fn lookup_slot<F>(
+        &self,
+        cmp: F,
+    ) -> (Option<NonNull<RbtreeNode>>, usize)
+    where
+        F: Fn(NonNull<RbtreeNode>) -> c_int,
+    {
+        let mut prev = None;
+        let mut index = 0;
+        let mut cur = self.root;
+
+        while let Some(node) = cur {
+            let diff = cmp(node);
+            if diff == 0 {
+                break;
+            }
+            prev = cur;
+            index = rbtree_d2i(diff);
+            // SAFETY: the caller promises a valid tree, so a visited
+            // node's children are valid nodes or null.
+            cur = unsafe {
+                (*node.as_ptr()).children[Side::from_int(index).index()]
+            };
+        }
+
+        let parent = prev.map_or(ptr::null_mut(), |node| node.as_ptr());
+        (cur, rbtree_slot(parent, index))
+    }
+
+    /// Insert `node` at a slot from `lookup_slot()`.
+    /// `rbtree_insert_slot()` in C.
+    ///
+    /// # Safety
+    ///
+    /// `node` must be unlinked caller storage, and `slot` must name an
+    /// insertion point in this tree.
+    pub(crate) unsafe fn insert_at(
+        &mut self,
+        slot: usize,
+        node: NonNull<RbtreeNode>,
+    ) {
+        let parent = ptr::with_exposed_provenance_mut(slot & SLOT_PARENT_MASK);
+        let index = (slot & SLOT_INDEX_MASK) as c_int;
+        // SAFETY: the caller promises an unlinked node and a slot of
+        // this tree.
+        unsafe {
+            self.insert(
+                NonNull::new(parent).map(NodeRef),
+                Side::from_int(index),
+                NodeRef::new(node.as_ptr()),
+            )
+        };
+    }
+
+    /// Insert `node`, locating the point with `cmp`.  The C
+    /// `rbtree_insert()` macro, with `cmp` receiving each visited node
+    /// and ordering the inserted node against it.
+    ///
+    /// # Safety
+    ///
+    /// `node` must be unlinked caller storage and must not compare
+    /// equal to any node already in the tree.
+    pub(crate) unsafe fn insert_by<F>(
+        &mut self,
+        node: NonNull<RbtreeNode>,
+        cmp: F,
+    ) where
+        F: Fn(NonNull<RbtreeNode>) -> c_int,
+    {
+        let mut prev = None;
+        let mut index = -1;
+        let mut cur = self.root;
+
+        while let Some(visited) = cur {
+            let diff = cmp(visited);
+            prev = cur;
+            index = rbtree_d2i(diff);
+            // SAFETY: the caller promises a valid tree.
+            cur = unsafe {
+                (*visited.as_ptr()).children[Side::from_int(index).index()]
+            };
+        }
+
+        // SAFETY: the caller promises an unlinked node and an
+        // insertion point found in this tree.
+        unsafe {
+            self.insert(
+                prev.map(NodeRef),
+                Side::from_int(index),
+                NodeRef::new(node.as_ptr()),
+            )
+        };
+    }
+
+    /// Remove a node.  `rbtree_remove()` in C.
+    ///
+    /// # Safety
+    ///
+    /// `node` must be linked in this tree.
+    pub(crate) unsafe fn remove_node(&mut self, node: NonNull<RbtreeNode>) {
+        // SAFETY: the caller promises the node is linked here.
+        unsafe { self.remove(NodeRef::new(node.as_ptr())) };
+    }
+
     /// The root, if any.
     fn root(&self) -> Option<NodeRef> {
         self.root.map(NodeRef)
@@ -801,7 +909,9 @@ pub extern "C" fn rbtree_d2i(diff: c_int) -> c_int {
 /// the child side the C macro found, 0 or 1.
 #[unsafe(no_mangle)]
 pub extern "C" fn rbtree_slot(parent: *mut RbtreeNode, index: c_int) -> usize {
-    parent.addr() | index as usize
+    // Expose the address so `insert_at()` can rebuild a pointer from
+    // the packed slot; C sees only the integer either way.
+    parent.expose_provenance() | index as usize
 }
 
 /// Insert at an insertion point.  `rbtree_insert_slot()` in C.
@@ -1465,6 +1575,84 @@ mod tests {
             assert_eq!(unsafe { keys_in_order(&mut tree) }, model);
         }
 
+        assert!(tree.root.is_none());
+    }
+
+    #[test]
+    fn native_slot_and_insert() {
+        let keys: Vec<u32> = (0..64).collect();
+        let v = entries(&keys);
+        let mut tree = new_tree();
+        let mut model: Vec<u32> = Vec::new();
+        let mut rng = Rng(0x0bad_c0de);
+
+        for &key in &shuffled(&keys, &mut rng) {
+            let cmp = |node: NonNull<RbtreeNode>| {
+                // SAFETY: the tree only visits linked nodes.
+                key as c_int - unsafe { key_of(node.as_ptr()) } as c_int
+            };
+            let (found, slot) = tree.lookup_slot(cmp);
+            assert!(found.is_none(), "key {key} already present");
+            // SAFETY: `v` is stable and the slot came from this tree.
+            unsafe {
+                tree.insert_at(
+                    slot,
+                    NonNull::new(node_of(&v[key as usize])).unwrap(),
+                )
+            };
+            let pos = model.partition_point(|&k| k < key);
+            model.insert(pos, key);
+            // SAFETY: the tree is valid.
+            unsafe { check(&mut tree) };
+            assert_eq!(unsafe { keys_in_order(&mut tree) }, model);
+        }
+
+        // A present key stops the native walk at its node.
+        for &key in &keys {
+            let cmp = |node: NonNull<RbtreeNode>| {
+                // SAFETY: the tree only visits linked nodes.
+                key as c_int - unsafe { key_of(node.as_ptr()) } as c_int
+            };
+            let (found, _) = tree.lookup_slot(cmp);
+            assert_eq!(
+                found.map(|node| unsafe { key_of(node.as_ptr()) }),
+                Some(key)
+            );
+        }
+
+        // `insert_by` places fresh ascending keys, `remove_node`
+        // empties the tree again.
+        let more = entries(&[100, 200, 300]);
+        // SAFETY: the entries are stable and absent from the tree.
+        unsafe {
+            for entry in &more {
+                let node = NonNull::new(node_of(entry)).unwrap();
+                tree.insert_by(node, |visited| {
+                    entry.key as c_int - key_of(visited.as_ptr()) as c_int
+                });
+                check(&mut tree);
+            }
+        }
+
+        // SAFETY: every node came from this tree.
+        unsafe {
+            for entry in &more {
+                tree.remove_node(NonNull::new(node_of(entry)).unwrap());
+                check(&mut tree);
+            }
+        }
+
+        for &key in &keys {
+            // SAFETY: the tree still holds every entry.
+            let node = unsafe { find(&mut tree, key) };
+            assert!(!node.is_null(), "missing key {key}");
+            // SAFETY: the node is linked in the tree.
+            unsafe {
+                tree.remove_node(NonNull::new(node).unwrap());
+            }
+            // SAFETY: the tree is valid.
+            unsafe { check(&mut tree) };
+        }
         assert!(tree.root.is_none());
     }
 }

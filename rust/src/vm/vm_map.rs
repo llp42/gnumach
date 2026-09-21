@@ -21,21 +21,30 @@
 //!
 //! The `extern "C"` edge lives in `vm_map_ffi.rs`, one adapter per
 //! exported symbol; the native core they call is here.
+//!
+//! Map and entry storage comes from the C slab caches, so a freshly
+//! allocated object is uninitialized bytes until the code here writes
+//! it: fields and intrusive nodes are addressed through raw pointers
+//! (`addr_of_mut!`) until the object is complete, and only then is it
+//! treated as a reference.  This is transitional; when the caches and
+//! the structures are Rust-owned, construction moves to `MaybeUninit`
+//! or a `new()`.
 
 use crate::arch::types::{VmOffset, VmSize};
 use crate::glue::{
-    kernel_pmap, kmem_cache_alloc, kmem_cache_free, lock_done, lock_init,
-    lock_read, lock_write, pmap_destroy, projected_buffer_collect,
-    vm_map_cache, vm_map_delete, vm_map_glue_pmap_attribute,
-    vm_map_glue_privilege_dec, vm_map_glue_privilege_inc, vm_page_mem_size,
+    Panic, assert_wait, kernel_pmap, kmem_cache_alloc, kmem_cache_free,
+    lock_done, lock_init, lock_read, lock_write, pmap_destroy, printf,
+    projected_buffer_collect, thread_block, vm_map_cache, vm_map_delete,
+    vm_map_entry_cache, vm_map_glue_pmap_attribute, vm_map_glue_privilege_dec,
+    vm_map_glue_privilege_inc, vm_page_mem_size,
 };
-use crate::kern::list::List;
+use crate::kern::list::{List, entry as list_entry};
 use crate::kern::lock::{LockData, SimpleLock};
-use crate::kern::rbtree::{RBTREE_LEFT, Rbtree, RbtreeNode};
+use crate::kern::rbtree::{RBTREE_LEFT, RBTREE_RIGHT, Rbtree, RbtreeNode};
 use crate::vm::error::{Error, error_from_kern_return};
 use crate::vm::types::{Pmap, VmInherit, VmObject, VmPage, VmProt};
 use core::cell::UnsafeCell;
-use core::ffi::{c_char, c_int, c_uint};
+use core::ffi::{c_char, c_int, c_uint, c_void};
 use core::mem::{ManuallyDrop, offset_of, size_of};
 use core::ptr::{self, NonNull, addr_of_mut, with_exposed_provenance_mut};
 
@@ -900,3 +909,556 @@ assert_layout!(VmMapCopyinArgs, 24, 4, {
     map: 0, src_addr: 4, src_len: 8, destroy_addr: 12,
     destroy_len: 16, steal_pages: 20,
 });
+
+/// The address-ordered entry comparison.  `vm_map_entry_cmp_lookup()`
+/// in C: negative before the entry, zero inside it, positive after.
+fn entry_cmp_lookup(address: VmOffset, node: NonNull<RbtreeNode>) -> c_int {
+    // SAFETY: the node is a `tree_node` of an entry of the tree the
+    // caller keeps stable.
+    let entry = unsafe { VmMapEntry::from_tree_node(node) };
+    // SAFETY: as above.
+    let entry = unsafe { entry.as_ref() };
+    if address < entry.links.start {
+        -1
+    } else if address < entry.links.end {
+        0
+    } else {
+        1
+    }
+}
+
+/// The insert comparison: the inserted entry's start against a visited
+/// node.  `vm_map_entry_cmp_insert()` in C.
+fn entry_cmp_insert(
+    entry: NonNull<VmMapEntry>,
+    node: NonNull<RbtreeNode>,
+) -> c_int {
+    // SAFETY: the caller names a live entry of the map.
+    let start = unsafe { (*entry.as_ptr()).links.start };
+    entry_cmp_lookup(start, node)
+}
+
+/// The gap-size comparison.  `vm_map_entry_gap_cmp_lookup()` in C.
+fn gap_cmp_lookup(gap_size: VmSize, node: NonNull<RbtreeNode>) -> c_int {
+    // SAFETY: the node is a `gap_node` of an entry of the gap tree.
+    let entry = unsafe { VmMapEntry::from_gap_node(node) };
+    // SAFETY: as above.
+    let entry = unsafe { entry.as_ref() };
+    if gap_size < entry.gap_size {
+        -1
+    } else if gap_size == entry.gap_size {
+        0
+    } else {
+        1
+    }
+}
+
+/// The gap insert comparison.  `vm_map_entry_gap_cmp_insert()` in C.
+fn gap_cmp_insert(
+    entry: NonNull<VmMapEntry>,
+    node: NonNull<RbtreeNode>,
+) -> c_int {
+    // SAFETY: the caller names a live entry of the map.
+    let gap_size = unsafe { (*entry.as_ptr()).gap_size };
+    gap_cmp_lookup(gap_size, node)
+}
+
+impl VmMapEntry {
+    /// Allocate an entry from the cache.  `_vm_map_entry_create()` in
+    /// C, including its halt when the cache is exhausted.
+    ///
+    /// # Safety
+    ///
+    /// `vm_map_init()` must have initialized the entry cache.
+    #[must_use]
+    pub(crate) unsafe fn create() -> NonNull<VmMapEntry> {
+        // SAFETY: `vm_map_entry_cache` is initialized by
+        // `vm_map_init()` before any entry is created.
+        let address =
+            unsafe { kmem_cache_alloc(addr_of_mut!(vm_map_entry_cache)) };
+        match NonNull::new(with_exposed_provenance_mut::<VmMapEntry>(address))
+        {
+            Some(entry) => entry,
+            // SAFETY: the C code panics on allocation failure, which
+            // halts the kernel.  The line number always fits `c_int`.
+            None => unsafe {
+                Panic(
+                    c"rust/src/vm/vm_map.rs".as_ptr(),
+                    line!() as c_int,
+                    c"VmMapEntry::create".as_ptr(),
+                    c"vm_map_entry_create".as_ptr(),
+                )
+            },
+        }
+    }
+}
+
+impl VmMapHeader {
+    /// Whether `entry` is this header's sentinel.
+    pub(crate) fn is_sentinel(&self, entry: NonNull<VmMapEntry>) -> bool {
+        entry == self.to_entry()
+    }
+
+    /// `vm_map_gap_valid()` in C: the sentinel is no gap entry.
+    fn gap_valid(&self, entry: NonNull<VmMapEntry>) -> bool {
+        !self.is_sentinel(entry)
+    }
+
+    /// Recompute `entry`'s gap to the next entry or the header end.
+    /// `vm_map_gap_compute()` in C.
+    fn gap_compute(&self, entry: NonNull<VmMapEntry>) {
+        // SAFETY: the caller names a live entry of this header.
+        let next = unsafe { (*entry.as_ptr()).links.next };
+        // SAFETY: as above.
+        let end = unsafe { (*entry.as_ptr()).links.end };
+
+        let gap_end = match next {
+            // SAFETY: the chain links live entries or the sentinel.
+            Some(next) if self.gap_valid(next) => unsafe {
+                (*next.as_ptr()).links.start
+            },
+            _ => self.links.end,
+        };
+
+        // SAFETY: as above; the invariant puts the next entry (or the
+        // header end) at or after this entry's end.
+        unsafe {
+            (*entry.as_ptr()).gap_size = gap_end.wrapping_sub(end);
+        }
+    }
+
+    /// Insert `entry` into the gap tree, or into the list of an entry
+    /// with the same gap.  `vm_map_gap_insert_single()` in C.
+    fn gap_insert_single(&mut self, entry: NonNull<VmMapEntry>) {
+        if !self.gap_valid(entry) {
+            return;
+        }
+        self.gap_compute(entry);
+        // SAFETY: `entry` is a live entry of this header.
+        let gap_size = unsafe { (*entry.as_ptr()).gap_size };
+        if gap_size == 0 {
+            return;
+        }
+
+        let (found, slot) = self
+            .gap_tree
+            .lookup_slot(|node| gap_cmp_lookup(gap_size, node));
+
+        match found {
+            None => {
+                // SAFETY: the gap node is unlinked and the slot names
+                // a point of this gap tree; the nodes are addressed
+                // raw, because the allocation is still uninitialized.
+                unsafe {
+                    let node = NonNull::new_unchecked(addr_of_mut!(
+                        (*entry.as_ptr()).gap_node
+                    ));
+                    self.gap_tree.insert_at(slot, node);
+                    List::init_head_at(NonNull::new_unchecked(addr_of_mut!(
+                        (*entry.as_ptr()).gap_list
+                    )));
+                    (*entry.as_ptr()).set_in_gap_tree(true);
+                }
+            }
+            Some(node) => {
+                // SAFETY: the node came from this gap tree, so it is
+                // an entry's gap node.
+                let same = unsafe { VmMapEntry::from_gap_node(node) };
+                // SAFETY: both entries are live and distinct under the
+                // map lock, and their list fields do not alias.
+                unsafe {
+                    let list = &mut (*same.as_ptr()).gap_list;
+                    let node = NonNull::new_unchecked(addr_of_mut!(
+                        (*entry.as_ptr()).gap_list
+                    ));
+                    list.insert_tail(node);
+                    (*entry.as_ptr()).set_in_gap_tree(false);
+                }
+            }
+        }
+    }
+
+    /// Remove `entry` from the gap tree, promoting a same-gap entry
+    /// when it was the tree's representative.
+    /// `vm_map_gap_remove_single()` in C.
+    fn gap_remove_single(&mut self, entry: NonNull<VmMapEntry>) {
+        if !self.gap_valid(entry) {
+            return;
+        }
+        // SAFETY: `entry` is a live entry of this header.
+        if unsafe { (*entry.as_ptr()).gap_size } == 0 {
+            return;
+        }
+        // SAFETY: as above.
+        if !unsafe { (*entry.as_ptr()).in_gap_tree() } {
+            // SAFETY: the entry's list node is linked in a gap list.
+            unsafe {
+                List::remove(NonNull::from(&mut (*entry.as_ptr()).gap_list));
+            }
+            return;
+        }
+
+        // SAFETY: the entry's gap node is linked in this gap tree.
+        unsafe {
+            let node = NonNull::from(&mut (*entry.as_ptr()).gap_node);
+            self.gap_tree.remove_node(node);
+        }
+
+        // SAFETY: as above; a list head is self-linked when empty.
+        if unsafe { (*entry.as_ptr()).gap_list.is_empty() } {
+            return;
+        }
+        // SAFETY: as above.
+        let first = unsafe { (*entry.as_ptr()).gap_list.first() };
+        let Some(first) = first else {
+            return;
+        };
+        // SAFETY: `first` is the gap_list node of a live entry.
+        let same = unsafe {
+            list_entry::<VmMapEntry>(first, offset_of!(VmMapEntry, gap_list))
+        };
+        // SAFETY: `same` and `entry` are live and distinct entries of
+        // this header; `same`'s list node is the one just read.
+        unsafe {
+            let list = NonNull::from(&mut (*same.as_ptr()).gap_list);
+            List::remove(list);
+            List::set_head(
+                list,
+                NonNull::from(&mut (*entry.as_ptr()).gap_list),
+            );
+            let node = NonNull::from(&mut (*same.as_ptr()).gap_node);
+            self.gap_tree
+                .insert_by(node, |visited| gap_cmp_insert(same, visited));
+            (*same.as_ptr()).set_in_gap_tree(true);
+        }
+    }
+
+    /// Remove and reinsert `entry`, after its gap changed.
+    /// `vm_map_gap_update()` in C.
+    fn gap_update(&mut self, entry: NonNull<VmMapEntry>) {
+        self.gap_remove_single(entry);
+        self.gap_insert_single(entry);
+    }
+
+    /// Insert `entry`, adjusting its predecessor's gap too.
+    /// `vm_map_gap_insert()` in C.
+    fn gap_insert(&mut self, entry: NonNull<VmMapEntry>) {
+        // SAFETY: `entry` is a live entry, so its predecessor is.
+        let prev = unsafe { (*entry.as_ptr()).links.prev };
+        if let Some(prev) = prev {
+            self.gap_remove_single(prev);
+            self.gap_insert_single(prev);
+        }
+        self.gap_insert_single(entry);
+    }
+
+    /// Link `entry` after `after` in the chain and the entry tree.
+    /// The `_vm_map_entry_link()` macro in C.
+    ///
+    /// # Safety
+    ///
+    /// Both entries must be valid and live in this header, `entry`
+    /// unlinked, and nothing else may touch the header during the call.
+    pub(crate) unsafe fn entry_link(
+        &mut self,
+        after: NonNull<VmMapEntry>,
+        entry: NonNull<VmMapEntry>,
+        link_gap: bool,
+    ) {
+        self.nentries = self.nentries.wrapping_add(1);
+        // SAFETY: the caller promises both entries are valid and the
+        // map lock keeps the chain stable.
+        unsafe {
+            let next = (*after.as_ptr()).links.next;
+            (*entry.as_ptr()).links.prev = Some(after);
+            (*entry.as_ptr()).links.next = next;
+            (*after.as_ptr()).links.next = Some(entry);
+            if let Some(next) = next {
+                (*next.as_ptr()).links.prev = Some(entry);
+            }
+
+            let node = NonNull::new_unchecked(addr_of_mut!(
+                (*entry.as_ptr()).tree_node
+            ));
+            self.tree
+                .insert_by(node, |visited| entry_cmp_insert(entry, visited));
+
+            if link_gap {
+                self.gap_insert(entry);
+            }
+        }
+    }
+}
+
+impl VmMap {
+    /// The first free-space hint, or the sentinel.
+    fn first_free_entry(&self) -> NonNull<VmMapEntry> {
+        NonNull::new(self.first_free).unwrap_or_else(|| self.to_entry())
+    }
+
+    /// The C allocation-failure diagnostic.
+    fn no_room(&self) {
+        // SAFETY: `printf` only formats.
+        unsafe {
+            printf(
+                c"no more room in %p (%s)\n".as_ptr(),
+                ptr::from_ref(self).cast_mut().cast::<c_void>(),
+                self.name,
+            )
+        };
+    }
+
+    /// Enforce the map's VM limit for a new region.
+    /// `vm_map_enforce_limit()` in C.
+    fn enforce_limit(&self, size: VmSize) -> Result<(), Error> {
+        // The limit is ignored for the kernel map.
+        // SAFETY: `kernel_pmap` is a boot global.
+        if self.pmap == unsafe { kernel_pmap } {
+            return Ok(());
+        }
+
+        // Avoid taking into account the total VM_PROT_NONE virtual
+        // memory.
+        let allocated = self.size.wrapping_sub(self.size_none);
+        let new_size = allocated.wrapping_add(size);
+        // Check for integer overflow.
+        if new_size < size {
+            return Err(Error::InvalidArgument);
+        }
+        if new_size > self.size_cur_limit {
+            return Err(Error::NoSpace);
+        }
+        Ok(())
+    }
+
+    /// Find a range of available space.  `vm_map_find_entry_anywhere()`
+    /// in C: on success, the returned entry is the one preceding the
+    /// range and the returned address is its first one.
+    fn find_entry_anywhere(
+        &mut self,
+        size: VmSize,
+        mask_in: VmOffset,
+        map_locked: bool,
+    ) -> Option<(NonNull<VmMapEntry>, VmOffset)> {
+        let mut mask = mask_in;
+        let mut max = self.hdr.links.end;
+
+        if mask.wrapping_add(1) & mask != 0 {
+            // We have high bits in addition to the low bits.  The C
+            // uses the `int`-typed `__builtin_ffs`, which would be
+            // undefined for a mask with no set bit in its low 32 bits;
+            // scanning the full `usize` gives the intended answer.
+            let first0 = (!mask).trailing_zeros() + 1;
+            let lowmask = (1usize << (first0 - 1)).wrapping_sub(1);
+            let himask = mask.wrapping_sub(lowmask);
+            let second1 = himask.trailing_zeros() + 1;
+
+            max = 1usize << (second1 - 1);
+
+            if himask.wrapping_add(max) != 0 {
+                // High bits do not continue up to the end.
+                // SAFETY: `printf` only formats.
+                unsafe { printf(c"invalid mask %zx\n".as_ptr(), mask) };
+                return None;
+            }
+
+            mask = lowmask;
+        }
+
+        if !map_locked {
+            VmMap::lock(NonNull::from(&mut *self));
+        }
+
+        loop {
+            if self.hdr.nentries == 0 {
+                let entry = self.to_entry();
+                let start = self.hdr.links.start.wrapping_add(mask) & !mask;
+                let end = start.wrapping_add(size);
+
+                if start < self.hdr.links.start || end <= start || end > max {
+                    self.no_room();
+                    return None;
+                }
+
+                return Some((entry, start));
+            }
+
+            let entry = self.first_free_entry();
+            if !self.hdr.is_sentinel(entry) {
+                // SAFETY: `entry` is a live entry of this map.
+                let (entry_end, gap_size) = unsafe {
+                    ((*entry.as_ptr()).links.end, (*entry.as_ptr()).gap_size)
+                };
+                let start = entry_end.wrapping_add(mask) & !mask;
+                let end = start.wrapping_add(size);
+
+                if start >= entry_end
+                    && end > start
+                    && end <= max
+                    && end <= entry_end.wrapping_add(gap_size)
+                {
+                    return Some((entry, start));
+                }
+            }
+
+            let max_size = size.wrapping_add(mask);
+            if max_size < size {
+                // SAFETY: `printf` only formats.
+                unsafe {
+                    printf(
+                        c"max_size %zd got smaller than size %zd with mask %zd\n"
+                            .as_ptr(),
+                        max_size,
+                        size,
+                        mask,
+                    )
+                };
+                self.no_room();
+                return None;
+            }
+
+            let node = self.hdr.gap_tree.lookup_nearest(
+                |node| gap_cmp_lookup(max_size, node),
+                RBTREE_RIGHT,
+            );
+
+            let Some(node) = node else {
+                if map_locked || !self.wait_for_space() {
+                    self.no_room();
+                    return None;
+                }
+
+                // SAFETY: the map belongs to this thread for the call;
+                // sleep on its address as the C code does and retry
+                // after waking.  Only reachable when a caller passes
+                // `map_locked = false`; the port must re-derive any
+                // Rust view of the map here once `vm_map_enter` moves.
+                unsafe {
+                    assert_wait(ptr::from_mut(self).cast(), 1);
+                    VmMap::unlock(NonNull::from(&mut *self));
+                    thread_block(None);
+                    VmMap::lock(NonNull::from(&mut *self));
+                }
+                continue;
+            };
+
+            // SAFETY: the node came from this gap tree.
+            let mut entry = unsafe { VmMapEntry::from_gap_node(node) };
+            // SAFETY: `entry` is a live entry.  The C code takes the
+            // *last* node of the same-gap list, so the allocation
+            // address matches its choice.
+            let last = unsafe { (*entry.as_ptr()).gap_list.last() };
+            if let Some(last) = last {
+                // SAFETY: the list node belongs to a live entry.
+                entry = unsafe {
+                    list_entry::<VmMapEntry>(
+                        last,
+                        offset_of!(VmMapEntry, gap_list),
+                    )
+                };
+            }
+
+            // SAFETY: `entry` is a live entry.
+            let entry_end = unsafe { (*entry.as_ptr()).links.end };
+            let start = entry_end.wrapping_add(mask) & !mask;
+            let end = start.wrapping_add(size);
+            if end > max {
+                // Does not respect the allowed maximum.
+                // SAFETY: `printf` only formats.
+                unsafe {
+                    printf(c"%lx does not respect %lx\n".as_ptr(), end, max)
+                };
+                return None;
+            }
+
+            return Some((entry, start));
+        }
+    }
+
+    /// Allocate a range and initialize an entry for it.
+    /// `vm_map_find_entry()` in C, with the caller holding the map
+    /// lock and the out-parameters returned as a pair.
+    pub(crate) fn find_entry(
+        map: &mut VmMap,
+        size: VmSize,
+        mask: VmOffset,
+        object: *mut VmObject,
+        protection: VmProt,
+        max_protection: VmProt,
+    ) -> Result<(VmOffset, NonNull<VmMapEntry>), Error> {
+        if max_protection != VmProt::NONE {
+            map.enforce_limit(size)?;
+        }
+
+        let (entry, start) = map
+            .find_entry_anywhere(size, mask, true)
+            .ok_or(Error::NoSpace)?;
+        let end = start.wrapping_add(size);
+
+        // See whether the preceding entry can be extended instead of
+        // creating a new one.  [So far, we only attempt to extend from
+        // below.]
+        // SAFETY: `entry` is a live entry and the map is locked.
+        let extend = !object.is_null()
+            && !map.hdr.is_sentinel(entry)
+            && unsafe {
+                let before = &*entry.as_ptr();
+                before.links.end == start
+                    && !before.is_shared()
+                    && !before.is_sub_map()
+                    && !before.in_transition()
+                    && before.object.vm_object == object
+                    && !before.needs_copy()
+                    && before.inheritance == VmInherit::COPY
+                    && before.protection == protection
+                    && before.max_protection == max_protection
+                    && before.wired_count != 0
+                    && before.projected_on.is_null()
+            };
+
+        let new_entry = if extend {
+            // SAFETY: `entry` is live, and the map lock is held.
+            unsafe { (*entry.as_ptr()).links.end = end };
+            map.hdr.gap_update(entry);
+            entry
+        } else {
+            // SAFETY: the entry cache is initialized and the map lock
+            // is held.
+            let new_entry = unsafe { VmMapEntry::create() };
+            // SAFETY: `new_entry` is unlinked, freshly allocated
+            // storage; the link below makes it reachable.  The fields
+            // are written through the pointer, because no part of the
+            // entry is initialized yet.
+            unsafe {
+                let e = new_entry.as_ptr();
+                (*e).links.start = start;
+                (*e).links.end = end;
+                (*e).set_shared(false);
+                (*e).set_sub_map(false);
+                (*e).object.vm_object = ptr::null_mut();
+                (*e).offset = 0;
+                (*e).set_needs_copy(false);
+                (*e).inheritance = VmInherit::COPY;
+                (*e).protection = protection;
+                (*e).max_protection = max_protection;
+                (*e).wired_count = 1;
+                (*e).wired_access = VmProt::READ | VmProt::WRITE;
+                (*e).set_in_transition(false);
+                (*e).set_needs_wakeup(false);
+                (*e).projected_on = ptr::null_mut();
+
+                map.hdr.entry_link(entry, new_entry, true);
+            }
+            new_entry
+        };
+
+        map.size = map.size.wrapping_add(size);
+        if max_protection == VmProt::NONE {
+            map.size_none = map.size_none.wrapping_add(size);
+        }
+        map.first_free = new_entry.as_ptr();
+        map.save_hint(new_entry);
+
+        Ok((start, new_entry))
+    }
+}
