@@ -1187,15 +1187,54 @@ file rather than leaving the comment on one diff.
 
 **Source files carry an SPDX header. Build files do not.**
 
+New code, and a new implementation of a public interface, are
+BSD-2-Clause.  A public interface is one a standard defines, POSIX first
+among them: the routines in `rust/src/utils/string.rs` and the byte
+swaps in `rust/src/utils/byteorder.rs` are theirs.  A genuinely new
+design is BSD too, for the same fair-use reason that only the
+expression is protected: `rust/src/kern/smp.rs` is an `AtomicU8` where
+the C had a plain byte.
+
 ```
 // SPDX-License-Identifier: BSD-2-Clause
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 ```
 
-Use `//` in `.rs`, `dnl` in `.ac`, `/* */` in `.c` and `.h`. Keep the copyright
-line exactly as above. A file derived from existing Mach code keeps the
-original copyright block above the new line — `rust/src/utils/atoi.rs` is the
-pattern.
+Everything else is a translation of Mach's own code, and a translation
+is a derivative work.  The SPDX line names the source's license, the
+source's copyright notice follows, and the new copyright line goes
+last:
+
+```
+// SPDX-License-Identifier: CMU-Mach
+// Derived from vm/vm_map.c and vm/vm_map.h:
+//   Copyright (c) 1991,1990,1989,1988,1987 Carnegie Mellon University.
+//   Copyright (c) 1993,1994 The University of Utah and the Computer
+//   Systems Laboratory (CSL).
+// Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+```
+
+The test is the code, not the header comment.  Tracking the C routine,
+its control flow, its case order, its constants, its comments, makes a
+derivative; writing the same interface with a design of one's own does
+not.  `rust/src/utils/atoi.rs` translates `util/atoi.c` and carries
+`CMU-Mach`, and `rust/src/kern/elf_load.rs` reworks the loader until
+nothing of the C's structure remains and stays BSD.
+
+The source licenses to name in the translation case:
+
+- Carnegie Mellon Mach code, with the Utah and Olivetti notices that
+  travel with it: `CMU-Mach`.
+- Richard Braun's `kern/rbtree.*` and `kern/list.h`: `BSD-2-Clause`.
+- FSF additions under the GNU GPL, among them `i386/i386at/mbinfo.c`:
+  `GPL-2.0-or-later`.  A translation of GPL code stays
+  `GPL-2.0-or-later`; copyleft does not allow relicensing.
+
+A module that merges translations from several sources carries the
+strictest and reproduces every notice.
+
+Use `//` in `.rs`, `dnl` in `.ac`, `/* */` in `.c` and `.h`.  Keep the
+new copyright line exactly as above.
 
 **No header** on `AGENTS.md`, `MIGRATE.md`, `rust/Makefrag.am`,
 `rust/configfrag.ac`, `rust/rustfmt.toml`, or `rust/targets/*.json` (JSON has
@@ -1294,7 +1333,8 @@ The most important section. Keep it current.
   that replaces it; add every new `.rs` file to `MACH_RS_SRCS`; write a
   `// SAFETY:` comment on every `unsafe` block and a `# Safety` section on
   every exported `unsafe extern "C" fn`; record the move in `MIGRATE.md`;
-  carry the SPDX header on new source files.
+  carry the correct SPDX header (BSD-2-Clause on new code and public
+  interfaces, the source's license on a translation).
 
 - ⚠️ **Ask first**: adding an allocator (`GlobalAlloc` over `kalloc`) or
   anything that allocates; changing a `#[repr(C)]` layout, a MIG signature, an
