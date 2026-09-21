@@ -10,6 +10,7 @@ MACH_RS_SRCS = \
 	rust/src/arch/i386/kd/keyboard.rs \
 	rust/src/arch/i386/kd/keymap.rs \
 	rust/src/arch/i386/kd/mod.rs \
+	rust/src/arch/i386/kd/tty.rs \
 	rust/src/arch/i386/kd_event.rs \
 	rust/src/arch/i386/kd_mouse.rs \
 	rust/src/arch/i386/mbinfo.rs \
