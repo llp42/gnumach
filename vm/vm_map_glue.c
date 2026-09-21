@@ -17,16 +17,32 @@
  * The object lock, the page-release probe and the submap-placeholder
  * probe read `struct vm_object`, which stays C until vm/vm_object.c
  * moves; they go then.
+ *
+ * The page shims (`vm_map_glue_page_*`, `vm_map_glue_pmap_enter`) read
+ * `struct vm_page` bitfields and expand PMAP_ENTER/PAGE_WAKEUP_DONE,
+ * which stay C until vm/vm_page.c moves.
  */
 
 #include <kern/thread.h>
 #include <mach/vm_attributes.h>
 #include <vm/pmap.h>
 #include <vm/vm_object.h>
+#include <vm/vm_page.h>
 
 void vm_map_glue_privilege_inc(void);
 void vm_map_glue_privilege_dec(void);
 boolean_t vm_map_glue_object_is_pristine_submap(vm_object_t object);
+void vm_map_glue_object_paging_begin(vm_object_t object);
+void vm_map_glue_object_paging_end(vm_object_t object);
+boolean_t vm_map_glue_page_is_absent(vm_page_t page);
+void vm_map_glue_page_set_busy(vm_page_t page);
+void vm_map_glue_page_wakeup_done(vm_page_t page);
+void vm_map_glue_page_activate_if_idle(vm_page_t page);
+void vm_map_glue_pmap_enter(
+	pmap_t pmap,
+	vm_offset_t addr,
+	vm_page_t page,
+	vm_prot_t protection);
 kern_return_t vm_map_glue_pmap_attribute(
 	pmap_t pmap,
 	vm_offset_t address,
@@ -100,4 +116,53 @@ vm_map_glue_object_is_pristine_submap(vm_object_t object)
 	       object->copy == VM_OBJECT_NULL &&
 	       object->shadow == VM_OBJECT_NULL &&
 	       !object->pager_created;
+}
+
+void
+vm_map_glue_object_paging_begin(vm_object_t object)
+{
+	vm_object_paging_begin(object);
+}
+
+void
+vm_map_glue_object_paging_end(vm_object_t object)
+{
+	vm_object_paging_end(object);
+}
+
+boolean_t
+vm_map_glue_page_is_absent(vm_page_t page)
+{
+	return page->absent;
+}
+
+void
+vm_map_glue_page_set_busy(vm_page_t page)
+{
+	page->busy = TRUE;
+}
+
+void
+vm_map_glue_page_wakeup_done(vm_page_t page)
+{
+	PAGE_WAKEUP_DONE(page);
+}
+
+void
+vm_map_glue_page_activate_if_idle(vm_page_t page)
+{
+	simple_lock(&vm_page_queue_lock);
+	if (!page->active && !page->inactive)
+		vm_page_activate(page);
+	simple_unlock(&vm_page_queue_lock);
+}
+
+void
+vm_map_glue_pmap_enter(
+	pmap_t pmap,
+	vm_offset_t addr,
+	vm_page_t page,
+	vm_prot_t protection)
+{
+	PMAP_ENTER(pmap, addr, page, protection, FALSE);
 }

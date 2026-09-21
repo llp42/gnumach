@@ -595,66 +595,12 @@ boolean_t vm_map_pmap_enter_print = FALSE;
 boolean_t vm_map_pmap_enter_enable = FALSE;
 
 /*
- *	Routine:	vm_map_pmap_enter
- *
- *	Description:
- *		Force pages from the specified object to be entered into
- *		the pmap at the specified address if they are present.
- *		As soon as a page not found in the object the scan ends.
- *
- *	Returns:
- *		Nothing.
- *
- *	In/out conditions:
- *		The source map should not be locked on entry.
+ *	vm_map_pmap_enter lives in rust/src/vm/vm_map_ffi.rs now; it was
+ *	never in a header, so the prototype is local until vm_map_enter
+ *	moves in the next slice and deletes this declaration.
  */
-static void
-vm_map_pmap_enter(
-	vm_map_t	map,
-	vm_offset_t 	addr,
-	vm_offset_t	end_addr,
-	vm_object_t 	object,
-	vm_offset_t	offset,
-	vm_prot_t	protection)
-{
-	while (addr < end_addr) {
-		vm_page_t	m;
-
-		simple_lock(&(object)->Lock);
-		vm_object_paging_begin(object);
-
-		m = vm_page_lookup(object, offset);
-		if (m == VM_PAGE_NULL || m->absent) {
-			vm_object_paging_end(object);
-			simple_unlock(&(object)->Lock);
-			return;
-		}
-
-		if (vm_map_pmap_enter_print) {
-			printf("vm_map_pmap_enter:");
-			printf("map: %p, addr: %zx, object: %p, offset: %zx\n",
-				map, addr, object, offset);
-		}
-
-		m->busy = TRUE;
-		simple_unlock(&(object)->Lock);
-
-		PMAP_ENTER(map->pmap, addr, m,
-			   protection, FALSE);
-
-		simple_lock(&(object)->Lock);
-		PAGE_WAKEUP_DONE(m);
-		simple_lock(&vm_page_queue_lock);
-		if (!m->active && !m->inactive)
-		    vm_page_activate(m);
-		simple_unlock(&vm_page_queue_lock);
-		vm_object_paging_end(object);
-		simple_unlock(&(object)->Lock);
-
-		offset += PAGE_SIZE;
-		addr += PAGE_SIZE;
-	}
-}
+void vm_map_pmap_enter(vm_map_t, vm_offset_t, vm_offset_t, vm_object_t,
+		       vm_offset_t, vm_prot_t);
 
 /*
  *	Routine:	vm_map_enter
@@ -3655,9 +3601,9 @@ vm_region_create_proxy (task_t task, vm_address_t address,
 
 /*
  *	Routine:	vm_map_machine_attribute, vm_map_msync,
- *	vm_map_lookup and vm_map_submap live in
- *	rust/src/vm/vm_map_ffi.rs; their prototypes are unchanged in
- *	vm_map.h.
+ *	vm_map_lookup, vm_map_submap and vm_map_pmap_enter live in
+ *	rust/src/vm/vm_map_ffi.rs.  All but vm_map_pmap_enter keep the
+ *	prototype vm_map.h always had; that one was static here.
  */
 
 

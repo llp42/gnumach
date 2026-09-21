@@ -9,7 +9,7 @@
 
 use crate::arch::types::{VmOffset, VmSize};
 use crate::kern::lock::LockData;
-use crate::vm::types::{Pmap, VmObject};
+use crate::vm::types::{Pmap, VmObject, VmPage};
 use core::ffi::{c_char, c_int, c_short, c_uint, c_void};
 
 // `panic()` in <kern/debug.h> is a macro over `Panic()`.
@@ -188,7 +188,29 @@ unsafe extern "C" {
     pub fn vm_map_glue_object_is_pristine_submap(
         object: *mut VmObject,
     ) -> c_int;
+    pub fn vm_map_glue_object_paging_begin(object: *mut VmObject);
+    pub fn vm_map_glue_object_paging_end(object: *mut VmObject);
+    pub fn vm_map_glue_page_is_absent(page: *mut VmPage) -> c_int;
+    pub fn vm_map_glue_page_set_busy(page: *mut VmPage);
+    pub fn vm_map_glue_page_wakeup_done(page: *mut VmPage);
+    pub fn vm_map_glue_page_activate_if_idle(page: *mut VmPage);
+    pub fn vm_map_glue_pmap_enter(
+        pmap: *mut Pmap,
+        addr: VmOffset,
+        page: *mut VmPage,
+        protection: c_int,
+    );
     pub static mut vm_submap_object: *mut VmObject;
+    // The `vm/vm_map.c` debugging switches; they move here when
+    // `vm_map_enter` does.
+    pub static mut vm_map_pmap_enter_print: c_int;
+    pub static mut vm_map_pmap_enter_enable: c_int;
+
+    // <vm/vm_page.h>.
+    pub fn vm_page_lookup(
+        object: *mut VmObject,
+        offset: VmOffset,
+    ) -> *mut VmPage;
 
     // <vm/vm_object.h> and <vm/pmap.h>: the object and pmap operations
     // the deletion path reaches.

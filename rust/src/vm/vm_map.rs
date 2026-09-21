@@ -40,11 +40,16 @@ use crate::glue::{
     thread_block, vm_fault_unwire, vm_fault_wire, vm_map_cache,
     vm_map_entry_cache, vm_map_glue_object_can_release,
     vm_map_glue_object_is_pristine_submap, vm_map_glue_object_lock,
-    vm_map_glue_object_unlock, vm_map_glue_pmap_attribute,
-    vm_map_glue_privilege_dec, vm_map_glue_privilege_inc,
-    vm_map_glue_thread_wakeup, vm_object_allocate, vm_object_coalesce,
+    vm_map_glue_object_paging_begin, vm_map_glue_object_paging_end,
+    vm_map_glue_object_unlock, vm_map_glue_page_activate_if_idle,
+    vm_map_glue_page_is_absent, vm_map_glue_page_set_busy,
+    vm_map_glue_page_wakeup_done, vm_map_glue_pmap_attribute,
+    vm_map_glue_pmap_enter, vm_map_glue_privilege_dec,
+    vm_map_glue_privilege_inc, vm_map_glue_thread_wakeup,
+    vm_map_pmap_enter_print, vm_object_allocate, vm_object_coalesce,
     vm_object_deallocate, vm_object_page_remove, vm_object_pmap_remove,
-    vm_object_reference, vm_object_shadow, vm_page_mem_size, vm_submap_object,
+    vm_object_reference, vm_object_shadow, vm_page_lookup, vm_page_mem_size,
+    vm_submap_object,
 };
 use crate::kern::list::{List, entry as list_entry};
 use crate::kern::lock::{LockData, SimpleLock};
@@ -1115,6 +1120,92 @@ impl VmMap {
 
         VmMap::unlock(map);
         result
+    }
+
+    /// Force the resident pages of `object` into the map's pmap,
+    /// stopping at the first page that is not present.
+    /// `vm_map_pmap_enter()` in C.
+    ///
+    /// The map must not be locked; the object's lock is taken and
+    /// released once per page, and the scan prints when the
+    /// `vm_map_pmap_enter_print` debugging switch is on.
+    pub(crate) fn pmap_enter(
+        &self,
+        addr_in: VmOffset,
+        end_addr: VmOffset,
+        object: *mut VmObject,
+        offset_in: VmOffset,
+        protection: VmProt,
+    ) {
+        let mut addr = addr_in;
+        let mut offset = offset_in;
+
+        while addr < end_addr {
+            // SAFETY: the caller owns the object for the scan.  The
+            // paging reference keeps the page alive while the object
+            // lock is dropped for the pmap call.
+            unsafe {
+                vm_map_glue_object_lock(object);
+                vm_map_glue_object_paging_begin(object);
+            }
+
+            // SAFETY: the object lock is held, as `vm_page_lookup`
+            // requires.
+            let page = unsafe { vm_page_lookup(object, offset) };
+            // SAFETY: a non-null page came from the object just
+            // locked; the absent bit is read under that lock.
+            if page.is_null()
+                || unsafe { vm_map_glue_page_is_absent(page) != 0 }
+            {
+                // SAFETY: the lock and paging reference taken above.
+                unsafe {
+                    vm_map_glue_object_paging_end(object);
+                    vm_map_glue_object_unlock(object);
+                }
+                return;
+            }
+
+            // SAFETY: the C global is written only by a debugger, so
+            // there is no ordering to respect.
+            if unsafe { vm_map_pmap_enter_print } != 0 {
+                // SAFETY: `printf` only formats, and the map, object
+                // and offsets are live.
+                unsafe {
+                    printf(c"vm_map_pmap_enter:".as_ptr());
+                    printf(
+                        c"map: %p, addr: %zx, object: %p, offset: %zx\n"
+                            .as_ptr(),
+                        ptr::from_ref(self).cast_mut().cast::<c_void>(),
+                        addr,
+                        object,
+                        offset,
+                    );
+                }
+            }
+
+            // SAFETY: the page is present and marked busy under the
+            // object lock; the paging reference pins it while the lock
+            // is dropped.  The object is unlocked for the pmap call
+            // and relocked for the wakeup, exactly as in C.
+            unsafe {
+                vm_map_glue_page_set_busy(page);
+                vm_map_glue_object_unlock(object);
+                vm_map_glue_pmap_enter(
+                    self.pmap,
+                    addr,
+                    page,
+                    protection.bits(),
+                );
+                vm_map_glue_object_lock(object);
+                vm_map_glue_page_wakeup_done(page);
+                vm_map_glue_page_activate_if_idle(page);
+                vm_map_glue_object_paging_end(object);
+                vm_map_glue_object_unlock(object);
+            }
+
+            offset = offset.wrapping_add(PAGE_SIZE);
+            addr = addr.wrapping_add(PAGE_SIZE);
+        }
     }
 }
 

@@ -389,6 +389,26 @@ pub unsafe extern "C" fn vm_map_submap(
     kern_return(unsafe { (*map).submap(start, end, submap) })
 }
 
+/// Force the resident pages of an object into a map's pmap, stopping
+/// at the first page that is not present.  `vm_map_pmap_enter()` in C.
+///
+/// # Safety
+///
+/// `map` must be a valid, unlocked map and `object` a valid object
+/// with `[addr, end_addr)` mapped at `offset`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_map_pmap_enter(
+    map: *mut VmMap,
+    addr: VmOffset,
+    end_addr: VmOffset,
+    object: *mut VmObject,
+    offset: VmOffset,
+    protection: VmProt,
+) {
+    // SAFETY: the caller promises a valid map and object.
+    unsafe { (*map).pmap_enter(addr, end_addr, object, offset, protection) };
+}
+
 /// Try to coalesce an entry with its predecessor.
 /// `vm_map_coalesce_entry()` in C.
 ///

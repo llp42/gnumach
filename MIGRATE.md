@@ -982,9 +982,15 @@ placeholder with the subordinate map through
 `vm_map_glue_object_is_pristine_submap()`, the first
 `struct vm_object` probe that will die with `vm/vm_object.c`; its
 `VM_MAP_RANGE_CHECK` was the macro's last C caller, so it went too.
-What still remains in `vm/vm_map.c` is `vm_map_enter`,
-`vm_map_fork`, `vm_map_pmap_enter`, the copy family, `vm_region` and
-the module's caches and `vm_map_init`; their milestones follow.
+`vm_map_pmap_enter` is Rust too: the scan owns the loop, and the
+`struct vm_page` bitfields (`absent`, `busy`, `active`, `inactive`),
+the `PMAP_ENTER`/`PAGE_WAKEUP_DONE` macros and the object's paging
+in-progress count are one-line shims in `vm_map_glue.c` until
+`vm/vm_page.c` and `vm/vm_object.c` move.  Its two debugging switches
+stay C for now because `vm_map_enter` still reads `_enable`; they move
+with it.  What still remains in `vm/vm_map.c` is `vm_map_enter`,
+`vm_map_fork`, the copy family, `vm_region` and the module's caches
+and `vm_map_init`; their milestones follow.
 
 ### ipc/ (18 files, 13,002 LOC)
 
