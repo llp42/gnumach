@@ -220,12 +220,6 @@ unsafe extern "C" {
         end: VmOffset,
         prot: c_int,
     );
-    pub fn pmap_pageable(
-        pmap: *mut Pmap,
-        start: VmOffset,
-        end: VmOffset,
-        pageable: c_int,
-    );
     pub fn vm_fault_unwire(map: *mut c_void, entry: *mut c_void);
     pub fn vm_fault_wire(map: *mut c_void, entry: *mut c_void);
 

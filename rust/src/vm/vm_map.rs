@@ -1532,6 +1532,27 @@ impl VmMapHeader {
         }
     }
 
+    /// The guarded `vm_map_clip_start()` macro: split `entry` only
+    /// when `start` lies strictly inside it, leaving a start on the
+    /// entry boundary alone.
+    ///
+    /// # Safety
+    ///
+    /// `entry` must be a live entry of this header, and `start` at or
+    /// after its start.  The header's lock discipline is the caller's.
+    pub(crate) unsafe fn clip_start_at(
+        &mut self,
+        entry: NonNull<VmMapEntry>,
+        start: VmOffset,
+        link_gap: bool,
+    ) {
+        // SAFETY: the caller promises the entry is live.
+        if start > unsafe { (*entry.as_ptr()).links.start } {
+            // SAFETY: as above.
+            unsafe { self.clip_start(entry, start, link_gap) };
+        }
+    }
+
     /// Split `entry` at `end`, leaving the back part in a new entry.
     /// `_vm_map_clip_end()` in C.
     ///
@@ -1814,7 +1835,7 @@ impl VmMap {
         let (found, first_entry) = self.lookup_entry(start);
         let mut entry = if found {
             // SAFETY: the entry is live and the map is locked.
-            unsafe { self.hdr.clip_start(first_entry, start, true) };
+            unsafe { self.hdr.clip_start_at(first_entry, start, true) };
             // Fix the lookup hint now, not on every loop step.
             let prev = unsafe { (*first_entry.as_ptr()).links.prev };
             if let Some(prev) = prev {
@@ -1850,6 +1871,8 @@ impl VmMap {
             // An entry in transition must be waited for; it can be
             // clipped while the map is unlocked.
             if unsafe { (*entry.as_ptr()).in_transition() } {
+                // SAFETY: the entry is live and the map is locked; the
+                // wakeup flag is the C wait protocol.
                 unsafe {
                     (*entry.as_ptr()).set_needs_wakeup(true);
                     self.entry_wait();
@@ -1902,11 +1925,9 @@ impl VmMap {
         let map = NonNull::from(&mut *self);
         VmMap::lock(map);
 
-        let min = self.hdr.links.start;
-        let max = self.hdr.links.end;
-        let start = start.max(min);
-        let end = end.min(max);
-        let end = if start > end { start } else { end };
+        let mut start = start;
+        let mut end = end;
+        self.range_check(&mut start, &mut end);
 
         let result = self.delete(start, end);
 
@@ -2158,6 +2179,9 @@ impl VmMap {
             while !self.hdr.is_sentinel(entry)
                 && unsafe { (*entry.as_ptr()).links.end } <= end
             {
+                // SAFETY: the entries are live and the map lock is
+                // held; the flags keep them out of coalescing while
+                // the kernel map is unlocked for the faults.
                 unsafe {
                     (*entry.as_ptr()).set_in_transition(true);
                     (*entry.as_ptr()).set_needs_wakeup(false);
@@ -2202,6 +2226,7 @@ impl VmMap {
             {
                 // Nothing should have touched the region while the map
                 // was unlocked.
+                // SAFETY: the entries are live and the map is locked.
                 unsafe { (*entry.as_ptr()).set_in_transition(false) };
                 entry = unsafe { (*entry.as_ptr()).links.next }
                     .unwrap_or(sentinel);
@@ -2233,7 +2258,7 @@ impl VmMap {
         let (found, temp_entry) = self.lookup_entry(start);
         let entry = if found {
             // SAFETY: the entry contains `start`.
-            unsafe { self.hdr.clip_start(temp_entry, start, true) };
+            unsafe { self.hdr.clip_start_at(temp_entry, start, true) };
             temp_entry
         } else {
             // SAFETY: the entry before the range is live.
@@ -2350,7 +2375,7 @@ impl VmMap {
         let (found, temp_entry) = self.lookup_entry(start);
         let mut entry = if found {
             // SAFETY: the entry contains `start`.
-            unsafe { self.hdr.clip_start(temp_entry, start, true) };
+            unsafe { self.hdr.clip_start_at(temp_entry, start, true) };
             temp_entry
         } else {
             // SAFETY: the entry before the range is live.
@@ -2411,7 +2436,7 @@ impl VmMap {
             return Err(Error::NoSpace);
         }
         // SAFETY: the entry contains `start`.
-        unsafe { self.hdr.clip_start(start_entry, start, true) };
+        unsafe { self.hdr.clip_start_at(start_entry, start, true) };
 
         let sentinel = self.to_entry();
         let mut entry = start_entry;
@@ -2457,6 +2482,8 @@ impl VmMap {
         // Pass 2: set the desired wired access.
         let mut entry = start_entry;
         while entry != end_entry {
+            // SAFETY: the entries up to `end_entry` are live and the
+            // map is locked.
             unsafe { (*entry.as_ptr()).wired_access = access_type };
             entry =
                 unsafe { (*entry.as_ptr()).links.next }.unwrap_or(sentinel);

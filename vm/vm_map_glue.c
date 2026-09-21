@@ -10,6 +10,12 @@
  *
  * `pmap_attribute` is a macro on this machine (it is the constant
  * KERN_INVALID_ADDRESS), so Rust cannot declare it.
+ *
+ * `thread_wakeup` is a macro over `thread_wakeup_prim()`; it goes when
+ * the scheduler's wait/wake interface is callable from Rust.
+ *
+ * The object lock and page-release probes read `struct vm_object`,
+ * which stays C until vm/vm_object.c moves; they go then.
  */
 
 #include <kern/thread.h>
