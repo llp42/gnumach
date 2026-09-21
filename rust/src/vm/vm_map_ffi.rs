@@ -101,8 +101,8 @@ pub unsafe extern "C" fn vm_map_lookup_entry(
 /// # Safety
 ///
 /// `var_map` must point at a valid map pointer and every out-pointer
-/// at writable storage.  On success the map is read-locked unless
-/// `keep_map_locked` is set (then it stays locked), and the returned
+/// at writable storage.  On success the map is left read-locked when
+/// `keep_map_locked` is set and unlocked otherwise, and the returned
 /// object is locked; the caller releases both.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vm_map_lookup(

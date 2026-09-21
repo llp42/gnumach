@@ -288,8 +288,9 @@ unsafe extern "C" {
 
     // <vm/vm_map.h> and vm/vm_map.c.  The maps, entries and copies are
     // opaque handles here: their Rust mirrors are `!Unpin` and the C
-    // signatures only need the addresses.  `vm_map_copy_insert` is
-    // static in C except for this caller; the copy family moves in M5.
+    // signatures only need the addresses.  `vm_map_copy_insert` was
+    // static in C and is non-static only for this caller until M5
+    // restores internal linkage.
     pub fn vm_map_copyin(
         src_map: *mut c_void,
         src_addr: VmOffset,

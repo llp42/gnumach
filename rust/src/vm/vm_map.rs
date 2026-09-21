@@ -842,7 +842,8 @@ impl VmMap {
     /// retried, in which case no lock is held.
     fn lock_read_to_write(map: NonNull<VmMap>) -> bool {
         // SAFETY: the caller holds the read lock; `lock_read_to_write`
-        // releases it whether or not the upgrade succeeds.
+        // leaves the write lock held when the upgrade succeeds and
+        // releases the read lock with no lock held when it fails.
         let failed = unsafe {
             lock_read_to_write(addr_of_mut!((*map.as_ptr()).lock)) != 0
         };
@@ -1074,9 +1075,15 @@ impl VmMap {
         };
 
         // The guarded `vm_map_clip_end()` macro: split only an entry
-        // that extends past `end`.
+        // that extends past `end`.  `lookup_entry` can hand back the
+        // sentinel when the miss is past the last entry, and clipping
+        // the header would corrupt it; the only in-tree caller enters
+        // the range first, so that case is unreachable and skipped
+        // rather than clipped.
         // SAFETY: the entry is live under the map lock.
-        if end < unsafe { (*entry.as_ptr()).links.end } {
+        if !self.hdr.is_sentinel(entry)
+            && end < unsafe { (*entry.as_ptr()).links.end }
+        {
             // SAFETY: `entry` is live and spans `end`; the map lock
             // keeps it stable.
             unsafe { self.hdr.clip_end(entry, end, true) };
@@ -3404,6 +3411,7 @@ impl VmMap {
                 unsafe {
                     Panic(
                         c"rust/src/vm/vm_map.rs".as_ptr(),
+                        // The line number always fits `c_int`.
                         line!() as c_int,
                         c"VmMap::fork".as_ptr(),
                         c"vm_map_fork: encountered a submap".as_ptr(),
@@ -3487,6 +3495,8 @@ impl VmMap {
                         }
                         // SAFETY: the entry is live under the map lock.
                         unsafe { (*old_entry.as_ptr()).set_needs_copy(false) };
+                        // SAFETY: the entry is live under the map lock;
+                        // the object was just replaced by the shadow.
                         object =
                             unsafe { (*old_entry.as_ptr()).object.vm_object };
                     }
@@ -3641,6 +3651,12 @@ impl VmMap {
                     // build a chain and insert it.
                     // SAFETY: the entry is live under the map lock.
                     let start = unsafe { (*old_entry.as_ptr()).links.start };
+                    // SAFETY: the entry is live under the map lock.
+                    // Captured before the unlock below, because the
+                    // copyin runs unlocked and can free the entry.
+                    let old_max_none =
+                        unsafe { (*old_entry.as_ptr()).max_protection }
+                            == VmProt::NONE;
                     // SAFETY: `new_map` is private and unlocked.
                     let last = unsafe { (*new_map.as_ptr()).hdr.links.prev }
                         .unwrap_or_else(|| unsafe {
@@ -3690,12 +3706,10 @@ impl VmMap {
                         )
                     };
                     new_size = new_size.wrapping_add(entry_size);
-                    // SAFETY: the copyin does not free the old entry;
-                    // the C reads it here too, with the old map still
-                    // unlocked.
-                    if unsafe { (*old_entry.as_ptr()).max_protection }
-                        == VmProt::NONE
-                    {
+                    // The C rereads `max_protection` here with the map
+                    // unlocked, after the copyin may have freed the
+                    // entry; the captured answer replaces that read.
+                    if old_max_none {
                         new_size_none = new_size_none.wrapping_add(entry_size);
                     }
 

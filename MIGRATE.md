@@ -986,8 +986,11 @@ placeholder with the subordinate map through
 `struct vm_page` bitfields (`absent`, `busy`, `active`, `inactive`),
 the `PMAP_ENTER`/`PAGE_WAKEUP_DONE` macros and the object's paging
 in-progress count are one-line shims in `vm_map_glue.c` until
-`vm/vm_page.c` and `vm/vm_object.c` move.  `vm_map_enter` is the
-largest slice: `EnterRequest` carries the C's eleven arguments,
+`vm/vm_page.c` and `vm/vm_object.c` move.  The scan's only caller is
+gated by `vm_map_pmap_enter_enable`, which defaults to 0 and only a
+debugger flips, so the Rust loop and its shims are build-verified but
+not boot-exercised; coverage is unchanged from the C.  `vm_map_enter`
+is the largest slice: `EnterRequest` carries the C's eleven arguments,
 `VmMap::enter` owns the single unlock on every path, and the private
 `EnterOutcome` enum is the C's `RETURN`/`BailOut`.  It drives the Rust
 `find_entry_anywhere`, `enforce_limit`, `coalesce_entry`, `pageable`
