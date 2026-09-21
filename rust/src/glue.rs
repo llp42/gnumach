@@ -140,7 +140,7 @@ unsafe extern "C" {
     pub fn ipc_thread_glue_links(thread: *mut c_void) -> *mut c_void;
 
     // <kern/lock.c>: the sleep-capable recursive lock whose layout is
-    // `kern/lock.rs`'s `LockData`.  Only `vm/vm_map.c` uses them so far.
+    // `kern/lock.rs`'s `LockData`.  The Rust VM map calls them.
     pub fn lock_init(lock: *mut LockData, can_sleep: c_int);
     pub fn lock_read(lock: *mut LockData);
     pub fn lock_write(lock: *mut LockData);

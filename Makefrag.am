@@ -187,7 +187,6 @@ libkernel_a_SOURCES += \
 	vm/vm_init.h \
 	vm/vm_kern.c \
 	vm/vm_kern.h \
-	vm/vm_map.c \
 	vm/vm_map.h \
 	vm/vm_map_glue.c \
 	vm/vm_object.c \

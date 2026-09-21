@@ -2,7 +2,7 @@
 /* Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com> */
 
 /*
- * Shims between vm/vm_map.c and its Rust port, for what cannot cross
+ * Shims for the Rust port of vm/vm_map.c, for what cannot cross
  * FFI.
  *
  * The privilege bump is `current_thread()`, a per-CPU macro; it moves

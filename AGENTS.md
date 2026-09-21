@@ -47,7 +47,7 @@ over, converts it into Rust types, calls the safe core, and converts the
 answer back.  Everything behind it is written as if C did not exist.
 `rust/src/kern/rbtree.rs` is the worked example — a `NodeRef` handle and
 methods on `Rbtree` carry the algorithms, and nine `extern "C"`
-functions adapt them for `vm/vm_map.c` and `kern/slab.c`.
+functions adapt them for `kern/slab.c`.
 
 Each step replaces a C definition with a Rust one of the same name and
 the same signature, so the kernel links exactly as it did before and

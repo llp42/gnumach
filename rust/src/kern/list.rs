@@ -10,7 +10,7 @@
 //!
 //! The module is free of `crate::` imports and can be compiled for the
 //! host, like the rbtree; the qemu suite exercises the users through
-//! `vm/vm_map.c` while it remains C.
+//! the Rust VM map.
 
 use core::marker::PhantomPinned;
 use core::pin::Pin;

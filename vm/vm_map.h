@@ -57,9 +57,6 @@
 #include <kern/rbtree.h>
 #include <kern/macros.h>
 
-/* TODO: make it dynamic */
-#define KENTRY_DATA_SIZE (256*PAGE_SIZE)
-
 /*
  *	Types defined:
  *
@@ -207,7 +204,6 @@ struct vm_map {
 
 #define vm_map_to_entry(map)	((struct vm_map_entry *) &(map)->hdr.links)
 #define vm_map_first_entry(map)	((map)->hdr.links.next)
-#define vm_map_last_entry(map)	((map)->hdr.links.prev)
 
 /*
  *	Type:		vm_map_version_t [exported; contents invisible]
@@ -295,17 +291,6 @@ typedef struct vm_map_copy {
 #define cpy_cont_args		c_u.c_p.cont_args
 
 #define	VM_MAP_COPY_NULL	((vm_map_copy_t) 0)
-
-/*
- *	Useful macros for entry list copy objects
- */
-
-#define vm_map_copy_to_entry(copy)		\
-		((struct vm_map_entry *) &(copy)->cpy_hdr.links)
-#define vm_map_copy_first_entry(copy)		\
-		((copy)->cpy_hdr.links.next)
-#define vm_map_copy_last_entry(copy)		\
-		((copy)->cpy_hdr.links.prev)
 
 /*
  *	Continuation macros for page list copy objects
@@ -571,21 +556,11 @@ _Static_assert(offsetof(struct vm_map_copyin_args_data, steal_pages) == 20,
  *		Perform locking on the data portion of a map.
  */
 
-#define vm_map_lock_init(map)			\
-MACRO_BEGIN					\
-	lock_init(&(map)->lock, TRUE);		\
-	(map)->timestamp = 0;			\
-MACRO_END
-
 void vm_map_lock(struct vm_map *map);
 void vm_map_unlock(struct vm_map *map);
 
 #define vm_map_lock_read(map)	lock_read(&(map)->lock)
 #define vm_map_unlock_read(map)	lock_read_done(&(map)->lock)
-#define vm_map_lock_write_to_read(map) \
-		lock_write_to_read(&(map)->lock)
-#define vm_map_lock_read_to_write(map) \
-		(lock_read_to_write(&(map)->lock) || (((map)->timestamp++), 0))
 #define vm_map_lock_set_recursive(map) \
 		lock_set_recursive(&(map)->lock)
 #define vm_map_lock_clear_recursive(map) \
@@ -659,8 +634,6 @@ extern vm_map_copy_t	vm_map_copy_copy(vm_map_copy_t);
 extern kern_return_t	vm_map_copy_discard_cont(vm_map_copyin_args_t,
 						 vm_map_copy_t *);
 
-extern boolean_t	vm_map_coalesce_entry(vm_map_t, vm_map_entry_t);
-
 /* Add or remove machine- dependent attributes from map regions */
 extern kern_return_t	vm_map_machine_attribute(vm_map_t, vm_offset_t,
 						 vm_size_t,
@@ -672,16 +645,6 @@ extern kern_return_t	vm_map_msync(vm_map_t,
 
 /* Delete entry from map */
 extern void		vm_map_entry_delete(vm_map_t, vm_map_entry_t);
-
-kern_return_t vm_map_delete(
-    vm_map_t   	map,
-    vm_offset_t    	start,
-    vm_offset_t    	end);
-
-kern_return_t vm_map_copyout_page_list(
-    vm_map_t    	dst_map,
-    vm_offset_t 	*dst_addr,  /* OUT */
-    vm_map_copy_t   	copy);
 
 void vm_map_copy_page_discard (vm_map_copy_t copy);
 
@@ -763,18 +726,6 @@ extern kern_return_t vm_map_submap(
     vm_offset_t    start,
     vm_offset_t    end,
     vm_map_t        submap);
-
-/*
- *	Wait and wakeup macros for in_transition map entries.
- */
-#define vm_map_entry_wait(map, interruptible)    	\
-        MACRO_BEGIN                                     \
-        assert_wait((event_t)&(map)->hdr, interruptible);	\
-        vm_map_unlock(map);                             \
-	thread_block((void (*)()) 0);			\
-        MACRO_END
-
-#define vm_map_entry_wakeup(map)        thread_wakeup((event_t)&(map)->hdr)
 
 /*
  *      This routine is called only when it is known that

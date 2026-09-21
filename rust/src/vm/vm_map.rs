@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! Virtual memory maps, which `vm/vm_map.c` defines and
+//! Virtual memory maps, which `vm/vm_map.c` used to define and
 //! `vm/vm_map.h` declares.
 //!
 //! This module starts as the L1 half of the port: `#[repr(C)]` mirrors

@@ -921,12 +921,13 @@ MIG-generated `.c` live only under `build-*/` and are not ported.
 | `memory_object.c` | 1079 | pager protocol core | 4 | MIG-S/U, pmap, locks |
 | `vm_fault.c` | 2060 | page-fault resolution | 5 | pmap, MIG-U, scheduler |
 | `vm_kern.c` | 1112 | kernel map, `kmem_alloc` | 5 | `kernel_map`, pmap, kalloc |
-| `vm_map.c` | 5241 | address-space map (anchor) | 5 | map lock, pmap, kalloc, MIG |
+| `vm_map.c` | 5241 | address-space map (anchor) | 5 | ported — see §9 |
 | `vm_object.c` | 2887 | VM objects/pagers (anchor) | 5 | lock/refcount, pager ports, pmap |
 | `vm_page.c` | 2214 | page allocation/queues | 5 | pmap, percpu, page lock |
 | `vm_resident.c` | 1071 | resident page table/free lists | 5 | pmap, queues, slab |
 
-The `vm_map` port is under way (M1).  `rust/src/vm/vm_map.rs` mirrors
+The `vm_map` port is complete (M1--M6b); `vm/vm_map.c` is gone and
+§9 records it.  `rust/src/vm/vm_map.rs` mirrors
 `vm_map_links`, `vm_map_entry`, `vm_map_header`, `vm_map`,
 `vm_map_version`, `vm_map_copy` (all three variants) and
 `vm_map_copyin_args_data` `#[repr(C)]`, with size, alignment and
@@ -945,12 +946,12 @@ Eleven exported routines have moved to the native core in
 `vm_map_lock`, `vm_map_unlock`, `vm_map_copy_limits`,
 `vm_map_reference`, `vm_map_deallocate`, `vm_map_lookup_entry`,
 `vm_map_verify`, `vm_map_machine_attribute` and `vm_map_msync`.  The
-C definitions are deleted; what remains of `vm/vm_map.c` calls the
-Rust symbols.  `vm/vm_map_glue.c` carries the two shims Rust cannot
-reach (`current_thread()->vm_privilege`, the `pmap_attribute` macro)
-and `rust/src/kern/rbtree.rs` gained the `init`/`lookup_nearest`
-methods the map uses.  `tests/test-vm.c` pins the machine-attribute
-bounds check and the msync flag/rounding behavior.
+C definitions are deleted.  `vm/vm_map_glue.c` carries the two shims
+Rust cannot reach (`current_thread()->vm_privilege`, the
+`pmap_attribute` macro) and `rust/src/kern/rbtree.rs` gained the
+`init`/`lookup_nearest` methods the map uses.  `tests/test-vm.c` pins
+the machine-attribute bounds check and the msync flag/rounding
+behavior.
 
 M2 adds `vm_map_find_entry` and, behind it, the Rust-native gap
 machinery and entry lifecycle: `vm_map_gap_*`, `_vm_map_entry_link`,
@@ -1134,7 +1135,21 @@ M6b moves that last storage out: the three caches and
 with kern/slab.c and vm/vm_object.c.  `vm_map_init` is
 `VmMap::init_module()` behind its adapter in `vm_map_ffi.rs`, with the
 same three names, sizes and flags.  `vm/vm_map.c` held nothing but
-comments after that, and the next commit deletes it.
+comments after that -- the `SAVE_HINT` macro, which no longer had a
+caller, and the `vm_map_verify`/`vm_map_verify_done` comment blocks --
+and it is deleted.  `vm/vm_map.h` stays for its C readers, minus the
+macros and prototypes whose last C user was that file: the
+`KENTRY_DATA_SIZE`, `vm_map_last_entry`, `vm_map_copy_*_entry`,
+`vm_map_lock_init`, `vm_map_lock_write_to_read`,
+`vm_map_lock_read_to_write` and `vm_map_entry_wait`/`_wakeup` macros,
+and the `vm_map_coalesce_entry`, `vm_map_delete` and
+`vm_map_copyout_page_list` prototypes (the Rust symbols stay; only no
+C caller names them).  What remains in `vm_map_glue.c` beside the
+storage is every shim the narrative above names: the
+`current_thread()` privilege pair and the `pmap_attribute`/`pmap_copy`
+/`thread_wakeup` macro shims, the `struct vm_object` and
+`struct vm_page` probes, the `struct task` field accessors, and the
+proxy cast.  Each dies with its owner, as its comment says.
 
 ### ipc/ (18 files, 13,002 LOC)
 
@@ -1582,6 +1597,7 @@ rbtree's; see §8.
 | `kern/rbtree.c` | `src/kern/rbtree.rs` | `9445e08b` … `e2b04831` |
 | `ipc/ipc_thread.c` | `src/ipc/ipc_thread.rs` | `417ba80a` |
 | `util/atoi.c` | `src/utils/atoi.rs` | `c289337f` |
+| `vm/vm_map.c` | `src/vm/vm_map.rs`, `src/vm/vm_map_ffi.rs` | `d32c7253` … `a8316eee` |
 
 Deleted dead code: `device/blkio.c` (unreachable block pager path) and
 the `#if 0` profiling facility (`profil.h`, `profilparam.h`,

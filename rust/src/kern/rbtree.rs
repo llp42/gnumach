@@ -8,8 +8,8 @@
 //! structures.  The generic lookups and inserts stay macros in
 //! <kern/rbtree.h>, where the comparison function is known at the call
 //! site; the functions here are the non-generic half those macros call.
-//! They keep the C signatures exactly, so `vm/vm_map.c` and `kern/slab.c`
-//! keep using the same headers.
+//! They keep the C signatures exactly, so `kern/slab.c` keeps using
+//! the same header.
 //!
 //! The parent member packs the color in its low bit
 //! (`rbtree_i.h:38-47,60-74`), so `RbtreeNode` must be 4-byte aligned;
@@ -17,7 +17,7 @@
 //!
 //! The core is Rust-native: a copyable `NodeRef` handle and methods on
 //! `Rbtree` carry the algorithms, and the nine `extern "C"` functions
-//! are thin adapters for `vm/vm_map.c` and `kern/slab.c`.  `NodeRef`
+//! are thin adapters for `kern/slab.c`.  `NodeRef`
 //! moves by value and never borrows node storage, because the tree's
 //! links alias the same nodes; the raw pointers appear only at the
 //! adapters and a few helpers.
@@ -1031,7 +1031,7 @@ pub unsafe extern "C" fn rbtree_firstlast(
 /// Host unit tests; `tests/test-rbtree-rs` compiles this file with
 /// `rustc --test` and runs them.  They exercise the C macro protocols
 /// (insert, lookup_slot/insert_slot, lookup_nearest) the way
-/// `vm/vm_map.c` and `kern/slab.c` use them, and check the red-black
+/// `kern/slab.c` uses them, and check the red-black
 /// rules after every mutation.
 #[cfg(test)]
 mod tests {
