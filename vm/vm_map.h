@@ -656,6 +656,10 @@ extern void		vm_map_copy_insert(vm_map_t, vm_map_entry_t,
 /* Overwrite existing memory with a copy */
 extern kern_return_t	vm_map_copy_overwrite(vm_map_t, vm_offset_t,
 					      vm_map_copy_t, boolean_t);
+/* Steal the pages of a page list copy for a new object.  Was static in
+   vm_map.c; the Rust port defines it and the copyin/copyout routines
+   still call it. */
+extern void		vm_map_copy_steal_pages(vm_map_copy_t);
 /* Discard a copy without using it */
 extern void		vm_map_copy_discard(vm_map_copy_t);
 extern void		vm_map_copy_page_discard(vm_map_copy_t);

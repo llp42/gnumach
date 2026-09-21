@@ -166,8 +166,11 @@ unsafe extern "C" {
     pub fn pmap_destroy(pmap: *mut Pmap);
     pub static kernel_pmap: *mut Pmap;
 
-    // <vm/vm_page.h>.
+    // <vm/vm_page.h>.  `VM_PAGE_WAIT` is a macro over `vm_page_wait`.
     pub fn vm_page_mem_size() -> VmSize;
+    pub fn vm_page_grab(flags: c_uint) -> *mut VmPage;
+    pub fn vm_page_copy(src: *mut VmPage, dst: *mut VmPage);
+    pub fn vm_page_wait(continuation: Option<unsafe extern "C" fn()>);
 
     // Shims in vm/vm_map_glue.c: the thread privilege bump the map
     // lock performs through `current_thread()`, and the machine-dependent
@@ -198,6 +201,9 @@ unsafe extern "C" {
     pub fn vm_map_glue_object_paging_begin(object: *mut VmObject);
     pub fn vm_map_glue_object_paging_end(object: *mut VmObject);
     pub fn vm_map_glue_page_is_absent(page: *mut VmPage) -> c_int;
+    pub fn vm_map_glue_page_is_tabled(page: *mut VmPage) -> c_int;
+    pub fn vm_map_glue_page_object(page: *mut VmPage) -> *mut VmObject;
+    pub fn vm_map_glue_page_free(page: *mut VmPage);
     pub fn vm_map_glue_page_set_busy(page: *mut VmPage);
     pub fn vm_map_glue_page_wakeup_done(page: *mut VmPage);
     pub fn vm_map_glue_page_activate_if_idle(page: *mut VmPage);

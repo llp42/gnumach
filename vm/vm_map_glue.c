@@ -20,8 +20,8 @@
  * moves; they go then.
  *
  * The page shims (`vm_map_glue_page_*`, `vm_map_glue_pmap_enter`) read
- * `struct vm_page` bitfields and expand PMAP_ENTER/PAGE_WAKEUP_DONE,
- * which stay C until vm/vm_page.c moves.
+ * `struct vm_page` bitfields and expand PMAP_ENTER/PAGE_WAKEUP_DONE/
+ * VM_PAGE_FREE, which stay C until vm/vm_page.c moves.
  *
  * The fork shims read `struct vm_object`'s sharing fields
  * (`shadowed`, `temporary`, `size`, `use_shared_copy`, `ref_count`);
@@ -46,6 +46,9 @@ void vm_map_glue_object_make_shared(vm_object_t object);
 void vm_map_glue_object_paging_begin(vm_object_t object);
 void vm_map_glue_object_paging_end(vm_object_t object);
 boolean_t vm_map_glue_page_is_absent(vm_page_t page);
+boolean_t vm_map_glue_page_is_tabled(vm_page_t page);
+vm_object_t vm_map_glue_page_object(vm_page_t page);
+void vm_map_glue_page_free(vm_page_t page);
 void vm_map_glue_page_set_busy(vm_page_t page);
 void vm_map_glue_page_wakeup_done(vm_page_t page);
 void vm_map_glue_page_activate_if_idle(vm_page_t page);
@@ -182,6 +185,24 @@ boolean_t
 vm_map_glue_page_is_absent(vm_page_t page)
 {
 	return page->absent;
+}
+
+boolean_t
+vm_map_glue_page_is_tabled(vm_page_t page)
+{
+	return page->tabled;
+}
+
+vm_object_t
+vm_map_glue_page_object(vm_page_t page)
+{
+	return page->object;
+}
+
+void
+vm_map_glue_page_free(vm_page_t page)
+{
+	VM_PAGE_FREE(page);
 }
 
 void

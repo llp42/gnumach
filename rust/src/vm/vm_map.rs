@@ -38,25 +38,29 @@ use crate::glue::{
     lock_read_to_write, lock_set_recursive, lock_write, lock_write_to_read,
     pmap_create, pmap_destroy, pmap_protect, pmap_remove, printf,
     projected_buffer_collect, thread_block, vm_fault_unwire, vm_fault_wire,
-    vm_map_cache, vm_map_copy_insert, vm_map_copyin, vm_map_entry_cache,
-    vm_map_glue_object_can_release, vm_map_glue_object_is_pristine_submap,
-    vm_map_glue_object_lock, vm_map_glue_object_make_shared,
-    vm_map_glue_object_needs_shadow, vm_map_glue_object_paging_begin,
-    vm_map_glue_object_paging_end, vm_map_glue_object_unlock,
-    vm_map_glue_page_activate_if_idle, vm_map_glue_page_is_absent,
+    vm_map_cache, vm_map_copy_cache, vm_map_copy_insert, vm_map_copyin,
+    vm_map_entry_cache, vm_map_glue_object_can_release,
+    vm_map_glue_object_is_pristine_submap, vm_map_glue_object_lock,
+    vm_map_glue_object_make_shared, vm_map_glue_object_needs_shadow,
+    vm_map_glue_object_paging_begin, vm_map_glue_object_paging_end,
+    vm_map_glue_object_unlock, vm_map_glue_page_activate_if_idle,
+    vm_map_glue_page_free, vm_map_glue_page_is_absent,
+    vm_map_glue_page_is_tabled, vm_map_glue_page_object,
     vm_map_glue_page_set_busy, vm_map_glue_page_wakeup_done,
     vm_map_glue_pmap_attribute, vm_map_glue_pmap_copy, vm_map_glue_pmap_enter,
     vm_map_glue_privilege_dec, vm_map_glue_privilege_inc,
     vm_map_glue_thread_wakeup, vm_object_allocate, vm_object_coalesce,
     vm_object_copy_temporary, vm_object_deallocate, vm_object_page_remove,
     vm_object_pmap_protect, vm_object_pmap_remove, vm_object_reference,
-    vm_object_shadow, vm_page_lookup, vm_page_mem_size, vm_submap_object,
+    vm_object_shadow, vm_page_copy, vm_page_grab, vm_page_lookup,
+    vm_page_mem_size, vm_page_wait, vm_submap_object,
 };
 use crate::kern::list::{List, entry as list_entry};
 use crate::kern::lock::{LockData, SimpleLock};
 use crate::kern::rbtree::{RBTREE_LEFT, RBTREE_RIGHT, Rbtree, RbtreeNode};
 use crate::vm::error::{Error, KERN_SUCCESS, error_from_kern_return};
 use crate::vm::types::{Pmap, VmInherit, VmObject, VmPage, VmProt};
+use crate::vm::vm_map_ffi::is_discard_cont;
 use core::cell::UnsafeCell;
 use core::ffi::{c_char, c_int, c_uint, c_void};
 use core::mem::{ManuallyDrop, offset_of, size_of};
@@ -1339,6 +1343,413 @@ assert_layout!(VmMapCopyinArgs, 24, 4, {
     map: 0, src_addr: 4, src_len: 8, destroy_addr: 12,
     destroy_len: 16, steal_pages: 20,
 });
+
+/// `VM_PAGE_HIGHMEM`: the `vm_page_grab()` flag asking for a page not
+/// restricted to the direct map.
+const VM_PAGE_HIGHMEM: c_uint = 0x08;
+
+impl VmMapCopy {
+    /// Return a copy object to the cache.  `kmem_cache_free()` on
+    /// `vm_map_copy_cache` in C.
+    ///
+    /// # Safety
+    ///
+    /// `copy` must be a live copy from this cache that nothing uses
+    /// any more.
+    unsafe fn free(copy: NonNull<VmMapCopy>) {
+        // SAFETY: the caller promises a live, unused cache object.
+        unsafe {
+            kmem_cache_free(
+                addr_of_mut!(vm_map_copy_cache),
+                copy.as_ptr().addr(),
+            )
+        };
+    }
+
+    /// The `struct vm_map_header` an entry-list copy embeds, which
+    /// shares the copy's address.  The `cpy_hdr` accessors in C.
+    ///
+    /// # Safety
+    ///
+    /// `copy` must hold the `ENTRY_LIST` variant.
+    unsafe fn header(copy: NonNull<VmMapCopy>) -> NonNull<VmMapHeader> {
+        // SAFETY: the caller promises the live variant, whose header
+        // is the union's first member and so sits at the union's
+        // address.
+        unsafe {
+            NonNull::new_unchecked(
+                addr_of_mut!((*copy.as_ptr()).c_u).cast::<VmMapHeader>(),
+            )
+        }
+    }
+
+    /// The `PAGE_LIST` fields of a copy.  The `c_p` variant accessors
+    /// in C.
+    ///
+    /// # Safety
+    ///
+    /// `copy` must hold the `PAGE_LIST` variant.
+    unsafe fn page_list(copy: NonNull<VmMapCopy>) -> *mut VmMapCopyPageList {
+        // SAFETY: the caller promises the live variant.
+        unsafe {
+            addr_of_mut!((*copy.as_ptr()).c_u.c_p).cast::<VmMapCopyPageList>()
+        }
+    }
+
+    /// The object field of an `OBJECT` copy.  The `cpy_object`
+    /// accessor in C.
+    ///
+    /// # Safety
+    ///
+    /// `copy` must hold the `OBJECT` variant.
+    unsafe fn object(copy: NonNull<VmMapCopy>) -> *mut *mut VmObject {
+        // SAFETY: the caller promises the live variant, and `object`
+        // is its first field, so both share the address.
+        unsafe {
+            addr_of_mut!((*copy.as_ptr()).c_u.c_o).cast::<*mut VmObject>()
+        }
+    }
+
+    /// The first entry in an entry-list copy's chain, or the
+    /// sentinel when the copy is empty.  `vm_map_copy_first_entry()`
+    /// in C.
+    ///
+    /// # Safety
+    ///
+    /// `copy` must hold the `ENTRY_LIST` variant.
+    unsafe fn first_entry(copy: NonNull<VmMapCopy>) -> NonNull<VmMapEntry> {
+        // SAFETY: the caller promises a live header, and its chain
+        // always closes on the sentinel.
+        unsafe {
+            let header = VmMapCopy::header(copy);
+            (*header.as_ptr()).links.next.unwrap_or(header.cast())
+        }
+    }
+
+    /// The last entry in an entry-list copy's chain, or the sentinel
+    /// when the copy is empty.  `vm_map_copy_last_entry()` in C.
+    ///
+    /// # Safety
+    ///
+    /// `copy` must hold the `ENTRY_LIST` variant.
+    unsafe fn last_entry(copy: NonNull<VmMapCopy>) -> NonNull<VmMapEntry> {
+        // SAFETY: the caller promises a live header, and its chain
+        // always closes on the sentinel.
+        unsafe {
+            let header = VmMapCopy::header(copy);
+            (*header.as_ptr()).links.prev.unwrap_or(header.cast())
+        }
+    }
+
+    /// Dispose of an entry-list copy's entries: unlink each one, drop
+    /// its object reference and return it to the entry cache.
+    ///
+    /// # Safety
+    ///
+    /// `copy` must be a live entry-list copy the caller owns.
+    unsafe fn discard_entry_list(copy: NonNull<VmMapCopy>) {
+        // SAFETY: the caller promises a live entry-list copy.
+        let sentinel = unsafe { VmMapCopy::header(copy) };
+        loop {
+            // SAFETY: the chain always closes on the sentinel.
+            let entry = unsafe { VmMapCopy::first_entry(copy) };
+            if entry == sentinel.cast() {
+                break;
+            }
+
+            // SAFETY: `entry` is a live entry of the copy, and the
+            // copy is exclusively owned for the discard.
+            unsafe {
+                (*sentinel.as_ptr()).entry_unlink(entry, false);
+                vm_object_deallocate((*entry.as_ptr()).object.vm_object);
+            }
+            // SAFETY: the entry is unlinked and unused.
+            unsafe { VmMapEntry::dispose(entry) };
+        }
+    }
+
+    /// Steal all the pages from a page-list copy by copying the ones
+    /// that have not already been stolen.
+    /// `vm_map_copy_steal_pages()` in C.
+    ///
+    /// # Safety
+    ///
+    /// `copy` must be a live page-list copy the caller owns, with no
+    /// null entry in its page list.
+    pub(crate) unsafe fn steal_pages(copy: NonNull<VmMapCopy>) {
+        // SAFETY: the caller promises the PAGE_LIST variant.
+        let pages = unsafe { VmMapCopy::page_list(copy) };
+        // SAFETY: `pages` names the live variant.
+        let npages = unsafe { (*pages).npages };
+        // The C loop runs while the count is positive; a negative one
+        // never enters it.
+        let npages = usize::try_from(npages).unwrap_or(0);
+
+        let mut i = 0;
+        while i < npages {
+            // SAFETY: `i` indexes the initialized pages of the list.
+            let m = unsafe { (*pages).page_list[i] };
+            // SAFETY: a tabled page belongs to a live object that the
+            // copy holds a paging reference on.
+            if unsafe { vm_map_glue_page_is_tabled(m) } != 0 {
+                // `VM_PAGE_WAIT((void (*)()) 0)` until a page is
+                // free.
+                // SAFETY: `vm_page_grab` and `vm_page_wait` own the
+                // page queues.
+                let mut new_m = unsafe { vm_page_grab(VM_PAGE_HIGHMEM) };
+                while new_m.is_null() {
+                    // SAFETY: as above.
+                    unsafe { vm_page_wait(None) };
+                    // SAFETY: as above.
+                    new_m = unsafe { vm_page_grab(VM_PAGE_HIGHMEM) };
+                }
+
+                // SAFETY: both pages are live.
+                unsafe { vm_page_copy(m, new_m) };
+
+                // SAFETY: the page is tabled, so it belongs to a live
+                // object the copy holds a paging reference on.
+                let object = unsafe { vm_map_glue_page_object(m) };
+                // SAFETY: the object lock and the page queue serialise
+                // the page state, exactly as in the C.
+                unsafe {
+                    vm_map_glue_object_lock(object);
+                    vm_map_glue_page_activate_if_idle(m);
+                    vm_map_glue_page_wakeup_done(m);
+                    vm_map_glue_object_paging_end(object);
+                    vm_map_glue_object_unlock(object);
+                }
+
+                // SAFETY: the slot holds a live page the copy owns,
+                // replaced by the private copy just made.
+                unsafe { (*pages).page_list[i] = new_m };
+            }
+
+            i += 1;
+        }
+    }
+
+    /// Get rid of the pages in a page-list copy: a stolen page goes
+    /// back to the free list, a tabled one is unbusied and its
+    /// object's paging reference released.
+    /// `vm_map_copy_page_discard()` in C.
+    ///
+    /// # Safety
+    ///
+    /// `copy` must be a live page-list copy the caller owns.
+    pub(crate) unsafe fn page_discard(copy: NonNull<VmMapCopy>) {
+        // SAFETY: the caller promises the PAGE_LIST variant.
+        let pages = unsafe { VmMapCopy::page_list(copy) };
+        loop {
+            // SAFETY: `pages` names the live variant.
+            let npages = unsafe { (*pages).npages };
+            if npages <= 0 {
+                break;
+            }
+            // The count is positive, so the conversion cannot lose
+            // anything.
+            let Ok(index) = usize::try_from(npages - 1) else {
+                break;
+            };
+            // SAFETY: the index is within the list, and the copy owns
+            // the reference to the page.
+            let page = unsafe { (*pages).page_list[index] };
+            // SAFETY: the C consumes the count before touching the
+            // slot.
+            unsafe { (*pages).npages = npages - 1 };
+
+            if page.is_null() {
+                continue;
+            }
+
+            // SAFETY: the page is live; `tabled` tells whether the
+            // copy holds a paging reference to its object.
+            if unsafe { vm_map_glue_page_is_tabled(page) } == 0 {
+                // SAFETY: a stolen page is in no object, so it goes
+                // back to the free list.
+                unsafe { vm_map_glue_page_free(page) };
+            } else {
+                // SAFETY: a tabled page belongs to a live object the
+                // copy holds a paging reference on.
+                let object = unsafe { vm_map_glue_page_object(page) };
+                // SAFETY: the object lock and the page queue serialise
+                // the page state, exactly as in the C.
+                unsafe {
+                    vm_map_glue_object_lock(object);
+                    vm_map_glue_page_activate_if_idle(page);
+                    vm_map_glue_page_wakeup_done(page);
+                    vm_map_glue_object_paging_end(object);
+                    vm_map_glue_object_unlock(object);
+                }
+            }
+        }
+    }
+
+    /// Abort a page-list copy's continuation: discard the pages left,
+    /// call the continuation with a null result, then clear the
+    /// continuation fields.  `vm_map_copy_abort_cont()` in C.
+    ///
+    /// # Safety
+    ///
+    /// `copy` must be a live page-list copy.
+    unsafe fn abort_cont(copy: NonNull<VmMapCopy>) {
+        // SAFETY: the caller promises a live page-list copy.
+        unsafe { VmMapCopy::page_discard(copy) };
+
+        // SAFETY: the copy holds the live PAGE_LIST variant, and the
+        // continuation argument belongs to the continuation.
+        let pages = unsafe { VmMapCopy::page_list(copy) };
+        // SAFETY: `pages` names the live variant.
+        let (cont, args) = unsafe { ((*pages).cont, (*pages).cont_args) };
+        let Some(cont) = cont else {
+            return;
+        };
+
+        // SAFETY: the continuation owns its argument; a null result
+        // pointer is the C's abort call.
+        unsafe { cont(args, ptr::null_mut()) };
+
+        // SAFETY: the copy is live; the C macro clears the fields so
+        // the storage can be freed without aborting twice.
+        unsafe {
+            (*pages).cont = None;
+            (*pages).cont_args = ptr::null_mut();
+        }
+    }
+
+    /// Dispose of a map copy object, returning whatever it holds.
+    /// `vm_map_copy_discard()` in C.
+    ///
+    /// # Safety
+    ///
+    /// `copy` must be a live copy the caller owns; this frees it,
+    /// along with every page-list copy its continuation chain names.
+    pub(crate) unsafe fn discard(copy: NonNull<VmMapCopy>) {
+        let mut copy = copy;
+
+        loop {
+            // SAFETY: `copy` is live; the loop replaces it only with
+            // a live copy taken from a continuation.
+            match unsafe { (*copy.as_ptr()).type_ } {
+                VM_MAP_COPY_ENTRY_LIST => {
+                    // SAFETY: the type word selects the live variant.
+                    unsafe { VmMapCopy::discard_entry_list(copy) };
+                }
+                VM_MAP_COPY_OBJECT => {
+                    // SAFETY: the type word selects the live variant,
+                    // and the copy holds the reference dropped here.
+                    let object = unsafe { VmMapCopy::object(copy) };
+                    // SAFETY: as above.
+                    unsafe { vm_object_deallocate(*object) };
+                }
+                VM_MAP_COPY_PAGE_LIST => {
+                    // SAFETY: the type word selects the live variant.
+                    let pages = unsafe { VmMapCopy::page_list(copy) };
+                    // SAFETY: `pages` names the live variant.
+                    let npages = unsafe { (*pages).npages };
+                    if npages > 0 {
+                        // SAFETY: `copy` is a live page-list copy.
+                        unsafe { VmMapCopy::page_discard(copy) };
+                    }
+
+                    // SAFETY: `pages` names the live variant.
+                    let cont = unsafe { (*pages).cont };
+                    if let Some(cont) = cont {
+                        // The C recognizes its own discard
+                        // continuation and follows it, to avoid
+                        // recursing once per link of the chain.
+                        if is_discard_cont(cont) {
+                            // SAFETY: the continuation stores the
+                            // next live copy of the chain in its
+                            // argument.
+                            let next = unsafe { (*pages).cont_args }
+                                .cast::<VmMapCopy>();
+                            // SAFETY: the copy is live and owned.
+                            unsafe { VmMapCopy::free(copy) };
+                            let Some(next) = NonNull::new(next) else {
+                                return;
+                            };
+                            copy = next;
+                            continue;
+                        }
+
+                        // SAFETY: `copy` is a live page-list copy.
+                        unsafe { VmMapCopy::abort_cont(copy) };
+                    }
+                }
+                _ => {}
+            }
+
+            // SAFETY: the copy is live and owned by this call.
+            unsafe { VmMapCopy::free(copy) };
+            return;
+        }
+    }
+
+    /// Move the contents of a copy into a fresh copy object, leaving
+    /// the original empty.  `vm_map_copy_copy()` in C.
+    ///
+    /// # Safety
+    ///
+    /// `copy` must be a live copy the caller owns.
+    #[must_use]
+    pub(crate) unsafe fn duplicate(
+        copy: NonNull<VmMapCopy>,
+    ) -> NonNull<VmMapCopy> {
+        // SAFETY: the copy cache is initialized by `vm_map_init()`
+        // before any copy exists.
+        let address =
+            unsafe { kmem_cache_alloc(addr_of_mut!(vm_map_copy_cache)) };
+        let Some(new_copy) =
+            NonNull::new(with_exposed_provenance_mut::<VmMapCopy>(address))
+        else {
+            // SAFETY: the C dereferences the null allocation; halt as
+            // `VmMapEntry::create()` does.  The line number fits
+            // `c_int`.
+            unsafe {
+                Panic(
+                    c"rust/src/vm/vm_map.rs".as_ptr(),
+                    line!() as c_int,
+                    c"VmMapCopy::duplicate".as_ptr(),
+                    c"vm_map_copy_copy".as_ptr(),
+                )
+            }
+        };
+
+        // SAFETY: both are live copies; the fresh allocation is
+        // overwritten whole, exactly as the C structure assignment.
+        unsafe {
+            ptr::copy_nonoverlapping(copy.as_ptr(), new_copy.as_ptr(), 1)
+        };
+
+        // SAFETY: the type word was just copied.
+        if unsafe { (*copy.as_ptr()).type_ } == VM_MAP_COPY_ENTRY_LIST {
+            // SAFETY: the new copy is a live entry-list copy.
+            let new_header = unsafe { VmMapCopy::header(new_copy) };
+            // The links in the entry chain must point to the new copy
+            // object.
+            // SAFETY: the chain closes on the sentinel, so the first
+            // and last entries are live.
+            unsafe {
+                let first = VmMapCopy::first_entry(copy);
+                let last = VmMapCopy::last_entry(copy);
+                (*first.as_ptr()).links.prev = Some(new_header.cast());
+                (*last.as_ptr()).links.next = Some(new_header.cast());
+            }
+        }
+
+        // Change the old copy object into one that contains nothing
+        // to be deallocated.
+        // SAFETY: the copy is live; the type word now selects the
+        // object variant, whose field is nulled.
+        unsafe {
+            (*copy.as_ptr()).type_ = VM_MAP_COPY_OBJECT;
+            *VmMapCopy::object(copy) = ptr::null_mut();
+        }
+
+        new_copy
+    }
+}
 
 /// The address-ordered entry comparison.  `vm_map_entry_cmp_lookup()`
 /// in C: negative before the entry, zero inside it, positive after.

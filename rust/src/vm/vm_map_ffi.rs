@@ -12,7 +12,8 @@ use crate::arch::types::{VmOffset, VmSize};
 use crate::vm::error::{KERN_SUCCESS, kern_return};
 use crate::vm::types::{Pmap, VmInherit, VmObject, VmProt};
 use crate::vm::vm_map::{
-    EnterRequest, VmMap, VmMapEntry, VmMapHeader, VmMapVersion,
+    EnterRequest, VmMap, VmMapCopy, VmMapCopyContFn, VmMapCopyinArgs,
+    VmMapEntry, VmMapHeader, VmMapVersion,
 };
 use core::ffi::{c_int, c_uint};
 use core::ptr::{self, NonNull};
@@ -553,4 +554,94 @@ pub unsafe extern "C" fn vm_map_pageable_all(
 ) -> c_int {
     // SAFETY: the caller promises a valid, unlocked map.
     kern_return(unsafe { (*map).pageable_all(flags) })
+}
+
+/// Steal all the pages of a page-list copy by copying the ones that
+/// have not been stolen yet.  `vm_map_copy_steal_pages()` in C.
+///
+/// # Safety
+///
+/// `copy` must point at a live page-list copy, with no null entry in
+/// its page list, and the caller must own it and hold whatever page
+/// locks the C contract requires.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_map_copy_steal_pages(copy: *mut VmMapCopy) {
+    // SAFETY: the caller promises a live, non-null page-list copy.
+    unsafe { VmMapCopy::steal_pages(NonNull::new_unchecked(copy)) };
+}
+
+/// Get rid of the pages of a page-list copy.
+/// `vm_map_copy_page_discard()` in C.
+///
+/// # Safety
+///
+/// `copy` must point at a live page-list copy the caller owns.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_map_copy_page_discard(copy: *mut VmMapCopy) {
+    // SAFETY: the caller promises a live, non-null page-list copy.
+    unsafe { VmMapCopy::page_discard(NonNull::new_unchecked(copy)) };
+}
+
+/// Dispose of a map copy object.  `vm_map_copy_discard()` in C.
+///
+/// # Safety
+///
+/// A non-null `copy` must be a live copy the caller owns; the call
+/// frees it.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_map_copy_discard(copy: *mut VmMapCopy) {
+    if let Some(copy) = NonNull::new(copy) {
+        // SAFETY: the caller owns the live copy.
+        unsafe { VmMapCopy::discard(copy) };
+    }
+}
+
+/// Move the contents of a copy into a fresh copy object, leaving the
+/// original empty.  `vm_map_copy_copy()` in C.
+///
+/// # Safety
+///
+/// A non-null `copy` must be a live copy the caller owns; on return
+/// the caller owns the empty original and the new copy.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_map_copy_copy(
+    copy: *mut VmMapCopy,
+) -> *mut VmMapCopy {
+    let Some(copy) = NonNull::new(copy) else {
+        return ptr::null_mut();
+    };
+    // SAFETY: the caller owns the live copy.
+    unsafe { VmMapCopy::duplicate(copy).as_ptr() }
+}
+
+/// Whether `cont` is `vm_map_copy_discard_cont()` below, which
+/// `vm_map_copy_discard()` recognizes and follows iteratively instead
+/// of recursing once per link of a page-list chain.  The C compares
+/// the function addresses.
+pub(crate) fn is_discard_cont(cont: VmMapCopyContFn) -> bool {
+    ptr::fn_addr_eq(cont, vm_map_copy_discard_cont as VmMapCopyContFn)
+}
+
+/// Discard a page-list copy from a continuation.
+/// `vm_map_copy_discard_cont()` in C.
+///
+/// # Safety
+///
+/// `cont_args` must be the copy a continuation chain names, and
+/// `copy_result` must be null or point at writable storage.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_map_copy_discard_cont(
+    cont_args: *mut VmMapCopyinArgs,
+    copy_result: *mut *mut VmMapCopy,
+) -> c_int {
+    if let Some(copy) = NonNull::new(cont_args.cast::<VmMapCopy>()) {
+        // SAFETY: the continuation contract makes its argument the
+        // live copy to discard.
+        unsafe { VmMapCopy::discard(copy) };
+    }
+    if let Some(copy_result) = NonNull::new(copy_result) {
+        // SAFETY: the caller promises writable storage.
+        unsafe { copy_result.as_ptr().write(ptr::null_mut()) };
+    }
+    KERN_SUCCESS
 }

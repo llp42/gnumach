@@ -1010,6 +1010,22 @@ returns to internal linkage in M5.  What remains in `vm/vm_map.c` is
 the copy family, `vm_region`/`vm_region_create_proxy`, the caches and
 `vm_map_init`; M5/M6 follow.
 
+M5a is the copy destruction family: `vm_map_copy_steal_pages`,
+`vm_map_copy_page_discard`, `vm_map_copy_discard`,
+`vm_map_copy_copy` and `vm_map_copy_discard_cont` are Rust now,
+behind their adapters in `vm_map_ffi.rs`, over the copy cache and
+the `VmMapCopy` union.  `vm_map_copy_steal_pages` was static, so its
+remaining copyin/copyout callers get a prototype in `vm/vm_map.h`.
+`vm_map_copy_discard_cont` keeps its exact symbol and signature,
+which `vm_kern.c` stores in `cpy_cont`; `vm_map_copy_discard()`
+recognizes that function through `vm_map_ffi::is_discard_cont()` and
+follows its chain iteratively, exactly as the C special case does.
+The new `vm_map_glue.c` shims `vm_map_glue_page_is_tabled`,
+`vm_map_glue_page_object` and `vm_map_glue_page_free` read the page
+fields and expand `VM_PAGE_FREE`; they go when `vm/vm_page.c` moves.
+The copyin, copyout and overwrite routines, `vm_region` and the
+caches remain for M5b/M6.
+
 ### ipc/ (18 files, 13,002 LOC)
 
 | File | LOC | Role | Friction | Blockers |
