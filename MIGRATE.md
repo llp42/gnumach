@@ -1109,6 +1109,24 @@ lock it took instead of deadlocking on the write lock.  What remains
 in `vm/vm_map.c` is `vm_map_init`, `vm_region`/`vm_region_create_proxy`
 and the caches; M6 follows.
 
+M5f ports the two region queries.  `vm_region` is `VmMap::region`:
+the read lock, the containing-or-next entry lookup, and the fields
+the C copies out, with the object name taken through
+`vm_object_name()` while the map lock keeps the entry's object alive.
+`vm_region_create_proxy` is `VmMap::region_create_proxy`, split into
+the locked half that limits the arguments and copies the entry
+pager's send right, and the unlocked half that asks
+`memory_object_create_proxy` for the proxy port.  The proxy call's
+`rpc_vm_*` arguments are a guarded type (`uint32_t` under USER32,
+pointer-sized otherwise), so the cast stays in a `vm_map_glue.c` shim;
+the same file gains the `struct task` field and `struct vm_object`
+pager accessors, which die with `kern/task.c` and `vm/vm_object.c`.
+The new core uses the `IpcPort`/`IpcSpace` handles of
+`rust/src/ipc/`, and `Error` gained `InvalidName` and `InvalidTask`
+for the two `kern_return_t`s the proxy call can pass through.  With
+the C definitions deleted, what remains in `vm/vm_map.c` is
+`vm_map_init` and the three caches; M6b is the delete.
+
 ### ipc/ (18 files, 13,002 LOC)
 
 | File | LOC | Role | Friction | Blockers |

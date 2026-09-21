@@ -32,18 +32,20 @@
 
 use crate::arch::types::{VmOffset, VmSize};
 use crate::glue::{
-    Panic, assert_wait, kalloc, kernel_map, kernel_object, kernel_pmap,
-    kernel_virtual_end, kernel_virtual_start, kfree, kmem_cache_alloc,
-    kmem_cache_free, lock_clear_recursive, lock_done, lock_init, lock_read,
-    lock_read_to_write, lock_set_recursive, lock_write, lock_write_to_read,
-    pmap_create, pmap_destroy, pmap_pageable, pmap_protect, pmap_remove,
-    printf, projected_buffer_collect, thread_block, vm_fault_copy,
-    vm_fault_page, vm_fault_unwire, vm_fault_wire, vm_map_cache,
-    vm_map_copy_cache, vm_map_entry_cache, vm_map_glue_object_can_coalesce,
-    vm_map_glue_object_can_release, vm_map_glue_object_extend_size,
-    vm_map_glue_object_is_pristine_submap, vm_map_glue_object_is_shadowed,
-    vm_map_glue_object_is_temporary, vm_map_glue_object_lock,
-    vm_map_glue_object_make_shared, vm_map_glue_object_needs_shadow,
+    Panic, assert_wait, ipc_port_copy_send, ipc_port_release_send, kalloc,
+    kernel_map, kernel_object, kernel_pmap, kernel_virtual_end,
+    kernel_virtual_start, kfree, kmem_cache_alloc, kmem_cache_free,
+    lock_clear_recursive, lock_done, lock_init, lock_read, lock_read_to_write,
+    lock_set_recursive, lock_write, lock_write_to_read, pmap_create,
+    pmap_destroy, pmap_pageable, pmap_protect, pmap_remove, printf,
+    projected_buffer_collect, thread_block, vm_fault_copy, vm_fault_page,
+    vm_fault_unwire, vm_fault_wire, vm_map_cache, vm_map_copy_cache,
+    vm_map_entry_cache, vm_map_glue_memory_object_create_proxy,
+    vm_map_glue_object_can_coalesce, vm_map_glue_object_can_release,
+    vm_map_glue_object_extend_size, vm_map_glue_object_is_pristine_submap,
+    vm_map_glue_object_is_shadowed, vm_map_glue_object_is_temporary,
+    vm_map_glue_object_lock, vm_map_glue_object_make_shared,
+    vm_map_glue_object_needs_shadow, vm_map_glue_object_pager,
     vm_map_glue_object_paging_begin, vm_map_glue_object_paging_end,
     vm_map_glue_object_unlock, vm_map_glue_object_use_shared_copy,
     vm_map_glue_page_activate_if_idle, vm_map_glue_page_clear_busy,
@@ -60,12 +62,13 @@ use crate::glue::{
     vm_map_glue_privilege_inc, vm_map_glue_thread_wakeup, vm_object_allocate,
     vm_object_coalesce, vm_object_collapse, vm_object_copy_slowly,
     vm_object_copy_strategically, vm_object_copy_temporary,
-    vm_object_deallocate, vm_object_page_remove, vm_object_pmap_protect,
-    vm_object_pmap_remove, vm_object_reference, vm_object_shadow,
-    vm_page_activate, vm_page_copy, vm_page_grab, vm_page_lookup,
-    vm_page_mem_size, vm_page_more_fictitious, vm_page_replace, vm_page_wait,
-    vm_page_wire, vm_submap_object,
+    vm_object_deallocate, vm_object_name, vm_object_page_remove,
+    vm_object_pager_create, vm_object_pmap_protect, vm_object_pmap_remove,
+    vm_object_reference, vm_object_shadow, vm_page_activate, vm_page_copy,
+    vm_page_grab, vm_page_lookup, vm_page_mem_size, vm_page_more_fictitious,
+    vm_page_replace, vm_page_wait, vm_page_wire, vm_submap_object,
 };
+use crate::ipc::{IpcPort, IpcSpace};
 use crate::kern::list::{List, entry as list_entry};
 use crate::kern::lock::{LockData, SimpleLock};
 use crate::kern::rbtree::{RBTREE_LEFT, RBTREE_RIGHT, Rbtree, RbtreeNode};
@@ -6562,5 +6565,231 @@ impl VmMap {
         unsafe { VmMapCopy::discard(copy) };
 
         Ok(())
+    }
+}
+
+/// The region `vm_region()` describes: the C's out-parameters as one
+/// value.
+pub(crate) struct VmMapRegion {
+    /// The region's first address, which replaces the caller's.
+    pub address: VmOffset,
+    /// The region's length.
+    pub size: VmSize,
+    /// The region's current protection.
+    pub protection: VmProt,
+    /// The region's maximum protection.
+    pub max_protection: VmProt,
+    /// The region's inheritance.
+    pub inheritance: VmInherit,
+    /// Whether the region is shared.
+    pub is_shared: bool,
+    /// A naked send right naming the region's pager, or `None` for
+    /// `IP_NULL`.
+    pub object_name: Option<IpcPort>,
+    /// Offset of the address into the object.
+    pub offset: VmOffset,
+}
+
+/// What the locked half of `region_create_proxy()` reads.
+struct RegionProxy {
+    /// The requested protection limited to the entry's maximum.
+    max_protection: VmProt,
+    /// The send right copied from the entry's pager, if it has one.
+    pager: Option<IpcPort>,
+    /// The offset of the address into the object.
+    start: VmOffset,
+}
+
+impl VmMap {
+    /// The entry `address` falls in, or the first one above it.  The
+    /// lookup both `vm_region()` routines share; the caller must hold
+    /// the map's read lock.
+    fn region_entry(
+        &self,
+        address: VmOffset,
+    ) -> Result<NonNull<VmMapEntry>, Error> {
+        let (found, tmp_entry) = self.lookup_entry(address);
+        if found {
+            return Ok(tmp_entry);
+        }
+
+        // The lookup handed back the entry before `address`; the C
+        // continues from its successor.
+        let sentinel = self.to_entry();
+        // SAFETY: `tmp_entry` is a live entry or the sentinel of the
+        // locked map, and the chain is stable under its lock.
+        let entry =
+            unsafe { (*tmp_entry.as_ptr()).links.next }.unwrap_or(sentinel);
+        if entry == sentinel {
+            return Err(Error::NoSpace);
+        }
+        Ok(entry)
+    }
+
+    /// Describe the region `address` falls in, or the first one above
+    /// it.  `vm_region()` in C.
+    pub(crate) fn region(
+        &self,
+        address: VmOffset,
+    ) -> Result<VmMapRegion, Error> {
+        let map = NonNull::from(self);
+        // SAFETY: the caller owns the map; the read lock keeps the
+        // entries stable and the named object alive below.
+        unsafe { lock_read(addr_of_mut!((*map.as_ptr()).lock)) };
+
+        let region = self.region_entry(address).map(|entry| {
+            // SAFETY: `entry` is a live entry of the read-locked map;
+            // `vm_object_name` takes the object's own lock and keeps
+            // its reference alive under the map lock.
+            unsafe {
+                let e = &*entry.as_ptr();
+                let start = e.links.start;
+                let is_sub_map = e.is_sub_map();
+                VmMapRegion {
+                    address: start,
+                    size: e.links.end.wrapping_sub(start),
+                    protection: e.protection,
+                    max_protection: e.max_protection,
+                    inheritance: e.inheritance,
+                    // The C reports a submap as neither shared nor
+                    // named.
+                    is_shared: !is_sub_map && e.is_shared(),
+                    object_name: if is_sub_map {
+                        None
+                    } else {
+                        IpcPort::new(vm_object_name(e.object.vm_object))
+                    },
+                    offset: e.offset,
+                }
+            }
+        });
+
+        // SAFETY: the read lock taken above.
+        unsafe { lock_done(addr_of_mut!((*map.as_ptr()).lock)) };
+
+        region
+    }
+
+    /// The half of `region_create_proxy()` that runs under the map's
+    /// read lock: find the entry, limit the arguments and copy the
+    /// entry pager's send right.
+    fn region_create_proxy_locked(
+        &self,
+        address: VmOffset,
+        max_protection: VmProt,
+        len: VmSize,
+    ) -> Result<RegionProxy, Error> {
+        let entry = self.region_entry(address)?;
+
+        // SAFETY: `entry` is a live entry of the read-locked map.
+        let (start, end, entry_max, offset, object, is_sub_map) = unsafe {
+            let e = &*entry.as_ptr();
+            (
+                e.links.start,
+                e.links.end,
+                e.max_protection,
+                e.offset,
+                e.object.vm_object,
+                e.is_sub_map(),
+            )
+        };
+
+        if is_sub_map {
+            return Err(Error::InvalidArgument);
+        }
+
+        // Limit the allowed protection and range to the entry's, as
+        // the C does.
+        if len > end.wrapping_sub(start) {
+            return Err(Error::InvalidArgument);
+        }
+        let max_protection = max_protection & entry_max;
+
+        // Create a pager in case this is an internal object that does
+        // not have one yet, and keep a send right to it.
+        // SAFETY: the entry's object is alive under the map lock, and
+        // the object lock is the C's own discipline around the pager.
+        let pager = unsafe {
+            vm_map_glue_object_lock(object);
+            vm_object_pager_create(object);
+            let pager = IpcPort::new(ipc_port_copy_send(
+                vm_map_glue_object_pager(object),
+            ));
+            vm_map_glue_object_unlock(object);
+            pager
+        };
+
+        Ok(RegionProxy {
+            max_protection,
+            pager,
+            start: address.wrapping_sub(start).wrapping_add(offset),
+        })
+    }
+
+    /// Create a proxy to the memory region `address` falls in.
+    /// `vm_region_create_proxy()` in C.
+    ///
+    /// `space` is the target task's IPC space, which the C reads from
+    /// the same task as the map; `None` is the C `IS_NULL`.  On
+    /// success the returned port owns a send right; `None` is
+    /// `IP_NULL`.
+    pub(crate) fn region_create_proxy(
+        &self,
+        space: Option<IpcSpace>,
+        address: VmOffset,
+        max_protection: VmProt,
+        len: VmSize,
+    ) -> Result<Option<IpcPort>, Error> {
+        let map = NonNull::from(self);
+        // SAFETY: the caller owns the map; the read lock keeps the
+        // entry and its object stable while the pager is copied.
+        unsafe { lock_read(addr_of_mut!((*map.as_ptr()).lock)) };
+
+        let locked =
+            self.region_create_proxy_locked(address, max_protection, len);
+
+        // SAFETY: the read lock taken above; the C drops it before the
+        // proxy call, which no longer needs the map.
+        unsafe { lock_done(addr_of_mut!((*map.as_ptr()).lock)) };
+
+        let RegionProxy {
+            max_protection,
+            pager,
+            start,
+        } = locked?;
+
+        let mut port: *mut c_void = ptr::null_mut();
+        // The C passes one-element arrays; the shim casts them to the
+        // MIG `rpc_vm_*` types and writes the out-port.
+        // SAFETY: the shim's contract is the C call's: one object, one
+        // offset, one start and one length, and a writable out-port.
+        let result = unsafe {
+            vm_map_glue_memory_object_create_proxy(
+                space.map_or(ptr::null_mut(), IpcSpace::as_ptr),
+                max_protection.bits(),
+                pager.map_or(ptr::null_mut(), IpcPort::as_ptr),
+                0,
+                start,
+                len,
+                &mut port,
+            )
+        };
+
+        match error_from_kern_return(result) {
+            Ok(()) => Ok(IpcPort::new(port)),
+            Err(error) => {
+                // The proxy call consumes the send right only when it
+                // succeeds; the C releases it on every other return.
+                // Its `ipc_port_release_send` cannot take `IP_NULL`,
+                // which the copy above yields for a pager-less object,
+                // so the null right is left alone.
+                if let Some(pager) = pager {
+                    // SAFETY: `pager` is the send right copied above
+                    // and still owned here.
+                    unsafe { ipc_port_release_send(pager.as_ptr()) };
+                }
+                Err(error)
+            }
+        }
     }
 }

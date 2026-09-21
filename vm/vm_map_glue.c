@@ -34,9 +34,20 @@
  * `vm_map_glue_object_can_coalesce` /
  * `vm_map_glue_object_extend_size` read and write the same structure;
  * they go with them.
+ *
+ * The region shims read `struct task`'s `map` and `itk_space` fields
+ * and `struct vm_object`'s `pager`; the task pair dies with
+ * kern/task.c, the pager one with vm/vm_object.c.  The proxy call is a
+ * shim because `memory_object_create_proxy`'s `rpc_vm_*` arguments are
+ * `uint32_t` under USER32 and pointer-sized otherwise, so the guarded
+ * cast from the native `vm_*` values stays on this side; it dies with
+ * vm/memory_object_proxy.c.
  */
 
+#include <kern/mach4.server.h>
+#include <kern/task.h>
 #include <kern/thread.h>
+#include <ipc/ipc_port.h>
 #include <mach/vm_attributes.h>
 #include <vm/pmap.h>
 #include <vm/vm_object.h>
@@ -99,6 +110,17 @@ void vm_map_glue_thread_wakeup(void *event);
 void vm_map_glue_object_lock(vm_object_t object);
 void vm_map_glue_object_unlock(vm_object_t object);
 boolean_t vm_map_glue_object_can_release(vm_object_t object);
+ipc_port_t vm_map_glue_object_pager(vm_object_t object);
+struct vm_map *vm_map_glue_task_map(struct task *task);
+ipc_space_t vm_map_glue_task_space(struct task *task);
+kern_return_t vm_map_glue_memory_object_create_proxy(
+	ipc_space_t space,
+	vm_prot_t max_protection,
+	ipc_port_t object,
+	vm_offset_t offset,
+	vm_offset_t start,
+	vm_size_t len,
+	ipc_port_t *port);
 
 void
 vm_map_glue_privilege_inc(void)
@@ -377,4 +399,48 @@ vm_map_glue_pmap_enter(
 	boolean_t wired)
 {
 	PMAP_ENTER(pmap, addr, page, protection, wired);
+}
+
+ipc_port_t
+vm_map_glue_object_pager(vm_object_t object)
+{
+	return object->pager;
+}
+
+struct vm_map *
+vm_map_glue_task_map(struct task *task)
+{
+	return task->map;
+}
+
+ipc_space_t
+vm_map_glue_task_space(struct task *task)
+{
+	return task->itk_space;
+}
+
+/*
+ * The `rpc_vm_*` types are `uint32_t` under USER32 and pointer-sized
+ * otherwise; the casts from the native `vm_*` arguments stay on this
+ * side of the boundary, where the guard lives.
+ */
+kern_return_t
+vm_map_glue_memory_object_create_proxy(
+	ipc_space_t space,
+	vm_prot_t max_protection,
+	ipc_port_t object,
+	vm_offset_t offset,
+	vm_offset_t start,
+	vm_size_t len,
+	ipc_port_t *port)
+{
+	rpc_vm_offset_t rpc_offset = (rpc_vm_offset_t) offset;
+	rpc_vm_offset_t rpc_start = (rpc_vm_offset_t) start;
+	rpc_vm_size_t rpc_len = (rpc_vm_size_t) len;
+
+	return memory_object_create_proxy(space, max_protection,
+					  &object, 1,
+					  &rpc_offset, 1,
+					  &rpc_start, 1,
+					  &rpc_len, 1, port);
 }

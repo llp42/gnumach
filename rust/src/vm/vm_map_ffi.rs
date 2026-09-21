@@ -9,13 +9,15 @@
 //! in `vm_map.rs` takes over behind them.
 
 use crate::arch::types::{VmOffset, VmSize};
-use crate::vm::error::{KERN_SUCCESS, kern_return};
+use crate::glue::{vm_map_glue_task_map, vm_map_glue_task_space};
+use crate::ipc::{IpcPort, IpcSpace};
+use crate::vm::error::{KERN_INVALID_ARGUMENT, KERN_SUCCESS, kern_return};
 use crate::vm::types::{Pmap, VmInherit, VmObject, VmProt};
 use crate::vm::vm_map::{
     EnterRequest, VmMap, VmMapCopy, VmMapCopyContFn, VmMapCopyinArgs,
     VmMapEntry, VmMapHeader, VmMapVersion,
 };
-use core::ffi::{c_int, c_uint};
+use core::ffi::{c_int, c_uint, c_void};
 use core::ptr::{self, NonNull};
 
 /// Lock a map for writing.  `vm_map_lock()` in C.
@@ -830,4 +832,105 @@ pub unsafe extern "C" fn vm_map_copy_discard_cont(
         unsafe { copy_result.as_ptr().write(ptr::null_mut()) };
     }
     KERN_SUCCESS
+}
+
+/// Describe the region `address` falls in, or the first one above it.
+/// `vm_region()` in C.
+///
+/// # Safety
+///
+/// `map` must be a valid map or null, every out-pointer must be
+/// writable, and `address` must point at readable storage.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_region(
+    map: *mut VmMap,
+    address: *mut VmOffset,
+    size: *mut VmSize,
+    protection: *mut VmProt,
+    max_protection: *mut VmProt,
+    inheritance: *mut VmInherit,
+    is_shared: *mut c_int,
+    object_name: *mut *mut c_void,
+    offset_in_object: *mut VmOffset,
+) -> c_int {
+    let Some(map) = NonNull::new(map) else {
+        return KERN_INVALID_ARGUMENT;
+    };
+
+    // SAFETY: the caller promises a readable address slot.
+    let start = unsafe { *address };
+    // SAFETY: the caller promises a valid map.
+    match unsafe { map.as_ref() }.region(start) {
+        Ok(region) => {
+            // SAFETY: the caller promises writable out-pointers.
+            unsafe {
+                address.write(region.address);
+                size.write(region.size);
+                protection.write(region.protection);
+                max_protection.write(region.max_protection);
+                inheritance.write(region.inheritance);
+                is_shared.write(c_int::from(region.is_shared));
+                object_name.write(
+                    region
+                        .object_name
+                        .map_or(ptr::null_mut(), IpcPort::as_ptr),
+                );
+                offset_in_object.write(region.offset);
+            }
+            KERN_SUCCESS
+        }
+        Err(error) => error.as_kern_return(),
+    }
+}
+
+/// Create a proxy to the memory region `address` falls in.
+/// `vm_region_create_proxy()` in C.
+///
+/// # Safety
+///
+/// `task` must be a valid task or null, the task's map must be valid,
+/// and `port` must be writable storage for one port.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_region_create_proxy(
+    task: *mut c_void,
+    address: VmOffset,
+    max_protection: VmProt,
+    len: VmSize,
+    port: *mut *mut c_void,
+) -> c_int {
+    if task.is_null() {
+        return KERN_INVALID_ARGUMENT;
+    }
+
+    // SAFETY: the caller promises a valid task; the two shims read
+    // the map and the IPC space the C body reads from it.  The map
+    // comes back as an opaque handle until `VmMap` is FFI-safe.
+    let (map, space) = unsafe {
+        (
+            NonNull::new(vm_map_glue_task_map(task).cast::<VmMap>()),
+            IpcSpace::new(vm_map_glue_task_space(task)),
+        )
+    };
+    // A live task always has a map; keep the C's argument check for
+    // the impossible null.
+    let Some(map) = map else {
+        return KERN_INVALID_ARGUMENT;
+    };
+
+    // SAFETY: the caller promises a valid map.
+    match unsafe { map.as_ref() }.region_create_proxy(
+        space,
+        address,
+        max_protection,
+        len,
+    ) {
+        Ok(proxy) => {
+            // SAFETY: the caller promises a writable out-pointer.
+            unsafe {
+                port.write(proxy.map_or(ptr::null_mut(), IpcPort::as_ptr))
+            };
+            KERN_SUCCESS
+        }
+        Err(error) => error.as_kern_return(),
+    }
 }

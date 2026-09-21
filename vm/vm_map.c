@@ -156,8 +156,9 @@ void vm_map_init(void)
  *	vm_map_lookup_entry, vm_map_verify, vm_map_machine_attribute
  *	and vm_map_msync live in rust/src/vm/vm_map_ffi.rs now; their
  *	prototypes are unchanged in vm_map.h.  The whole copy family,
- *	including the page-list copyin and its continuation, is Rust
- *	too.
+ *	including the page-list copyin and its continuation, and the
+ *	region family (`vm_region`, `vm_region_create_proxy`) are Rust
+ *	too.  Only vm_map_init and the caches remain here.
  */
 
 /*
@@ -188,140 +189,6 @@ void vm_map_init(void)
  *	This is now a macro in vm/vm_map.h.  It does a
  *	vm_map_unlock_read on the map.
  */
-
-/*
- *	vm_region:
- *
- *	User call to obtain information about a region in
- *	a task's address map.
- */
-
-kern_return_t	vm_region(
-	vm_map_t	map,
-	vm_offset_t	*address,		/* IN/OUT */
-	vm_size_t	*size,			/* OUT */
-	vm_prot_t	*protection,		/* OUT */
-	vm_prot_t	*max_protection,	/* OUT */
-	vm_inherit_t	*inheritance,		/* OUT */
-	boolean_t	*is_shared,		/* OUT */
-	ipc_port_t	*object_name,		/* OUT */
-	vm_offset_t	*offset_in_object)	/* OUT */
-{
-	vm_map_entry_t	tmp_entry;
-	vm_map_entry_t	entry;
-	vm_offset_t	tmp_offset;
-	vm_offset_t	start;
-
-	if (map == VM_MAP_NULL)
-		return(KERN_INVALID_ARGUMENT);
-
-	start = *address;
-
-	vm_map_lock_read(map);
-	if (!vm_map_lookup_entry(map, start, &tmp_entry)) {
-		if ((entry = tmp_entry->vme_next) == vm_map_to_entry(map)) {
-			vm_map_unlock_read(map);
-		   	return(KERN_NO_SPACE);
-		}
-	} else {
-		entry = tmp_entry;
-	}
-
-	start = entry->vme_start;
-	*protection = entry->protection;
-	*max_protection = entry->max_protection;
-	*inheritance = entry->inheritance;
-	*address = start;
-	*size = (entry->vme_end - start);
-
-	tmp_offset = entry->offset;
-
-
-	if (entry->is_sub_map) {
-		*is_shared = FALSE;
-		*object_name = IP_NULL;
-		*offset_in_object = tmp_offset;
-	} else {
-		*is_shared = entry->is_shared;
-		*object_name = vm_object_name(entry->object.vm_object);
-		*offset_in_object = tmp_offset;
-	}
-
-	vm_map_unlock_read(map);
-
-	return(KERN_SUCCESS);
-}
-
-/*
- *	vm_region_create_proxy:
- *
- *	Gets a proxy to the region that ADDRESS belongs to, starting at the
- *	region start, with MAX_PROTECTION and LEN limited by the region ones,
- *	and returns it in *PORT.
- */
-kern_return_t
-vm_region_create_proxy (task_t task, vm_address_t address,
-			vm_prot_t max_protection, vm_size_t len,
-			ipc_port_t *port)
-{
-  kern_return_t ret;
-  vm_map_entry_t entry, tmp_entry;
-  vm_object_t object;
-  rpc_vm_offset_t rpc_offset, rpc_start;
-  rpc_vm_size_t rpc_len = (rpc_vm_size_t) len;
-  ipc_port_t pager;
-
-  if (task == TASK_NULL)
-    return(KERN_INVALID_ARGUMENT);
-
-  vm_map_lock_read(task->map);
-  if (!vm_map_lookup_entry(task->map, address, &tmp_entry)) {
-    if ((entry = tmp_entry->vme_next) == vm_map_to_entry(task->map)) {
-      vm_map_unlock_read(task->map);
-      return(KERN_NO_SPACE);
-    }
-  } else {
-    entry = tmp_entry;
-  }
-
-  if (entry->is_sub_map) {
-    vm_map_unlock_read(task->map);
-    return(KERN_INVALID_ARGUMENT);
-  }
-
-  /* Limit the allowed protection and range to the entry ones */
-  if (len > entry->vme_end - entry->vme_start) {
-    vm_map_unlock_read(task->map);
-    return(KERN_INVALID_ARGUMENT);
-  }
-  max_protection &= entry->max_protection;
-
-  object = entry->object.vm_object;
-  simple_lock(&(object)->Lock);
-  /* Create a pager in case this is an internal object that does
-     not yet have one. */
-  vm_object_pager_create(object);
-  pager = ipc_port_copy_send(object->pager);
-  simple_unlock(&(object)->Lock);
-
-  rpc_start = (address - entry->vme_start) + entry->offset;
-  rpc_offset = 0;
-
-  vm_map_unlock_read(task->map);
-
-  ret = memory_object_create_proxy(task->itk_space, max_protection,
-				    &pager, 1,
-				    &rpc_offset, 1,
-				    &rpc_start, 1,
-				    &rpc_len, 1, port);
-  if (ret)
-    ipc_port_release_send(pager);
-
-  return ret;
-}
-
-
-
 
 /*
  *	Routine:	vm_map_machine_attribute, vm_map_msync,

@@ -27,6 +27,10 @@ pub const KERN_RESOURCE_SHORTAGE: c_int = 6;
 pub const KERN_NO_ACCESS: c_int = 8;
 /// `KERN_MEMORY_ERROR`.
 pub const KERN_MEMORY_ERROR: c_int = 10;
+/// `KERN_INVALID_NAME`.
+pub const KERN_INVALID_NAME: c_int = 15;
+/// `KERN_INVALID_TASK`.
+pub const KERN_INVALID_TASK: c_int = 16;
 /// `KERN_WRITE_PROTECTION_FAILURE`.
 pub const KERN_WRITE_PROTECTION_FAILURE: c_int = 24;
 /// `MACH_SEND_INTERRUPTED` of <mach/message.h>: the pager wait an
@@ -57,6 +61,12 @@ pub enum Error {
     NoAccess,
     /// `KERN_MEMORY_ERROR`.
     MemoryError,
+    /// `KERN_INVALID_NAME`: a port the call needs is not valid.  It
+    /// reaches the VM map from `memory_object_create_proxy` when the
+    /// region has no pager to proxy.
+    InvalidName,
+    /// `KERN_INVALID_TASK`: the proxy call's IPC space is `IS_NULL`.
+    InvalidTask,
     /// `KERN_WRITE_PROTECTION_FAILURE`: the entry asks for
     /// `VM_PROT_NOTIFY` and the fault is a write.
     WriteProtectionFailure,
@@ -79,6 +89,8 @@ impl Error {
             Error::ResourceShortage => KERN_RESOURCE_SHORTAGE,
             Error::NoAccess => KERN_NO_ACCESS,
             Error::MemoryError => KERN_MEMORY_ERROR,
+            Error::InvalidName => KERN_INVALID_NAME,
+            Error::InvalidTask => KERN_INVALID_TASK,
             Error::WriteProtectionFailure => KERN_WRITE_PROTECTION_FAILURE,
             Error::SendInterrupted => MACH_SEND_INTERRUPTED,
         }
@@ -105,6 +117,8 @@ pub const fn error_from_kern_return(code: c_int) -> Result<(), Error> {
         KERN_RESOURCE_SHORTAGE => Err(Error::ResourceShortage),
         KERN_NO_ACCESS => Err(Error::NoAccess),
         KERN_MEMORY_ERROR => Err(Error::MemoryError),
+        KERN_INVALID_NAME => Err(Error::InvalidName),
+        KERN_INVALID_TASK => Err(Error::InvalidTask),
         KERN_WRITE_PROTECTION_FAILURE => Err(Error::WriteProtectionFailure),
         MACH_SEND_INTERRUPTED => Err(Error::SendInterrupted),
         _ => Err(Error::Failure),

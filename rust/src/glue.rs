@@ -157,6 +157,11 @@ unsafe extern "C" {
     pub fn kalloc(size: VmSize) -> VmOffset;
     pub fn kfree(data: VmOffset, size: VmSize);
 
+    // <ipc/ipc_port.h>: the send-right operations of the region proxy.
+    // Ports stay opaque pointers until ipc/ipc_port.c moves.
+    pub fn ipc_port_copy_send(port: *mut c_void) -> *mut c_void;
+    pub fn ipc_port_release_send(port: *mut c_void);
+
     // The three caches of `vm/vm_map.c`, which still defines them.
     pub static mut vm_map_cache: c_void;
     pub static mut vm_map_entry_cache: c_void;
@@ -256,6 +261,22 @@ unsafe extern "C" {
         wired: c_int,
     );
     pub static mut vm_submap_object: *mut VmObject;
+
+    // Shims in vm/vm_map_glue.c: the pager of a `struct vm_object` and
+    // the task fields `vm_region_create_proxy` reads.  The object shim
+    // dies with vm/vm_object.c, the task shims with kern/task.c.
+    pub fn vm_map_glue_object_pager(object: *mut VmObject) -> *mut c_void;
+    pub fn vm_map_glue_task_map(task: *mut c_void) -> *mut c_void;
+    pub fn vm_map_glue_task_space(task: *mut c_void) -> *mut c_void;
+    pub fn vm_map_glue_memory_object_create_proxy(
+        space: *mut c_void,
+        max_protection: c_int,
+        object: *mut c_void,
+        offset: VmOffset,
+        start: VmOffset,
+        len: VmSize,
+        port: *mut *mut c_void,
+    ) -> c_int;
 
     // <vm/vm_page.h>.
     pub fn vm_page_lookup(
@@ -369,6 +390,11 @@ unsafe extern "C" {
         start: VmOffset,
         protection: c_int,
     );
+    // The naked send right naming an object's pager, which `vm_region`
+    // hands out, and the pager creation the region proxy performs on an
+    // internal object.
+    pub fn vm_object_name(object: *mut VmObject) -> *mut c_void;
+    pub fn vm_object_pager_create(object: *mut VmObject);
 
     // <vm/pmap.h>: the physical-map operations of the fork.  `pmap_copy`
     // is a macro here, so it comes through the vm_map_glue.c shim.
