@@ -26,8 +26,10 @@
  * The fork shims read `struct vm_object`'s sharing fields
  * (`shadowed`, `temporary`, `size`, `use_shared_copy`, `ref_count`);
  * they go when vm/vm_object.c moves.  The overwrite's
- * `vm_map_glue_object_is_temporary` reads the same `temporary` bit and
- * goes with them.
+ * `vm_map_glue_object_is_temporary` reads the same `temporary` bit, and
+ * the page-list copyout's `vm_map_glue_object_can_coalesce` /
+ * `vm_map_glue_object_extend_size` read and write the same structure;
+ * they go with them.
  */
 
 #include <kern/thread.h>
@@ -53,9 +55,16 @@ boolean_t vm_map_glue_page_is_tabled(vm_page_t page);
 vm_object_t vm_map_glue_page_object(vm_page_t page);
 void vm_map_glue_page_free(vm_page_t page);
 void vm_map_glue_page_set_busy(vm_page_t page);
+void vm_map_glue_page_clear_busy(vm_page_t page);
+void vm_map_glue_page_set_dirty(vm_page_t page);
 void vm_map_glue_page_wakeup_done(vm_page_t page);
 void vm_map_glue_page_activate_if_idle(vm_page_t page);
 int vm_map_glue_page_wire_count(vm_page_t page);
+vm_offset_t vm_map_glue_page_offset(vm_page_t page);
+void vm_map_glue_page_queue_lock(void);
+void vm_map_glue_page_queue_unlock(void);
+boolean_t vm_map_glue_object_can_coalesce(vm_object_t object);
+void vm_map_glue_object_extend_size(vm_object_t object, vm_size_t size);
 void vm_map_glue_pmap_enter(
 	pmap_t pmap,
 	vm_offset_t addr,
@@ -171,6 +180,23 @@ vm_map_glue_object_is_temporary(vm_object_t object)
 	return object->temporary;
 }
 
+boolean_t
+vm_map_glue_object_can_coalesce(vm_object_t object)
+{
+	return object->ref_count <= 1 &&
+	       !object->pager_created &&
+	       object->shadow == VM_OBJECT_NULL &&
+	       object->copy == VM_OBJECT_NULL &&
+	       object->paging_in_progress == 0;
+}
+
+void
+vm_map_glue_object_extend_size(vm_object_t object, vm_size_t size)
+{
+	if (size > object->size)
+		object->size = size;
+}
+
 void
 vm_map_glue_object_make_shared(vm_object_t object)
 {
@@ -223,9 +249,39 @@ vm_map_glue_page_set_busy(vm_page_t page)
 }
 
 void
+vm_map_glue_page_clear_busy(vm_page_t page)
+{
+	page->busy = FALSE;
+}
+
+void
+vm_map_glue_page_set_dirty(vm_page_t page)
+{
+	page->dirty = TRUE;
+}
+
+void
 vm_map_glue_page_wakeup_done(vm_page_t page)
 {
 	PAGE_WAKEUP_DONE(page);
+}
+
+vm_offset_t
+vm_map_glue_page_offset(vm_page_t page)
+{
+	return page->offset;
+}
+
+void
+vm_map_glue_page_queue_lock(void)
+{
+	simple_lock(&vm_page_queue_lock);
+}
+
+void
+vm_map_glue_page_queue_unlock(void)
+{
+	simple_unlock(&vm_page_queue_lock);
 }
 
 void

@@ -649,8 +649,8 @@ extern kern_return_t	vm_map_copyin_page_list(vm_map_t, vm_offset_t,
 /* Place a copy into a map */
 extern kern_return_t	vm_map_copyout(vm_map_t, vm_offset_t *, vm_map_copy_t);
 /* Link a copy chain into a map at `where`.  Was static; non-static only
-   for the Rust vm_map_fork caller.  M6 restores `static` and this
-   prototype can go. */
+   for the Rust vm_map_fork and vm_map_copyout callers.  M6 restores
+   `static` and this prototype can go. */
 extern void		vm_map_copy_insert(vm_map_t, vm_map_entry_t,
 					   vm_map_copy_t);
 /* Overwrite existing memory with a copy */

@@ -171,6 +171,15 @@ unsafe extern "C" {
     pub fn vm_page_grab(flags: c_uint) -> *mut VmPage;
     pub fn vm_page_copy(src: *mut VmPage, dst: *mut VmPage);
     pub fn vm_page_wait(continuation: Option<unsafe extern "C" fn()>);
+    // The page queue lock must be held for `replace`, `wire` and
+    // `activate`, as the page-list copyout does.
+    pub fn vm_page_replace(
+        page: *mut VmPage,
+        object: *mut VmObject,
+        offset: VmOffset,
+    );
+    pub fn vm_page_wire(page: *mut VmPage);
+    pub fn vm_page_activate(page: *mut VmPage);
 
     // <vm/pmap.h>: make a pmap range pageable, used when a wired copy
     // is entered.
@@ -210,14 +219,21 @@ unsafe extern "C" {
     pub fn vm_map_glue_object_make_shared(object: *mut VmObject);
     pub fn vm_map_glue_object_paging_begin(object: *mut VmObject);
     pub fn vm_map_glue_object_paging_end(object: *mut VmObject);
+    pub fn vm_map_glue_object_can_coalesce(object: *mut VmObject) -> c_int;
+    pub fn vm_map_glue_object_extend_size(object: *mut VmObject, size: VmSize);
     pub fn vm_map_glue_page_is_absent(page: *mut VmPage) -> c_int;
     pub fn vm_map_glue_page_is_tabled(page: *mut VmPage) -> c_int;
     pub fn vm_map_glue_page_object(page: *mut VmPage) -> *mut VmObject;
     pub fn vm_map_glue_page_free(page: *mut VmPage);
     pub fn vm_map_glue_page_set_busy(page: *mut VmPage);
+    pub fn vm_map_glue_page_clear_busy(page: *mut VmPage);
+    pub fn vm_map_glue_page_set_dirty(page: *mut VmPage);
     pub fn vm_map_glue_page_wakeup_done(page: *mut VmPage);
     pub fn vm_map_glue_page_activate_if_idle(page: *mut VmPage);
     pub fn vm_map_glue_page_wire_count(page: *mut VmPage) -> c_int;
+    pub fn vm_map_glue_page_offset(page: *mut VmPage) -> VmOffset;
+    pub fn vm_map_glue_page_queue_lock();
+    pub fn vm_map_glue_page_queue_unlock();
     pub fn vm_map_glue_pmap_enter(
         pmap: *mut Pmap,
         addr: VmOffset,
@@ -292,6 +308,7 @@ unsafe extern "C" {
         length: VmSize,
     );
     pub fn vm_object_allocate(size: VmSize) -> *mut VmObject;
+    pub fn vm_object_collapse(object: *mut VmObject);
     pub fn vm_object_copy_temporary(
         object: *mut *mut VmObject,
         offset: *mut VmOffset,
@@ -335,13 +352,6 @@ unsafe extern "C" {
         where_: *mut c_void,
         copy: *mut c_void,
     );
-    // The page-list copyout still lives in C; `VmMap::copyout()`
-    // reaches it here until the next commit moves it.
-    pub fn vm_map_copyout_page_list(
-        dst_map: *mut c_void,
-        dst_addr: *mut VmOffset,
-        copy: *mut c_void,
-    ) -> c_int;
 
     // <kern/lock.h>: the recursive/downgrade operations of the map
     // lock, used by the pageability scan.

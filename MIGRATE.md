@@ -1036,8 +1036,29 @@ before use, so the port drops the argument and the permanent-object
 branch it alone gated.  The one new shim,
 `vm_map_glue_object_is_temporary`, reads the object's `temporary` bit
 until `vm/vm_object.c` moves; `vm_map_copy_insert` stays in C and
-non-static for its `vm_map_copyout` and Rust `vm_map_fork` callers, to
-return to Rust with the copyin/copyout routines in M6.
+non-static for its Rust `vm_map_copyout` and `vm_map_fork` callers, to
+return to Rust with the copyin routines in M6.
+
+M5c ports `vm_map_copyout` and its page-list half
+`vm_map_copyout_page_list`.  The null copy is the adapter's; the core
+dispatches three ways: an `OBJECT` copy goes through `VmMap::enter`, an
+entry-list copy has its addresses adjusted and is linked through the C
+`vm_map_copy_insert`, and a page-list copy runs
+`VmMap::copyout_page_list`, which steals tabled pages, extends the
+entry below or creates an object and an entry, and drains continuation
+chains with the map, object and page-queue locks dropped around each
+continuation.  The C passes a null copy object to `kmem_cache_free`
+when a continuation returns no copy; the port skips that no-op free.
+The C's private `vm_map_enforce_limit`, `vm_map_find_entry_anywhere`,
+`vm_map_gap_update` and `vm_map_entry_inc_wired`, whose last caller was
+this routine, go with it.  New shims read and write `struct vm_page`
+(`busy`, `dirty`, `offset`, `wire_count`, the active/inactive queue
+lock) and probe `struct vm_object` (`can_coalesce`, `extend_size`);
+`vm_map_glue_pmap_enter` now carries the wired flag.  They go when
+`vm/vm_page.c` and `vm/vm_object.c` move.  What remains in
+`vm/vm_map.c` is `vm_map_init`, `vm_map_copy_insert`, the copyin
+family, `vm_region`/`vm_region_create_proxy` and the caches; M6
+follows.
 
 ### ipc/ (18 files, 13,002 LOC)
 
