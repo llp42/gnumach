@@ -278,6 +278,19 @@ pub unsafe extern "C" fn vm_map_create(
     VmMap::create(pmap, min, max).map_or(ptr::null_mut(), NonNull::as_ptr)
 }
 
+/// Create a map holding the same regions as `old_map`, obeying each
+/// region's inheritance.  `vm_map_fork()` in C.
+///
+/// # Safety
+///
+/// `old_map` must be a valid, unlocked map.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_map_fork(old_map: *mut VmMap) -> *mut VmMap {
+    // SAFETY: the caller promises a valid map.
+    let old_map = unsafe { NonNull::new_unchecked(old_map) };
+    VmMap::fork(old_map).map_or(ptr::null_mut(), NonNull::as_ptr)
+}
+
 /// Apply a machine attribute to the map's pmap.
 /// `vm_map_machine_attribute()` in C.
 ///

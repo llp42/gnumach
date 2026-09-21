@@ -9,7 +9,8 @@
  * into kern/thread.rs when the thread structure does.
  *
  * `pmap_attribute` is a macro on this machine (it is the constant
- * KERN_INVALID_ADDRESS), so Rust cannot declare it.
+ * KERN_INVALID_ADDRESS), and `pmap_copy` is a no-op macro over the
+ * pmap type, so Rust cannot declare either.
  *
  * `thread_wakeup` is a macro over `thread_wakeup_prim()`; it goes when
  * the scheduler's wait/wake interface is callable from Rust.
@@ -21,6 +22,10 @@
  * The page shims (`vm_map_glue_page_*`, `vm_map_glue_pmap_enter`) read
  * `struct vm_page` bitfields and expand PMAP_ENTER/PAGE_WAKEUP_DONE,
  * which stay C until vm/vm_page.c moves.
+ *
+ * The fork shims read `struct vm_object`'s sharing fields
+ * (`shadowed`, `temporary`, `size`, `use_shared_copy`, `ref_count`);
+ * they go when vm/vm_object.c moves.
  */
 
 #include <kern/thread.h>
@@ -32,6 +37,12 @@
 void vm_map_glue_privilege_inc(void);
 void vm_map_glue_privilege_dec(void);
 boolean_t vm_map_glue_object_is_pristine_submap(vm_object_t object);
+boolean_t vm_map_glue_object_needs_shadow(
+	vm_object_t object,
+	vm_size_t size,
+	boolean_t needs_copy,
+	boolean_t is_shared);
+void vm_map_glue_object_make_shared(vm_object_t object);
 void vm_map_glue_object_paging_begin(vm_object_t object);
 void vm_map_glue_object_paging_end(vm_object_t object);
 boolean_t vm_map_glue_page_is_absent(vm_page_t page);
@@ -49,6 +60,12 @@ kern_return_t vm_map_glue_pmap_attribute(
 	vm_size_t size,
 	vm_machine_attribute_t attribute,
 	vm_machine_attribute_val_t *value);
+void vm_map_glue_pmap_copy(
+	pmap_t dst,
+	pmap_t src,
+	vm_offset_t dst_addr,
+	vm_size_t len,
+	vm_offset_t src_addr);
 void vm_map_glue_thread_wakeup(void *event);
 void vm_map_glue_object_lock(vm_object_t object);
 void vm_map_glue_object_unlock(vm_object_t object);
@@ -84,6 +101,17 @@ vm_map_glue_pmap_attribute(
 }
 
 void
+vm_map_glue_pmap_copy(
+	pmap_t dst,
+	pmap_t src,
+	vm_offset_t dst_addr,
+	vm_size_t len,
+	vm_offset_t src_addr)
+{
+	pmap_copy(dst, src, dst_addr, len, src_addr);
+}
+
+void
 vm_map_glue_thread_wakeup(void *event)
 {
 	thread_wakeup((event_t) event);
@@ -116,6 +144,26 @@ vm_map_glue_object_is_pristine_submap(vm_object_t object)
 	       object->copy == VM_OBJECT_NULL &&
 	       object->shadow == VM_OBJECT_NULL &&
 	       !object->pager_created;
+}
+
+boolean_t
+vm_map_glue_object_needs_shadow(
+	vm_object_t object,
+	vm_size_t size,
+	boolean_t needs_copy,
+	boolean_t is_shared)
+{
+	return needs_copy || object->shadowed ||
+	       (object->temporary && !is_shared && object->size > size);
+}
+
+void
+vm_map_glue_object_make_shared(vm_object_t object)
+{
+	simple_lock(&object->Lock);
+	object->use_shared_copy = TRUE;
+	object->ref_count++;
+	simple_unlock(&object->Lock);
 }
 
 void

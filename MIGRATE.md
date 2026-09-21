@@ -995,9 +995,17 @@ and `pmap_enter`, and the two pmap-enter debugging switches moved with
 it as `AtomicU32` statics that keep their C symbol names.
 `find_entry_anywhere` now validates the mask after taking the lock,
 closing the C path that returned unlocked to a caller whose cleanup
-unlocked again.  What still remains in `vm/vm_map.c` is
-`vm_map_fork`, the copy family, `vm_region` and the module's caches
-and `vm_map_init`; their milestones follow.
+unlocked again.  `vm_map_fork` closes M4: it walks the old map under
+its write lock, clones SHARE entries (marking both shared and the
+object `use_shared_copy` through `vm_map_glue_object_make_shared`),
+asks `vm_object_copy_temporary` for COPY entries, and falls back to
+`vm_map_copyin`/`vm_map_copy_insert` for the rest.  Its remaining
+shims are `vm_map_glue_object_needs_shadow` and
+`vm_map_glue_pmap_copy` (`pmap_copy` is an empty macro on i386);
+`vm_map_copy_insert` lost its `static` for the one Rust caller and
+returns to internal linkage in M5.  What remains in `vm/vm_map.c` is
+the copy family, `vm_region`/`vm_region_create_proxy`, the caches and
+`vm_map_init`; M5/M6 follow.
 
 ### ipc/ (18 files, 13,002 LOC)
 

@@ -188,6 +188,13 @@ unsafe extern "C" {
     pub fn vm_map_glue_object_is_pristine_submap(
         object: *mut VmObject,
     ) -> c_int;
+    pub fn vm_map_glue_object_needs_shadow(
+        object: *mut VmObject,
+        size: VmSize,
+        needs_copy: c_int,
+        is_shared: c_int,
+    ) -> c_int;
+    pub fn vm_map_glue_object_make_shared(object: *mut VmObject);
     pub fn vm_map_glue_object_paging_begin(object: *mut VmObject);
     pub fn vm_map_glue_object_paging_end(object: *mut VmObject);
     pub fn vm_map_glue_page_is_absent(page: *mut VmPage) -> c_int;
@@ -253,6 +260,48 @@ unsafe extern "C" {
         length: VmSize,
     );
     pub fn vm_object_allocate(size: VmSize) -> *mut VmObject;
+    pub fn vm_object_copy_temporary(
+        object: *mut *mut VmObject,
+        offset: *mut VmOffset,
+        src_needs_copy: *mut c_int,
+        dst_needs_copy: *mut c_int,
+    ) -> c_int;
+    pub fn vm_object_pmap_protect(
+        object: *mut VmObject,
+        offset: VmOffset,
+        size: VmSize,
+        pmap: *mut Pmap,
+        start: VmOffset,
+        protection: c_int,
+    );
+
+    // <vm/pmap.h>: the physical-map operations of the fork.  `pmap_copy`
+    // is a macro here, so it comes through the vm_map_glue.c shim.
+    pub fn pmap_create(size: VmSize) -> *mut Pmap;
+    pub fn vm_map_glue_pmap_copy(
+        dst: *mut Pmap,
+        src: *mut Pmap,
+        dst_addr: VmOffset,
+        len: VmSize,
+        src_addr: VmOffset,
+    );
+
+    // <vm/vm_map.h> and vm/vm_map.c.  The maps, entries and copies are
+    // opaque handles here: their Rust mirrors are `!Unpin` and the C
+    // signatures only need the addresses.  `vm_map_copy_insert` is
+    // static in C except for this caller; the copy family moves in M5.
+    pub fn vm_map_copyin(
+        src_map: *mut c_void,
+        src_addr: VmOffset,
+        len: VmSize,
+        src_destroy: c_int,
+        copy_result: *mut *mut c_void,
+    ) -> c_int;
+    pub fn vm_map_copy_insert(
+        map: *mut c_void,
+        where_: *mut c_void,
+        copy: *mut c_void,
+    );
 
     // <kern/lock.h>: the recursive/downgrade operations of the map
     // lock, used by the pageability scan.

@@ -36,24 +36,26 @@ use crate::glue::{
     kernel_virtual_end, kernel_virtual_start, kmem_cache_alloc,
     kmem_cache_free, lock_clear_recursive, lock_done, lock_init, lock_read,
     lock_read_to_write, lock_set_recursive, lock_write, lock_write_to_read,
-    pmap_destroy, pmap_protect, pmap_remove, printf, projected_buffer_collect,
-    thread_block, vm_fault_unwire, vm_fault_wire, vm_map_cache,
-    vm_map_entry_cache, vm_map_glue_object_can_release,
-    vm_map_glue_object_is_pristine_submap, vm_map_glue_object_lock,
-    vm_map_glue_object_paging_begin, vm_map_glue_object_paging_end,
-    vm_map_glue_object_unlock, vm_map_glue_page_activate_if_idle,
-    vm_map_glue_page_is_absent, vm_map_glue_page_set_busy,
-    vm_map_glue_page_wakeup_done, vm_map_glue_pmap_attribute,
-    vm_map_glue_pmap_enter, vm_map_glue_privilege_dec,
-    vm_map_glue_privilege_inc, vm_map_glue_thread_wakeup, vm_object_allocate,
-    vm_object_coalesce, vm_object_deallocate, vm_object_page_remove,
-    vm_object_pmap_remove, vm_object_reference, vm_object_shadow,
-    vm_page_lookup, vm_page_mem_size, vm_submap_object,
+    pmap_create, pmap_destroy, pmap_protect, pmap_remove, printf,
+    projected_buffer_collect, thread_block, vm_fault_unwire, vm_fault_wire,
+    vm_map_cache, vm_map_copy_insert, vm_map_copyin, vm_map_entry_cache,
+    vm_map_glue_object_can_release, vm_map_glue_object_is_pristine_submap,
+    vm_map_glue_object_lock, vm_map_glue_object_make_shared,
+    vm_map_glue_object_needs_shadow, vm_map_glue_object_paging_begin,
+    vm_map_glue_object_paging_end, vm_map_glue_object_unlock,
+    vm_map_glue_page_activate_if_idle, vm_map_glue_page_is_absent,
+    vm_map_glue_page_set_busy, vm_map_glue_page_wakeup_done,
+    vm_map_glue_pmap_attribute, vm_map_glue_pmap_copy, vm_map_glue_pmap_enter,
+    vm_map_glue_privilege_dec, vm_map_glue_privilege_inc,
+    vm_map_glue_thread_wakeup, vm_object_allocate, vm_object_coalesce,
+    vm_object_copy_temporary, vm_object_deallocate, vm_object_page_remove,
+    vm_object_pmap_protect, vm_object_pmap_remove, vm_object_reference,
+    vm_object_shadow, vm_page_lookup, vm_page_mem_size, vm_submap_object,
 };
 use crate::kern::list::{List, entry as list_entry};
 use crate::kern::lock::{LockData, SimpleLock};
 use crate::kern::rbtree::{RBTREE_LEFT, RBTREE_RIGHT, Rbtree, RbtreeNode};
-use crate::vm::error::{Error, error_from_kern_return};
+use crate::vm::error::{Error, KERN_SUCCESS, error_from_kern_return};
 use crate::vm::types::{Pmap, VmInherit, VmObject, VmPage, VmProt};
 use core::cell::UnsafeCell;
 use core::ffi::{c_char, c_int, c_uint, c_void};
@@ -1902,6 +1904,41 @@ impl VmMapEntry {
             )
         };
     }
+
+    /// Clone `src` into `dst`, links and all.  `vm_map_entry_copy_full()`
+    /// in C; used for splitting and for projected entries.
+    ///
+    /// # Safety
+    ///
+    /// Both must be distinct live entry storage, and `dst` unlinked.
+    pub(crate) unsafe fn copy_full(
+        dst: NonNull<VmMapEntry>,
+        src: NonNull<VmMapEntry>,
+    ) {
+        // SAFETY: the caller promises distinct live storage.
+        unsafe { ptr::copy_nonoverlapping(src.as_ptr(), dst.as_ptr(), 1) };
+    }
+
+    /// Clone `src` into `dst` for a new mapping: the sharing, waiting
+    /// and wiring state is dropped.  `vm_map_entry_copy()` in C.
+    ///
+    /// # Safety
+    ///
+    /// Same contract as `copy_full`.
+    pub(crate) unsafe fn copy(
+        dst: NonNull<VmMapEntry>,
+        src: NonNull<VmMapEntry>,
+    ) {
+        // SAFETY: the caller promises distinct live storage.
+        unsafe {
+            ptr::copy_nonoverlapping(src.as_ptr(), dst.as_ptr(), 1);
+            (*dst.as_ptr()).set_shared(false);
+            (*dst.as_ptr()).set_needs_wakeup(false);
+            (*dst.as_ptr()).set_in_transition(false);
+            (*dst.as_ptr()).wired_count = 0;
+            (*dst.as_ptr()).wired_access = VmProt::NONE;
+        }
+    }
 }
 
 impl VmMapHeader {
@@ -3313,5 +3350,375 @@ impl VmMap {
         }
 
         EnterOutcome::Entered { start, end }
+    }
+}
+
+impl VmMap {
+    /// Create a new map from the regions of `old_map` according to
+    /// their inheritance.  `vm_map_fork()` in C.
+    ///
+    /// `old_map` must not be locked.  `None` is the C's
+    /// `VM_MAP_NULL`; unlike the C's map-creation failure path, the
+    /// old map is left unlocked when that allocation fails.
+    pub(crate) fn fork(old_map: NonNull<VmMap>) -> Option<NonNull<VmMap>> {
+        // SAFETY: the caller owns the old map for the call.
+        let new_pmap = unsafe { pmap_create(0) };
+        if new_pmap.is_null() {
+            return None;
+        }
+
+        VmMap::lock(old_map);
+
+        // SAFETY: the old map is valid and now locked.
+        let (min, max) = unsafe {
+            (
+                (*old_map.as_ptr()).hdr.links.start,
+                (*old_map.as_ptr()).hdr.links.end,
+            )
+        };
+        let Some(new_map) = VmMap::create(new_pmap, min, max) else {
+            // The C returned here with `old_map` still locked; the
+            // lock must be released before the failure goes back.
+            VmMap::unlock(old_map);
+            // SAFETY: the pmap came from `pmap_create` above.
+            unsafe { pmap_destroy(new_pmap) };
+            return None;
+        };
+
+        // SAFETY: the header is valid and the chain is stable under
+        // the map lock.
+        let sentinel = unsafe { (*old_map.as_ptr()).to_entry() };
+        // SAFETY: the first link is the first entry or the header.
+        let mut old_entry =
+            unsafe { (*old_map.as_ptr()).hdr.links.next }.unwrap_or(sentinel);
+
+        let mut new_size: VmSize = 0;
+        let mut new_size_none: VmSize = 0;
+
+        while old_entry != sentinel {
+            // SAFETY: `old_entry` is a live entry of the locked map.
+            if unsafe { (*old_entry.as_ptr()).is_sub_map() } {
+                // SAFETY: the C halts here; `Panic` never returns.
+                unsafe {
+                    Panic(
+                        c"rust/src/vm/vm_map.rs".as_ptr(),
+                        line!() as c_int,
+                        c"VmMap::fork".as_ptr(),
+                        c"vm_map_fork: encountered a submap".as_ptr(),
+                    )
+                };
+            }
+
+            // SAFETY: as above.
+            let entry_size = unsafe {
+                (*old_entry.as_ptr())
+                    .links
+                    .end
+                    .wrapping_sub((*old_entry.as_ptr()).links.start)
+            };
+
+            // SAFETY: as above.
+            let inheritance = unsafe { (*old_entry.as_ptr()).inheritance };
+
+            if inheritance == VmInherit::NONE {
+                // The region is dropped from the new map.
+            } else if inheritance == VmInherit::SHARE {
+                // SAFETY: the union member of a non-submap entry.
+                let mut object =
+                    unsafe { (*old_entry.as_ptr()).object.vm_object };
+
+                if object.is_null() {
+                    // SAFETY: the entry is live and the map is locked.
+                    object = unsafe { vm_object_allocate(entry_size) };
+                    unsafe {
+                        (*old_entry.as_ptr()).offset = 0;
+                        (*old_entry.as_ptr()).object.vm_object = object;
+                    }
+                } else {
+                    // SAFETY: the entry and object are live; the shim
+                    // only reads the object's sharing fields.
+                    let needs_shadow = unsafe {
+                        vm_map_glue_object_needs_shadow(
+                            object,
+                            entry_size,
+                            c_int::from((*old_entry.as_ptr()).needs_copy()),
+                            c_int::from((*old_entry.as_ptr()).is_shared()),
+                        ) != 0
+                    };
+                    if needs_shadow {
+                        // SAFETY: the entry is live under the map
+                        // lock; `vm_object_shadow` owns the object
+                        // reference it replaces.
+                        unsafe {
+                            vm_object_shadow(
+                                addr_of_mut!(
+                                    (*old_entry.as_ptr()).object.vm_object
+                                ),
+                                addr_of_mut!((*old_entry.as_ptr()).offset),
+                                entry_size,
+                            );
+                        }
+
+                        // A shadow made for other than copy-on-write
+                        // must take the write permission away.
+                        if unsafe {
+                            !(*old_entry.as_ptr()).needs_copy()
+                                && ((*old_entry.as_ptr()).protection
+                                    & VmProt::WRITE)
+                                    != VmProt::NONE
+                        } {
+                            // SAFETY: the pmap and the range are valid
+                            // under the map lock.
+                            unsafe {
+                                pmap_protect(
+                                    (*old_map.as_ptr()).pmap,
+                                    (*old_entry.as_ptr()).links.start,
+                                    (*old_entry.as_ptr()).links.end,
+                                    ((*old_entry.as_ptr()).protection
+                                        & VmProt::from_bits(
+                                            !VmProt::WRITE.bits(),
+                                        ))
+                                    .bits(),
+                                );
+                            }
+                        }
+                        unsafe { (*old_entry.as_ptr()).set_needs_copy(false) };
+                        object =
+                            unsafe { (*old_entry.as_ptr()).object.vm_object };
+                    }
+                }
+
+                // Take a reference and mark the object as using the
+                // delayed copy-on-write strategy the new sharing code
+                // expects.
+                // SAFETY: the object is live and shared by this call.
+                unsafe { vm_map_glue_object_make_shared(object) };
+
+                // SAFETY: the entry cache is initialized and the map
+                // is locked.
+                let new_entry = unsafe { VmMapEntry::create() };
+
+                // SAFETY: `new_entry` is unlinked storage; the copy
+                // fills it before it is linked.
+                if unsafe { !(*old_entry.as_ptr()).projected_on.is_null() } {
+                    unsafe { VmMapEntry::copy_full(new_entry, old_entry) };
+                } else {
+                    unsafe {
+                        VmMapEntry::copy(new_entry, old_entry);
+                        (*old_entry.as_ptr()).set_shared(true);
+                        (*new_entry.as_ptr()).set_shared(true);
+                    }
+                }
+
+                // Insert at the end of the new map, which only this
+                // call can see.
+                // SAFETY: `new_map` is private and unlocked; its last
+                // link is the last entry or the header.
+                unsafe {
+                    let new = &mut *new_map.as_ptr();
+                    let last =
+                        new.hdr.links.prev.unwrap_or_else(|| new.to_entry());
+                    new.hdr.entry_link(last, new_entry, true);
+                }
+
+                // SAFETY: both pmaps are live and the old map locked.
+                unsafe {
+                    vm_map_glue_pmap_copy(
+                        (*new_map.as_ptr()).pmap,
+                        (*old_map.as_ptr()).pmap,
+                        (*new_entry.as_ptr()).links.start,
+                        entry_size,
+                        (*old_entry.as_ptr()).links.start,
+                    );
+                }
+
+                new_size = new_size.wrapping_add(entry_size);
+                if unsafe { (*old_entry.as_ptr()).max_protection }
+                    == VmProt::NONE
+                {
+                    new_size_none = new_size_none.wrapping_add(entry_size);
+                }
+            } else if inheritance == VmInherit::COPY {
+                let mut optimized = false;
+
+                if unsafe { (*old_entry.as_ptr()).wired_count } == 0 {
+                    // SAFETY: the entry cache is initialized and the
+                    // map is locked.
+                    let new_entry = unsafe { VmMapEntry::create() };
+                    // SAFETY: `new_entry` is unlinked storage.
+                    unsafe { VmMapEntry::copy(new_entry, old_entry) };
+
+                    let mut src_needs_copy: c_int = 0;
+                    let mut new_needs_copy: c_int = 0;
+                    // SAFETY: `new_entry` is live and unlinked; the
+                    // object copy writes both out-parameters.
+                    let copied = unsafe {
+                        vm_object_copy_temporary(
+                            addr_of_mut!(
+                                (*new_entry.as_ptr()).object.vm_object
+                            ),
+                            addr_of_mut!((*new_entry.as_ptr()).offset),
+                            &mut src_needs_copy,
+                            &mut new_needs_copy,
+                        ) != 0
+                    };
+
+                    if copied {
+                        if src_needs_copy != 0
+                            && unsafe { !(*old_entry.as_ptr()).needs_copy() }
+                        {
+                            // SAFETY: the old entry and its object are
+                            // live under the map lock.
+                            unsafe {
+                                vm_object_pmap_protect(
+                                    (*old_entry.as_ptr()).object.vm_object,
+                                    (*old_entry.as_ptr()).offset,
+                                    entry_size,
+                                    if (*old_entry.as_ptr()).is_shared() {
+                                        ptr::null_mut()
+                                    } else {
+                                        (*old_map.as_ptr()).pmap
+                                    },
+                                    (*old_entry.as_ptr()).links.start,
+                                    ((*old_entry.as_ptr()).protection
+                                        & VmProt::from_bits(
+                                            !VmProt::WRITE.bits(),
+                                        ))
+                                    .bits(),
+                                );
+                            }
+                            unsafe {
+                                (*old_entry.as_ptr()).set_needs_copy(true)
+                            };
+                        }
+
+                        unsafe {
+                            (*new_entry.as_ptr())
+                                .set_needs_copy(new_needs_copy != 0)
+                        };
+
+                        // SAFETY: `new_map` is private and unlocked.
+                        unsafe {
+                            let new = &mut *new_map.as_ptr();
+                            let last = new
+                                .hdr
+                                .links
+                                .prev
+                                .unwrap_or_else(|| new.to_entry());
+                            new.hdr.entry_link(last, new_entry, true);
+                        }
+
+                        new_size = new_size.wrapping_add(entry_size);
+                        if unsafe { (*old_entry.as_ptr()).max_protection }
+                            == VmProt::NONE
+                        {
+                            new_size_none =
+                                new_size_none.wrapping_add(entry_size);
+                        }
+                        optimized = true;
+                    } else {
+                        // SAFETY: the entry is unlinked and unused.
+                        unsafe { VmMapEntry::dispose(new_entry) };
+                    }
+                }
+
+                if !optimized {
+                    // The copy cannot be optimized; let `vm_map_copyin`
+                    // build a chain and insert it.
+                    let start = unsafe { (*old_entry.as_ptr()).links.start };
+                    // SAFETY: `new_map` is private and unlocked.
+                    let last = unsafe { (*new_map.as_ptr()).hdr.links.prev }
+                        .unwrap_or_else(|| unsafe {
+                            (*new_map.as_ptr()).to_entry()
+                        });
+
+                    VmMap::unlock(old_map);
+
+                    let mut copy: *mut c_void = ptr::null_mut();
+                    // SAFETY: the old map is unlocked, as the copyin
+                    // contract requires, and `copy` is writable.
+                    let copied = unsafe {
+                        vm_map_copyin(
+                            old_map.as_ptr().cast(),
+                            start,
+                            entry_size,
+                            0,
+                            &mut copy,
+                        )
+                    } == KERN_SUCCESS;
+
+                    if !copied {
+                        VmMap::lock(old_map);
+                        // SAFETY: the map is locked again.
+                        let (found, looked) =
+                            unsafe { (*old_map.as_ptr()).lookup_entry(start) };
+                        old_entry = if found {
+                            looked
+                        } else {
+                            unsafe { (*looked.as_ptr()).links.next }
+                                .unwrap_or(sentinel)
+                        };
+                        // For some errors the C skips to the next
+                        // element.
+                        continue;
+                    }
+
+                    // SAFETY: the copy chain came from `vm_map_copyin`
+                    // and the new map is private to this call.
+                    unsafe {
+                        vm_map_copy_insert(
+                            new_map.as_ptr().cast(),
+                            last.as_ptr().cast(),
+                            copy,
+                        )
+                    };
+                    new_size = new_size.wrapping_add(entry_size);
+                    // SAFETY: the copyin does not free the old entry;
+                    // the C reads it here too, with the old map still
+                    // unlocked.
+                    if unsafe { (*old_entry.as_ptr()).max_protection }
+                        == VmProt::NONE
+                    {
+                        new_size_none = new_size_none.wrapping_add(entry_size);
+                    }
+
+                    VmMap::lock(old_map);
+                    let next_start = start.wrapping_add(entry_size);
+                    // SAFETY: the map is locked again.
+                    let (found, looked) = unsafe {
+                        (*old_map.as_ptr()).lookup_entry(next_start)
+                    };
+                    old_entry = if found {
+                        // The guarded `vm_map_clip_start()`; an entry
+                        // that already starts at `next_start` is left
+                        // alone.
+                        unsafe {
+                            (*old_map.as_ptr())
+                                .hdr
+                                .clip_start_at(looked, next_start, true)
+                        };
+                        looked
+                    } else {
+                        unsafe { (*looked.as_ptr()).links.next }
+                            .unwrap_or(sentinel)
+                    };
+                    continue;
+                }
+            }
+
+            // SAFETY: `old_entry` is live and the map is locked.
+            old_entry = unsafe { (*old_entry.as_ptr()).links.next }
+                .unwrap_or(sentinel);
+        }
+
+        // SAFETY: `new_map` is private until it is returned.
+        unsafe {
+            (*new_map.as_ptr()).size = new_size;
+            (*new_map.as_ptr()).size_none = new_size_none;
+        }
+        VmMap::copy_limits(new_map, old_map);
+        VmMap::unlock(old_map);
+
+        Some(new_map)
     }
 }
