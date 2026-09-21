@@ -1475,7 +1475,10 @@ impl VmMapCopy {
     /// # Safety
     ///
     /// `copy` must be a live page-list copy the caller owns, with no
-    /// null entry in its page list.
+    /// null entry in its page list, and its `npages` must be at most
+    /// `VM_MAP_COPY_PAGE_LIST_MAX` (64), the bound `vm_map_copyin`
+    /// enforces in C (`vm/vm_map.c:2287`); a larger count read out of
+    /// bounds in C and panics in this indexing.
     pub(crate) unsafe fn steal_pages(copy: NonNull<VmMapCopy>) {
         // SAFETY: the caller promises the PAGE_LIST variant.
         let pages = unsafe { VmMapCopy::page_list(copy) };
@@ -1487,7 +1490,9 @@ impl VmMapCopy {
 
         let mut i = 0;
         while i < npages {
-            // SAFETY: `i` indexes the initialized pages of the list.
+            // SAFETY: `i` is below `npages`, and the caller contract
+            // bounds `npages` by the 64-slot array length, so the
+            // index is in bounds.
             let m = unsafe { (*pages).page_list[i] };
             // SAFETY: a tabled page belongs to a live object that the
             // copy holds a paging reference on.
@@ -1536,7 +1541,11 @@ impl VmMapCopy {
     ///
     /// # Safety
     ///
-    /// `copy` must be a live page-list copy the caller owns.
+    /// `copy` must be a live page-list copy the caller owns, and its
+    /// `npages` must be at most `VM_MAP_COPY_PAGE_LIST_MAX` (64), the
+    /// bound `vm_map_copyin` enforces in C (`vm/vm_map.c:2287`); a
+    /// larger count read out of bounds in C and panics in this
+    /// indexing.
     pub(crate) unsafe fn page_discard(copy: NonNull<VmMapCopy>) {
         // SAFETY: the caller promises the PAGE_LIST variant.
         let pages = unsafe { VmMapCopy::page_list(copy) };
@@ -1551,11 +1560,17 @@ impl VmMapCopy {
             let Ok(index) = usize::try_from(npages - 1) else {
                 break;
             };
-            // SAFETY: the index is within the list, and the copy owns
-            // the reference to the page.
+            // SAFETY: `index` is `npages - 1` with `npages` positive
+            // and the caller contract bounding it by the 64-slot array
+            // length, so the index is in bounds; the copy owns the
+            // reference to the page.
             let page = unsafe { (*pages).page_list[index] };
-            // SAFETY: the C consumes the count before touching the
-            // slot.
+            // The Rust reads the slot before this decrement, where the
+            // C's `--(copy->cpy_npages)` consumed the count first;
+            // `index` came from the same `npages`, so both touch the
+            // same slot and store the same final count.
+            // SAFETY: `npages` is positive, so the decrement is the
+            // count the C stored, and `pages` names the live variant.
             unsafe { (*pages).npages = npages - 1 };
 
             if page.is_null() {

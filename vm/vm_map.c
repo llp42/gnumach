@@ -659,16 +659,6 @@ vm_map_entry_reset_wired(vm_map_t map, vm_map_entry_t entry)
 	}
 }
 
-
-
-
-
-
-
-
-
-
-
 /*
  *	vm_map_copy_steal_pages, vm_map_copy_page_discard,
  *	vm_map_copy_discard, vm_map_copy_copy and
