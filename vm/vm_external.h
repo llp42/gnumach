@@ -23,6 +23,9 @@
  * any improvements or extensions that they make and grant Carnegie Mellon
  * the rights to redistribute these changes.
  */
+/*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
 
 #ifndef	_VM_VM_EXTERNAL_H_
 #define _VM_VM_EXTERNAL_H_
@@ -37,24 +40,14 @@
 
 /*
  *	The data structure representing the state of pages
- *	on external storage.
+ *	on external storage.  Its definition is Rust's: the
+ *	`VmExternal` mirror in rust/src/vm/vm_external.rs owns the
+ *	layout, and C sees only an opaque pointer.
  */
 
-typedef struct vm_external {
-    	int		existence_size;	/* Size of the following bitmap */
-	char		*existence_map;	/* A bitmap of pages that have
-					 * been written to backing
-					 * storage.
-					 */
-#if 0
-	/* XXX: Currently, existence_count is not used.  I guess it
-	   could be useful to get rid of the map if the count drops to
-	   zero.  */
-	int		existence_count;/* Number of bits turned on in
-					 * existence_map.
-					 */
-#endif
-} *vm_external_t;
+struct vm_external;
+
+typedef struct vm_external *vm_external_t;
 
 #define	VM_EXTERNAL_NULL	((vm_external_t) 0)
 

@@ -910,12 +910,10 @@ are current.
 Every `.c` in the rest of the tree, with the same friction scale.
 MIG-generated `.c` live only under `build-*/` and are not ported.
 
-### vm/ (13 files, 18,057 LOC)
+### vm/ (11 files, 17,819 LOC)
 
 | File | LOC | Role | Friction | Blockers |
 |---|---:|---|---:|---|
-| `vm_external.c` | 150 | external (paged-out) page bookkeeping | 2 | `kmem_cache_*`, init ordering |
-| `vm_init.c` | 88 | VM bootstrap | 2 | calls 13 subsystem inits |
 | `memory_object_proxy.c` | 227 | proxy port for memory objects | 3 | `mach4.server.h`, ports/slab |
 | `vm_debug.c` | 541 | `mach_vm_*` info server routines | 3 | MIG-S, map/object walks |
 | `vm_pageout.c` | 505 | page daemon | 4 | MIG-U, `thread_block`, pmap |
@@ -1145,13 +1143,55 @@ macros and prototypes whose last C user was that file: the
 `vm_map_lock_init`, `vm_map_lock_write_to_read`,
 `vm_map_lock_read_to_write` and `vm_map_entry_wait`/`_wakeup` macros,
 and the `vm_map_coalesce_entry`, `vm_map_delete` and
-`vm_map_copyout_page_list` prototypes (the Rust symbols stay; only no
-C caller names them).  What remains in `vm_map_glue.c` beside the
+`vm_map_copyout_page_list` prototypes.  Their core methods stay in
+Rust; M7-pre then deletes the exported adapters no C caller named
+(`vm_map_delete`, `vm_map_pmap_enter`, `vm_map_coalesce_entry` and
+`vm_map_copyout_page_list`).  What remains in
+`vm_map_glue.c` beside the
 storage is every shim the narrative above names: the
 `current_thread()` privilege pair and the `pmap_attribute`/`pmap_copy`
 /`thread_wakeup` macro shims, the `struct vm_object` and
 `struct vm_page` probes, the `struct task` field accessors, and the
 proxy cast.  Each dies with its owner, as its comment says.
+
+M7-pre is a cleanup pass over the finished port.  The body of
+`vm_map_copy_discard_cont` moves out of the FFI edge and behind
+`VmMapCopy::discard_cont`, leaving the exported symbol `vm/vm_kern.c`
+stores in `cpy_cont` a thin call, with `is_discard_cont` still
+recognizing it by address.  The four exported adapters no C, header,
+asm or test caller named -- `vm_map_delete`, `vm_map_pmap_enter`,
+`vm_map_coalesce_entry` and `vm_map_copyout_page_list` -- are
+deleted; their core methods stay in `vm_map.rs`, where `remove`,
+`enter`, `copyout` and the rest call them directly.
+
+M7a ports the external-page bookkeeping.  `vm/vm_external.c` is gone:
+`struct vm_external` is the `VmExternal` mirror in
+`rust/src/vm/vm_external.rs` (the header now names only the opaque
+`vm_external_t`), the bitmap is a Rust slice behind the struct's
+accessors, and the page state is the `ExternalState` enum, with the C
+`int` converted at the edge.  `vm_external_create`,
+`vm_external_destroy`, `_vm_external_state_get`,
+`vm_external_state_set` and `vm_external_module_initialize` are exact
+symbols behind adapters in that file, with the same bitmap sizes,
+`atop` arithmetic, zeroing and `existence_size` checks as the C.
+One deliberate divergence: every allocation failure returns a null
+record where the C would fault, the header allocation included, so the
+kernel gets no new panic.  `vm_object.c` and `memory_object.c` already
+test for `VM_EXTERNAL_NULL` and accept the record.  The three
+slab caches stay in `vm/vm_external_glue.c` until kern/slab.c
+moves, and the dead `existence_count` `#if 0` block went with the
+port.  Coverage is unchanged: only `vm_external_module_initialize` is
+reached at boot; create/destroy and the state pair are
+external-paging paths the suite does not set up.
+
+M7b moves the bootstrap itself.  `vm/vm_init.c` is gone; the two entry
+points live in `rust/src/vm/vm_init.rs` as exact symbols behind
+adapters, with `kern/startup.c` unchanged.  `vm_mem_bootstrap`'s
+eleven calls run in the C's order, `vm_page_bootstrap`'s two
+out-parameters are locals of the Rust core, and the map module is
+entered as `VmMap::init_module` directly rather than through its
+C-shaped adapter.  `vm_mem_init` keeps its three calls.  Both entry
+points are boot-exercised on x86_64 and i386.
 
 ### ipc/ (18 files, 13,002 LOC)
 
@@ -1515,7 +1555,7 @@ Tier 2 — after the first shims (percpu, locks, `struct` mirrors):
 7. `kern/syscall_sw.c` — the trap table can move once entry layout is
     `#[repr(C)]`; the routines it names need not have moved.
 8. `device/cirbuf.c`, `device/dev_name.c`, `chips/busses.c`,
-    `vm/vm_external.c`, `ipc/ipc_table.c`, `i386/i386/pit.c`,
+    `ipc/ipc_table.c`, `i386/i386/pit.c`,
     `i386/i386/irq.c`, `i386/i386/machine_task.c` — small, one or two
     leaf dependencies.
 
@@ -1564,8 +1604,8 @@ rbtree's; see §8.
   `kern/{boot_script,bootstrap,exception,ipc_kobject}.c`,
   `device/intr.c`, `i386/i386/{fpu,smp,pcb,trap}.c`,
   `i386/i386at/{kd,com}.c`, `i386/intel/pmap.c`.  Delete before porting
-  the surrounding code.  `rdxtree.h:49` and `vm/vm_external.h:49` have
-  `#if 0` blocks to check the same way.  `kern/boot_script.c`'s
+  the surrounding code.  `rdxtree.h:49` has an `#if 0` block to check
+  the same way.  `kern/boot_script.c`'s
   `boot_script_define_function` has no callers.
 * Host-side Rust tests: `rust/src/kern/rbtree.rs` is free of kernel
   calls and `crate::` imports, so it carries `#[cfg(test)]` tests and
@@ -1599,6 +1639,8 @@ rbtree's; see §8.
 | `kern/rbtree.c` | `src/kern/rbtree.rs` | `9445e08b` … `e2b04831` |
 | `ipc/ipc_thread.c` | `src/ipc/ipc_thread.rs` | `417ba80a` |
 | `util/atoi.c` | `src/utils/atoi.rs` | `c289337f` |
+| `vm/vm_external.c` | `src/vm/vm_external.rs` | `(uncommitted)` |
+| `vm/vm_init.c` | `src/vm/vm_init.rs` | `(uncommitted)` |
 | `vm/vm_map.c` | `src/vm/vm_map.rs`, `src/vm/vm_map_ffi.rs` | `d32c7253` … `170e6104` |
 
 Deleted dead code: `device/blkio.c` (unreachable block pager path) and

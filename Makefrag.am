@@ -179,11 +179,10 @@ libkernel_a_SOURCES += \
 	vm/memory_object.h \
 	vm/pmap.h \
 	vm/vm_debug.c \
-	vm/vm_external.c \
+	vm/vm_external_glue.c \
 	vm/vm_external.h \
 	vm/vm_fault.c \
 	vm/vm_fault.h \
-	vm/vm_init.c \
 	vm/vm_init.h \
 	vm/vm_kern.c \
 	vm/vm_kern.h \

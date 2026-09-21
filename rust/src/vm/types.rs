@@ -1,4 +1,8 @@
-// SPDX-License-Identifier: BSD-2-Clause
+// SPDX-License-Identifier: CMU-Mach
+// Derived from include/mach/vm_prot.h, include/mach/vm_inherit.h and
+// i386/include/mach/i386/vm_param.h, with the opaque handles of
+// vm/pmap.h, vm/vm_object.h and vm/vm_page.h:
+//   Copyright (c) 1991,1990,1989,1988,1987 Carnegie Mellon University.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! VM scalar and handle types, from `mach/vm_prot.h`, `vm_inherit.h`
@@ -7,7 +11,15 @@
 //! `vm_offset_t` and `vm_size_t` are `arch::types`', because they are
 //! pointer-sized and the machine decides.
 
+use crate::arch::types::VmSize;
 use core::ffi::c_int;
+
+/// `PAGE_SHIFT` of <machine/vm_param.h>: 12 on both x86 kernels.
+pub(crate) const PAGE_SHIFT: u32 = 12;
+/// `PAGE_SIZE`: one page.
+pub(crate) const PAGE_SIZE: VmSize = 1 << PAGE_SHIFT;
+/// `PAGE_MASK`: the in-page offset bits.
+pub(crate) const PAGE_MASK: VmSize = PAGE_SIZE - 1;
 
 /// `vm_prot_t` of <mach/vm_prot.h>: a set of bits.
 ///

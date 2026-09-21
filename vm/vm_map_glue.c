@@ -1,4 +1,8 @@
-/* SPDX-License-Identifier: BSD-2-Clause */
+/* SPDX-License-Identifier: CMU-Mach */
+/* Derived from vm/vm_map.c and vm/vm_map.h: */
+/*   Copyright (c) 1991,1990,1989,1988,1987 Carnegie Mellon University. */
+/*   Copyright (c) 1993,1994 The University of Utah and the Computer */
+/*   Systems Laboratory (CSL). */
 /* Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com> */
 
 /*

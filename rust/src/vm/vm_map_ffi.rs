@@ -1,4 +1,8 @@
-// SPDX-License-Identifier: BSD-2-Clause
+// SPDX-License-Identifier: CMU-Mach
+// Derived from vm/vm_map.c and vm/vm_map.h:
+//   Copyright (c) 1991,1990,1989,1988,1987 Carnegie Mellon University.
+//   Copyright (c) 1993,1994 The University of Utah and the Computer
+//   Systems Laboratory (CSL).
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! The `extern "C"` edge of the Rust VM map, one adapter per symbol
@@ -408,22 +412,6 @@ pub unsafe extern "C" fn vm_map_entry_delete(
     unsafe { (*map).entry_delete(NonNull::new_unchecked(entry)) };
 }
 
-/// Deallocate a range from a map.  `vm_map_delete()` in C.
-///
-/// # Safety
-///
-/// `map` must be valid, locked unless its refcount is zero, and the
-/// range must be within its bounds.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn vm_map_delete(
-    map: *mut VmMap,
-    start: VmOffset,
-    end: VmOffset,
-) -> c_int {
-    // SAFETY: the caller promises a valid map in the stated state.
-    kern_return(unsafe { (*map).delete(start, end) })
-}
-
 /// Remove a range from a map, clamping it and taking the lock.
 /// `vm_map_remove()` in C.
 ///
@@ -456,44 +444,6 @@ pub unsafe extern "C" fn vm_map_submap(
 ) -> c_int {
     // SAFETY: the caller promises a valid, unlocked map.
     kern_return(unsafe { (*map).submap(start, end, submap) })
-}
-
-/// Force the resident pages of an object into a map's pmap, stopping
-/// at the first page that is not present.  `vm_map_pmap_enter()` in C.
-///
-/// # Safety
-///
-/// `map` must be a valid, unlocked map and `object` a valid object
-/// with `[addr, end_addr)` mapped at `offset`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn vm_map_pmap_enter(
-    map: *mut VmMap,
-    addr: VmOffset,
-    end_addr: VmOffset,
-    object: *mut VmObject,
-    offset: VmOffset,
-    protection: VmProt,
-) {
-    // SAFETY: the caller promises a valid map and object.
-    unsafe { (*map).pmap_enter(addr, end_addr, object, offset, protection) };
-}
-
-/// Try to coalesce an entry with its predecessor.
-/// `vm_map_coalesce_entry()` in C.
-///
-/// # Safety
-///
-/// `map` must be valid and write-locked, and `entry` a live entry of
-/// it.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn vm_map_coalesce_entry(
-    map: *mut VmMap,
-    entry: *mut VmMapEntry,
-) -> c_int {
-    // SAFETY: the caller promises a locked map and a live entry.
-    let coalesced =
-        unsafe { (*map).coalesce_entry(NonNull::new_unchecked(entry)) };
-    c_int::from(coalesced)
 }
 
 /// Set the protection of a range.  `vm_map_protect()` in C.
@@ -713,35 +663,6 @@ pub unsafe extern "C" fn vm_map_copyin_object(
     KERN_SUCCESS
 }
 
-/// Place a page-list copy into newly-allocated space in a map.
-/// `vm_map_copyout_page_list()` in C.
-///
-/// # Safety
-///
-/// `dst_map` must be a valid, unlocked map and `dst_addr` writable
-/// storage for one address.  `copy` must be a live page-list copy the
-/// caller owns; the call consumes the original copy on success, and
-/// on failure the caller still owns it.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn vm_map_copyout_page_list(
-    dst_map: *mut VmMap,
-    dst_addr: *mut VmOffset,
-    copy: *mut VmMapCopy,
-) -> c_int {
-    // SAFETY: the caller promises a valid map and a live copy.
-    let map = unsafe { &mut *dst_map };
-    // SAFETY: the caller promises a live, non-null copy.
-    let copy = unsafe { NonNull::new_unchecked(copy) };
-    match unsafe { map.copyout_page_list(copy) } {
-        Ok(address) => {
-            // SAFETY: the caller promises a writable out-pointer.
-            unsafe { dst_addr.write(address) };
-            KERN_SUCCESS
-        }
-        Err(error) => error.as_kern_return(),
-    }
-}
-
 /// Get rid of the pages of a page-list copy.
 /// `vm_map_copy_page_discard()` in C.
 ///
@@ -828,18 +749,19 @@ pub(crate) fn is_discard_cont(cont: VmMapCopyContFn) -> bool {
 ///
 /// # Safety
 ///
-/// `cont_args` must be the copy a continuation chain names, and
-/// `copy_result` must be null or point at writable storage.
+/// `cont_args` must be null or the live copy a continuation chain
+/// names, and `copy_result` must be null or point at writable
+/// storage for one copy pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vm_map_copy_discard_cont(
     cont_args: *mut VmMapCopyinArgs,
     copy_result: *mut *mut VmMapCopy,
 ) -> c_int {
-    if let Some(copy) = NonNull::new(cont_args.cast::<VmMapCopy>()) {
-        // SAFETY: the continuation contract makes its argument the
-        // live copy to discard.
-        unsafe { VmMapCopy::discard(copy) };
-    }
+    // SAFETY: the continuation contract makes its argument the live
+    // copy to discard, or null when the chain is empty.
+    unsafe {
+        VmMapCopy::discard_cont(NonNull::new(cont_args.cast::<VmMapCopy>()))
+    };
     if let Some(copy_result) = NonNull::new(copy_result) {
         // SAFETY: the caller promises writable storage.
         unsafe { copy_result.as_ptr().write(ptr::null_mut()) };

@@ -5,5 +5,7 @@
 
 pub mod error;
 pub mod types;
+pub mod vm_external;
+pub mod vm_init;
 pub mod vm_map;
 pub mod vm_map_ffi;

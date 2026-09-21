@@ -1,4 +1,8 @@
-// SPDX-License-Identifier: BSD-2-Clause
+// SPDX-License-Identifier: CMU-Mach
+// Derived from vm/vm_map.c and vm/vm_map.h:
+//   Copyright (c) 1991,1990,1989,1988,1987 Carnegie Mellon University.
+//   Copyright (c) 1993,1994 The University of Utah and the Computer
+//   Systems Laboratory (CSL).
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! Virtual memory maps, which `vm/vm_map.c` used to define and
@@ -76,7 +80,9 @@ use crate::kern::rbtree::{RBTREE_LEFT, RBTREE_RIGHT, Rbtree, RbtreeNode};
 use crate::vm::error::{
     Error, KERN_SUCCESS, error_from_kern_return, kern_return,
 };
-use crate::vm::types::{Pmap, VmInherit, VmObject, VmPage, VmProt};
+use crate::vm::types::{
+    PAGE_MASK, PAGE_SIZE, Pmap, VmInherit, VmObject, VmPage, VmProt,
+};
 use crate::vm::vm_map_ffi::is_discard_cont;
 use core::cell::UnsafeCell;
 use core::ffi::{c_char, c_int, c_uint, c_void};
@@ -463,13 +469,6 @@ impl VmMap {
         self.flags & VM_MAP_WIRING_REQUIRED != 0
     }
 }
-
-/// `PAGE_SHIFT` of <machine/vm_param.h>: 12 on both x86 kernels.
-const PAGE_SHIFT: u32 = 12;
-/// `PAGE_SIZE`: one page.
-const PAGE_SIZE: VmSize = 1 << PAGE_SHIFT;
-/// `PAGE_MASK`: the in-page offset bits.
-const PAGE_MASK: VmSize = PAGE_SIZE - 1;
 
 /// Round `x` up to a page boundary; `round_page()` in C.
 const fn round_page(x: VmOffset) -> VmOffset {
@@ -1807,6 +1806,25 @@ impl VmMapCopy {
             // SAFETY: the copy is live and owned by this call.
             unsafe { VmMapCopy::free(copy) };
             return;
+        }
+    }
+
+    /// Discard the copy a continuation chain names.
+    /// `vm_map_copy_discard_cont()` in C.
+    ///
+    /// The continuation's argument is the next copy of a chain, not
+    /// the `struct vm_map_copyin_args_data` its type names; the
+    /// adapter casts it back, as the C does.
+    ///
+    /// # Safety
+    ///
+    /// `copy` must be the live copy a continuation chain names, or
+    /// nothing when the chain is empty.
+    pub(crate) unsafe fn discard_cont(copy: Option<NonNull<VmMapCopy>>) {
+        if let Some(copy) = copy {
+            // SAFETY: the caller promises this is the live copy the
+            // continuation names.
+            unsafe { VmMapCopy::discard(copy) };
         }
     }
 

@@ -180,6 +180,12 @@ unsafe extern "C" {
     pub static mut vm_map_copy_cache: c_void;
     pub static mut vm_submap_object: *mut VmObject;
 
+    // The three caches of the external-page bookkeeping, which
+    // vm/vm_external_glue.c defines until kern/slab.c moves.
+    pub static mut vm_external_cache: c_void;
+    pub static mut vm_object_small_existence_map_cache: c_void;
+    pub static mut vm_object_large_existence_map_cache: c_void;
+
     // <vm/vm_kern.c>.  The map is passed as an opaque handle here:
     // `VmMap` is `!Unpin` (it embeds a list), and the C signature only
     // needs the address.
@@ -424,4 +430,38 @@ unsafe extern "C" {
     pub fn lock_set_recursive(lock: *mut LockData);
     pub fn lock_write_to_read(lock: *mut LockData);
     pub fn lock_clear_recursive(lock: *mut LockData);
+
+    // The VM bootstrap, which rust/src/vm/vm_init.rs calls in the
+    // order the packages depend on.
+    // <vm/vm_page.h>: the resident-page table hands the physical
+    // range it accounted for back through two out-parameters, so the
+    // caller owns both slots.
+    pub fn vm_page_bootstrap(startp: *mut VmOffset, endp: *mut VmOffset);
+    pub fn vm_page_module_init();
+    pub fn vm_page_info_all();
+
+    // <kern/slab.h>.
+    pub fn slab_bootstrap();
+    pub fn slab_init();
+
+    // <vm/vm_object.h>.
+    pub fn vm_object_bootstrap();
+    pub fn vm_object_init();
+
+    // <vm/vm_kern.h>.
+    pub fn kmem_init(start: VmOffset, end: VmOffset);
+
+    // <vm/pmap.h>.
+    pub fn pmap_init();
+
+    // <kern/kalloc.h>.
+    pub fn kalloc_init();
+
+    // <vm/vm_fault.h>.
+    pub fn vm_fault_init();
+
+    // <vm/memory_object.h> and <vm/memory_object_proxy.h>: the
+    // default memory manager and the proxy port, up with the rest.
+    pub fn memory_manager_default_init();
+    pub fn memory_object_proxy_init();
 }
