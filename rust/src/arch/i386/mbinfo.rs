@@ -1,4 +1,6 @@
-// SPDX-License-Identifier: BSD-2-Clause
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Derived from i386/i386at/mbinfo.c:
+//   Copyright (c) 2024 Free Software Foundation, Inc.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! `/dev/mbinfo`: `mbinfo.c`'s raw multiboot information device.
