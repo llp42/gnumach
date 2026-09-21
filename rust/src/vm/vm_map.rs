@@ -1920,9 +1920,10 @@ impl VmMapCopy {
             (*copy.as_ptr()).offset = offset;
             (*copy.as_ptr()).size = size;
             *VmMapCopy::object(copy) = object;
-            // The C also zeroes the header link word here.  No OBJECT
-            // reader uses it, but a whole-struct copy carries it
+            // The C zeroes both header link words here.  No OBJECT
+            // reader uses them, but a whole-struct copy carries them
             // along.
+            (*VmMapCopy::header(copy).as_ptr()).links.prev = None;
             (*VmMapCopy::header(copy).as_ptr()).links.next = None;
         }
 
@@ -4932,6 +4933,7 @@ unsafe extern "C" fn vm_map_copyin_page_list_cont(
             unsafe { copy_result.write(ptr::null_mut()) };
         }
     } else {
+        let mut returned_copy = None;
         // SAFETY: the argument block holds the live map reference the
         // continuation was given, and the map is unlocked.
         result = match unsafe {
@@ -4950,6 +4952,7 @@ unsafe extern "C" fn vm_map_copyin_page_list_cont(
                     copy_result
                         .write(copy.map_or(ptr::null_mut(), NonNull::as_ptr))
                 };
+                returned_copy = copy;
                 KERN_SUCCESS
             }
             Err(error) => error.as_kern_return(),
@@ -4957,14 +4960,11 @@ unsafe extern "C" fn vm_map_copyin_page_list_cont(
 
         if src_destroy && args.steal_pages == 0 {
             // The new copy's continuation inherits this one's destroy
-            // interval.  The C dereferences the out pointer even when
-            // the inner copyin failed without writing it, and would
-            // fault on the null the invoke path leaves there; the port
-            // treats the failed call as having no copy to hand the
-            // interval to.
-            // SAFETY: the caller promises writable storage.
-            let new_copy = NonNull::new(unsafe { *copy_result });
-            if let Some(new_copy) = new_copy
+            // interval.  The C re-reads the out pointer even when the
+            // inner copyin failed without writing it, and would fault
+            // on the null the invoke path leaves there; the port hands
+            // the interval to the copy the call itself returned.
+            if let Some(new_copy) = returned_copy
                 // SAFETY: a successful page-list copyin yields the
                 // live `PAGE_LIST` variant.
                 && unsafe { (*VmMapCopy::page_list(new_copy)).cont.is_some() }
@@ -5242,13 +5242,41 @@ impl VmMap {
                                     // locks the map a second time,
                                     // deadlocking on the write lock;
                                     // the port records the lock it
-                                    // just took instead.
+                                    // just took instead.  The fault
+                                    // dropped the lock, so the entry
+                                    // and size captured before it are
+                                    // stale: re-derive them from a
+                                    // fresh lookup under the lock.
                                     need_map_lookup = false;
                                     // SAFETY: `pages` names the live
                                     // variant.
                                     if is_cont
                                         && unsafe { (*pages).npages } != 0
                                     {
+                                        let (found, entry) =
+                                            self.lookup_entry(src_start);
+                                        if !found {
+                                            VmMap::unlock(map);
+                                            // SAFETY: the copy is
+                                            // live and owned by this
+                                            // call.
+                                            unsafe {
+                                                VmMapCopy::discard(copy)
+                                            };
+                                            return Err(Error::InvalidAddress);
+                                        }
+                                        src_entry = entry;
+                                        // SAFETY: `src_entry` is a
+                                        // live entry of the locked
+                                        // map.
+                                        let entry_end = unsafe {
+                                            (*src_entry.as_ptr()).links.end
+                                        };
+                                        src_size = if src_end > entry_end {
+                                            entry_end.wrapping_sub(src_start)
+                                        } else {
+                                            src_end.wrapping_sub(src_start)
+                                        };
                                         make_continuation = true;
                                         break;
                                     }

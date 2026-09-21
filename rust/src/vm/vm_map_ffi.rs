@@ -727,20 +727,6 @@ pub unsafe extern "C" fn vm_map_copyout_page_list(
     }
 }
 
-/// Steal all the pages of a page-list copy by copying the ones that
-/// have not been stolen yet.  `vm_map_copy_steal_pages()` in C.
-///
-/// # Safety
-///
-/// `copy` must point at a live page-list copy, with no null entry in
-/// its page list, and the caller must own it and hold whatever page
-/// locks the C contract requires.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn vm_map_copy_steal_pages(copy: *mut VmMapCopy) {
-    // SAFETY: the caller promises a live, non-null page-list copy.
-    unsafe { VmMapCopy::steal_pages(NonNull::new_unchecked(copy)) };
-}
-
 /// Get rid of the pages of a page-list copy.
 /// `vm_map_copy_page_discard()` in C.
 ///

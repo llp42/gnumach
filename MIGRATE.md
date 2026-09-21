@@ -1013,9 +1013,10 @@ the copy family, `vm_region`/`vm_region_create_proxy`, the caches and
 M5a is the copy destruction family: `vm_map_copy_steal_pages`,
 `vm_map_copy_page_discard`, `vm_map_copy_discard`,
 `vm_map_copy_copy` and `vm_map_copy_discard_cont` are Rust now,
-behind their adapters in `vm_map_ffi.rs`, over the copy cache and
-the `VmMapCopy` union.  `vm_map_copy_steal_pages` was static, so its
-remaining copyin/copyout callers get a prototype in `vm/vm_map.h`.
+over the copy cache and the `VmMapCopy` union.
+`vm_map_copy_steal_pages` was static and lived behind an adapter only
+while the copyin/copyout C callers lasted; its prototype and adapter
+went in M5e, and the core calls `VmMapCopy::steal_pages` directly.
 `vm_map_copy_discard_cont` keeps its exact symbol and signature,
 which `vm_kern.c` stores in `cpy_cont`; `vm_map_copy_discard()`
 recognizes that function through `vm_map_ffi::is_discard_cont()` and
