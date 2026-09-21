@@ -21,13 +21,17 @@
  *
  * The page shims (`vm_map_glue_page_*`, `vm_map_glue_pmap_enter`) read
  * `struct vm_page` bitfields and expand PMAP_ENTER/PAGE_WAKEUP_DONE/
- * VM_PAGE_FREE, which stay C until vm/vm_page.c moves.
+ * VM_PAGE_FREE/VM_PAGE_QUEUES_REMOVE and the page-locked
+ * `pmap_page_protect` of the page-list copyin, which stay C until
+ * vm/vm_page.c moves.
  *
  * The fork shims read `struct vm_object`'s sharing fields
  * (`shadowed`, `temporary`, `size`, `use_shared_copy`, `ref_count`);
  * they go when vm/vm_object.c moves.  The overwrite's
- * `vm_map_glue_object_is_temporary` reads the same `temporary` bit, and
- * the page-list copyout's `vm_map_glue_object_can_coalesce` /
+ * `vm_map_glue_object_is_temporary` reads the same `temporary` bit, the
+ * page-list copyin's `vm_map_glue_object_is_shadowed` the same
+ * `shadowed` bit, and the page-list copyout's
+ * `vm_map_glue_object_can_coalesce` /
  * `vm_map_glue_object_extend_size` read and write the same structure;
  * they go with them.
  */
@@ -47,14 +51,21 @@ boolean_t vm_map_glue_object_needs_shadow(
 	boolean_t needs_copy,
 	boolean_t is_shared);
 boolean_t vm_map_glue_object_is_temporary(vm_object_t object);
+boolean_t vm_map_glue_object_is_shadowed(vm_object_t object);
 boolean_t vm_map_glue_object_use_shared_copy(vm_object_t object);
 void vm_map_glue_object_make_shared(vm_object_t object);
 void vm_map_glue_object_paging_begin(vm_object_t object);
 void vm_map_glue_object_paging_end(vm_object_t object);
 boolean_t vm_map_glue_page_is_absent(vm_page_t page);
 boolean_t vm_map_glue_page_is_tabled(vm_page_t page);
+boolean_t vm_map_glue_page_is_busy(vm_page_t page);
+boolean_t vm_map_glue_page_is_fictitious(vm_page_t page);
+boolean_t vm_map_glue_page_is_error(vm_page_t page);
+boolean_t vm_map_glue_page_is_precious(vm_page_t page);
 vm_object_t vm_map_glue_page_object(vm_page_t page);
 void vm_map_glue_page_free(vm_page_t page);
+void vm_map_glue_page_steal(vm_page_t page);
+void vm_map_glue_page_protect(vm_page_t page, vm_prot_t protection);
 void vm_map_glue_page_set_busy(vm_page_t page);
 void vm_map_glue_page_clear_busy(vm_page_t page);
 void vm_map_glue_page_set_dirty(vm_page_t page);
@@ -182,6 +193,12 @@ vm_map_glue_object_is_temporary(vm_object_t object)
 }
 
 boolean_t
+vm_map_glue_object_is_shadowed(vm_object_t object)
+{
+	return object->shadowed;
+}
+
+boolean_t
 vm_map_glue_object_use_shared_copy(vm_object_t object)
 {
 	return object->use_shared_copy;
@@ -237,6 +254,30 @@ vm_map_glue_page_is_tabled(vm_page_t page)
 	return page->tabled;
 }
 
+boolean_t
+vm_map_glue_page_is_busy(vm_page_t page)
+{
+	return page->busy;
+}
+
+boolean_t
+vm_map_glue_page_is_fictitious(vm_page_t page)
+{
+	return page->fictitious;
+}
+
+boolean_t
+vm_map_glue_page_is_error(vm_page_t page)
+{
+	return page->error;
+}
+
+boolean_t
+vm_map_glue_page_is_precious(vm_page_t page)
+{
+	return page->precious;
+}
+
 vm_object_t
 vm_map_glue_page_object(vm_page_t page)
 {
@@ -247,6 +288,27 @@ void
 vm_map_glue_page_free(vm_page_t page)
 {
 	VM_PAGE_FREE(page);
+}
+
+void
+vm_map_glue_page_steal(vm_page_t page)
+{
+	simple_lock(&vm_page_queue_lock);
+	vm_page_remove(page);
+	if (page->wire_count > 0) {
+		page->wire_count = 0;
+		vm_page_wire_count--;
+	} else {
+		VM_PAGE_QUEUES_REMOVE(page);
+	}
+	simple_unlock(&vm_page_queue_lock);
+}
+
+void
+vm_map_glue_page_protect(vm_page_t page, vm_prot_t protection)
+{
+	pmap_page_protect(page->phys_addr,
+			  protection & ~page->page_lock & ~VM_PROT_WRITE);
 }
 
 void

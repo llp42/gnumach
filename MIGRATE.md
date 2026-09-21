@@ -1085,6 +1085,29 @@ What remains in `vm/vm_map.c` is `vm_map_init`,
 `vm_map_copyin_page_list` with its continuation,
 `vm_region`/`vm_region_create_proxy` and the caches; M6 follows.
 
+M5e ports the page-list copyin.  `vm_map_copyin_page_list` is
+`VmMap::copyin_page_list`, and its continuation is a Rust
+`unsafe extern "C"` routine keeping the exact `vm_map_copy_cont_fn`
+signature, so a copy the port builds is drained by the C
+`vm_map_copy_invoke_cont`/`vm_map_copy_abort_cont` macros and by the
+Rust `VmMap::copyout_page_list` alike.  The routine faults pages
+through `vm_fault_page` with the map unlocked, keeps the taken pages
+busy and write-protects them, and then either steals them inline
+(unwiring and clipping the map entry through the already-Rust
+`entry_reset_wired`) or copies the ones that remain with the
+already-Rust `VmMapCopy::steal_pages`.  The C `vm_map_copy_steal_pages`
+prototype, the last caller's `vm_map_entry_reset_wired` static and the
+four dead `vm_map_clip_*`/`vm_map_copy_clip_*` macros go with the two
+functions.  New shims read `struct vm_page` (`busy`, `fictitious`,
+`error`, `precious`) and `struct vm_object` (`shadowed`) and expand
+`VM_PAGE_QUEUES_REMOVE` and the page-locked `pmap_page_protect`; they
+go when `vm/vm_page.c` and `vm/vm_object.c` move.  Where the C reaches
+its completion check with the map already locked on the `is_cont`
+memory-error path and locks it a second time, the port records the
+lock it took instead of deadlocking on the write lock.  What remains
+in `vm/vm_map.c` is `vm_map_init`, `vm_region`/`vm_region_create_proxy`
+and the caches; M6 follows.
+
 ### ipc/ (18 files, 13,002 LOC)
 
 | File | LOC | Role | Friction | Blockers |

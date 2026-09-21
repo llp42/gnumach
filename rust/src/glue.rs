@@ -9,7 +9,7 @@
 
 use crate::arch::types::{VmOffset, VmSize};
 use crate::kern::lock::LockData;
-use crate::vm::types::{Pmap, VmObject, VmPage};
+use crate::vm::types::{Pmap, VmObject, VmPage, VmProt};
 use core::ffi::{c_char, c_int, c_short, c_uint, c_void};
 
 // `panic()` in <kern/debug.h> is a macro over `Panic()`.
@@ -152,6 +152,11 @@ unsafe extern "C" {
     pub fn kmem_cache_alloc(cache: *mut c_void) -> VmOffset;
     pub fn kmem_cache_free(cache: *mut c_void, obj: VmOffset);
 
+    // <kern/kalloc.h>: the page-list copyin's continuation argument
+    // block, allocated for the continuation and freed after it runs.
+    pub fn kalloc(size: VmSize) -> VmOffset;
+    pub fn kfree(data: VmOffset, size: VmSize);
+
     // The three caches of `vm/vm_map.c`, which still defines them.
     pub static mut vm_map_cache: c_void;
     pub static mut vm_map_entry_cache: c_void;
@@ -171,6 +176,7 @@ unsafe extern "C" {
     pub fn vm_page_grab(flags: c_uint) -> *mut VmPage;
     pub fn vm_page_copy(src: *mut VmPage, dst: *mut VmPage);
     pub fn vm_page_wait(continuation: Option<unsafe extern "C" fn()>);
+    pub fn vm_page_more_fictitious();
     // The page queue lock must be held for `replace`, `wire` and
     // `activate`, as the page-list copyout does.
     pub fn vm_page_replace(
@@ -216,6 +222,7 @@ unsafe extern "C" {
         is_shared: c_int,
     ) -> c_int;
     pub fn vm_map_glue_object_is_temporary(object: *mut VmObject) -> c_int;
+    pub fn vm_map_glue_object_is_shadowed(object: *mut VmObject) -> c_int;
     pub fn vm_map_glue_object_use_shared_copy(object: *mut VmObject) -> c_int;
     pub fn vm_map_glue_object_make_shared(object: *mut VmObject);
     pub fn vm_map_glue_object_paging_begin(object: *mut VmObject);
@@ -224,8 +231,14 @@ unsafe extern "C" {
     pub fn vm_map_glue_object_extend_size(object: *mut VmObject, size: VmSize);
     pub fn vm_map_glue_page_is_absent(page: *mut VmPage) -> c_int;
     pub fn vm_map_glue_page_is_tabled(page: *mut VmPage) -> c_int;
+    pub fn vm_map_glue_page_is_busy(page: *mut VmPage) -> c_int;
+    pub fn vm_map_glue_page_is_fictitious(page: *mut VmPage) -> c_int;
+    pub fn vm_map_glue_page_is_error(page: *mut VmPage) -> c_int;
+    pub fn vm_map_glue_page_is_precious(page: *mut VmPage) -> c_int;
     pub fn vm_map_glue_page_object(page: *mut VmPage) -> *mut VmObject;
     pub fn vm_map_glue_page_free(page: *mut VmPage);
+    pub fn vm_map_glue_page_steal(page: *mut VmPage);
+    pub fn vm_map_glue_page_protect(page: *mut VmPage, protection: c_int);
     pub fn vm_map_glue_page_set_busy(page: *mut VmPage);
     pub fn vm_map_glue_page_clear_busy(page: *mut VmPage);
     pub fn vm_map_glue_page_set_dirty(page: *mut VmPage);
@@ -287,6 +300,23 @@ unsafe extern "C" {
     );
     pub fn vm_fault_unwire(map: *mut c_void, entry: *mut c_void);
     pub fn vm_fault_wire(map: *mut c_void, entry: *mut c_void);
+
+    // <vm/vm_fault.h>: fault a page in for the page-list copyin while
+    // the map is unlocked.  The object lock and paging reference the
+    // caller passes are consumed; the continuation is the scheduler's,
+    // and the copyin passes none.
+    pub fn vm_fault_page(
+        first_object: *mut VmObject,
+        first_offset: VmOffset,
+        fault_type: VmProt,
+        must_be_resident: c_int,
+        interruptible: c_int,
+        protection: *mut VmProt,
+        result_page: *mut *mut VmPage,
+        top_page: *mut *mut VmPage,
+        resume: c_int,
+        continuation: Option<unsafe extern "C" fn()>,
+    ) -> c_int;
 
     // <vm/vm_fault.h>: copy pages between objects for the overwrite.
     // The size is in/out and the version is the caller's map-version

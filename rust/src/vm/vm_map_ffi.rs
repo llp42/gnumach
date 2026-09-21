@@ -631,6 +631,50 @@ pub unsafe extern "C" fn vm_map_copyin(
     }
 }
 
+/// Copy a region of a map into a page-list copy object.
+/// `vm_map_copyin_page_list()` in C.
+///
+/// A zero-length copy is answered here with a null copy object, as
+/// the C does.
+///
+/// # Safety
+///
+/// `src_map` must point at a valid, unlocked map and `copy_result` at
+/// writable storage for one copy pointer.  `vm_map_init()` must have
+/// initialized the copy cache, and the source region must be
+/// readable.  With `src_destroy`, the caller must own the region.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_map_copyin_page_list(
+    src_map: *mut VmMap,
+    src_addr: VmOffset,
+    len: VmSize,
+    src_destroy: c_int,
+    steal_pages: c_int,
+    copy_result: *mut *mut VmMapCopy,
+    is_cont: c_int,
+) -> c_int {
+    // SAFETY: the caller promises a valid, unlocked map.
+    let map = unsafe { &mut *src_map };
+    match map.copyin_page_list(
+        src_addr,
+        len,
+        src_destroy != 0,
+        steal_pages != 0,
+        is_cont != 0,
+    ) {
+        Ok(copy) => {
+            // SAFETY: the caller promises writable storage; a
+            // zero-length copy leaves it null.
+            unsafe {
+                copy_result
+                    .write(copy.map_or(ptr::null_mut(), NonNull::as_ptr))
+            };
+            KERN_SUCCESS
+        }
+        Err(error) => error.as_kern_return(),
+    }
+}
+
 /// Create a copy object around a donated object reference.
 /// `vm_map_copyin_object()` in C.
 ///
