@@ -556,6 +556,40 @@ pub unsafe extern "C" fn vm_map_pageable_all(
     kern_return(unsafe { (*map).pageable_all(flags) })
 }
 
+/// Place a copy into newly-allocated space in a map.
+/// `vm_map_copyout()` in C.
+///
+/// # Safety
+///
+/// `dst_map` must be a valid, unlocked map and `dst_addr` writable
+/// storage for one address.  A non-null `copy` must be a live copy
+/// the caller owns; the call consumes it on success, and on failure
+/// the caller still owns it.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_map_copyout(
+    dst_map: *mut VmMap,
+    dst_addr: *mut VmOffset,
+    copy: *mut VmMapCopy,
+) -> c_int {
+    let Some(copy) = NonNull::new(copy) else {
+        // The C treats a null copy as a success with address 0.
+        // SAFETY: the caller promises a writable out-pointer.
+        unsafe { dst_addr.write(0) };
+        return KERN_SUCCESS;
+    };
+    // SAFETY: the caller promises a valid, unlocked map and a live
+    // copy.
+    let map = unsafe { &mut *dst_map };
+    match unsafe { map.copyout(copy) } {
+        Ok(address) => {
+            // SAFETY: as above; the C writes the address on success.
+            unsafe { dst_addr.write(address) };
+            KERN_SUCCESS
+        }
+        Err(error) => error.as_kern_return(),
+    }
+}
+
 /// Steal all the pages of a page-list copy by copying the ones that
 /// have not been stolen yet.  `vm_map_copy_steal_pages()` in C.
 ///

@@ -36,10 +36,11 @@ use crate::glue::{
     kernel_virtual_end, kernel_virtual_start, kmem_cache_alloc,
     kmem_cache_free, lock_clear_recursive, lock_done, lock_init, lock_read,
     lock_read_to_write, lock_set_recursive, lock_write, lock_write_to_read,
-    pmap_create, pmap_destroy, pmap_protect, pmap_remove, printf,
-    projected_buffer_collect, thread_block, vm_fault_copy, vm_fault_unwire,
-    vm_fault_wire, vm_map_cache, vm_map_copy_cache, vm_map_copy_insert,
-    vm_map_copyin, vm_map_entry_cache, vm_map_glue_object_can_release,
+    pmap_create, pmap_destroy, pmap_pageable, pmap_protect, pmap_remove,
+    printf, projected_buffer_collect, thread_block, vm_fault_copy,
+    vm_fault_unwire, vm_fault_wire, vm_map_cache, vm_map_copy_cache,
+    vm_map_copy_insert, vm_map_copyin, vm_map_copyout_page_list,
+    vm_map_entry_cache, vm_map_glue_object_can_release,
     vm_map_glue_object_is_pristine_submap, vm_map_glue_object_is_temporary,
     vm_map_glue_object_lock, vm_map_glue_object_make_shared,
     vm_map_glue_object_needs_shadow, vm_map_glue_object_paging_begin,
@@ -47,13 +48,14 @@ use crate::glue::{
     vm_map_glue_page_activate_if_idle, vm_map_glue_page_free,
     vm_map_glue_page_is_absent, vm_map_glue_page_is_tabled,
     vm_map_glue_page_object, vm_map_glue_page_set_busy,
-    vm_map_glue_page_wakeup_done, vm_map_glue_pmap_attribute,
-    vm_map_glue_pmap_copy, vm_map_glue_pmap_enter, vm_map_glue_privilege_dec,
-    vm_map_glue_privilege_inc, vm_map_glue_thread_wakeup, vm_object_allocate,
-    vm_object_coalesce, vm_object_copy_temporary, vm_object_deallocate,
-    vm_object_page_remove, vm_object_pmap_protect, vm_object_pmap_remove,
-    vm_object_reference, vm_object_shadow, vm_page_copy, vm_page_grab,
-    vm_page_lookup, vm_page_mem_size, vm_page_wait, vm_submap_object,
+    vm_map_glue_page_wakeup_done, vm_map_glue_page_wire_count,
+    vm_map_glue_pmap_attribute, vm_map_glue_pmap_copy, vm_map_glue_pmap_enter,
+    vm_map_glue_privilege_dec, vm_map_glue_privilege_inc,
+    vm_map_glue_thread_wakeup, vm_object_allocate, vm_object_coalesce,
+    vm_object_copy_temporary, vm_object_deallocate, vm_object_page_remove,
+    vm_object_pmap_protect, vm_object_pmap_remove, vm_object_reference,
+    vm_object_shadow, vm_page_copy, vm_page_grab, vm_page_lookup,
+    vm_page_mem_size, vm_page_wait, vm_submap_object,
 };
 use crate::kern::list::{List, entry as list_entry};
 use crate::kern::lock::{LockData, SimpleLock};
@@ -1210,6 +1212,7 @@ impl VmMap {
                     addr,
                     page,
                     protection.bits(),
+                    0,
                 );
                 vm_map_glue_object_lock(object);
                 vm_map_glue_page_wakeup_done(page);
@@ -4203,6 +4206,254 @@ impl VmMap {
         VmMap::unlock(old_map);
 
         Some(new_map)
+    }
+}
+
+impl VmMap {
+    /// Copy a copy object's data into newly-allocated space in this
+    /// map, consuming the copy on success.  `vm_map_copyout()` in C.
+    ///
+    /// A null copy is handled by the adapter; an `OBJECT` copy is
+    /// mapped through `enter`, an entry-list copy is linked in after
+    /// its addresses are adjusted, and a page-list copy is delegated
+    /// to the page-list routine.
+    ///
+    /// # Safety
+    ///
+    /// `copy` must be a live copy the caller owns, and the map must
+    /// be valid and unlocked.  On success the copy is consumed; on
+    /// failure the caller still owns it.
+    pub(crate) unsafe fn copyout(
+        &mut self,
+        copy: NonNull<VmMapCopy>,
+    ) -> Result<VmOffset, Error> {
+        // SAFETY: the caller promises a live copy.
+        match unsafe { (*copy.as_ptr()).type_ } {
+            // SAFETY: the caller promises the live `OBJECT` variant.
+            VM_MAP_COPY_OBJECT => unsafe { self.copyout_object(copy) },
+            VM_MAP_COPY_PAGE_LIST => {
+                let map = NonNull::from(&mut *self);
+                let mut address: VmOffset = 0;
+                // SAFETY: the caller promises a valid map and a live,
+                // owned copy.  The C routine consumes the copy on
+                // success and leaves it to the caller otherwise.
+                let result = unsafe {
+                    vm_map_copyout_page_list(
+                        map.as_ptr().cast::<c_void>(),
+                        &mut address,
+                        copy.as_ptr().cast::<c_void>(),
+                    )
+                };
+                error_from_kern_return(result).map(|()| address)
+            }
+            // SAFETY: the C treats every other type as an entry list,
+            // and the caller promises a live copy.
+            _ => unsafe { self.copyout_entry_list(copy) },
+        }
+    }
+
+    /// Map an `OBJECT` copy into this map and free the copy.
+    /// The `VM_MAP_COPY_OBJECT` arm of `vm_map_copyout()` in C.
+    ///
+    /// # Safety
+    ///
+    /// `copy` must be a live `OBJECT` copy the caller owns.  The map
+    /// must be valid and unlocked.
+    unsafe fn copyout_object(
+        &mut self,
+        copy: NonNull<VmMapCopy>,
+    ) -> Result<VmOffset, Error> {
+        // SAFETY: the caller promises the live `OBJECT` variant.
+        let (object, offset, size) = unsafe {
+            (
+                *VmMapCopy::object(copy),
+                (*copy.as_ptr()).offset,
+                (*copy.as_ptr()).size,
+            )
+        };
+
+        let mut address: VmOffset = 0;
+        let result = self.enter(EnterRequest {
+            address: &mut address,
+            size,
+            mask: 0,
+            anywhere: true,
+            object,
+            offset,
+            needs_copy: false,
+            cur_protection: VmProt::READ | VmProt::WRITE,
+            max_protection: VmProt::ALL,
+            inheritance: VmInherit::COPY,
+        });
+        if result.is_ok() {
+            // SAFETY: the copy is live and consumed; the object
+            // reference moved to the new entry.
+            unsafe { VmMapCopy::free(copy) };
+        }
+        result.map(|()| address)
+    }
+
+    /// Link an entry-list copy into this map after adjusting the
+    /// addresses of its entries and, for wired entries, entering
+    /// their pages.  The fall-through of `vm_map_copyout()` in C.
+    ///
+    /// # Safety
+    ///
+    /// `copy` must be a live entry-list copy the caller owns, and the
+    /// map must be valid and unlocked.  On success the copy is
+    /// consumed; on failure the caller still owns it.
+    unsafe fn copyout_entry_list(
+        &mut self,
+        copy: NonNull<VmMapCopy>,
+    ) -> Result<VmOffset, Error> {
+        // SAFETY: the caller promises a live copy.
+        let (copy_offset, copy_size) =
+            unsafe { ((*copy.as_ptr()).offset, (*copy.as_ptr()).size) };
+        let vm_copy_start = trunc_page(copy_offset);
+        let size = round_page(copy_offset.wrapping_add(copy_size))
+            .wrapping_sub(vm_copy_start);
+
+        let map = NonNull::from(&mut *self);
+        // `find_entry_anywhere` takes the map lock (`map_locked` is
+        // false) and keeps it on every return.
+        let Some((last, start)) = self.find_entry_anywhere(size, 0, false)
+        else {
+            VmMap::unlock(map);
+            return Err(Error::NoSpace);
+        };
+
+        if let Err(error) = self.enforce_limit(size) {
+            VmMap::unlock(map);
+            return Err(error);
+        }
+
+        // SAFETY: the caller promises the live `ENTRY_LIST` variant,
+        // whose header is the sentinel of the chain.
+        let sentinel: NonNull<VmMapEntry> =
+            unsafe { VmMapCopy::header(copy) }.cast();
+        // SAFETY: as above; an empty copy's last entry is the
+        // sentinel.
+        let last_copy_entry = unsafe { VmMapCopy::last_entry(copy) };
+
+        // Adjust the addresses in the copy chain and reset the region
+        // attributes.  The C XXX note says the gap tree needs no
+        // update here; `vm_map_copy_insert` does that.
+        let adjustment = start.wrapping_sub(vm_copy_start);
+        let mut entry = unsafe { VmMapCopy::first_entry(copy) };
+        while entry != sentinel {
+            // SAFETY: `entry` is a live entry of the copy, which the
+            // caller owns exclusively.
+            unsafe {
+                let e = entry.as_ptr();
+                let entry_start = (*e).links.start.wrapping_add(adjustment);
+                let entry_end = (*e).links.end.wrapping_add(adjustment);
+                (*e).links.start = entry_start;
+                (*e).links.end = entry_end;
+
+                (*e).inheritance = VmInherit::COPY;
+                (*e).protection = VmProt::READ | VmProt::WRITE;
+                (*e).max_protection = VmProt::ALL;
+                (*e).projected_on = ptr::null_mut();
+
+                // If the entry is now wired, map the pages into the
+                // destination map.
+                if (*e).wired_count != 0 {
+                    let object = (*e).object.vm_object;
+                    let mut offset = (*e).offset;
+                    let mut va = entry_start;
+
+                    pmap_pageable(self.pmap, entry_start, entry_end, 1);
+
+                    while va < entry_end {
+                        vm_map_glue_object_lock(object);
+                        vm_map_glue_object_paging_begin(object);
+
+                        // SAFETY: the object lock is held; a wired
+                        // entry's pages are in the top object, as
+                        // the C asserts by panicking otherwise.
+                        let page = vm_page_lookup(object, offset);
+                        if page.is_null()
+                            || vm_map_glue_page_wire_count(page) == 0
+                            || vm_map_glue_page_is_absent(page) != 0
+                        {
+                            // The C `panic()` halts the kernel here.
+                            // The line number fits `c_int`.
+                            Panic(
+                                c"rust/src/vm/vm_map.rs".as_ptr(),
+                                line!() as c_int,
+                                c"VmMap::copyout_entry_list".as_ptr(),
+                                c"vm_map_copyout: wiring %p".as_ptr(),
+                                page,
+                            );
+                        }
+
+                        vm_map_glue_page_set_busy(page);
+                        vm_map_glue_object_unlock(object);
+
+                        vm_map_glue_pmap_enter(
+                            self.pmap,
+                            va,
+                            page,
+                            (*e).protection.bits(),
+                            1,
+                        );
+
+                        vm_map_glue_object_lock(object);
+                        vm_map_glue_page_wakeup_done(page);
+                        // The page is wired, so it is not activated.
+                        vm_map_glue_object_paging_end(object);
+                        vm_map_glue_object_unlock(object);
+
+                        offset = offset.wrapping_add(PAGE_SIZE);
+                        va = va.wrapping_add(PAGE_SIZE);
+                    }
+                }
+
+                entry = (*e).links.next.unwrap_or(sentinel);
+            }
+        }
+
+        // Correct the page alignment for the result.
+        let dst_addr =
+            start.wrapping_add(copy_offset.wrapping_sub(vm_copy_start));
+
+        // Update the hints and the map size.  The C measures the last
+        // entry of the copy, which is `last`'s successor once the
+        // copy is linked in below.
+        if self.first_free == last.as_ptr() {
+            self.first_free = last_copy_entry.as_ptr();
+        }
+        self.save_hint(last_copy_entry);
+        self.size = self.size.wrapping_add(size);
+
+        // Link in the copy; the C helper consumes it.
+        // SAFETY: the map is locked, `last` is a live entry of it,
+        // and the copy is live and owned.
+        unsafe {
+            vm_map_copy_insert(
+                map.as_ptr().cast::<c_void>(),
+                last.as_ptr().cast::<c_void>(),
+                copy.as_ptr().cast::<c_void>(),
+            )
+        };
+
+        if self.wiring_required() {
+            // A successful wiring returns with the map read-locked.
+            let result = self.pageable(
+                start,
+                start.wrapping_add(size),
+                VmProt::READ | VmProt::WRITE,
+                false,
+                false,
+            );
+            if let Err(error) = result {
+                VmMap::unlock(map);
+                return Err(error);
+            }
+        }
+
+        VmMap::unlock(map);
+        Ok(dst_addr)
     }
 }
 

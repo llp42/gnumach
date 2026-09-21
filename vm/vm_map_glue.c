@@ -55,11 +55,13 @@ void vm_map_glue_page_free(vm_page_t page);
 void vm_map_glue_page_set_busy(vm_page_t page);
 void vm_map_glue_page_wakeup_done(vm_page_t page);
 void vm_map_glue_page_activate_if_idle(vm_page_t page);
+int vm_map_glue_page_wire_count(vm_page_t page);
 void vm_map_glue_pmap_enter(
 	pmap_t pmap,
 	vm_offset_t addr,
 	vm_page_t page,
-	vm_prot_t protection);
+	vm_prot_t protection,
+	boolean_t wired);
 kern_return_t vm_map_glue_pmap_attribute(
 	pmap_t pmap,
 	vm_offset_t address,
@@ -235,12 +237,19 @@ vm_map_glue_page_activate_if_idle(vm_page_t page)
 	simple_unlock(&vm_page_queue_lock);
 }
 
+int
+vm_map_glue_page_wire_count(vm_page_t page)
+{
+	return page->wire_count;
+}
+
 void
 vm_map_glue_pmap_enter(
 	pmap_t pmap,
 	vm_offset_t addr,
 	vm_page_t page,
-	vm_prot_t protection)
+	vm_prot_t protection,
+	boolean_t wired)
 {
-	PMAP_ENTER(pmap, addr, page, protection, FALSE);
+	PMAP_ENTER(pmap, addr, page, protection, wired);
 }

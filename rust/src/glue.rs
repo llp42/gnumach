@@ -172,6 +172,15 @@ unsafe extern "C" {
     pub fn vm_page_copy(src: *mut VmPage, dst: *mut VmPage);
     pub fn vm_page_wait(continuation: Option<unsafe extern "C" fn()>);
 
+    // <vm/pmap.h>: make a pmap range pageable, used when a wired copy
+    // is entered.
+    pub fn pmap_pageable(
+        pmap: *mut Pmap,
+        start: VmOffset,
+        end: VmOffset,
+        pageable: c_int,
+    );
+
     // Shims in vm/vm_map_glue.c: the thread privilege bump the map
     // lock performs through `current_thread()`, and the machine-dependent
     // `pmap_attribute` macro.  Both die when their owners move.
@@ -208,11 +217,13 @@ unsafe extern "C" {
     pub fn vm_map_glue_page_set_busy(page: *mut VmPage);
     pub fn vm_map_glue_page_wakeup_done(page: *mut VmPage);
     pub fn vm_map_glue_page_activate_if_idle(page: *mut VmPage);
+    pub fn vm_map_glue_page_wire_count(page: *mut VmPage) -> c_int;
     pub fn vm_map_glue_pmap_enter(
         pmap: *mut Pmap,
         addr: VmOffset,
         page: *mut VmPage,
         protection: c_int,
+        wired: c_int,
     );
     pub static mut vm_submap_object: *mut VmObject;
 
@@ -324,6 +335,13 @@ unsafe extern "C" {
         where_: *mut c_void,
         copy: *mut c_void,
     );
+    // The page-list copyout still lives in C; `VmMap::copyout()`
+    // reaches it here until the next commit moves it.
+    pub fn vm_map_copyout_page_list(
+        dst_map: *mut c_void,
+        dst_addr: *mut VmOffset,
+        copy: *mut c_void,
+    ) -> c_int;
 
     // <kern/lock.h>: the recursive/downgrade operations of the map
     // lock, used by the pageability scan.
