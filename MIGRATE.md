@@ -205,9 +205,11 @@ are current.
   `rbtree_node_init`, `rbtree_insert_slot`, `rbtree_slot` and
   `rbtree_d2i`.  `rbtree_d2i()` is called once per tree level by the
   lookup macros; the call is the price of keeping the index rule with
-  the tree.  The generic macros stay C in `rbtree.h` for `slab.c` and
-  `vm/vm_map.c`, and because only they embed `cmp_fn`, the Rust half
-  takes no callbacks at all; `rbtree_entry`/`structof` stay macros.
+  the tree.  The generic macros stay C in `rbtree.h` for `slab.c`,
+  and because only they embed `cmp_fn`, the Rust half takes no
+  callbacks at all; `rbtree_entry`/`structof` stay macros.  (The
+  `vm_map` trees were the other user until the port moved them to the
+  Rust rbtree methods.)
 * **Prune (cleanup).** `rbtree_lookup`, `rbtree_empty`,
   `rbtree_node_unlinked`, `rbtree_prev`/`rbtree_next`,
   `rbtree_for_each_remove`, `rbtree_check_alignment`,
@@ -229,10 +231,10 @@ are current.
   the macro protocols (insert, lookup_slot/insert_slot,
   lookup_nearest) and check the red-black rules after every mutation,
   plus the node colors and the slot round-trip; `tests/test-rbtree-rs`
-  compiles them for the host in `make check`.  `vm/vm_map.c`'s two
-  trees and `kern/slab.c`'s active-slab tree (used by every non-direct
-  cache, `slab.c:641-652`) also exercise the functions through the
-  qemu suite.
+  compiles them for the host in `make check`.  The `vm_map` trees
+  (Rust since the port) and `kern/slab.c`'s active-slab tree (used by
+  every non-direct cache, `slab.c:641-652`) also exercise the
+  functions through the qemu suite.
 
 #### `kern/timer.c` — 236 lines — friction 3/5
 * **Role.** Per-thread and per-CPU statistical timers (microseconds and
