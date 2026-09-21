@@ -34,15 +34,16 @@ use crate::arch::types::{VmOffset, VmSize};
 use crate::glue::{
     Panic, assert_wait, kernel_map, kernel_object, kernel_pmap,
     kernel_virtual_end, kernel_virtual_start, kmem_cache_alloc,
-    kmem_cache_free, lock_done, lock_init, lock_read, lock_write,
-    pmap_destroy, pmap_remove, printf, projected_buffer_collect, thread_block,
-    vm_fault_unwire, vm_map_cache, vm_map_entry_cache,
+    kmem_cache_free, lock_clear_recursive, lock_done, lock_init, lock_read,
+    lock_set_recursive, lock_write, lock_write_to_read, pmap_destroy,
+    pmap_protect, pmap_remove, printf, projected_buffer_collect, thread_block,
+    vm_fault_unwire, vm_fault_wire, vm_map_cache, vm_map_entry_cache,
     vm_map_glue_object_can_release, vm_map_glue_object_lock,
     vm_map_glue_object_unlock, vm_map_glue_pmap_attribute,
     vm_map_glue_privilege_dec, vm_map_glue_privilege_inc,
-    vm_map_glue_thread_wakeup, vm_object_coalesce, vm_object_deallocate,
-    vm_object_page_remove, vm_object_pmap_remove, vm_object_reference,
-    vm_page_mem_size,
+    vm_map_glue_thread_wakeup, vm_object_allocate, vm_object_coalesce,
+    vm_object_deallocate, vm_object_page_remove, vm_object_pmap_remove,
+    vm_object_reference, vm_object_shadow, vm_page_mem_size,
 };
 use crate::kern::list::{List, entry as list_entry};
 use crate::kern::lock::{LockData, SimpleLock};
@@ -2008,5 +2009,533 @@ impl VmMap {
         unsafe { VmMapEntry::dispose(entry) };
 
         true
+    }
+}
+
+impl VmMap {
+    /// Count one more wiring of `entry`.  `vm_map_entry_inc_wired()`
+    /// in C.
+    fn entry_inc_wired(&mut self, entry: NonNull<VmMapEntry>) {
+        // SAFETY: `entry` is a live entry of this map.
+        unsafe {
+            if (*entry.as_ptr()).wired_count > 1 {
+                return;
+            }
+            if (*entry.as_ptr()).wired_count == 0 {
+                let size = (*entry.as_ptr())
+                    .links
+                    .end
+                    .wrapping_sub((*entry.as_ptr()).links.start);
+                self.size_wired = self.size_wired.wrapping_add(size);
+            }
+            (*entry.as_ptr()).wired_count =
+                (*entry.as_ptr()).wired_count.wrapping_add(1);
+        }
+    }
+
+    /// The `VM_MAP_RANGE_CHECK()` macro: clamp a range to the map's
+    /// bounds.
+    fn range_check(&self, start: &mut VmOffset, end: &mut VmOffset) {
+        let min = self.hdr.links.start;
+        let max = self.hdr.links.end;
+        if *start < min {
+            *start = min;
+        }
+        if *end > max {
+            *end = max;
+        }
+        if *start > *end {
+            *start = *end;
+        }
+    }
+
+    /// Scan entries and update their wiring: unwire what left
+    /// `wired_access`, wire what entered it, and fault in the newly
+    /// wired pages.  `vm_map_pageable_scan()` in C.
+    ///
+    /// The map must be locked; on return it is read-locked if wiring
+    /// faults were needed.  The C code unlocks the map while faulting
+    /// the kernel map; the same trust applies here.
+    fn pageable_scan(
+        &mut self,
+        start_entry: NonNull<VmMapEntry>,
+        end: VmOffset,
+    ) {
+        let sentinel = self.to_entry();
+        let map = NonNull::from(&mut *self);
+        let mut do_wire_faults = false;
+
+        // Pass 1. Update counters and prepare wiring faults.
+        let mut entry = start_entry;
+        while !self.hdr.is_sentinel(entry)
+            && unsafe { (*entry.as_ptr()).links.start } < end
+        {
+            // SAFETY: the entries are live and the map is locked.
+            let next =
+                unsafe { (*entry.as_ptr()).links.next }.unwrap_or(sentinel);
+            unsafe {
+                // Unwiring faults can be done under the write lock.
+                if (*entry.as_ptr()).wired_access == VmProt::NONE {
+                    if (*entry.as_ptr()).wired_count != 0 {
+                        self.entry_reset_wired(entry);
+                        vm_fault_unwire(
+                            ptr::from_mut(self).cast::<c_void>(),
+                            entry.as_ptr().cast::<c_void>(),
+                        );
+                    }
+                    entry = next;
+                    continue;
+                }
+
+                // Entries that cannot be accessed must not be wired.
+                if (*entry.as_ptr()).protection == VmProt::NONE {
+                    if (*entry.as_ptr()).wired_count == 0 {
+                        entry = next;
+                        continue;
+                    }
+                    self.entry_reset_wired(entry);
+                    vm_fault_unwire(
+                        ptr::from_mut(self).cast::<c_void>(),
+                        entry.as_ptr().cast::<c_void>(),
+                    );
+                    entry = next;
+                    continue;
+                }
+
+                // With the write lock held, create any shadow or
+                // zero-fill object the wiring needs, then raise the
+                // count; the faults follow under a read lock.
+                if (*entry.as_ptr()).wired_count == 0 {
+                    if (*entry.as_ptr()).needs_copy()
+                        && (*entry.as_ptr()).protection & VmProt::WRITE
+                            != VmProt::NONE
+                    {
+                        let size = (*entry.as_ptr())
+                            .links
+                            .end
+                            .wrapping_sub((*entry.as_ptr()).links.start);
+                        let mut object = (*entry.as_ptr()).object.vm_object;
+                        let mut offset = (*entry.as_ptr()).offset;
+
+                        vm_object_shadow(&mut object, &mut offset, size);
+
+                        (*entry.as_ptr()).object.vm_object = object;
+                        (*entry.as_ptr()).offset = offset;
+                        (*entry.as_ptr()).set_needs_copy(false);
+                    }
+
+                    if (*entry.as_ptr()).object.vm_object.is_null() {
+                        let size = (*entry.as_ptr())
+                            .links
+                            .end
+                            .wrapping_sub((*entry.as_ptr()).links.start);
+                        (*entry.as_ptr()).object.vm_object =
+                            vm_object_allocate(size);
+                        (*entry.as_ptr()).offset = 0;
+                    }
+                }
+
+                self.entry_inc_wired(entry);
+
+                if (*entry.as_ptr()).wired_count == 1 {
+                    do_wire_faults = true;
+                }
+            }
+            entry = next;
+        }
+
+        // Pass 2. Trigger wiring faults.
+        if !do_wire_faults {
+            return;
+        }
+
+        let is_kernel = self.pmap == unsafe { kernel_pmap };
+
+        if is_kernel {
+            // In the kernel map, unlock rather than downgrade, and
+            // mark the entries so they cannot be coalesced meanwhile.
+            let mut entry = start_entry;
+            while !self.hdr.is_sentinel(entry)
+                && unsafe { (*entry.as_ptr()).links.end } <= end
+            {
+                unsafe {
+                    (*entry.as_ptr()).set_in_transition(true);
+                    (*entry.as_ptr()).set_needs_wakeup(false);
+                }
+                entry = unsafe { (*entry.as_ptr()).links.next }
+                    .unwrap_or(sentinel);
+            }
+            VmMap::unlock(map);
+        } else {
+            // SAFETY: the map lock is held; the downgrade is the C
+            // protocol for faulting with a read lock.
+            unsafe {
+                lock_set_recursive(addr_of_mut!((*map.as_ptr()).lock));
+                lock_write_to_read(addr_of_mut!((*map.as_ptr()).lock));
+            }
+        }
+
+        let mut entry = start_entry;
+        while !self.hdr.is_sentinel(entry)
+            && unsafe { (*entry.as_ptr()).links.end } <= end
+        {
+            // Only a count of one was raised by the pass above.
+            if unsafe { (*entry.as_ptr()).wired_count } == 1 {
+                // SAFETY: the map may be read-locked; the C code
+                // assumes the faults always succeed.
+                unsafe {
+                    vm_fault_wire(
+                        ptr::from_mut(self).cast::<c_void>(),
+                        entry.as_ptr().cast::<c_void>(),
+                    )
+                };
+            }
+            entry =
+                unsafe { (*entry.as_ptr()).links.next }.unwrap_or(sentinel);
+        }
+
+        if is_kernel {
+            VmMap::lock(map);
+            let mut entry = start_entry;
+            while !self.hdr.is_sentinel(entry)
+                && unsafe { (*entry.as_ptr()).links.end } <= end
+            {
+                // Nothing should have touched the region while the map
+                // was unlocked.
+                unsafe { (*entry.as_ptr()).set_in_transition(false) };
+                entry = unsafe { (*entry.as_ptr()).links.next }
+                    .unwrap_or(sentinel);
+            }
+        } else {
+            // SAFETY: the map read lock is held.
+            unsafe {
+                lock_clear_recursive(addr_of_mut!((*map.as_ptr()).lock));
+            }
+        }
+    }
+
+    /// Set the protection of a range.  `vm_map_protect()` in C.
+    pub(crate) fn protect(
+        &mut self,
+        start_in: VmOffset,
+        end_in: VmOffset,
+        new_prot: VmProt,
+        set_max: bool,
+    ) -> Result<(), Error> {
+        let map = NonNull::from(&mut *self);
+        VmMap::lock(map);
+
+        let mut start = start_in;
+        let mut end = end_in;
+        self.range_check(&mut start, &mut end);
+
+        let sentinel = self.to_entry();
+        let (found, temp_entry) = self.lookup_entry(start);
+        let entry = if found {
+            // SAFETY: the entry contains `start`.
+            unsafe { self.hdr.clip_start(temp_entry, start, true) };
+            temp_entry
+        } else {
+            // SAFETY: the entry before the range is live.
+            unsafe { (*temp_entry.as_ptr()).links.next.unwrap_or(sentinel) }
+        };
+
+        // Pass 1: protection violations.
+        let mut current = entry;
+        while !self.hdr.is_sentinel(current)
+            && unsafe { (*current.as_ptr()).links.start } < end
+        {
+            if unsafe { (*current.as_ptr()).is_sub_map() } {
+                VmMap::unlock(map);
+                return Err(Error::InvalidArgument);
+            }
+            let max = unsafe { (*current.as_ptr()).max_protection };
+            if new_prot.bits() & (VmProt::NOTIFY.bits() | max.bits())
+                != new_prot.bits()
+            {
+                VmMap::unlock(map);
+                return Err(Error::ProtectionFailure);
+            }
+            current =
+                unsafe { (*current.as_ptr()).links.next }.unwrap_or(sentinel);
+        }
+
+        // Pass 2: fix the protections.  Clipping is not necessary a
+        // second time.
+        current = entry;
+        while !self.hdr.is_sentinel(current)
+            && unsafe { (*current.as_ptr()).links.start } < end
+        {
+            if end < unsafe { (*current.as_ptr()).links.end } {
+                // SAFETY: the entry spans `end`.
+                unsafe { self.hdr.clip_end(current, end, true) };
+            }
+
+            // SAFETY: the entry is live and the map is locked.
+            let old_prot = unsafe { (*current.as_ptr()).protection };
+            if set_max {
+                if unsafe { (*current.as_ptr()).max_protection } != new_prot
+                    && new_prot == VmProt::NONE
+                {
+                    let size = unsafe {
+                        (*current.as_ptr())
+                            .links
+                            .end
+                            .wrapping_sub((*current.as_ptr()).links.start)
+                    };
+                    self.size_none = self.size_none.wrapping_add(size);
+                }
+                unsafe {
+                    (*current.as_ptr()).max_protection = new_prot;
+                    (*current.as_ptr()).protection = new_prot & old_prot;
+                }
+            } else {
+                unsafe { (*current.as_ptr()).protection = new_prot };
+            }
+
+            // The new protection must not conflict with the desired
+            // wired access, if any.
+            if unsafe { (*current.as_ptr()).protection } != VmProt::NONE
+                && (unsafe { (*current.as_ptr()).wired_access }
+                    != VmProt::NONE
+                    || self.wiring_required())
+            {
+                unsafe {
+                    (*current.as_ptr()).wired_access =
+                        (*current.as_ptr()).protection
+                };
+            }
+
+            if unsafe { (*current.as_ptr()).protection } != old_prot {
+                // SAFETY: the pmap is valid and the map is locked.
+                unsafe {
+                    pmap_protect(
+                        self.pmap,
+                        (*current.as_ptr()).links.start,
+                        (*current.as_ptr()).links.end,
+                        (*current.as_ptr()).protection.bits(),
+                    )
+                };
+            }
+
+            let next = unsafe { (*current.as_ptr()).links.next };
+            // SAFETY: the entry is live and the map is locked.
+            let _ = unsafe { self.coalesce_entry(current) };
+            current = next.unwrap_or(sentinel);
+        }
+
+        let _ = unsafe { self.coalesce_entry(current) };
+
+        self.pageable_scan(entry, end);
+
+        VmMap::unlock(map);
+        Ok(())
+    }
+
+    /// Set the inheritance of a range.  `vm_map_inherit()` in C.
+    pub(crate) fn inherit(
+        &mut self,
+        start_in: VmOffset,
+        end_in: VmOffset,
+        new_inheritance: VmInherit,
+    ) -> Result<(), Error> {
+        let map = NonNull::from(&mut *self);
+        VmMap::lock(map);
+
+        let mut start = start_in;
+        let mut end = end_in;
+        self.range_check(&mut start, &mut end);
+
+        let sentinel = self.to_entry();
+        let (found, temp_entry) = self.lookup_entry(start);
+        let mut entry = if found {
+            // SAFETY: the entry contains `start`.
+            unsafe { self.hdr.clip_start(temp_entry, start, true) };
+            temp_entry
+        } else {
+            // SAFETY: the entry before the range is live.
+            unsafe { (*temp_entry.as_ptr()).links.next.unwrap_or(sentinel) }
+        };
+
+        while !self.hdr.is_sentinel(entry)
+            && unsafe { (*entry.as_ptr()).links.start } < end
+        {
+            if end < unsafe { (*entry.as_ptr()).links.end } {
+                // SAFETY: the entry spans `end`.
+                unsafe { self.hdr.clip_end(entry, end, true) };
+            }
+            unsafe { (*entry.as_ptr()).inheritance = new_inheritance };
+
+            let next = unsafe { (*entry.as_ptr()).links.next };
+            // SAFETY: the entry is live and the map is locked.
+            let _ = unsafe { self.coalesce_entry(entry) };
+            entry = next.unwrap_or(sentinel);
+        }
+
+        // SAFETY: the map is locked; coalescing the sentinel is a
+        // no-op that the C also attempts.
+        let _ = unsafe { self.coalesce_entry(entry) };
+
+        VmMap::unlock(map);
+        Ok(())
+    }
+
+    /// Set the pageability of a range.  `vm_map_pageable()` in C.
+    ///
+    /// With `lock_map`, the map is locked and unlocked here; without
+    /// it, the caller holds the lock and the function returns with a
+    /// read lock on success.
+    pub(crate) fn pageable(
+        &mut self,
+        start_in: VmOffset,
+        end_in: VmOffset,
+        access_type: VmProt,
+        lock_map: bool,
+        check_range: bool,
+    ) -> Result<(), Error> {
+        let map = NonNull::from(&mut *self);
+        if lock_map {
+            VmMap::lock(map);
+        }
+
+        let mut start = start_in;
+        let mut end = end_in;
+        self.range_check(&mut start, &mut end);
+
+        let (found, start_entry) = self.lookup_entry(start);
+        if !found {
+            // The start address is not in the map; this is fatal.
+            if lock_map {
+                VmMap::unlock(map);
+            }
+            return Err(Error::NoSpace);
+        }
+        // SAFETY: the entry contains `start`.
+        unsafe { self.hdr.clip_start(start_entry, start, true) };
+
+        let sentinel = self.to_entry();
+        let mut entry = start_entry;
+        while !self.hdr.is_sentinel(entry)
+            && unsafe { (*entry.as_ptr()).links.start } < end
+        {
+            if end < unsafe { (*entry.as_ptr()).links.end } {
+                // SAFETY: the entry spans `end`.
+                unsafe { self.hdr.clip_end(entry, end, true) };
+            }
+
+            if check_range {
+                let entry_end = unsafe { (*entry.as_ptr()).links.end };
+                let next = unsafe { (*entry.as_ptr()).links.next };
+                let hole = entry_end < end
+                    && match next {
+                        None => true,
+                        Some(next) if next == sentinel => true,
+                        Some(next) => {
+                            // SAFETY: the next entry is live.
+                            let next_start =
+                                unsafe { (*next.as_ptr()).links.start };
+                            next_start > entry_end
+                        }
+                    };
+                let protection = unsafe { (*entry.as_ptr()).protection };
+                if hole
+                    || protection.bits() & access_type.bits()
+                        != access_type.bits()
+                {
+                    if lock_map {
+                        VmMap::unlock(map);
+                    }
+                    return Err(Error::NoSpace);
+                }
+            }
+
+            entry =
+                unsafe { (*entry.as_ptr()).links.next }.unwrap_or(sentinel);
+        }
+        let end_entry = entry;
+
+        // Pass 2: set the desired wired access.
+        let mut entry = start_entry;
+        while entry != end_entry {
+            unsafe { (*entry.as_ptr()).wired_access = access_type };
+            entry =
+                unsafe { (*entry.as_ptr()).links.next }.unwrap_or(sentinel);
+        }
+
+        self.pageable_scan(start_entry, end);
+
+        if lock_map {
+            VmMap::unlock(map);
+        }
+        Ok(())
+    }
+
+    /// Wire the whole map's current contents to match its protections.
+    /// `vm_map_pageable_current()` in C.
+    fn pageable_current(&mut self, access_type: VmProt) -> Result<(), Error> {
+        let Some(min_node) = self.hdr.tree.firstlast_node(RBTREE_LEFT) else {
+            // The C would fault on an empty map's null node; there is
+            // nothing to wire, so report success instead.
+            return Ok(());
+        };
+        let Some(max_node) = self.hdr.tree.firstlast_node(RBTREE_RIGHT) else {
+            return Ok(());
+        };
+        // SAFETY: the nodes came from this map's entry tree.
+        let min = unsafe { VmMapEntry::from_tree_node(min_node) };
+        // SAFETY: as above.
+        let max = unsafe { VmMapEntry::from_tree_node(max_node) };
+        let min_address = unsafe { (*min.as_ptr()).links.start };
+        let max_address = unsafe { (*max.as_ptr()).links.end };
+
+        self.pageable(min_address, max_address, access_type, false, false)
+    }
+
+    /// Wire a whole map, now and/or in the future.
+    /// `vm_map_pageable_all()` in C.
+    pub(crate) fn pageable_all(&mut self, flags: c_int) -> Result<(), Error> {
+        const WIRE_NONE: c_int = 0;
+        const WIRE_CURRENT: c_int = 1;
+        const WIRE_FUTURE: c_int = 2;
+        const WIRE_ALL: c_int = WIRE_CURRENT | WIRE_FUTURE;
+
+        if flags & !WIRE_ALL != 0 {
+            return Err(Error::InvalidArgument);
+        }
+
+        let map = NonNull::from(&mut *self);
+        VmMap::lock(map);
+
+        if flags == WIRE_NONE {
+            self.flags &= !VM_MAP_WIRING_REQUIRED;
+            let result = self.pageable_current(VmProt::NONE);
+            VmMap::unlock(map);
+            return result;
+        }
+
+        let wiring_required = self.wiring_required();
+
+        if flags & WIRE_FUTURE != 0 {
+            self.flags |= VM_MAP_WIRING_REQUIRED;
+        }
+
+        if flags & WIRE_CURRENT != 0 {
+            let result = self.pageable_current(VmProt::READ | VmProt::WRITE);
+
+            if result.is_err() {
+                if flags & WIRE_FUTURE != 0 {
+                    if wiring_required {
+                        self.flags |= VM_MAP_WIRING_REQUIRED;
+                    } else {
+                        self.flags &= !VM_MAP_WIRING_REQUIRED;
+                    }
+                }
+                VmMap::unlock(map);
+                return result;
+            }
+        }
+
+        VmMap::unlock(map);
+        Ok(())
     }
 }

@@ -30,6 +30,10 @@ impl VmProt {
     pub const EXECUTE: Self = Self(0x4);
     /// `VM_PROT_ALL`: read, write and execute.
     pub const ALL: Self = Self(Self::READ.0 | Self::WRITE.0 | Self::EXECUTE.0);
+    /// `VM_PROT_NO_CHANGE`: a marker `vm_map_protect` refuses to set.
+    pub const NO_CHANGE: Self = Self(0x08);
+    /// `VM_PROT_NOTIFY`: a marker bit for callers of `vm_map_protect`.
+    pub const NOTIFY: Self = Self(0x10);
 
     /// The `c_int` the C side passes and stores.
     pub const fn bits(self) -> c_int {

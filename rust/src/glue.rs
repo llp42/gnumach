@@ -214,5 +214,32 @@ unsafe extern "C" {
     pub static kernel_virtual_start: VmOffset;
     pub static kernel_virtual_end: VmOffset;
     pub fn pmap_remove(pmap: *mut Pmap, start: VmOffset, end: VmOffset);
+    pub fn pmap_protect(
+        pmap: *mut Pmap,
+        start: VmOffset,
+        end: VmOffset,
+        prot: c_int,
+    );
+    pub fn pmap_pageable(
+        pmap: *mut Pmap,
+        start: VmOffset,
+        end: VmOffset,
+        pageable: c_int,
+    );
     pub fn vm_fault_unwire(map: *mut c_void, entry: *mut c_void);
+    pub fn vm_fault_wire(map: *mut c_void, entry: *mut c_void);
+
+    // <vm/vm_object.h>.
+    pub fn vm_object_shadow(
+        object: *mut *mut VmObject,
+        offset: *mut VmOffset,
+        length: VmSize,
+    );
+    pub fn vm_object_allocate(size: VmSize) -> *mut VmObject;
+
+    // <kern/lock.h>: the recursive/downgrade operations of the map
+    // lock, used by the pageability scan.
+    pub fn lock_set_recursive(lock: *mut LockData);
+    pub fn lock_write_to_read(lock: *mut LockData);
+    pub fn lock_clear_recursive(lock: *mut LockData);
 }

@@ -959,8 +959,19 @@ machinery and entry lifecycle: `vm_map_gap_*`, `_vm_map_entry_link`,
 the entry tree through `Rbtree::insert_by`/`lookup_slot`/`lookup_nearest`
 and the gap lists through `List`.  The same statics stay in
 `vm/vm_map.c` for `vm_map_enter` until M4; the exported
-`vm_map_find_entry` no longer exists there.  The file and its
-remaining statics wait for their milestones.
+`vm_map_find_entry` no longer exists there.
+
+M3 adds the deletion and protection core: `_vm_map_clip_start`,
+`_vm_map_clip_end`, `vm_map_entry_delete`, `vm_map_delete`,
+`vm_map_remove`, `vm_map_coalesce_entry`, `vm_map_protect`,
+`vm_map_inherit`, `vm_map_pageable` and `vm_map_pageable_all` are
+Rust now, with the pageability scan, the protected-range pass, and
+the object cleanup through the new `vm_map_glue.c` shims
+(`vm_map_glue_object_lock/unlock/can_release`, thread wakeup).
+`VmMap::deallocate` calls the Rust delete directly.  What still
+remains in `vm/vm_map.c` is `vm_map_enter`, `vm_map_submap`, the
+`vm_map_fork`/`vm_map_lookup` pair, the copy family, `vm_region` and
+the module's caches and `vm_map_init`; their milestones follow.
 
 ### ipc/ (18 files, 13,002 LOC)
 

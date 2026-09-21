@@ -10,7 +10,7 @@
 
 use crate::arch::types::{VmOffset, VmSize};
 use crate::vm::error::{KERN_SUCCESS, kern_return};
-use crate::vm::types::{Pmap, VmObject, VmProt};
+use crate::vm::types::{Pmap, VmInherit, VmObject, VmProt};
 use crate::vm::vm_map::{VmMap, VmMapEntry, VmMapHeader, VmMapVersion};
 use core::ffi::{c_int, c_uint};
 use core::ptr::{self, NonNull};
@@ -341,4 +341,79 @@ pub unsafe extern "C" fn vm_map_coalesce_entry(
     let coalesced =
         unsafe { (*map).coalesce_entry(NonNull::new_unchecked(entry)) };
     c_int::from(coalesced)
+}
+
+/// Set the protection of a range.  `vm_map_protect()` in C.
+///
+/// # Safety
+///
+/// `map` must be a valid, unlocked map.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_map_protect(
+    map: *mut VmMap,
+    start: VmOffset,
+    end: VmOffset,
+    new_prot: VmProt,
+    set_max: c_int,
+) -> c_int {
+    // SAFETY: the caller promises a valid, unlocked map.
+    kern_return(unsafe { (*map).protect(start, end, new_prot, set_max != 0) })
+}
+
+/// Set the inheritance of a range.  `vm_map_inherit()` in C.
+///
+/// # Safety
+///
+/// `map` must be a valid, unlocked map.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_map_inherit(
+    map: *mut VmMap,
+    start: VmOffset,
+    end: VmOffset,
+    new_inheritance: VmInherit,
+) -> c_int {
+    // SAFETY: the caller promises a valid, unlocked map.
+    kern_return(unsafe { (*map).inherit(start, end, new_inheritance) })
+}
+
+/// Set the pageability of a range.  `vm_map_pageable()` in C.
+///
+/// # Safety
+///
+/// `map` must be valid and, when `lock_map` is false, locked by the
+/// caller.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_map_pageable(
+    map: *mut VmMap,
+    start: VmOffset,
+    end: VmOffset,
+    access_type: VmProt,
+    lock_map: c_int,
+    check_range: c_int,
+) -> c_int {
+    // SAFETY: the caller promises a valid map in the stated state.
+    kern_return(unsafe {
+        (*map).pageable(
+            start,
+            end,
+            access_type,
+            lock_map != 0,
+            check_range != 0,
+        )
+    })
+}
+
+/// Wire a whole map, now and/or in the future.
+/// `vm_map_pageable_all()` in C.
+///
+/// # Safety
+///
+/// `map` must be a valid, unlocked map.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_map_pageable_all(
+    map: *mut VmMap,
+    flags: c_int,
+) -> c_int {
+    // SAFETY: the caller promises a valid, unlocked map.
+    kern_return(unsafe { (*map).pageable_all(flags) })
 }

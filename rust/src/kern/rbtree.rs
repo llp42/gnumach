@@ -300,6 +300,18 @@ impl Rbtree {
         unsafe { self.remove(NodeRef::new(node.as_ptr())) };
     }
 
+    /// The first or last node of the tree, if any.
+    /// `rbtree_firstlast()` in C, with the direction as
+    /// `RBTREE_LEFT`/`RBTREE_RIGHT`.
+    pub(crate) fn firstlast_node(
+        &self,
+        direction: c_int,
+    ) -> Option<NonNull<RbtreeNode>> {
+        // SAFETY: the tree is a valid caller structure.
+        let found = unsafe { self.firstlast(Side::from_int(direction)) };
+        found.map(|node| node.0)
+    }
+
     /// The root, if any.
     fn root(&self) -> Option<NodeRef> {
         self.root.map(NodeRef)
@@ -1325,6 +1337,9 @@ mod tests {
     fn empty_tree() {
         let mut tree = new_tree();
 
+        assert!(tree.firstlast_node(RBTREE_LEFT).is_none());
+        assert!(tree.firstlast_node(RBTREE_RIGHT).is_none());
+
         // SAFETY: the tree is valid, and null arguments are allowed.
         unsafe {
             assert!(rbtree_firstlast(&tree, RBTREE_LEFT).is_null());
@@ -1420,6 +1435,15 @@ mod tests {
             assert_eq!(
                 rbtree_firstlast(&tree, RBTREE_RIGHT),
                 node_of(&v[127])
+            );
+            assert_eq!(
+                tree.firstlast_node(RBTREE_LEFT).map(|n| key_of(n.as_ptr())),
+                Some(0)
+            );
+            assert_eq!(
+                tree.firstlast_node(RBTREE_RIGHT)
+                    .map(|n| key_of(n.as_ptr())),
+                Some(127)
             );
         }
 
