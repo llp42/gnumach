@@ -15,6 +15,7 @@
 #include <kern/thread.h>
 #include <mach/vm_attributes.h>
 #include <vm/pmap.h>
+#include <vm/vm_object.h>
 
 void vm_map_glue_privilege_inc(void);
 void vm_map_glue_privilege_dec(void);
@@ -24,6 +25,10 @@ kern_return_t vm_map_glue_pmap_attribute(
 	vm_size_t size,
 	vm_machine_attribute_t attribute,
 	vm_machine_attribute_val_t *value);
+void vm_map_glue_thread_wakeup(void *event);
+void vm_map_glue_object_lock(vm_object_t object);
+void vm_map_glue_object_unlock(vm_object_t object);
+boolean_t vm_map_glue_object_can_release(vm_object_t object);
 
 void
 vm_map_glue_privilege_inc(void)
@@ -52,4 +57,30 @@ vm_map_glue_pmap_attribute(
 	vm_machine_attribute_val_t *value)
 {
 	return pmap_attribute(pmap, address, size, attribute, value);
+}
+
+void
+vm_map_glue_thread_wakeup(void *event)
+{
+	thread_wakeup((event_t) event);
+}
+
+void
+vm_map_glue_object_lock(vm_object_t object)
+{
+	simple_lock(&object->Lock);
+}
+
+void
+vm_map_glue_object_unlock(vm_object_t object)
+{
+	simple_unlock(&object->Lock);
+}
+
+boolean_t
+vm_map_glue_object_can_release(vm_object_t object)
+{
+	return !object->pager_created &&
+	       object->ref_count == 1 &&
+	       object->paging_in_progress == 0;
 }

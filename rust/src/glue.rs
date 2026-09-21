@@ -9,7 +9,7 @@
 
 use crate::arch::types::{VmOffset, VmSize};
 use crate::kern::lock::LockData;
-use crate::vm::types::Pmap;
+use crate::vm::types::{Pmap, VmObject};
 use core::ffi::{c_char, c_int, c_short, c_uint, c_void};
 
 // `panic()` in <kern/debug.h> is a macro over `Panic()`.
@@ -161,13 +161,6 @@ unsafe extern "C" {
     // needs the address.
     pub fn projected_buffer_collect(map: *mut c_void) -> c_int;
 
-    // <vm/vm_map.c>, until its own milestone replaces the call.
-    pub fn vm_map_delete(
-        map: *mut c_void,
-        start: VmOffset,
-        end: VmOffset,
-    ) -> c_int;
-
     // <vm/pmap.h> and <i386/intel/pmap.h>.
     pub fn pmap_destroy(pmap: *mut Pmap);
     pub static kernel_pmap: *mut Pmap;
@@ -187,4 +180,39 @@ unsafe extern "C" {
         attribute: c_uint,
         value: *mut c_int,
     ) -> c_int;
+    pub fn vm_map_glue_thread_wakeup(event: *mut c_void);
+    pub fn vm_map_glue_object_lock(object: *mut VmObject);
+    pub fn vm_map_glue_object_unlock(object: *mut VmObject);
+    pub fn vm_map_glue_object_can_release(object: *mut VmObject) -> c_int;
+
+    // <vm/vm_object.h> and <vm/pmap.h>: the object and pmap operations
+    // the deletion path reaches.
+    pub fn vm_object_reference(object: *mut VmObject);
+    pub fn vm_object_deallocate(object: *mut VmObject);
+    pub fn vm_object_page_remove(
+        object: *mut VmObject,
+        start: VmOffset,
+        end: VmOffset,
+    );
+    pub fn vm_object_pmap_remove(
+        object: *mut VmObject,
+        start: VmOffset,
+        end: VmOffset,
+    );
+    pub fn vm_object_coalesce(
+        prev_object: *mut VmObject,
+        next_object: *mut VmObject,
+        prev_offset: VmOffset,
+        next_offset: VmOffset,
+        prev_size: VmSize,
+        next_size: VmSize,
+        new_object: *mut *mut VmObject,
+        new_offset: *mut VmOffset,
+    ) -> c_int;
+    pub static kernel_object: *mut VmObject;
+    pub static kernel_map: *mut c_void;
+    pub static kernel_virtual_start: VmOffset;
+    pub static kernel_virtual_end: VmOffset;
+    pub fn pmap_remove(pmap: *mut Pmap, start: VmOffset, end: VmOffset);
+    pub fn vm_fault_unwire(map: *mut c_void, entry: *mut c_void);
 }

@@ -32,11 +32,17 @@
 
 use crate::arch::types::{VmOffset, VmSize};
 use crate::glue::{
-    Panic, assert_wait, kernel_pmap, kmem_cache_alloc, kmem_cache_free,
-    lock_done, lock_init, lock_read, lock_write, pmap_destroy, printf,
-    projected_buffer_collect, thread_block, vm_map_cache, vm_map_delete,
-    vm_map_entry_cache, vm_map_glue_pmap_attribute, vm_map_glue_privilege_dec,
-    vm_map_glue_privilege_inc, vm_page_mem_size,
+    Panic, assert_wait, kernel_map, kernel_object, kernel_pmap,
+    kernel_virtual_end, kernel_virtual_start, kmem_cache_alloc,
+    kmem_cache_free, lock_done, lock_init, lock_read, lock_write,
+    pmap_destroy, pmap_remove, printf, projected_buffer_collect, thread_block,
+    vm_fault_unwire, vm_map_cache, vm_map_entry_cache,
+    vm_map_glue_object_can_release, vm_map_glue_object_lock,
+    vm_map_glue_object_unlock, vm_map_glue_pmap_attribute,
+    vm_map_glue_privilege_dec, vm_map_glue_privilege_inc,
+    vm_map_glue_thread_wakeup, vm_object_coalesce, vm_object_deallocate,
+    vm_object_page_remove, vm_object_pmap_remove, vm_object_reference,
+    vm_page_mem_size,
 };
 use crate::kern::list::{List, entry as list_entry};
 use crate::kern::lock::{LockData, SimpleLock};
@@ -640,8 +646,9 @@ impl VmMap {
         // The C callers discard projected_buffer_collect()'s result.
         // SAFETY: the map is exclusively owned by this deallocation.
         unsafe { projected_buffer_collect(map.as_ptr().cast()) };
-        // SAFETY: as above; `vm_map_delete` stays C until M3.
-        unsafe { vm_map_delete(map.as_ptr().cast(), min, max) };
+        // SAFETY: as above; the map is unlocked, as the C contract of
+        // vm_map_delete requires when the refcount is zero.
+        let _ = unsafe { (*map.as_ptr()).delete(min, max) };
         // SAFETY: as above, and the pmap is no longer used.
         unsafe { pmap_destroy(pmap) };
         // SAFETY: the map came from `vm_map_cache`, and nothing
@@ -1460,5 +1467,546 @@ impl VmMap {
         map.save_hint(new_entry);
 
         Ok((start, new_entry))
+    }
+}
+
+impl VmMapEntry {
+    /// Return an entry to the cache.  `_vm_map_entry_dispose()` in C.
+    ///
+    /// # Safety
+    ///
+    /// `entry` must be unlinked and came from `create()`.
+    pub(crate) unsafe fn dispose(entry: NonNull<VmMapEntry>) {
+        // SAFETY: the caller promises the entry is free.
+        unsafe {
+            kmem_cache_free(
+                addr_of_mut!(vm_map_entry_cache),
+                entry.as_ptr().addr(),
+            )
+        };
+    }
+}
+
+impl VmMapHeader {
+    /// Split `entry` at `start`, leaving the front part in a new
+    /// entry.  `_vm_map_clip_start()` in C.
+    ///
+    /// # Safety
+    ///
+    /// `entry` must be a live entry of this header, and `start` must
+    /// lie inside it.  The header's lock discipline is the caller's.
+    pub(crate) unsafe fn clip_start(
+        &mut self,
+        entry: NonNull<VmMapEntry>,
+        start: VmOffset,
+        link_gap: bool,
+    ) {
+        // SAFETY: the caller promises a live entry.
+        unsafe {
+            let new_entry = VmMapEntry::create();
+            // `vm_map_entry_copy_full()`: the whole entry, links and
+            // all; the link below overwrites the chain fields.
+            ptr::copy_nonoverlapping(entry.as_ptr(), new_entry.as_ptr(), 1);
+
+            (*new_entry.as_ptr()).links.end = start;
+            let entry_start = (*entry.as_ptr()).links.start;
+            (*entry.as_ptr()).offset = (*entry.as_ptr())
+                .offset
+                .wrapping_add(start.wrapping_sub(entry_start));
+            (*entry.as_ptr()).links.start = start;
+
+            let prev = (*entry.as_ptr()).links.prev;
+            if let Some(prev) = prev {
+                self.entry_link(prev, new_entry, link_gap);
+            }
+
+            if (*new_entry.as_ptr()).is_sub_map() {
+                let submap = NonNull::new_unchecked(
+                    (*new_entry.as_ptr()).object.sub_map,
+                );
+                VmMap::reference(submap);
+            } else {
+                vm_object_reference((*new_entry.as_ptr()).object.vm_object);
+            }
+        }
+    }
+
+    /// Split `entry` at `end`, leaving the back part in a new entry.
+    /// `_vm_map_clip_end()` in C.
+    ///
+    /// # Safety
+    ///
+    /// `entry` must be a live entry of this header, and `end` must lie
+    /// inside it.  The header's lock discipline is the caller's.
+    pub(crate) unsafe fn clip_end(
+        &mut self,
+        entry: NonNull<VmMapEntry>,
+        end: VmOffset,
+        link_gap: bool,
+    ) {
+        // SAFETY: the caller promises a live entry.
+        unsafe {
+            let new_entry = VmMapEntry::create();
+            // `vm_map_entry_copy_full()`.
+            ptr::copy_nonoverlapping(entry.as_ptr(), new_entry.as_ptr(), 1);
+
+            (*new_entry.as_ptr()).links.start = end;
+            (*entry.as_ptr()).links.end = end;
+            let entry_start = (*entry.as_ptr()).links.start;
+            (*new_entry.as_ptr()).offset = (*new_entry.as_ptr())
+                .offset
+                .wrapping_add(end.wrapping_sub(entry_start));
+
+            self.entry_link(entry, new_entry, link_gap);
+
+            if (*entry.as_ptr()).is_sub_map() {
+                let submap = NonNull::new_unchecked(
+                    (*new_entry.as_ptr()).object.sub_map,
+                );
+                VmMap::reference(submap);
+            } else {
+                vm_object_reference((*new_entry.as_ptr()).object.vm_object);
+            }
+        }
+    }
+
+    /// Unlink `entry` from the chain and the entry tree.
+    /// The `_vm_map_entry_unlink()` macro in C.
+    ///
+    /// # Safety
+    ///
+    /// `entry` must be linked in this header, and nothing else may
+    /// touch the header during the call.
+    pub(crate) unsafe fn entry_unlink(
+        &mut self,
+        entry: NonNull<VmMapEntry>,
+        unlink_gap: bool,
+    ) {
+        self.nentries = self.nentries.wrapping_sub(1);
+        // SAFETY: the caller promises the entry is linked.
+        unsafe {
+            let prev = (*entry.as_ptr()).links.prev;
+            let next = (*entry.as_ptr()).links.next;
+            if let Some(next) = next {
+                (*next.as_ptr()).links.prev = prev;
+            }
+            if let Some(prev) = prev {
+                (*prev.as_ptr()).links.next = next;
+            }
+
+            let node = NonNull::new_unchecked(addr_of_mut!(
+                (*entry.as_ptr()).tree_node
+            ));
+            self.tree.remove_node(node);
+
+            if unlink_gap {
+                self.gap_remove(entry);
+            }
+        }
+    }
+
+    /// Remove `entry`, then reinsert its predecessor with the merged
+    /// gap.  `vm_map_gap_remove()` in C.
+    fn gap_remove(&mut self, entry: NonNull<VmMapEntry>) {
+        self.gap_remove_single(entry);
+        // SAFETY: `entry` is a live entry, so its predecessor is.
+        let prev = unsafe { (*entry.as_ptr()).links.prev };
+        if let Some(prev) = prev {
+            self.gap_remove_single(prev);
+            self.gap_insert_single(prev);
+        }
+    }
+}
+
+impl VmMap {
+    /// The saved lookup hint.
+    fn hint(&self) -> *mut VmMapEntry {
+        // SAFETY: `hint` is written only under `hint_lock`; this is a
+        // snapshot, as the C `SAVE_HINT` readers take.
+        unsafe { *self.hint.get() }
+    }
+
+    /// Forget `entry`'s wiring.  `vm_map_entry_reset_wired()` in C.
+    fn entry_reset_wired(&mut self, entry: NonNull<VmMapEntry>) {
+        // SAFETY: `entry` is a live entry of this map.
+        unsafe {
+            if (*entry.as_ptr()).wired_count != 0 {
+                let size = (*entry.as_ptr())
+                    .links
+                    .end
+                    .wrapping_sub((*entry.as_ptr()).links.start);
+                self.size_wired = self.size_wired.wrapping_sub(size);
+                (*entry.as_ptr()).wired_count = 0;
+            }
+        }
+    }
+
+    /// Wait for `in_transition` to clear: sleep on the header address
+    /// with the map unlocked, as `vm_map_entry_wait()` in C does.  The
+    /// caller relocks.
+    fn entry_wait(&self) {
+        // SAFETY: the map belongs to this thread; sleeping on the
+        // header address is the C protocol.
+        unsafe {
+            assert_wait(
+                ptr::from_ref(&self.hdr).cast_mut().cast::<c_void>(),
+                0,
+            );
+        }
+    }
+
+    /// Deallocate `entry` from this map: unwire, remove its pmap
+    /// entries and its object reference, then unlink and free it.
+    /// `vm_map_entry_delete()` in C.
+    ///
+    /// # Safety
+    ///
+    /// `entry` must be linked in this map and the map write lock held.
+    pub(crate) unsafe fn entry_delete(&mut self, entry: NonNull<VmMapEntry>) {
+        // SAFETY: the caller promises a linked entry.
+        let (s, e, size) = unsafe {
+            let start = (*entry.as_ptr()).links.start;
+            let end = (*entry.as_ptr()).links.end;
+            (start, end, end.wrapping_sub(start))
+        };
+
+        // Check for a projected buffer: only a persistent kernel-map
+        // entry may be manipulated directly.
+        // SAFETY: the map is write-locked.
+        if ptr::from_mut(self).cast::<c_void>() != unsafe { kernel_map }
+            && !unsafe { (*entry.as_ptr()).projected_on.is_null() }
+        {
+            match unsafe { (*entry.as_ptr()).projection() } {
+                Projection::Entry(kernel_entry) => {
+                    let persistent =
+                        unsafe { (*kernel_entry.as_ptr()).projected_on }
+                            .is_null();
+                    if persistent {
+                        // Avoid an unwire fault.
+                        unsafe { (*entry.as_ptr()).wired_count = 0 };
+                    } else {
+                        return;
+                    }
+                }
+                // The non-persistent tag belongs to the kernel map,
+                // where this branch is not taken.
+                Projection::NonPersistent => return,
+                Projection::None => {}
+            }
+        }
+
+        // SAFETY: the entry is live and the map is locked.
+        let object = unsafe { (*entry.as_ptr()).object.vm_object };
+
+        if !object.is_null() {
+            // Unwire before removing addresses from the pmap;
+            // otherwise, unwiring puts the entries back.
+            if unsafe { (*entry.as_ptr()).wired_count } != 0 {
+                self.entry_reset_wired(entry);
+                // SAFETY: the map and the linked entry are valid.
+                unsafe {
+                    vm_fault_unwire(
+                        ptr::from_mut(self).cast::<c_void>(),
+                        entry.as_ptr().cast::<c_void>(),
+                    );
+                }
+            }
+
+            // If the object is shared, every reference to this data
+            // must go, since not all sharing pmaps can be found.
+            if object == unsafe { kernel_object } {
+                // SAFETY: the object is valid and the lock serializes
+                // its page table.
+                unsafe {
+                    vm_map_glue_object_lock(object);
+                    vm_object_page_remove(
+                        object,
+                        (*entry.as_ptr()).offset,
+                        (*entry.as_ptr()).offset.wrapping_add(size),
+                    );
+                    vm_map_glue_object_unlock(object);
+                }
+            } else if unsafe { (*entry.as_ptr()).is_shared() } {
+                // SAFETY: as above.
+                unsafe {
+                    vm_object_pmap_remove(
+                        object,
+                        (*entry.as_ptr()).offset,
+                        (*entry.as_ptr()).offset.wrapping_add(size),
+                    );
+                }
+            } else {
+                // SAFETY: the map is locked and the pmap valid.
+                unsafe { pmap_remove(self.pmap, s, e) };
+                // If this object has no pager and this is the only
+                // reference, the deleted pages can go now.
+                // SAFETY: the object lock guards its counters.
+                unsafe {
+                    vm_map_glue_object_lock(object);
+                    if vm_map_glue_object_can_release(object) != 0 {
+                        vm_object_page_remove(
+                            object,
+                            (*entry.as_ptr()).offset,
+                            (*entry.as_ptr()).offset.wrapping_add(size),
+                        );
+                    }
+                    vm_map_glue_object_unlock(object);
+                }
+            }
+        }
+
+        // Deallocate the object only after removing all pmap entries
+        // pointing to its pages.
+        // SAFETY: the entry holds the reference being dropped.
+        if unsafe { (*entry.as_ptr()).is_sub_map() } {
+            // SAFETY: the union member is a non-null submap pointer.
+            let submap = unsafe {
+                NonNull::new_unchecked((*entry.as_ptr()).object.sub_map)
+            };
+            VmMap::deallocate(submap);
+        } else {
+            unsafe { vm_object_deallocate(object) };
+        }
+
+        // SAFETY: the entry is linked and the map is locked.
+        unsafe {
+            self.hdr.entry_unlink(entry, true);
+        }
+        self.size = self.size.wrapping_sub(size);
+        if unsafe { (*entry.as_ptr()).max_protection } == VmProt::NONE {
+            self.size_none = self.size_none.wrapping_sub(size);
+        }
+        // SAFETY: the entry is now unlinked and unused.
+        unsafe { VmMapEntry::dispose(entry) };
+    }
+
+    /// Deallocate the given address range from this map.
+    /// `vm_map_delete()` in C.  The map lock must be held unless the
+    /// refcount is zero.
+    pub(crate) fn delete(
+        &mut self,
+        start: VmOffset,
+        end: VmOffset,
+    ) -> Result<(), Error> {
+        // SAFETY: `kernel_pmap`, `kernel_virtual_start` and
+        // `kernel_virtual_end` are boot globals.
+        if self.pmap == unsafe { kernel_pmap }
+            && (start < unsafe { kernel_virtual_start }
+                || end > unsafe { kernel_virtual_end })
+        {
+            // SAFETY: the C code halts here; the format has two
+            // arguments as the C does.
+            unsafe {
+                Panic(
+                    c"rust/src/vm/vm_map.rs".as_ptr(),
+                    line!() as c_int,
+                    c"VmMap::delete".as_ptr(),
+                    c"vm_map_delete(%lx-%lx) falls in physical memory area!\n"
+                        .as_ptr(),
+                    start,
+                    end,
+                )
+            };
+        }
+
+        let sentinel = self.to_entry();
+        let (found, first_entry) = self.lookup_entry(start);
+        let mut entry = if found {
+            // SAFETY: the entry is live and the map is locked.
+            unsafe { self.hdr.clip_start(first_entry, start, true) };
+            // Fix the lookup hint now, not on every loop step.
+            let prev = unsafe { (*first_entry.as_ptr()).links.prev };
+            if let Some(prev) = prev {
+                self.save_hint(prev);
+            }
+            first_entry
+        } else {
+            // SAFETY: the returned entry is the sentinel or live.
+            unsafe { (*first_entry.as_ptr()).links.next.unwrap_or(sentinel) }
+        };
+
+        // Save the free space hint.
+        let first_free = self.first_free_entry();
+        if unsafe { (*first_free.as_ptr()).links.start } >= start {
+            let prev = unsafe { (*entry.as_ptr()).links.prev };
+            if let Some(prev) = prev {
+                self.first_free = prev.as_ptr();
+            }
+        }
+
+        // SAFETY: every entry touched here is linked while the map
+        // lock is held.  The clip is the guarded `vm_map_clip_end()`
+        // macro: an entry that already ends at or before `end` is not
+        // split.
+        while !self.hdr.is_sentinel(entry)
+            && unsafe { (*entry.as_ptr()).links.start } < end
+        {
+            if end < unsafe { (*entry.as_ptr()).links.end } {
+                // SAFETY: the entry is live and the map is locked.
+                unsafe { self.hdr.clip_end(entry, end, true) };
+            }
+
+            // An entry in transition must be waited for; it can be
+            // clipped while the map is unlocked.
+            if unsafe { (*entry.as_ptr()).in_transition() } {
+                unsafe {
+                    (*entry.as_ptr()).set_needs_wakeup(true);
+                    self.entry_wait();
+                }
+                // SAFETY: the entry is live.
+                let map = NonNull::from(&mut *self);
+                VmMap::unlock(map);
+                // SAFETY: the C protocol sleeps with the map unlocked.
+                unsafe { thread_block(None) };
+                VmMap::lock(map);
+
+                // The entry may have been clipped or removed: look it
+                // up again.
+                let (found, looked) = self.lookup_entry(start);
+                entry = if found {
+                    looked
+                } else {
+                    // SAFETY: the returned entry is the sentinel or
+                    // live.
+                    unsafe {
+                        (*looked.as_ptr()).links.next.unwrap_or(sentinel)
+                    }
+                };
+                continue;
+            }
+
+            let next = unsafe { (*entry.as_ptr()).links.next };
+            // SAFETY: the entry is linked and the map is locked.
+            unsafe { self.entry_delete(entry) };
+            entry = next.unwrap_or(sentinel);
+        }
+
+        if self.wait_for_space() {
+            // SAFETY: the C code wakes the map address.
+            unsafe {
+                vm_map_glue_thread_wakeup(ptr::from_mut(self).cast::<c_void>())
+            };
+        }
+
+        Ok(())
+    }
+
+    /// Remove the given address range, clamping it to the map bounds
+    /// and taking the map lock.  `vm_map_remove()` in C.
+    pub(crate) fn remove(
+        &mut self,
+        start: VmOffset,
+        end: VmOffset,
+    ) -> Result<(), Error> {
+        let map = NonNull::from(&mut *self);
+        VmMap::lock(map);
+
+        let min = self.hdr.links.start;
+        let max = self.hdr.links.end;
+        let start = start.max(min);
+        let end = end.min(max);
+        let end = if start > end { start } else { end };
+
+        let result = self.delete(start, end);
+
+        VmMap::unlock(map);
+        result
+    }
+
+    /// Try to coalesce `entry` with its predecessor.
+    /// `vm_map_coalesce_entry()` in C.  The map lock must be held; a
+    /// coalesced entry is destroyed by the call.
+    ///
+    /// # Safety
+    ///
+    /// `entry` must be a live entry of this map.
+    pub(crate) unsafe fn coalesce_entry(
+        &mut self,
+        entry: NonNull<VmMapEntry>,
+    ) -> bool {
+        // SAFETY: the caller promises a live entry.
+        let Some(prev) = (unsafe { (*entry.as_ptr()).links.prev }) else {
+            return false;
+        };
+
+        // SAFETY: the caller promises live entries; the checks below
+        // only read them.
+        if self.hdr.is_sentinel(entry)
+            || self.hdr.is_sentinel(prev)
+            || unsafe { (*prev.as_ptr()).links.end }
+                != unsafe { (*entry.as_ptr()).links.start }
+            || unsafe { (*prev.as_ptr()).is_shared() }
+            || unsafe { (*entry.as_ptr()).is_shared() }
+            || unsafe { (*prev.as_ptr()).is_sub_map() }
+            || unsafe { (*entry.as_ptr()).is_sub_map() }
+            || unsafe { (*prev.as_ptr()).inheritance }
+                != unsafe { (*entry.as_ptr()).inheritance }
+            || unsafe { (*prev.as_ptr()).protection }
+                != unsafe { (*entry.as_ptr()).protection }
+            || unsafe { (*prev.as_ptr()).max_protection }
+                != unsafe { (*entry.as_ptr()).max_protection }
+            || unsafe { (*prev.as_ptr()).needs_copy() }
+                != unsafe { (*entry.as_ptr()).needs_copy() }
+            || unsafe { (*prev.as_ptr()).in_transition() }
+            || unsafe { (*entry.as_ptr()).in_transition() }
+            || unsafe { (*prev.as_ptr()).wired_count }
+                != unsafe { (*entry.as_ptr()).wired_count }
+            || !unsafe { (*prev.as_ptr()).projected_on.is_null() }
+            || !unsafe { (*entry.as_ptr()).projected_on.is_null() }
+        {
+            return false;
+        }
+
+        let prev_size = unsafe {
+            (*prev.as_ptr())
+                .links
+                .end
+                .wrapping_sub((*prev.as_ptr()).links.start)
+        };
+        let entry_size = unsafe {
+            (*entry.as_ptr())
+                .links
+                .end
+                .wrapping_sub((*entry.as_ptr()).links.start)
+        };
+
+        // See whether the two objects can be coalesced; the C passes
+        // the predecessor's fields as the out-parameters.
+        // SAFETY: both entries are live and the map is locked.
+        let coalesced = unsafe {
+            vm_object_coalesce(
+                (*prev.as_ptr()).object.vm_object,
+                (*entry.as_ptr()).object.vm_object,
+                (*prev.as_ptr()).offset,
+                (*entry.as_ptr()).offset,
+                prev_size,
+                entry_size,
+                addr_of_mut!((*prev.as_ptr()).object.vm_object),
+                addr_of_mut!((*prev.as_ptr()).offset),
+            )
+        };
+        if coalesced == 0 {
+            return false;
+        }
+
+        // Update the hints.
+        if self.hint() == entry.as_ptr() {
+            self.save_hint(prev);
+        }
+        if self.first_free_entry() == entry {
+            self.first_free = prev.as_ptr();
+        }
+
+        // Get rid of the entry without changing wirings or the pmap,
+        // and without altering the map size.
+        // SAFETY: both entries are live and the map is locked.
+        unsafe {
+            (*prev.as_ptr()).links.end = (*entry.as_ptr()).links.end;
+            self.hdr.entry_unlink(entry, true);
+        }
+        // SAFETY: the entry is now unlinked and unused.
+        unsafe { VmMapEntry::dispose(entry) };
+
+        true
     }
 }

@@ -11,7 +11,7 @@
 use crate::arch::types::{VmOffset, VmSize};
 use crate::vm::error::{KERN_SUCCESS, kern_return};
 use crate::vm::types::{Pmap, VmObject, VmProt};
-use crate::vm::vm_map::{VmMap, VmMapEntry, VmMapVersion};
+use crate::vm::vm_map::{VmMap, VmMapEntry, VmMapHeader, VmMapVersion};
 use core::ffi::{c_int, c_uint};
 use core::ptr::{self, NonNull};
 
@@ -229,4 +229,116 @@ pub unsafe extern "C" fn vm_map_msync(
     // SAFETY: the caller promises a valid map when non-null.
     let map = NonNull::new(map);
     kern_return(VmMap::msync(map, address, size, sync_flags))
+}
+
+/// Split an entry at the start of a range.  `_vm_map_clip_start()` in
+/// C.
+///
+/// # Safety
+///
+/// `map_header` must belong to a locked map or copy, `entry` must be
+/// a live entry of it, and `start` must lie inside the entry.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn _vm_map_clip_start(
+    map_header: *mut VmMapHeader,
+    entry: *mut VmMapEntry,
+    start: VmOffset,
+    link_gap: c_int,
+) {
+    // SAFETY: the caller promises a live entry and header.
+    unsafe {
+        (*map_header).clip_start(
+            NonNull::new_unchecked(entry),
+            start,
+            link_gap != 0,
+        )
+    };
+}
+
+/// Split an entry at the end of a range.  `_vm_map_clip_end()` in C.
+///
+/// # Safety
+///
+/// Same contract as `_vm_map_clip_start()`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn _vm_map_clip_end(
+    map_header: *mut VmMapHeader,
+    entry: *mut VmMapEntry,
+    end: VmOffset,
+    link_gap: c_int,
+) {
+    // SAFETY: the caller promises a live entry and header.
+    unsafe {
+        (*map_header).clip_end(
+            NonNull::new_unchecked(entry),
+            end,
+            link_gap != 0,
+        )
+    };
+}
+
+/// Deallocate one entry from a locked map.  `vm_map_entry_delete()` in
+/// C.
+///
+/// # Safety
+///
+/// `map` must be valid and write-locked, and `entry` a live entry of
+/// it.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_map_entry_delete(
+    map: *mut VmMap,
+    entry: *mut VmMapEntry,
+) {
+    // SAFETY: the caller promises a locked map and a linked entry.
+    unsafe { (*map).entry_delete(NonNull::new_unchecked(entry)) };
+}
+
+/// Deallocate a range from a map.  `vm_map_delete()` in C.
+///
+/// # Safety
+///
+/// `map` must be valid, locked unless its refcount is zero, and the
+/// range must be within its bounds.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_map_delete(
+    map: *mut VmMap,
+    start: VmOffset,
+    end: VmOffset,
+) -> c_int {
+    // SAFETY: the caller promises a valid map in the stated state.
+    kern_return(unsafe { (*map).delete(start, end) })
+}
+
+/// Remove a range from a map, clamping it and taking the lock.
+/// `vm_map_remove()` in C.
+///
+/// # Safety
+///
+/// `map` must be a valid, unlocked map.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_map_remove(
+    map: *mut VmMap,
+    start: VmOffset,
+    end: VmOffset,
+) -> c_int {
+    // SAFETY: the caller promises a valid, unlocked map.
+    kern_return(unsafe { (*map).remove(start, end) })
+}
+
+/// Try to coalesce an entry with its predecessor.
+/// `vm_map_coalesce_entry()` in C.
+///
+/// # Safety
+///
+/// `map` must be valid and write-locked, and `entry` a live entry of
+/// it.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_map_coalesce_entry(
+    map: *mut VmMap,
+    entry: *mut VmMapEntry,
+) -> c_int {
+    // SAFETY: the caller promises a locked map and a live entry.
+    let coalesced =
+        unsafe { (*map).coalesce_entry(NonNull::new_unchecked(entry)) };
+    c_int::from(coalesced)
 }
