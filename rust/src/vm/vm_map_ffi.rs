@@ -594,6 +594,66 @@ pub unsafe extern "C" fn vm_map_copyout(
     }
 }
 
+/// Copy a region of a map into a new copy object.
+/// `vm_map_copyin()` in C.
+///
+/// A zero-length copy is answered here with a null copy object, as
+/// the C does; the core does not model it.
+///
+/// # Safety
+///
+/// `src_map` must point at a valid, unlocked map and `copy_result` at
+/// writable storage for one copy pointer.  `vm_map_init()` must have
+/// initialized the copy cache, and the source region must be
+/// readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_map_copyin(
+    src_map: *mut VmMap,
+    src_addr: VmOffset,
+    len: VmSize,
+    src_destroy: c_int,
+    copy_result: *mut *mut VmMapCopy,
+) -> c_int {
+    if len == 0 {
+        // SAFETY: the caller promises writable storage.
+        unsafe { copy_result.write(ptr::null_mut()) };
+        return KERN_SUCCESS;
+    }
+    // SAFETY: the caller promises a valid, unlocked map.
+    let map = unsafe { &mut *src_map };
+    match map.copyin(src_addr, len, src_destroy != 0) {
+        Ok(copy) => {
+            // SAFETY: the caller promises writable storage.
+            unsafe { copy_result.write(copy.as_ptr()) };
+            KERN_SUCCESS
+        }
+        Err(error) => error.as_kern_return(),
+    }
+}
+
+/// Create a copy object around a donated object reference.
+/// `vm_map_copyin_object()` in C.
+///
+/// # Safety
+///
+/// `object` must be a live object whose reference the caller donates,
+/// and `copy_result` writable storage for one copy pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_map_copyin_object(
+    object: *mut VmObject,
+    offset: VmOffset,
+    size: VmSize,
+    copy_result: *mut *mut VmMapCopy,
+) -> c_int {
+    // SAFETY: the caller donates the reference and promises writable
+    // storage; `vm_map_init()` initialized the copy cache.
+    unsafe {
+        copy_result
+            .write(VmMapCopy::copyin_object(object, offset, size).as_ptr());
+    }
+    KERN_SUCCESS
+}
+
 /// Place a page-list copy into newly-allocated space in a map.
 /// `vm_map_copyout_page_list()` in C.
 ///

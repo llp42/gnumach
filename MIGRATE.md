@@ -1062,6 +1062,29 @@ lock) and probe `struct vm_object` (`can_coalesce`, `extend_size`);
 family, `vm_region`/`vm_region_create_proxy` and the caches; M6
 follows.
 
+M5d ports the copyin half.  `vm_map_copyin` is `VmMap::copyin`: the
+source map lock, the clip-and-verify loop, the temporary-object move
+and copy-on-write shortcuts, the two `vm_object_copy_*` strategies and
+the optional `vm_map_delete` are Rust now, with
+`vm_object_copy_slowly` and `vm_object_copy_strategically` behind new
+`glue.rs` declarations and `vm_map_glue_object_use_shared_copy` the
+one new `struct vm_object` probe.  The zero-length copy stays the
+adapter's, which answers it with a null copy object as the C does.
+`Error` gained `SendInterrupted`, because the object copy strategies
+under the copyin can return `MACH_SEND_INTERRUPTED`, which the C
+passed through verbatim.
+`vm_map_copyin_object` is `VmMapCopy::copyin_object`.  With the last C
+caller gone, `vm_map_copy_insert` is the private
+`VmMap::copy_insert`; `vm_map_fork` and the entry-list copyout call it
+directly, its C definition, prototype and glue declaration are gone,
+and it has its original internal linkage back.  The C helpers whose
+last caller was the copyin go with it:
+`_vm_map_entry_create`/`_vm_map_entry_dispose`, the entry copy macros,
+the entry link/unlink macros and their comparison and gap machinery.
+What remains in `vm/vm_map.c` is `vm_map_init`,
+`vm_map_copyin_page_list` with its continuation,
+`vm_region`/`vm_region_create_proxy` and the caches; M6 follows.
+
 ### ipc/ (18 files, 13,002 LOC)
 
 | File | LOC | Role | Friction | Blockers |

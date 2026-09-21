@@ -29,6 +29,10 @@ pub const KERN_NO_ACCESS: c_int = 8;
 pub const KERN_MEMORY_ERROR: c_int = 10;
 /// `KERN_WRITE_PROTECTION_FAILURE`.
 pub const KERN_WRITE_PROTECTION_FAILURE: c_int = 24;
+/// `MACH_SEND_INTERRUPTED` of <mach/message.h>: the pager wait an
+/// object copy performs was interrupted.  It reaches the VM map
+/// through `vm_object_copy_slowly`/`vm_object_copy_strategically`.
+pub const MACH_SEND_INTERRUPTED: c_int = 0x10000007;
 
 /// The errors the VM map can report, named as in
 /// `mach/kern_return.h`.
@@ -56,6 +60,10 @@ pub enum Error {
     /// `KERN_WRITE_PROTECTION_FAILURE`: the entry asks for
     /// `VM_PROT_NOTIFY` and the fault is a write.
     WriteProtectionFailure,
+    /// `MACH_SEND_INTERRUPTED`: an object copy waiting for a pager was
+    /// interrupted.  Not a VM error itself, but what
+    /// `vm_map_copyin` can receive from the copy strategies under it.
+    SendInterrupted,
 }
 
 impl Error {
@@ -72,6 +80,7 @@ impl Error {
             Error::NoAccess => KERN_NO_ACCESS,
             Error::MemoryError => KERN_MEMORY_ERROR,
             Error::WriteProtectionFailure => KERN_WRITE_PROTECTION_FAILURE,
+            Error::SendInterrupted => MACH_SEND_INTERRUPTED,
         }
     }
 }
@@ -97,6 +106,7 @@ pub const fn error_from_kern_return(code: c_int) -> Result<(), Error> {
         KERN_NO_ACCESS => Err(Error::NoAccess),
         KERN_MEMORY_ERROR => Err(Error::MemoryError),
         KERN_WRITE_PROTECTION_FAILURE => Err(Error::WriteProtectionFailure),
+        MACH_SEND_INTERRUPTED => Err(Error::SendInterrupted),
         _ => Err(Error::Failure),
     }
 }

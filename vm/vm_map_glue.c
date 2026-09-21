@@ -47,6 +47,7 @@ boolean_t vm_map_glue_object_needs_shadow(
 	boolean_t needs_copy,
 	boolean_t is_shared);
 boolean_t vm_map_glue_object_is_temporary(vm_object_t object);
+boolean_t vm_map_glue_object_use_shared_copy(vm_object_t object);
 void vm_map_glue_object_make_shared(vm_object_t object);
 void vm_map_glue_object_paging_begin(vm_object_t object);
 void vm_map_glue_object_paging_end(vm_object_t object);
@@ -178,6 +179,12 @@ boolean_t
 vm_map_glue_object_is_temporary(vm_object_t object)
 {
 	return object->temporary;
+}
+
+boolean_t
+vm_map_glue_object_use_shared_copy(vm_object_t object)
+{
+	return object->use_shared_copy;
 }
 
 boolean_t
