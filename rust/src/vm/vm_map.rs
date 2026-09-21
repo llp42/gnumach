@@ -905,6 +905,7 @@ impl VmMap {
         if wired {
             // The C makes the fault type the entry protection, so a
             // wired entry faults for everything it allows.
+            // SAFETY: the entry is live under the map lock.
             prot = unsafe { (*entry.as_ptr()).protection };
             fault_type = prot;
         }
@@ -1074,6 +1075,7 @@ impl VmMap {
 
         // The guarded `vm_map_clip_end()` macro: split only an entry
         // that extends past `end`.
+        // SAFETY: the entry is live under the map lock.
         if end < unsafe { (*entry.as_ptr()).links.end } {
             // SAFETY: `entry` is live and spans `end`; the map lock
             // keeps it stable.
@@ -3461,6 +3463,7 @@ impl VmMap {
 
                         // A shadow made for other than copy-on-write
                         // must take the write permission away.
+                        // SAFETY: the entry is live under the map lock.
                         if unsafe {
                             !(*old_entry.as_ptr()).needs_copy()
                                 && ((*old_entry.as_ptr()).protection
@@ -3482,6 +3485,7 @@ impl VmMap {
                                 );
                             }
                         }
+                        // SAFETY: the entry is live under the map lock.
                         unsafe { (*old_entry.as_ptr()).set_needs_copy(false) };
                         object =
                             unsafe { (*old_entry.as_ptr()).object.vm_object };
@@ -3503,6 +3507,8 @@ impl VmMap {
                 if unsafe { !(*old_entry.as_ptr()).projected_on.is_null() } {
                     unsafe { VmMapEntry::copy_full(new_entry, old_entry) };
                 } else {
+                    // SAFETY: both entries are live and `new_entry` is
+                    // unlinked storage.
                     unsafe {
                         VmMapEntry::copy(new_entry, old_entry);
                         (*old_entry.as_ptr()).set_shared(true);
@@ -3533,6 +3539,7 @@ impl VmMap {
                 }
 
                 new_size = new_size.wrapping_add(entry_size);
+                // SAFETY: the entry is live under the map lock.
                 if unsafe { (*old_entry.as_ptr()).max_protection }
                     == VmProt::NONE
                 {
@@ -3541,6 +3548,7 @@ impl VmMap {
             } else if inheritance == VmInherit::COPY {
                 let mut optimized = false;
 
+                // SAFETY: the entry is live under the map lock.
                 if unsafe { (*old_entry.as_ptr()).wired_count } == 0 {
                     // SAFETY: the entry cache is initialized and the
                     // map is locked.
@@ -3564,6 +3572,8 @@ impl VmMap {
                     };
 
                     if copied {
+                        // SAFETY: the entry is live under the map
+                        // lock.
                         if src_needs_copy != 0
                             && unsafe { !(*old_entry.as_ptr()).needs_copy() }
                         {
@@ -3587,11 +3597,14 @@ impl VmMap {
                                     .bits(),
                                 );
                             }
+                            // SAFETY: the entry is live under the map
+                            // lock.
                             unsafe {
                                 (*old_entry.as_ptr()).set_needs_copy(true)
                             };
                         }
 
+                        // SAFETY: `new_entry` is live and unlinked.
                         unsafe {
                             (*new_entry.as_ptr())
                                 .set_needs_copy(new_needs_copy != 0)
@@ -3609,6 +3622,7 @@ impl VmMap {
                         }
 
                         new_size = new_size.wrapping_add(entry_size);
+                        // SAFETY: the entry is live under the map lock.
                         if unsafe { (*old_entry.as_ptr()).max_protection }
                             == VmProt::NONE
                         {
@@ -3625,6 +3639,7 @@ impl VmMap {
                 if !optimized {
                     // The copy cannot be optimized; let `vm_map_copyin`
                     // build a chain and insert it.
+                    // SAFETY: the entry is live under the map lock.
                     let start = unsafe { (*old_entry.as_ptr()).links.start };
                     // SAFETY: `new_map` is private and unlocked.
                     let last = unsafe { (*new_map.as_ptr()).hdr.links.prev }
@@ -3655,6 +3670,8 @@ impl VmMap {
                         old_entry = if found {
                             looked
                         } else {
+                            // SAFETY: `looked` is a live entry or the
+                            // header.
                             unsafe { (*looked.as_ptr()).links.next }
                                 .unwrap_or(sentinel)
                         };
@@ -3692,6 +3709,8 @@ impl VmMap {
                         // The guarded `vm_map_clip_start()`; an entry
                         // that already starts at `next_start` is left
                         // alone.
+                        // SAFETY: `looked` contains `next_start` and
+                        // the map is locked.
                         unsafe {
                             (*old_map.as_ptr())
                                 .hdr
@@ -3699,6 +3718,8 @@ impl VmMap {
                         };
                         looked
                     } else {
+                        // SAFETY: `looked` is a live entry or the
+                        // header.
                         unsafe { (*looked.as_ptr()).links.next }
                             .unwrap_or(sentinel)
                     };
