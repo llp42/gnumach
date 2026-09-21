@@ -93,6 +93,52 @@ pub unsafe extern "C" fn vm_map_lookup_entry(
     c_int::from(found)
 }
 
+/// Find the object, offset and protection backing a virtual address.
+/// `vm_map_lookup()` in C.
+///
+/// # Safety
+///
+/// `var_map` must point at a valid map pointer and every out-pointer
+/// at writable storage.  On success the map is read-locked unless
+/// `keep_map_locked` is set (then it stays locked), and the returned
+/// object is locked; the caller releases both.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_map_lookup(
+    var_map: *mut *mut VmMap,
+    vaddr: VmOffset,
+    fault_type: VmProt,
+    keep_map_locked: c_int,
+    out_version: *mut VmMapVersion,
+    object: *mut *mut VmObject,
+    offset: *mut VmOffset,
+    out_prot: *mut VmProt,
+    wired: *mut c_int,
+) -> c_int {
+    // SAFETY: the caller promises a valid map pointer.
+    let mut map = unsafe { NonNull::new_unchecked(*var_map) };
+    match VmMap::lookup(&mut map, vaddr, fault_type, keep_map_locked != 0) {
+        Ok(result) => {
+            // SAFETY: the caller promises writable out-pointers.  The
+            // map pointer is updated even on a submap descent, which
+            // is what the C leaves behind.
+            unsafe {
+                *var_map = map.as_ptr();
+                (*out_version).main_timestamp = result.timestamp;
+                object.write(result.object);
+                offset.write(result.offset);
+                out_prot.write(result.protection);
+                wired.write(c_int::from(result.wired));
+            }
+            KERN_SUCCESS
+        }
+        Err(error) => {
+            // SAFETY: the caller promises a valid map pointer.
+            unsafe { *var_map = map.as_ptr() };
+            error.as_kern_return()
+        }
+    }
+}
+
 /// Allocate a range and an entry for it.  `vm_map_find_entry()` in C.
 ///
 /// # Safety

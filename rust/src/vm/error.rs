@@ -27,6 +27,8 @@ pub const KERN_RESOURCE_SHORTAGE: c_int = 6;
 pub const KERN_NO_ACCESS: c_int = 8;
 /// `KERN_MEMORY_ERROR`.
 pub const KERN_MEMORY_ERROR: c_int = 10;
+/// `KERN_WRITE_PROTECTION_FAILURE`.
+pub const KERN_WRITE_PROTECTION_FAILURE: c_int = 24;
 
 /// The errors the VM map can report, named as in
 /// `mach/kern_return.h`.
@@ -51,6 +53,9 @@ pub enum Error {
     NoAccess,
     /// `KERN_MEMORY_ERROR`.
     MemoryError,
+    /// `KERN_WRITE_PROTECTION_FAILURE`: the entry asks for
+    /// `VM_PROT_NOTIFY` and the fault is a write.
+    WriteProtectionFailure,
 }
 
 impl Error {
@@ -66,6 +71,7 @@ impl Error {
             Error::ResourceShortage => KERN_RESOURCE_SHORTAGE,
             Error::NoAccess => KERN_NO_ACCESS,
             Error::MemoryError => KERN_MEMORY_ERROR,
+            Error::WriteProtectionFailure => KERN_WRITE_PROTECTION_FAILURE,
         }
     }
 }
@@ -90,6 +96,7 @@ pub const fn error_from_kern_return(code: c_int) -> Result<(), Error> {
         KERN_RESOURCE_SHORTAGE => Err(Error::ResourceShortage),
         KERN_NO_ACCESS => Err(Error::NoAccess),
         KERN_MEMORY_ERROR => Err(Error::MemoryError),
+        KERN_WRITE_PROTECTION_FAILURE => Err(Error::WriteProtectionFailure),
         _ => Err(Error::Failure),
     }
 }

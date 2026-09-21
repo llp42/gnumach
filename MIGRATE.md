@@ -968,9 +968,17 @@ M3 adds the deletion and protection core: `_vm_map_clip_start`,
 Rust now, with the pageability scan, the protected-range pass, and
 the object cleanup through the new `vm_map_glue.c` shims
 (`vm_map_glue_object_lock/unlock/can_release`, thread wakeup).
-`VmMap::deallocate` calls the Rust delete directly.  What still
-remains in `vm/vm_map.c` is `vm_map_enter`, `vm_map_submap`, the
-`vm_map_fork`/`vm_map_lookup` pair, the copy family, `vm_region` and
+`VmMap::deallocate` calls the Rust delete directly.
+
+M4 ports the lookup and range-editing core.  It starts with
+`vm_map_lookup`: `VmMap::lookup` follows submaps, fixes up a
+copy-on-write or empty entry under the upgraded write lock, and
+returns the object locked with the map's timestamp.  The upgrade is
+`VmMap::lock_read_to_write`, which mirrors the
+`vm_map_lock_read_to_write()` macro's timestamp bump; `Error` grew
+`KERN_WRITE_PROTECTION_FAILURE` for a notified write fault.  What
+still remains in `vm/vm_map.c` is `vm_map_enter`, `vm_map_submap`,
+`vm_map_fork`, `vm_map_pmap_enter`, the copy family, `vm_region` and
 the module's caches and `vm_map_init`; their milestones follow.
 
 ### ipc/ (18 files, 13,002 LOC)

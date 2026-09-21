@@ -35,15 +35,16 @@ use crate::glue::{
     Panic, assert_wait, kernel_map, kernel_object, kernel_pmap,
     kernel_virtual_end, kernel_virtual_start, kmem_cache_alloc,
     kmem_cache_free, lock_clear_recursive, lock_done, lock_init, lock_read,
-    lock_set_recursive, lock_write, lock_write_to_read, pmap_destroy,
-    pmap_protect, pmap_remove, printf, projected_buffer_collect, thread_block,
-    vm_fault_unwire, vm_fault_wire, vm_map_cache, vm_map_entry_cache,
-    vm_map_glue_object_can_release, vm_map_glue_object_lock,
-    vm_map_glue_object_unlock, vm_map_glue_pmap_attribute,
-    vm_map_glue_privilege_dec, vm_map_glue_privilege_inc,
-    vm_map_glue_thread_wakeup, vm_object_allocate, vm_object_coalesce,
-    vm_object_deallocate, vm_object_page_remove, vm_object_pmap_remove,
-    vm_object_reference, vm_object_shadow, vm_page_mem_size,
+    lock_read_to_write, lock_set_recursive, lock_write, lock_write_to_read,
+    pmap_destroy, pmap_protect, pmap_remove, printf, projected_buffer_collect,
+    thread_block, vm_fault_unwire, vm_fault_wire, vm_map_cache,
+    vm_map_entry_cache, vm_map_glue_object_can_release,
+    vm_map_glue_object_lock, vm_map_glue_object_unlock,
+    vm_map_glue_pmap_attribute, vm_map_glue_privilege_dec,
+    vm_map_glue_privilege_inc, vm_map_glue_thread_wakeup, vm_object_allocate,
+    vm_object_coalesce, vm_object_deallocate, vm_object_page_remove,
+    vm_object_pmap_remove, vm_object_reference, vm_object_shadow,
+    vm_page_mem_size,
 };
 use crate::kern::list::{List, entry as list_entry};
 use crate::kern::lock::{LockData, SimpleLock};
@@ -795,6 +796,240 @@ impl VmMap {
         VmMap::unlock(map);
 
         error_from_kern_return(result)
+    }
+}
+
+/// The object, offset, protection and wiring a successful
+/// `vm_map_lookup()` reports, with the timestamp that validates it.
+pub(crate) struct VmMapLookup {
+    /// The object `vaddr` faults into, returned locked.
+    pub object: *mut VmObject,
+    /// Offset into `object`.
+    pub offset: VmOffset,
+    /// The effective protection.
+    pub protection: VmProt,
+    /// Whether the entry is wired.
+    pub wired: bool,
+    /// The map's timestamp at the time of the lookup.
+    pub timestamp: c_uint,
+}
+
+/// One locked pass of `vm_map_lookup()`: either it is done, it failed,
+/// it found a submap to descend into, or the read-to-write upgrade was
+/// lost and the caller must retry with no lock held.
+enum LookupAttempt {
+    /// The lookup succeeded with the map read-locked.
+    Found(VmMapLookup),
+    /// The lookup failed with the map read-locked.
+    Failed(Error),
+    /// The entry is a submap; the map is read-locked.
+    SubMap(NonNull<VmMap>),
+    /// The upgrade failed and released the read lock.
+    Retry,
+}
+
+impl VmMap {
+    /// Upgrade the map's read lock to a write lock, bumping the
+    /// timestamp as the `vm_map_lock_read_to_write()` macro does when
+    /// the upgrade succeeds.  Returns `true` if the lock must be
+    /// retried, in which case no lock is held.
+    fn lock_read_to_write(map: NonNull<VmMap>) -> bool {
+        // SAFETY: the caller holds the read lock; `lock_read_to_write`
+        // releases it whether or not the upgrade succeeds.
+        let failed = unsafe {
+            lock_read_to_write(addr_of_mut!((*map.as_ptr()).lock)) != 0
+        };
+        if !failed {
+            // SAFETY: the write lock is held, so the timestamp is
+            // exclusively ours; the macro's `map->timestamp++` wraps
+            // as an unsigned int.
+            unsafe {
+                let timestamp = addr_of_mut!((*map.as_ptr()).timestamp);
+                timestamp.write(timestamp.read().wrapping_add(1));
+            }
+        }
+        failed
+    }
+
+    /// One locked pass of `vm_map_lookup()`, without the submap loop.
+    /// On `Found` and `Failed` the map's read lock is still held; on
+    /// `Retry` it is not.
+    fn lookup_locked(
+        map: NonNull<VmMap>,
+        vaddr: VmOffset,
+        fault_type_in: VmProt,
+    ) -> LookupAttempt {
+        // SAFETY: the caller holds the map lock, so the entries are
+        // stable and no reference outlives it.
+        let this = unsafe { &*map.as_ptr() };
+
+        let (found, entry) = this.lookup_entry(vaddr);
+        if !found {
+            return LookupAttempt::Failed(Error::InvalidAddress);
+        }
+
+        // SAFETY: `entry` is a live entry of a locked map.
+        if unsafe { (*entry.as_ptr()).is_sub_map() } {
+            // SAFETY: a submap entry's union member is a live map.
+            let submap = unsafe {
+                NonNull::new_unchecked((*entry.as_ptr()).object.sub_map)
+            };
+            return LookupAttempt::SubMap(submap);
+        }
+
+        // SAFETY: the entry is live under the map lock.
+        let mut prot = unsafe { (*entry.as_ptr()).protection };
+
+        if !prot.contains(fault_type_in) {
+            return LookupAttempt::Failed(
+                if prot.contains(VmProt::NOTIFY)
+                    && fault_type_in.contains(VmProt::WRITE)
+                {
+                    Error::WriteProtectionFailure
+                } else {
+                    Error::ProtectionFailure
+                },
+            );
+        }
+
+        // SAFETY: as above.
+        let wired = unsafe { (*entry.as_ptr()).wired_count } != 0;
+        let mut fault_type = fault_type_in;
+        if wired {
+            // The C makes the fault type the entry protection, so a
+            // wired entry faults for everything it allows.
+            prot = unsafe { (*entry.as_ptr()).protection };
+            fault_type = prot;
+        }
+
+        // SAFETY: as above.
+        if unsafe { (*entry.as_ptr()).needs_copy() } {
+            if fault_type.contains(VmProt::WRITE) {
+                if VmMap::lock_read_to_write(map) {
+                    return LookupAttempt::Retry;
+                }
+                // The C bumps the timestamp once more after the macro;
+                // keep the extra bump it performs here.
+                // SAFETY: the write lock is held; the integer wraps.
+                unsafe {
+                    let timestamp = addr_of_mut!((*map.as_ptr()).timestamp);
+                    timestamp.write(timestamp.read().wrapping_add(1));
+                }
+
+                // SAFETY: the entry is live under the write lock and
+                // `vm_object_shadow` keeps the reference it replaces.
+                unsafe {
+                    vm_object_shadow(
+                        addr_of_mut!((*entry.as_ptr()).object.vm_object),
+                        addr_of_mut!((*entry.as_ptr()).offset),
+                        (*entry.as_ptr())
+                            .links
+                            .end
+                            .wrapping_sub((*entry.as_ptr()).links.start),
+                    );
+                    (*entry.as_ptr()).set_needs_copy(false);
+                }
+
+                // SAFETY: the write lock taken by the upgrade.
+                unsafe {
+                    lock_write_to_read(addr_of_mut!((*map.as_ptr()).lock))
+                };
+            } else {
+                // A read of a copy-on-write page must not be allowed
+                // to write.
+                prot &= VmProt::from_bits(!VmProt::WRITE.bits());
+            }
+        }
+
+        // SAFETY: the entry is live under the map lock.
+        if unsafe { (*entry.as_ptr()).object.vm_object }.is_null() {
+            if VmMap::lock_read_to_write(map) {
+                return LookupAttempt::Retry;
+            }
+
+            // SAFETY: the write lock is held; the entry is live.  The
+            // map lock keeps the new object's reference.
+            unsafe {
+                (*entry.as_ptr()).object.vm_object = vm_object_allocate(
+                    (*entry.as_ptr())
+                        .links
+                        .end
+                        .wrapping_sub((*entry.as_ptr()).links.start),
+                );
+                (*entry.as_ptr()).offset = 0;
+            }
+
+            // SAFETY: the write lock taken by the upgrade.
+            unsafe { lock_write_to_read(addr_of_mut!((*map.as_ptr()).lock)) };
+        }
+
+        // SAFETY: the entry is live under the lock.
+        let (object, offset, timestamp) = unsafe {
+            let e = &*entry.as_ptr();
+            (
+                e.object.vm_object,
+                vaddr.wrapping_sub(e.links.start).wrapping_add(e.offset),
+                (*map.as_ptr()).timestamp,
+            )
+        };
+
+        // The object cannot be null: the branch above allocates one.
+        // SAFETY: the map lock keeps the entry's reference alive, and
+        // the caller receives the object locked, as in C.
+        unsafe { vm_map_glue_object_lock(object) };
+
+        LookupAttempt::Found(VmMapLookup {
+            object,
+            offset,
+            protection: prot,
+            wired,
+            timestamp,
+        })
+    }
+
+    /// Find the object, offset and protection for `vaddr`, following
+    /// submaps.  `vm_map_lookup()` in C.
+    ///
+    /// On success the map in `var_map` is left read-locked when
+    /// `keep_map_locked` is set and unlocked otherwise; on failure it
+    /// is unlocked.  The returned object is locked.
+    pub(crate) fn lookup(
+        var_map: &mut NonNull<VmMap>,
+        vaddr: VmOffset,
+        fault_type: VmProt,
+        keep_map_locked: bool,
+    ) -> Result<VmMapLookup, Error> {
+        loop {
+            let map = *var_map;
+            // SAFETY: the caller owns the map for the call; the read
+            // lock keeps the entries stable.
+            unsafe { lock_read(addr_of_mut!((*map.as_ptr()).lock)) };
+
+            match VmMap::lookup_locked(map, vaddr, fault_type) {
+                LookupAttempt::Found(result) => {
+                    if !keep_map_locked {
+                        // SAFETY: the read lock taken above.
+                        unsafe {
+                            lock_done(addr_of_mut!((*map.as_ptr()).lock))
+                        };
+                    }
+                    return Ok(result);
+                }
+                LookupAttempt::Failed(error) => {
+                    // SAFETY: the read lock taken above.
+                    unsafe { lock_done(addr_of_mut!((*map.as_ptr()).lock)) };
+                    return Err(error);
+                }
+                LookupAttempt::SubMap(submap) => {
+                    // SAFETY: the read lock taken above.
+                    unsafe { lock_done(addr_of_mut!((*map.as_ptr()).lock)) };
+                    *var_map = submap;
+                }
+                // The failed upgrade released the read lock, so the
+                // next iteration takes it afresh.
+                LookupAttempt::Retry => {}
+            }
+        }
     }
 }
 

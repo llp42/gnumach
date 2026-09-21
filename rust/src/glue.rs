@@ -145,6 +145,7 @@ unsafe extern "C" {
     pub fn lock_read(lock: *mut LockData);
     pub fn lock_write(lock: *mut LockData);
     pub fn lock_done(lock: *mut LockData);
+    pub fn lock_read_to_write(lock: *mut LockData) -> c_int;
 
     // <kern/slab.h>.  `kmem_cache_alloc` returns the object address as
     // the C code does; the caller turns it into a pointer.
