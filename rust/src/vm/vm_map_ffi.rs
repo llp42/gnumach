@@ -371,6 +371,24 @@ pub unsafe extern "C" fn vm_map_remove(
     kern_return(unsafe { (*map).remove(start, end) })
 }
 
+/// Mark a range as handled by a subordinate map.
+/// `vm_map_submap()` in C.
+///
+/// # Safety
+///
+/// `map` and a non-null `submap` must be valid maps, and the caller
+/// must not hold the map's lock.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_map_submap(
+    map: *mut VmMap,
+    start: VmOffset,
+    end: VmOffset,
+    submap: *mut VmMap,
+) -> c_int {
+    // SAFETY: the caller promises a valid, unlocked map.
+    kern_return(unsafe { (*map).submap(start, end, submap) })
+}
+
 /// Try to coalesce an entry with its predecessor.
 /// `vm_map_coalesce_entry()` in C.
 ///

@@ -976,8 +976,13 @@ copy-on-write or empty entry under the upgraded write lock, and
 returns the object locked with the map's timestamp.  The upgrade is
 `VmMap::lock_read_to_write`, which mirrors the
 `vm_map_lock_read_to_write()` macro's timestamp bump; `Error` grew
-`KERN_WRITE_PROTECTION_FAILURE` for a notified write fault.  What
-still remains in `vm/vm_map.c` is `vm_map_enter`, `vm_map_submap`,
+`KERN_WRITE_PROTECTION_FAILURE` for a notified write fault.
+`vm_map_submap` followed, replacing a pristine `vm_submap_object`
+placeholder with the subordinate map through
+`vm_map_glue_object_is_pristine_submap()`, the first
+`struct vm_object` probe that will die with `vm/vm_object.c`; its
+`VM_MAP_RANGE_CHECK` was the macro's last C caller, so it went too.
+What still remains in `vm/vm_map.c` is `vm_map_enter`,
 `vm_map_fork`, `vm_map_pmap_enter`, the copy family, `vm_region` and
 the module's caches and `vm_map_init`; their milestones follow.
 

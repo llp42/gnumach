@@ -14,8 +14,9 @@
  * `thread_wakeup` is a macro over `thread_wakeup_prim()`; it goes when
  * the scheduler's wait/wake interface is callable from Rust.
  *
- * The object lock and page-release probes read `struct vm_object`,
- * which stays C until vm/vm_object.c moves; they go then.
+ * The object lock, the page-release probe and the submap-placeholder
+ * probe read `struct vm_object`, which stays C until vm/vm_object.c
+ * moves; they go then.
  */
 
 #include <kern/thread.h>
@@ -25,6 +26,7 @@
 
 void vm_map_glue_privilege_inc(void);
 void vm_map_glue_privilege_dec(void);
+boolean_t vm_map_glue_object_is_pristine_submap(vm_object_t object);
 kern_return_t vm_map_glue_pmap_attribute(
 	pmap_t pmap,
 	vm_offset_t address,
@@ -89,4 +91,13 @@ vm_map_glue_object_can_release(vm_object_t object)
 	return !object->pager_created &&
 	       object->ref_count == 1 &&
 	       object->paging_in_progress == 0;
+}
+
+boolean_t
+vm_map_glue_object_is_pristine_submap(vm_object_t object)
+{
+	return object->resident_page_count == 0 &&
+	       object->copy == VM_OBJECT_NULL &&
+	       object->shadow == VM_OBJECT_NULL &&
+	       !object->pager_created;
 }

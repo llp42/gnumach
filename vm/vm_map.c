@@ -972,81 +972,6 @@ MACRO_END
 		_vm_map_clip_end(&(copy)->cpy_hdr,(entry),(endaddr),0); \
 	MACRO_END
 
-
-/*
- *	VM_MAP_RANGE_CHECK:	[ internal use only ]
- *
- *	Asserts that the starting and ending region
- *	addresses fall within the valid range of the map.
- */
-#define	VM_MAP_RANGE_CHECK(map, start, end)		\
-		MACRO_BEGIN				\
-		if (start < vm_map_min(map))		\
-			start = vm_map_min(map);	\
-		if (end > vm_map_max(map))		\
-			end = vm_map_max(map);		\
-		if (start > end)			\
-			start = end;			\
-		MACRO_END
-
-/*
- *	vm_map_submap:		[ kernel use only ]
- *
- *	Mark the given range as handled by a subordinate map.
- *
- *	This range must have been created with vm_map_find using
- *	the vm_submap_object, and no other operations may have been
- *	performed on this range prior to calling vm_map_submap.
- *
- *	Only a limited number of operations can be performed
- *	within this rage after calling vm_map_submap:
- *		vm_fault
- *	[Don't try vm_map_copyin!]
- *
- *	To remove a submapping, one must first remove the
- *	range from the superior map, and then destroy the
- *	submap (if desired).  [Better yet, don't try it.]
- */
-kern_return_t vm_map_submap(
-	vm_map_t	map,
-	vm_offset_t	start,
-	vm_offset_t	end,
-	vm_map_t	submap)
-{
-	vm_map_entry_t		entry;
-	kern_return_t		result = KERN_INVALID_ARGUMENT;
-	vm_object_t		object;
-
-	vm_map_lock(map);
-
-	VM_MAP_RANGE_CHECK(map, start, end);
-
-	if (vm_map_lookup_entry(map, start, &entry)) {
-		vm_map_clip_start(map, entry, start);
-	}
-	 else
-		entry = entry->vme_next;
-
-	vm_map_clip_end(map, entry, end);
-
-	if ((entry->vme_start == start) && (entry->vme_end == end) &&
-	    (!entry->is_sub_map) &&
-	    ((object = entry->object.vm_object) == vm_submap_object) &&
-	    (object->resident_page_count == 0) &&
-	    (object->copy == VM_OBJECT_NULL) &&
-	    (object->shadow == VM_OBJECT_NULL) &&
-	    (!object->pager_created)) {
-		entry->object.vm_object = VM_OBJECT_NULL;
-		vm_object_deallocate(object);
-		entry->is_sub_map = TRUE;
-		vm_map_reference(entry->object.sub_map = submap);
-		result = KERN_SUCCESS;
-	}
-	vm_map_unlock(map);
-
-	return(result);
-}
-
 static void
 vm_map_entry_inc_wired(vm_map_t map, vm_map_entry_t entry)
 {
@@ -3729,9 +3654,10 @@ vm_region_create_proxy (task_t task, vm_address_t address,
 
 
 /*
- *	Routine:	vm_map_machine_attribute, vm_map_msync and
- *	vm_map_lookup live in rust/src/vm/vm_map_ffi.rs; their
- *	prototypes are unchanged in vm_map.h.
+ *	Routine:	vm_map_machine_attribute, vm_map_msync,
+ *	vm_map_lookup and vm_map_submap live in
+ *	rust/src/vm/vm_map_ffi.rs; their prototypes are unchanged in
+ *	vm_map.h.
  */
 
 

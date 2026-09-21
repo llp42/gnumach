@@ -39,12 +39,12 @@ use crate::glue::{
     pmap_destroy, pmap_protect, pmap_remove, printf, projected_buffer_collect,
     thread_block, vm_fault_unwire, vm_fault_wire, vm_map_cache,
     vm_map_entry_cache, vm_map_glue_object_can_release,
-    vm_map_glue_object_lock, vm_map_glue_object_unlock,
-    vm_map_glue_pmap_attribute, vm_map_glue_privilege_dec,
-    vm_map_glue_privilege_inc, vm_map_glue_thread_wakeup, vm_object_allocate,
-    vm_object_coalesce, vm_object_deallocate, vm_object_page_remove,
-    vm_object_pmap_remove, vm_object_reference, vm_object_shadow,
-    vm_page_mem_size,
+    vm_map_glue_object_is_pristine_submap, vm_map_glue_object_lock,
+    vm_map_glue_object_unlock, vm_map_glue_pmap_attribute,
+    vm_map_glue_privilege_dec, vm_map_glue_privilege_inc,
+    vm_map_glue_thread_wakeup, vm_object_allocate, vm_object_coalesce,
+    vm_object_deallocate, vm_object_page_remove, vm_object_pmap_remove,
+    vm_object_reference, vm_object_shadow, vm_page_mem_size, vm_submap_object,
 };
 use crate::kern::list::{List, entry as list_entry};
 use crate::kern::lock::{LockData, SimpleLock};
@@ -1030,6 +1030,91 @@ impl VmMap {
                 LookupAttempt::Retry => {}
             }
         }
+    }
+
+    /// Mark a range as handled by a subordinate map, replacing the
+    /// `vm_submap_object` placeholder it was entered with.
+    /// `vm_map_submap()` in C.
+    pub(crate) fn submap(
+        &mut self,
+        start_in: VmOffset,
+        end_in: VmOffset,
+        submap: *mut VmMap,
+    ) -> Result<(), Error> {
+        let map = NonNull::from(&mut *self);
+        VmMap::lock(map);
+
+        let mut start = start_in;
+        let mut end = end_in;
+        self.range_check(&mut start, &mut end);
+
+        // The C can return the header here when the map is empty and
+        // the range is the whole map, and then reads it as an entry.
+        // Rust cannot; the header is not a placeholder, so the result
+        // below is the same `KERN_INVALID_ARGUMENT` the C's failed
+        // comparison produces.
+        let sentinel = self.to_entry();
+        let (found, temp_entry) = self.lookup_entry(start);
+        let entry = if found {
+            // SAFETY: `temp_entry` contains `start`.
+            unsafe { self.hdr.clip_start_at(temp_entry, start, true) };
+            temp_entry
+        } else {
+            // SAFETY: `temp_entry` is the header or a live entry, so
+            // its `next` is live or the header.
+            unsafe { (*temp_entry.as_ptr()).links.next.unwrap_or(sentinel) }
+        };
+
+        // The guarded `vm_map_clip_end()` macro: split only an entry
+        // that extends past `end`.
+        if end < unsafe { (*entry.as_ptr()).links.end } {
+            // SAFETY: `entry` is live and spans `end`; the map lock
+            // keeps it stable.
+            unsafe { self.hdr.clip_end(entry, end, true) };
+        }
+
+        let mut result = Err(Error::InvalidArgument);
+
+        // SAFETY: `entry` is live and the map is locked.
+        if !self.hdr.is_sentinel(entry)
+            && start == unsafe { (*entry.as_ptr()).links.start }
+            && end == unsafe { (*entry.as_ptr()).links.end }
+            && !unsafe { (*entry.as_ptr()).is_sub_map() }
+        {
+            // SAFETY: the entry is live and not a submap, so the
+            // union's `vm_object` member is the one to read.
+            let object = unsafe { (*entry.as_ptr()).object.vm_object };
+            // SAFETY: `vm_submap_object` is the boot placeholder and
+            // is live for the life of the kernel.
+            if object == unsafe { vm_submap_object }
+                // SAFETY: the object is the placeholder just compared.
+                && unsafe {
+                    vm_map_glue_object_is_pristine_submap(object) != 0
+                }
+            {
+                // SAFETY: the map is write-locked and the entry is
+                // live.  The placeholder loses its reference, then the
+                // union member becomes the submap.
+                unsafe {
+                    (*entry.as_ptr()).object.vm_object = ptr::null_mut();
+                }
+                // SAFETY: the entry held the placeholder's reference.
+                unsafe { vm_object_deallocate(object) };
+                // SAFETY: as above.
+                unsafe { (*entry.as_ptr()).set_sub_map(true) };
+                // SAFETY: as above.
+                unsafe { (*entry.as_ptr()).object.sub_map = submap };
+                // `vm_map_reference()` ignores a null map, as its C
+                // original did.
+                if let Some(submap) = NonNull::new(submap) {
+                    VmMap::reference(submap);
+                }
+                result = Ok(());
+            }
+        }
+
+        VmMap::unlock(map);
+        result
     }
 }
 

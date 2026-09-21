@@ -185,6 +185,10 @@ unsafe extern "C" {
     pub fn vm_map_glue_object_lock(object: *mut VmObject);
     pub fn vm_map_glue_object_unlock(object: *mut VmObject);
     pub fn vm_map_glue_object_can_release(object: *mut VmObject) -> c_int;
+    pub fn vm_map_glue_object_is_pristine_submap(
+        object: *mut VmObject,
+    ) -> c_int;
+    pub static mut vm_submap_object: *mut VmObject;
 
     // <vm/vm_object.h> and <vm/pmap.h>: the object and pmap operations
     // the deletion path reaches.
