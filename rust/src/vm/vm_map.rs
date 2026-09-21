@@ -1476,9 +1476,10 @@ impl VmMapCopy {
     ///
     /// `copy` must be a live page-list copy the caller owns, with no
     /// null entry in its page list, and its `npages` must be at most
-    /// `VM_MAP_COPY_PAGE_LIST_MAX` (64), the bound `vm_map_copyin`
-    /// enforces in C (`vm/vm_map.c:2287`); a larger count read out of
-    /// bounds in C and panics in this indexing.
+    /// `VM_MAP_COPY_PAGE_LIST_MAX` (64), the bound
+    /// `vm_map_copyin_page_list` enforces in C (`vm/vm_map.c:1897`);
+    /// a larger count read out of bounds in C and panics in this
+    /// indexing.
     pub(crate) unsafe fn steal_pages(copy: NonNull<VmMapCopy>) {
         // SAFETY: the caller promises the PAGE_LIST variant.
         let pages = unsafe { VmMapCopy::page_list(copy) };
@@ -1543,9 +1544,9 @@ impl VmMapCopy {
     ///
     /// `copy` must be a live page-list copy the caller owns, and its
     /// `npages` must be at most `VM_MAP_COPY_PAGE_LIST_MAX` (64), the
-    /// bound `vm_map_copyin` enforces in C (`vm/vm_map.c:2287`); a
-    /// larger count read out of bounds in C and panics in this
-    /// indexing.
+    /// bound `vm_map_copyin_page_list` enforces in C
+    /// (`vm/vm_map.c:1897`); a larger count read out of bounds in C
+    /// and panics in this indexing.
     pub(crate) unsafe fn page_discard(copy: NonNull<VmMapCopy>) {
         // SAFETY: the caller promises the PAGE_LIST variant.
         let pages = unsafe { VmMapCopy::page_list(copy) };

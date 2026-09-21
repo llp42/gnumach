@@ -620,9 +620,10 @@ pub unsafe extern "C" fn vm_map_copy_copy(
 /// # Safety
 ///
 /// A non-null `copy` must be a live `ENTRY_LIST` copy the caller
-/// owns; on success it is consumed, on failure it is left alone.
-/// `dst_map` must be a valid, unlocked map, and the destination must
-/// lie inside it.
+/// owns; on success it is consumed, and on failure the caller still
+/// owns it, possibly with some entries already consumed (the C
+/// `vm_copy` discards it on error).  `dst_map` must be a valid,
+/// unlocked map, and the destination must lie inside it.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vm_map_copy_overwrite(
     dst_map: *mut VmMap,
