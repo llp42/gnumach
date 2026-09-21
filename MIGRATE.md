@@ -986,9 +986,16 @@ placeholder with the subordinate map through
 `struct vm_page` bitfields (`absent`, `busy`, `active`, `inactive`),
 the `PMAP_ENTER`/`PAGE_WAKEUP_DONE` macros and the object's paging
 in-progress count are one-line shims in `vm_map_glue.c` until
-`vm/vm_page.c` and `vm/vm_object.c` move.  Its two debugging switches
-stay C for now because `vm_map_enter` still reads `_enable`; they move
-with it.  What still remains in `vm/vm_map.c` is `vm_map_enter`,
+`vm/vm_page.c` and `vm/vm_object.c` move.  `vm_map_enter` is the
+largest slice: `EnterRequest` carries the C's eleven arguments,
+`VmMap::enter` owns the single unlock on every path, and the private
+`EnterOutcome` enum is the C's `RETURN`/`BailOut`.  It drives the Rust
+`find_entry_anywhere`, `enforce_limit`, `coalesce_entry`, `pageable`
+and `pmap_enter`, and the two pmap-enter debugging switches moved with
+it as `AtomicU32` statics that keep their C symbol names.
+`find_entry_anywhere` now validates the mask after taking the lock,
+closing the C path that returned unlocked to a caller whose cleanup
+unlocked again.  What still remains in `vm/vm_map.c` is
 `vm_map_fork`, the copy family, `vm_region` and the module's caches
 and `vm_map_init`; their milestones follow.
 

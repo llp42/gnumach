@@ -45,11 +45,10 @@ use crate::glue::{
     vm_map_glue_page_is_absent, vm_map_glue_page_set_busy,
     vm_map_glue_page_wakeup_done, vm_map_glue_pmap_attribute,
     vm_map_glue_pmap_enter, vm_map_glue_privilege_dec,
-    vm_map_glue_privilege_inc, vm_map_glue_thread_wakeup,
-    vm_map_pmap_enter_print, vm_object_allocate, vm_object_coalesce,
-    vm_object_deallocate, vm_object_page_remove, vm_object_pmap_remove,
-    vm_object_reference, vm_object_shadow, vm_page_lookup, vm_page_mem_size,
-    vm_submap_object,
+    vm_map_glue_privilege_inc, vm_map_glue_thread_wakeup, vm_object_allocate,
+    vm_object_coalesce, vm_object_deallocate, vm_object_page_remove,
+    vm_object_pmap_remove, vm_object_reference, vm_object_shadow,
+    vm_page_lookup, vm_page_mem_size, vm_submap_object,
 };
 use crate::kern::list::{List, entry as list_entry};
 use crate::kern::lock::{LockData, SimpleLock};
@@ -60,6 +59,7 @@ use core::cell::UnsafeCell;
 use core::ffi::{c_char, c_int, c_uint, c_void};
 use core::mem::{ManuallyDrop, offset_of, size_of};
 use core::ptr::{self, NonNull, addr_of_mut, with_exposed_provenance_mut};
+use core::sync::atomic::{AtomicU32, Ordering};
 
 /// `VM_MAP_COPY_PAGE_LIST_MAX`: pages a page-list copy carries inline.
 pub const VM_MAP_COPY_PAGE_LIST_MAX: usize = 64;
@@ -1165,9 +1165,9 @@ impl VmMap {
                 return;
             }
 
-            // SAFETY: the C global is written only by a debugger, so
-            // there is no ordering to respect.
-            if unsafe { vm_map_pmap_enter_print } != 0 {
+            // The switch is written only by a debugger, so a relaxed
+            // read is enough; nothing orders against it.
+            if VM_MAP_PMAP_ENTER_PRINT.load(Ordering::Relaxed) != 0 {
                 // SAFETY: `printf` only formats, and the map, object
                 // and offsets are live.
                 unsafe {
@@ -1662,6 +1662,15 @@ impl VmMap {
         let mut mask = mask_in;
         let mut max = self.hdr.links.end;
 
+        if !map_locked {
+            VmMap::lock(NonNull::from(&mut *self));
+        }
+
+        // The mask is validated after the lock is taken.  The C
+        // validated it before and could then return NULL with no lock
+        // held, which left `vm_map_enter`'s cleanup unlocking an
+        // unlocked map; with the lock held on every return the caller
+        // can unlock exactly once.
         if mask.wrapping_add(1) & mask != 0 {
             // We have high bits in addition to the low bits.  The C
             // uses the `int`-typed `__builtin_ffs`, which would be
@@ -1682,10 +1691,6 @@ impl VmMap {
             }
 
             mask = lowmask;
-        }
-
-        if !map_locked {
-            VmMap::lock(NonNull::from(&mut *self));
         }
 
         loop {
@@ -2975,5 +2980,338 @@ impl VmMap {
 
         VmMap::unlock(map);
         Ok(())
+    }
+}
+
+/// `vm_map_pmap_enter_print`: the debugging switch that prints each
+/// page the scan enters.  It is off unless a debugger sets it;
+/// relaxed, because nothing synchronizes with that writer.
+#[unsafe(export_name = "vm_map_pmap_enter_print")]
+static VM_MAP_PMAP_ENTER_PRINT: AtomicU32 = AtomicU32::new(0);
+
+/// `vm_map_pmap_enter_enable`: the debugging switch that lets
+/// `vm_map_enter` run the pmap scan over a new entry.  Relaxed, as
+/// above.
+#[unsafe(export_name = "vm_map_pmap_enter_enable")]
+static VM_MAP_PMAP_ENTER_ENABLE: AtomicU32 = AtomicU32::new(0);
+
+/// The mapping `vm_map_enter()` asks for.  The address is in/out and
+/// stays a reference so the anywhere path can write it back.
+pub(crate) struct EnterRequest<'a> {
+    /// The requested address, written on the anywhere path.
+    pub(crate) address: &'a mut VmOffset,
+    /// Size of the mapping; must be nonzero.
+    pub(crate) size: VmSize,
+    /// Alignment mask.
+    pub(crate) mask: VmOffset,
+    /// Whether the map chooses the address.
+    pub(crate) anywhere: bool,
+    /// The object to map, or null.
+    pub(crate) object: *mut VmObject,
+    /// Offset into `object`.
+    pub(crate) offset: VmOffset,
+    /// Whether the mapping is copy-on-write.
+    pub(crate) needs_copy: bool,
+    /// Protection of the new mapping.
+    pub(crate) cur_protection: VmProt,
+    /// Maximum protection.
+    pub(crate) max_protection: VmProt,
+    /// Inheritance.
+    pub(crate) inheritance: VmInherit,
+}
+
+/// The locked part of `vm_map_enter()`: the C's `RETURN`/`BailOut`
+/// paths.  The map is locked on every return, so the caller unlocks
+/// exactly once.
+enum EnterOutcome {
+    /// Nothing more to do; the C's `RETURN(KERN_SUCCESS)`.
+    Done,
+    /// A new entry covers `[start, end)`; the caller may run the pmap
+    /// scan after unlocking.
+    Entered {
+        /// The first address of the new range.
+        start: VmOffset,
+        /// The first address after it.
+        end: VmOffset,
+    },
+    /// The C's `BailOut`: report this error after unlocking.
+    Error(Error),
+}
+
+impl VmMap {
+    /// Enter a mapping, extending a neighbor or creating an entry
+    /// under the write lock.  `vm_map_enter()` in C.
+    ///
+    /// The outline mirrors the C's `RETURN`/`BailOut`: the locked
+    /// body reports what the caller must do after the single unlock.
+    pub(crate) fn enter(
+        &mut self,
+        mut request: EnterRequest,
+    ) -> Result<(), Error> {
+        if request.size == 0 {
+            return Err(Error::InvalidArgument);
+        }
+
+        // The C checks the mask before locking and returns without
+        // the `BailOut` cleanup; keep that one path lock-free.
+        if !request.anywhere && *request.address & request.mask != 0 {
+            return Err(Error::NoSpace);
+        }
+
+        let map = NonNull::from(&mut *self);
+        let outcome = self.enter_locked(&mut request);
+
+        VmMap::unlock(map);
+
+        match outcome {
+            EnterOutcome::Done => Ok(()),
+            EnterOutcome::Entered { start, end } => {
+                if !request.object.is_null()
+                    && VM_MAP_PMAP_ENTER_ENABLE.load(Ordering::Relaxed) != 0
+                    && !request.anywhere
+                    && !request.needs_copy
+                    && request.size < 128 * 1024
+                {
+                    self.pmap_enter(
+                        start,
+                        end,
+                        request.object,
+                        request.offset,
+                        request.cur_protection,
+                    );
+                }
+                Ok(())
+            }
+            EnterOutcome::Error(error) => Err(error),
+        }
+    }
+
+    /// The body of `vm_map_enter()` that runs with the map locked on
+    /// return.  The C's `RETURN` is `EnterOutcome::Done`, its
+    /// fall-through is `EnterOutcome::Entered`, and its `BailOut` is
+    /// `EnterOutcome::Error`.
+    fn enter_locked(&mut self, request: &mut EnterRequest) -> EnterOutcome {
+        let mut start = *request.address;
+
+        let (entry, next_entry, end) = if request.anywhere {
+            // `find_entry_anywhere` takes the map lock itself when
+            // `map_locked` is false and keeps it on every return.
+            let Some((entry, found)) =
+                self.find_entry_anywhere(request.size, request.mask, false)
+            else {
+                return EnterOutcome::Error(Error::NoSpace);
+            };
+            start = found;
+            let end = start.wrapping_add(request.size);
+            *request.address = start;
+            // SAFETY: `entry` is the header or a live entry of the
+            // locked map, and so is its next link.
+            let next_entry = unsafe { (*entry.as_ptr()).links.next }
+                .unwrap_or_else(|| self.to_entry());
+            (entry, next_entry, end)
+        } else {
+            let map = NonNull::from(&mut *self);
+            VmMap::lock(map);
+
+            let end = start.wrapping_add(request.size);
+
+            if start < self.hdr.links.start
+                || end > self.hdr.links.end
+                || start >= end
+            {
+                return EnterOutcome::Error(Error::InvalidAddress);
+            }
+
+            let (found, temp_entry) = self.lookup_entry(start);
+            if found {
+                return EnterOutcome::Error(Error::NoSpace);
+            }
+
+            let entry = temp_entry;
+            // SAFETY: `entry` is the header or a live entry of the
+            // locked map, and so is its next link.
+            let next_entry = unsafe { (*entry.as_ptr()).links.next }
+                .unwrap_or_else(|| self.to_entry());
+
+            if next_entry != self.to_entry()
+                && unsafe { (*next_entry.as_ptr()).links.start } < end
+            {
+                return EnterOutcome::Error(Error::NoSpace);
+            }
+
+            (entry, next_entry, end)
+        };
+
+        // The limit is checked on everything but an all-none mapping,
+        // whose `size_none` has not been accounted yet.
+        if request.max_protection != VmProt::NONE
+            && let Err(error) = self.enforce_limit(request.size)
+        {
+            return EnterOutcome::Error(error);
+        }
+
+        // See whether the preceding entry can absorb the range.
+        // SAFETY: `entry` is live under the map lock.
+        let extend_prev = !self.hdr.is_sentinel(entry)
+            && unsafe {
+                let before = &*entry.as_ptr();
+                before.links.end == start
+                    && !before.is_shared()
+                    && !before.is_sub_map()
+                    && !before.in_transition()
+                    && before.inheritance == request.inheritance
+                    && before.protection == request.cur_protection
+                    && before.max_protection == request.max_protection
+                    && before.wired_count == 0
+                    && before.projected_on.is_null()
+            };
+
+        if extend_prev {
+            // SAFETY: `entry` is live and the map is locked, so
+            // `vm_object_coalesce` may write both out-parameters.
+            let coalesced = unsafe {
+                let before = &mut *entry.as_ptr();
+                vm_object_coalesce(
+                    before.object.vm_object,
+                    request.object,
+                    before.offset,
+                    request.offset,
+                    before.links.end.wrapping_sub(before.links.start),
+                    request.size,
+                    addr_of_mut!(before.object.vm_object),
+                    addr_of_mut!(before.offset),
+                )
+            } != 0;
+
+            if coalesced {
+                self.size = self.size.wrapping_add(request.size);
+                if request.max_protection == VmProt::NONE {
+                    self.size_none = self.size_none.wrapping_add(request.size);
+                }
+                // SAFETY: `entry` is live and the map is locked.
+                unsafe { (*entry.as_ptr()).links.end = end };
+                self.hdr.gap_update(entry);
+                // SAFETY: the C attempts to coalesce the entry after
+                // the one just extended, which may be the header.
+                let _ = unsafe { self.coalesce_entry(next_entry) };
+                return EnterOutcome::Done;
+            }
+        }
+
+        // See whether the following entry can absorb the range.
+        // SAFETY: `next_entry` is the header or a live entry under the
+        // map lock.
+        let extend_next = !self.hdr.is_sentinel(next_entry)
+            && unsafe {
+                let after = &*next_entry.as_ptr();
+                after.links.start == end
+                    && !after.is_shared()
+                    && !after.is_sub_map()
+                    && !after.in_transition()
+                    && after.inheritance == request.inheritance
+                    && after.protection == request.cur_protection
+                    && after.max_protection == request.max_protection
+                    && after.wired_count == 0
+                    && after.projected_on.is_null()
+            };
+
+        if extend_next {
+            // SAFETY: `next_entry` is live and the map is locked, so
+            // `vm_object_coalesce` may write both out-parameters.
+            let coalesced = unsafe {
+                let after = &mut *next_entry.as_ptr();
+                vm_object_coalesce(
+                    request.object,
+                    after.object.vm_object,
+                    request.offset,
+                    after.offset,
+                    request.size,
+                    after.links.end.wrapping_sub(after.links.start),
+                    addr_of_mut!(after.object.vm_object),
+                    addr_of_mut!(after.offset),
+                )
+            } != 0;
+
+            if coalesced {
+                self.size = self.size.wrapping_add(request.size);
+                if request.max_protection == VmProt::NONE {
+                    self.size_none = self.size_none.wrapping_add(request.size);
+                }
+                // SAFETY: `next_entry` is live and the map is locked.
+                unsafe { (*next_entry.as_ptr()).links.start = start };
+                // The C updates the gap of the entry *before* the one
+                // it just grew.
+                self.hdr.gap_update(entry);
+                // SAFETY: the C attempts to coalesce the entry it just
+                // extended, which is still live.
+                let _ = unsafe { self.coalesce_entry(next_entry) };
+                return EnterOutcome::Done;
+            }
+        }
+
+        // Create a new entry.
+        // SAFETY: the entry cache is initialized and the map is
+        // locked.
+        let new_entry = unsafe { VmMapEntry::create() };
+        // SAFETY: the entry is freshly allocated and unlinked; every
+        // field is written before it is linked.
+        unsafe {
+            let e = new_entry.as_ptr();
+            (*e).links.start = start;
+            (*e).links.end = end;
+            (*e).set_shared(false);
+            (*e).set_sub_map(false);
+            (*e).object.vm_object = request.object;
+            (*e).offset = request.offset;
+            (*e).set_needs_copy(request.needs_copy);
+            (*e).inheritance = request.inheritance;
+            (*e).protection = request.cur_protection;
+            (*e).max_protection = request.max_protection;
+            (*e).wired_count = 0;
+            (*e).wired_access = VmProt::NONE;
+            (*e).set_in_transition(false);
+            (*e).set_needs_wakeup(false);
+            (*e).projected_on = ptr::null_mut();
+
+            self.hdr.entry_link(entry, new_entry, true);
+        }
+        self.size = self.size.wrapping_add(request.size);
+        if request.max_protection == VmProt::NONE {
+            self.size_none = self.size_none.wrapping_add(request.size);
+        }
+
+        // Update the free-space hint and the lookup hint.  The C
+        // measures the predecessor's end, or the map's start when it
+        // is the header.
+        if self.first_free == entry.as_ptr() {
+            let prev_end = if self.hdr.is_sentinel(entry) {
+                self.hdr.links.start
+            } else {
+                // SAFETY: `entry` is live under the map lock.
+                unsafe { (*entry.as_ptr()).links.end }
+            };
+            if prev_end >= start {
+                self.first_free = new_entry.as_ptr();
+            }
+        }
+
+        self.save_hint(new_entry);
+
+        if self.wiring_required() {
+            // A successful wiring returns with the map read-locked;
+            // the C still reports success when it fails.
+            let result = self.pageable(
+                start,
+                end,
+                request.cur_protection,
+                false,
+                false,
+            );
+            if result.is_err() {
+                return EnterOutcome::Done;
+            }
+        }
+
+        EnterOutcome::Entered { start, end }
     }
 }

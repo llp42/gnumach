@@ -201,10 +201,6 @@ unsafe extern "C" {
         protection: c_int,
     );
     pub static mut vm_submap_object: *mut VmObject;
-    // The `vm/vm_map.c` debugging switches; they move here when
-    // `vm_map_enter` does.
-    pub static mut vm_map_pmap_enter_print: c_int;
-    pub static mut vm_map_pmap_enter_enable: c_int;
 
     // <vm/vm_page.h>.
     pub fn vm_page_lookup(

@@ -11,7 +11,9 @@
 use crate::arch::types::{VmOffset, VmSize};
 use crate::vm::error::{KERN_SUCCESS, kern_return};
 use crate::vm::types::{Pmap, VmInherit, VmObject, VmProt};
-use crate::vm::vm_map::{VmMap, VmMapEntry, VmMapHeader, VmMapVersion};
+use crate::vm::vm_map::{
+    EnterRequest, VmMap, VmMapEntry, VmMapHeader, VmMapVersion,
+};
 use core::ffi::{c_int, c_uint};
 use core::ptr::{self, NonNull};
 
@@ -176,6 +178,44 @@ pub unsafe extern "C" fn vm_map_find_entry(
         }
         Err(error) => error.as_kern_return(),
     }
+}
+
+/// Enter a mapping into a map.  `vm_map_enter()` in C.
+///
+/// # Safety
+///
+/// `map` must be a valid map and `address` a writable slot the caller
+/// owns; `object`, when non-null, must be a valid object the caller
+/// holds a reference to.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_map_enter(
+    map: *mut VmMap,
+    address: *mut VmOffset,
+    size: VmSize,
+    mask: VmOffset,
+    anywhere: c_int,
+    object: *mut VmObject,
+    offset: VmOffset,
+    needs_copy: c_int,
+    cur_protection: VmProt,
+    max_protection: VmProt,
+    inheritance: VmInherit,
+) -> c_int {
+    // SAFETY: the caller promises a valid map and address slot.
+    kern_return(unsafe {
+        (*map).enter(EnterRequest {
+            address: &mut *address,
+            size,
+            mask,
+            anywhere: anywhere != 0,
+            object,
+            offset,
+            needs_copy: needs_copy != 0,
+            cur_protection,
+            max_protection,
+            inheritance,
+        })
+    })
 }
 
 /// Add a reference to a map, if it is not null.
