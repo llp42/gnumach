@@ -172,6 +172,111 @@ void test_vm_limit()
   ASSERT_RET(err, "deallocation failed");
 }
 
+static void test_region()
+{
+  kern_return_t err;
+  vm_address_t addr;
+  vm_address_t region_addr;
+  vm_size_t region_size;
+  vm_prot_t protection, max_protection;
+  vm_inherit_t inheritance;
+  boolean_t is_shared;
+  mach_port_t object_name;
+  vm_offset_t offset;
+
+  printf("vm_region describes an allocated page\n");
+  err = vm_allocate(mach_task_self(), &addr, PAGE_SIZE, TRUE);
+  ASSERT_RET(err, "allocating a page must succeed");
+
+  region_addr = addr;
+  region_size = 0;
+  protection = 0;
+  max_protection = 0;
+  inheritance = VM_INHERIT_NONE;
+  is_shared = TRUE;
+  object_name = MACH_PORT_NULL;
+  offset = 0;
+  err = vm_region(mach_task_self(), &region_addr, &region_size,
+                  &protection, &max_protection, &inheritance,
+                  &is_shared, &object_name, &offset);
+  ASSERT_RET(err, "vm_region of an allocated page must succeed");
+  ASSERT(region_addr <= addr,
+         "the reported region must contain the queried address");
+  ASSERT(addr + PAGE_SIZE <= region_addr + region_size,
+         "the reported region must cover the allocated page");
+  ASSERT(protection == VM_PROT_DEFAULT,
+         "a fresh allocation is readable and writeable");
+  ASSERT(max_protection == VM_PROT_ALL,
+         "a fresh allocation may take every protection");
+  ASSERT(inheritance == VM_INHERIT_DEFAULT,
+         "a fresh allocation uses the default inheritance");
+  ASSERT(!is_shared, "a fresh allocation is not shared");
+  if (object_name != MACH_PORT_NULL)
+    {
+      err = mach_port_deallocate(mach_task_self(), object_name);
+      ASSERT_RET(err, "deallocating the object name port");
+    }
+  err = vm_deallocate(mach_task_self(), addr, PAGE_SIZE);
+  ASSERT_RET(err, "deallocating the page must succeed");
+
+  /* With the lower page of a two-page allocation freed, the first
+     region above the freed address is the remaining page; that is the
+     call's containing-or-next contract. */
+  printf("vm_region reports the region after a hole\n");
+  err = vm_allocate(mach_task_self(), &addr, 2 * PAGE_SIZE, TRUE);
+  ASSERT_RET(err, "allocating two pages must succeed");
+  err = vm_deallocate(mach_task_self(), addr, PAGE_SIZE);
+  ASSERT_RET(err, "deallocating the first page must succeed");
+
+  region_addr = addr;
+  region_size = 0;
+  protection = 0;
+  max_protection = 0;
+  inheritance = VM_INHERIT_NONE;
+  is_shared = TRUE;
+  object_name = MACH_PORT_NULL;
+  offset = 0;
+  err = vm_region(mach_task_self(), &region_addr, &region_size,
+                  &protection, &max_protection, &inheritance,
+                  &is_shared, &object_name, &offset);
+  ASSERT_RET(err, "vm_region from a hole must succeed");
+  ASSERT(region_addr == addr + PAGE_SIZE,
+         "the region after the hole must start at the second page");
+  ASSERT(region_size >= PAGE_SIZE,
+         "the region after the hole must cover the second page");
+  ASSERT(protection == VM_PROT_DEFAULT,
+         "the remaining page keeps the allocation's protection");
+  ASSERT(max_protection == VM_PROT_ALL,
+         "the remaining page keeps the allocation's maximum");
+  ASSERT(inheritance == VM_INHERIT_DEFAULT,
+         "the remaining page keeps the allocation's inheritance");
+  ASSERT(!is_shared, "the remaining page is not shared");
+  if (object_name != MACH_PORT_NULL)
+    {
+      err = mach_port_deallocate(mach_task_self(), object_name);
+      ASSERT_RET(err, "deallocating the object name port");
+    }
+  err = vm_deallocate(mach_task_self(), addr + PAGE_SIZE, PAGE_SIZE);
+  ASSERT_RET(err, "deallocating the second page must succeed");
+
+  /* The map's last entry (the initial stack) ends at the map maximum,
+     so a query exactly there has no region at or above it. */
+  printf("vm_region reports KERN_NO_SPACE past the last region\n");
+  region_addr = VM_MAX_ADDRESS;
+  region_size = 0;
+  protection = 0;
+  max_protection = 0;
+  inheritance = VM_INHERIT_NONE;
+  is_shared = TRUE;
+  object_name = MACH_PORT_NULL;
+  offset = 0;
+  err = vm_region(mach_task_self(), &region_addr, &region_size,
+                  &protection, &max_protection, &inheritance,
+                  &is_shared, &object_name, &offset);
+  ASSERT(err == KERN_NO_SPACE,
+         "an address at the map end has no region at or above it");
+}
+
 static void test_machine_attribute()
 {
   kern_return_t err;
@@ -226,6 +331,7 @@ int main(int argc, char *argv[], int envc, char *envp[])
   printf("VM_MAX_ADDRESS=0x%p\n", VM_MAX_ADDRESS);
   test_wire();
   test_memobj();
+  test_region();
   test_vm_limit();
   test_machine_attribute();
   test_msync();

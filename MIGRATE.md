@@ -1467,7 +1467,7 @@ detail §4.1 gives the `kern/` files.
 * `i386/i386/spl.S` + `spl.h`/`ipl.h` — interrupt masking used by ~30
   files; implies RAII `Spl<Level>` guards over the asm symbols.
 * `ipc/mach_msg.c`, `ipc/ipc_kmsg.c`, `ipc/ipc_port.c`,
-  `ipc/ipc_right.c`, `vm/vm_map.c`, `vm/vm_object.c`,
+  `ipc/ipc_right.c`, `vm/vm_object.c`,
   `vm/vm_page.c`, `vm/vm_resident.c` — the IPC/VM cores; they gate the
   `kern/` IPC files and most of `device/`.
 * `i386/i386at/model_dep.c` — the boot order and `c_boot_entry`; the
@@ -1486,7 +1486,7 @@ msgid-only `.defs` (`kern/exc.defs`, `ipc/notify.defs`).
 `*.server.{h,c}` and `*.user.{h,c}` under `build-*/`.  The generated
 code calls hand-written definitions: `ipc/mach_port.c`,
 `device/ds_routines.c`, `device/dev_pager.c`, `vm/vm_user.c`,
-`vm/vm_map.c`, `vm/memory_object.c`, `vm/vm_debug.c`,
+`rust/src/vm/vm_map_ffi.rs`, `vm/memory_object.c`, `vm/vm_debug.c`,
 `ipc/mach_debug.c`, `i386/i386/{io_perm,user_ldt}.c`, and the trap
 bodies in `kern/ipc_mig.c` and `ipc/mach_msg.c`.  A Rust port replaces
 exactly one hand-written definition, with the exact prototype from the
@@ -1522,7 +1522,7 @@ Tier 3 — the lock/allocator/IPC layers (`rdxtree`, `slab`, `lock`,
 
 Tier 4 — the anchors (`thread`, `task`, `sched_prim`, `ipc_mig`,
 `exception`, `mach_clock`, `startup`, `bootstrap`, `printf` engine,
-`pmap`, `trap`, `pcb`, `vm_map`, `ipc_kmsg`, `mach_msg`).
+`pmap`, `trap`, `pcb`, `ipc_kmsg`, `mach_msg`).
 
 ## 7. Recommended phasing
 
@@ -1546,7 +1546,7 @@ Tier 4 — the anchors (`thread`, `task`, `sched_prim`, `ipc_mig`,
 * **Phase 4 — objects.**  `ipc_tt`/`ipc_host`/`host` conversions →
   `processor`/`machine` → `task` → `thread` (the state machines last).
 * **Phase 5 — IPC/VM/arch anchors.**  `ipc_kmsg`, `ipc_port`,
-  `mach_msg`, `vm_map`, `vm_page`, then `pmap`, `trap`, `pcb`,
+  `mach_msg`, `vm_page`, then `pmap`, `trap`, `pcb`,
   `startup`/`bootstrap`, then `printf`'s engine and the drivers.
 
 Exit criterion for every step is unchanged: both qemu architectures

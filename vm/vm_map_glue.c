@@ -10,7 +10,8 @@
  *
  * `pmap_attribute` is a macro on this machine (it is the constant
  * KERN_INVALID_ADDRESS), and `pmap_copy` is a no-op macro over the
- * pmap type, so Rust cannot declare either.
+ * pmap type, so Rust cannot declare either; the pair goes when
+ * i386/intel/pmap.c/pmap.h move.
  *
  * `thread_wakeup` is a macro over `thread_wakeup_prim()`; it goes when
  * the scheduler's wait/wake interface is callable from Rust.
