@@ -1922,12 +1922,14 @@ impl VmMapCopy {
             (*copy.as_ptr()).type_ = VM_MAP_COPY_OBJECT;
             (*copy.as_ptr()).offset = offset;
             (*copy.as_ptr()).size = size;
-            *VmMapCopy::object(copy) = object;
-            // The C zeroes both header link words here.  No OBJECT
-            // reader uses them, but a whole-struct copy carries them
-            // along.
+            // The C zeroes both header link words before donating the
+            // object.  `object` shares union offset 0 with `links.prev`,
+            // so it must be the last write to that word; the link words
+            // are otherwise unread for OBJECT copies, but a
+            // whole-struct copy carries them.
             (*VmMapCopy::header(copy).as_ptr()).links.prev = None;
             (*VmMapCopy::header(copy).as_ptr()).links.next = None;
+            *VmMapCopy::object(copy) = object;
         }
 
         copy
