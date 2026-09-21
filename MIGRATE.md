@@ -1597,7 +1597,7 @@ rbtree's; see §8.
 | `kern/rbtree.c` | `src/kern/rbtree.rs` | `9445e08b` … `e2b04831` |
 | `ipc/ipc_thread.c` | `src/ipc/ipc_thread.rs` | `417ba80a` |
 | `util/atoi.c` | `src/utils/atoi.rs` | `c289337f` |
-| `vm/vm_map.c` | `src/vm/vm_map.rs`, `src/vm/vm_map_ffi.rs` | `d32c7253` … `a8316eee` |
+| `vm/vm_map.c` | `src/vm/vm_map.rs`, `src/vm/vm_map_ffi.rs` | `d32c7253` … `170e6104` |
 
 Deleted dead code: `device/blkio.c` (unreachable block pager path) and
 the `#if 0` profiling facility (`profil.h`, `profilparam.h`,
