@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: CMU-Mach
-// Derived from include/mach/vm_prot.h, include/mach/vm_inherit.h and
-// i386/include/mach/i386/vm_param.h, with the opaque handles of
-// vm/pmap.h, vm/vm_object.h and vm/vm_page.h:
+// Derived from include/mach/vm_prot.h and include/mach/vm_inherit.h,
+// with the opaque handles of vm/pmap.h, vm/vm_object.h and vm/vm_page.h:
 //   Copyright (c) 1991,1990,1989,1988,1987 Carnegie Mellon University.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
@@ -9,17 +8,11 @@
 //! and the VM headers' opaque pointers.
 //!
 //! `vm_offset_t` and `vm_size_t` are `arch::types`', because they are
-//! pointer-sized and the machine decides.
+//! pointer-sized and the machine decides, and the page geometry is
+//! `arch::vm_param`'s for the same reason.
 
-use crate::arch::types::VmSize;
+pub(crate) use crate::arch::vm_param::{PAGE_MASK, PAGE_SHIFT, PAGE_SIZE};
 use core::ffi::c_int;
-
-/// `PAGE_SHIFT` of <machine/vm_param.h>: 12 on both x86 kernels.
-pub(crate) const PAGE_SHIFT: u32 = 12;
-/// `PAGE_SIZE`: one page.
-pub(crate) const PAGE_SIZE: VmSize = 1 << PAGE_SHIFT;
-/// `PAGE_MASK`: the in-page offset bits.
-pub(crate) const PAGE_MASK: VmSize = PAGE_SIZE - 1;
 
 /// `vm_prot_t` of <mach/vm_prot.h>: a set of bits.
 ///

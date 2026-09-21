@@ -12,11 +12,9 @@
 
 use crate::arch::i386::io_req::DevT;
 use crate::arch::types::VmOffset;
+use crate::arch::vm_param::PAGE_SHIFT;
 use crate::glue;
 use core::ffi::c_int;
-
-/// `I386_PGSHIFT` of <mach/i386/vm_param.h>: `i386_btop()` shifts by it.
-const I386_PGSHIFT: u32 = 12;
 
 /// `memmmap()` in C.
 ///
@@ -33,5 +31,6 @@ pub unsafe extern "C" fn memmmap(
     if unsafe { glue::biosmem_addr_available(off) } != 0 {
         return VmOffset::MAX;
     }
-    off >> I386_PGSHIFT
+    // i386_btop(): shift by I386_PGSHIFT.
+    off >> PAGE_SHIFT
 }

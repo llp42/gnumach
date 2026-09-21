@@ -5,3 +5,4 @@
 
 pub mod i386;
 pub mod types;
+pub mod vm_param;

@@ -17,6 +17,7 @@
 
 use super::*;
 use crate::arch::i386::io_req::{DevT, IoReq};
+use crate::arch::vm_param::PAGE_SHIFT;
 use crate::glue;
 use crate::kern::queue::QueueEntry;
 use core::ffi::{c_char, c_int, c_short, c_uint, c_void};
@@ -296,7 +297,7 @@ pub unsafe extern "C" fn kdmmap(
     }
     // i386_btop(): shift by I386_PGSHIFT.
     let base = super::kd().bitmap_start;
-    (base.wrapping_add(off)) >> 12
+    (base.wrapping_add(off)) >> PAGE_SHIFT
 }
 
 /// Clean up reply ports.  `kdportdeath()` in C.
