@@ -66,10 +66,9 @@ unsafe extern "C" {
     pub fn set_timeout(t: *mut Timeout, interval: c_uint);
     pub fn reset_timeout(t: *mut Timeout) -> c_int;
 
-    // <kern/ast.h>: `cause_ast_check()` is a function; `ast_on()` is a
-    // macro and comes through kern/ast_glue.c.
+    // <kern/ast.h>: `cause_ast_check()` is a function; the `ast_on()`
+    // family lives in rust/src/kern/ast.rs.
     pub fn cause_ast_check(processor: *mut Processor);
-    pub fn ast_on_cpu(cpu: c_int, reasons: usize);
 
     // <kern/sched_prim.c>: `unsigned sched_tick`, the second counter
     // priorities age against.

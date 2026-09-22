@@ -72,7 +72,6 @@ libkernel_a_SOURCES += \
 	kern/assert.h \
 	kern/ast.c \
 	kern/ast.h \
-	kern/ast_glue.c \
 	kern/atomic.h \
 	kern/boot_script.h \
 	kern/bootstrap.c \

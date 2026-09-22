@@ -23,6 +23,7 @@ use crate::arch::i386::percpu::{
     cpu_number, current_processor, current_thread,
 };
 use crate::glue;
+use crate::kern::ast::{AST_BLOCK, ast_on};
 use crate::kern::lock::SimpleLock;
 use crate::kern::processor::{
     NRQS, PROCESSOR_DISPATCHING, PROCESSOR_IDLE, PROCESSOR_OFF_LINE,
@@ -52,9 +53,6 @@ pub const THREAD_TIMED_OUT: c_int = 1;
 pub const THREAD_INTERRUPTED: c_int = 2;
 /// `THREAD_RESTART`: restart the operation entirely.
 pub const THREAD_RESTART: c_int = 3;
-
-/// `AST_BLOCK` in <kern/ast.h>: the scheduling AST reason.
-const AST_BLOCK: usize = 0x4;
 
 // The switch labels of the wait-state machines, named as the C writes
 // them.  They must be values, not or-patterns, so each one is folded
@@ -228,7 +226,7 @@ fn setrun(th: *mut Thread, may_preempt: bool) {
             {
                 // Turn off first_quantum to allow the context switch.
                 (*current_processor()).first_quantum = 0;
-                glue::ast_on_cpu(cpu_number(), AST_BLOCK);
+                ast_on(cpu_number(), AST_BLOCK);
             }
         } else {
             // Bound: it can only run on its processor, whose lock must
@@ -261,7 +259,7 @@ fn setrun(th: *mut Thread, may_preempt: bool) {
 
             // Cause an AST on the processor if it is on line.
             if processor == current_processor() {
-                glue::ast_on_cpu(cpu_number(), AST_BLOCK);
+                ast_on(cpu_number(), AST_BLOCK);
             } else if (*processor).state != PROCESSOR_OFF_LINE {
                 glue::cause_ast_check(processor);
             }
