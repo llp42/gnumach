@@ -6,6 +6,11 @@
 //! C *macros* cannot come through here; when Rust needs one, it gets a
 //! small C shim function beside the header that defines it, and that
 //! shim is declared below like any other C function.
+//!
+//! [`mig`] holds the conversions between the Rust error codes and the
+//! result codes the C side passes.
+
+pub mod mig;
 
 use crate::arch::types::{VmOffset, VmSize};
 use crate::kern::lock::{LockData, SimpleLock};

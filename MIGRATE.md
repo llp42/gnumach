@@ -44,7 +44,7 @@ and `*.user.c`.
    is self-contained, so there is no in-tree user-test source to keep
    in sync.
 6. `rust/src/` mirrors the C tree: `src/utils/`, `src/kern/`,
-   `src/arch/<arch>/`, with C-call shims in `src/glue.rs` and — for
+   `src/arch/<arch>/`, with C-call shims in `src/glue/` and — for
    macros, which cannot cross FFI — small C shim functions.
 
 ## 1. Friction scale
@@ -107,9 +107,10 @@ Distilled from the ports so far and `AGENTS.md`:
   `elf_load.rs` mirrors `exec_info_t` and `vm_prot_t` the same way.
 * **C shims for macros.**  `spl*`, `simple_lock`, `percpu_get`,
   `current_thread()`, `thread_wakeup*`, `__builtin_offsetof` queue ops
-  are macros or asm and cannot be declared in `glue.rs`; the first Rust
+  are macros or asm and cannot be declared in `glue`; the first Rust
   customer of each gets a one-line C shim beside the header that defines
-  it.  `glue.rs` today holds only `Panic` (`rust/src/glue.rs:9-16`).
+  it.  `glue` declares `Panic` and the C functions the ports call
+  (`rust/src/glue/mod.rs:30`).
 * **At atomics, be explicit.**  `__sync_synchronize` becomes
   `fence(SeqCst)`; the `xchg` interlock becomes
   `AtomicU32::swap(AcqRel)`; `kmutex`'s CAS keeps `Acquire`/`Release`
@@ -392,7 +393,7 @@ its entry below and the §9 table record what moved.
   path, `delay` (now Rust), `cpu_number`.  Locks are
   `simple_lock_irq`/`simple_unlock_irq` (`debug.c:65-94`).
 * **Blockers.** `Panic` is variadic and must stay the C symbol; the
-  Rust `#[panic_handler]` already calls it through `glue.rs`.  The
+  Rust `#[panic_handler]` already calls it through `glue`.  The
   canary symbols are referenced by compiler-generated code and cannot
   change name or size.
 * **Boundary / notes.** Port only the non-variadic state:
@@ -1093,7 +1094,7 @@ source map lock, the clip-and-verify loop, the temporary-object move
 and copy-on-write shortcuts, the two `vm_object_copy_*` strategies and
 the optional `vm_map_delete` are Rust now, with
 `vm_object_copy_slowly` and `vm_object_copy_strategically` behind new
-`glue.rs` declarations and `vm_map_glue_object_use_shared_copy` the
+`glue` declarations and `vm_map_glue_object_use_shared_copy` the
 one new `struct vm_object` probe.  The zero-length copy stays the
 adapter's, which answers it with a null copy object as the C does.
 `Error` gained `SendInterrupted`, because the object copy strategies
@@ -1252,7 +1253,7 @@ detail §4.1 gives the `kern/` files.
   the C side is seven adapters.
 * **Bridges.** `struct thread` is still C, so the module asks the new
   `ipc/ipc_thread_glue.c` for a view of the `ith_next`/`ith_prev` pair
-  (asserted adjacent in C); `glue.rs` declares the shim.
+  (asserted adjacent in C); `glue` declares the shim.
 * **Header.** `ipc_thread.h` keeps the struct and the prototypes only:
   every macro became a function, the dead `ipc_thread_queue_empty()`
   is gone, and the 18 former-macro call sites use the functions.
@@ -1348,7 +1349,7 @@ detail §4.1 gives the `kern/` files.
 * **Rust home.** `src/arch/i386/mem.rs`, shared by both x86 kernels.
   `memmmap()` keeps its name and signature; `mem.h` stays as the C
   declaration `conf.c`'s device switch sees.
-* **Bridges.** `biosmem_addr_available()` comes through `glue.rs`;
+* **Bridges.** `biosmem_addr_available()` comes through `glue`;
   `i386_btop()` is the shift by `I386_PGSHIFT` that `vm_param.h`
   defines.
 * **Tests.** No new test: `tests/test-kd-dev.c` opens `/dev/mem` and
@@ -1374,7 +1375,7 @@ detail §4.1 gives the `kern/` files.
 * **Rust home.** `src/arch/i386/kd_mouse.rs`, shared by both x86
   kernels.  Every name in `kd_mouse.h` is unchanged, and `kd.c`'s two
   direct uses (`mouse_in_use`, `mouse_handle_byte()`) stay exported.
-* **Bridges.** `glue.rs` declares the plain C functions: `splhi`/
+* **Bridges.** `glue` declares the plain C functions: `splhi`/
   `spltty`/`splx` (asm functions, not macros), `printf`, `wakeup`,
   `assert_wait`, `thread_block`, `iodone`, `device_read_alloc`,
   `ds_read_done`, `comgetc`, `kd_sendcmd`, `kd_cmdreg_write`,
@@ -1437,7 +1438,7 @@ detail §4.1 gives the `kern/` files.
   `phystokv()` are the shims in the new `i386/i386at/kd_glue.c`;
   `char_open`/`ttychars`/`ttyclose`/`tty_get_status`/`tty_set_status`/
   `tty_portdeath`/`tty_queue_completion`/`getc` and the `hz`/
-  `rebootflag` data come through `glue.rs`.
+  `rebootflag` data come through `glue`.
 * **`kd.c` is gone.** The file, its Makefrag entries and the five
   shims it briefly hosted (`kd_tty_rint`, `kd_tty_init`, `kd_phystokv`,
   `kd_rebootflag`, `kd_hz`) are deleted.
@@ -1597,7 +1598,7 @@ Tier 4 — the anchors (`thread`, `task`, `sched_prim`, `ipc_mig`,
 * **Phase 1 — the Rust platform.**  In one coherent push, add
   `src/arch/<arch>/` with per-CPU access and spl guards; a
   `SpinLock`/`IrqLock` `repr(transparent)` over the C `lock_data` word;
-  `glue.rs` declarations for `thread_sleep`/`thread_wakeup`,
+  `glue` declarations for `thread_sleep`/`thread_wakeup`,
   `kalloc`/`kmem_cache`, and `copyin`/`copyout`; and the `#[repr(C)]`
   mirror pattern with compile-time asserts for the first shared struct.
 * **Phase 2 — infrastructure.**  `rbtree` (ported), `timer`,

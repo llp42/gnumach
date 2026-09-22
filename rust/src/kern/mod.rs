@@ -14,3 +14,4 @@ pub mod rbtree;
 pub mod sched_prim;
 pub mod smp;
 pub mod thread;
+pub mod types;

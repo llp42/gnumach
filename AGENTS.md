@@ -260,7 +260,7 @@ the C file it came out of.
 - `rust/src/kern/` — machine-independent facilities, mirroring `kern/`.
 - `rust/src/ipc/`, `rust/src/vm/` — mirroring `ipc/` and `vm/`.
 - `rust/src/arch/<arch>/` — code written twice, for i686 and x86_64.
-- `rust/src/glue.rs` — the C functions Rust calls, declared with the C
+- `rust/src/glue/` — the C functions Rust calls, declared with the C
   signature exactly, inside an `unsafe extern "C"` block. A C *macro* cannot
   come through here: it needs a shim written in C, so that the C compiler
   still expands it with this build's configuration.
@@ -385,8 +385,8 @@ rediscovering them per port:
 The crate is edition 2024 and new code is written in its idiom.
 
 - **`unsafe extern "C" { ... }`.** Extern blocks are unsafe in 2024;
-  `rust/src/glue.rs` declares the C side inside one. A bare `extern "C" { }`
-  no longer compiles.
+  `rust/src/glue/mod.rs` declares the C side inside one. A bare
+  `extern "C" { }` no longer compiles.
 - **Unsafe attributes.** `#[unsafe(no_mangle)]`, `#[unsafe(export_name)]` and
   `#[unsafe(link_section)]` — the bare spellings are an error.
 - **`static_mut_refs` is a hard error.** Taking a reference to a `static mut`
@@ -1296,7 +1296,7 @@ Things that break the build, silently or confusingly, if forgotten.
   routines rather than `libmach-rs.a`, which is built for the kernel's
   target. Moving a routine they also contain changes only the kernel side;
   the pack is the ABI those binaries pin.
-- **A C macro cannot be declared in `glue.rs`.** `spl*`, `simple_lock`,
+- **A C macro cannot be declared in `glue/`.** `spl*`, `simple_lock`,
   `percpu_get`, `current_thread()` and `thread_wakeup*` are macros or assembly;
   the first Rust customer of each gets a one-line C shim beside the header
   that defines it, so the C compiler still expands it with this build's

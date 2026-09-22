@@ -19,7 +19,8 @@ MACH_RS_SRCS = \
 	rust/src/arch/i386/percpu.rs \
 	rust/src/arch/types.rs \
 	rust/src/arch/vm_param.rs \
-	rust/src/glue.rs \
+	rust/src/glue/mig.rs \
+	rust/src/glue/mod.rs \
 	rust/src/ipc/ipc_thread.rs \
 	rust/src/ipc/mod.rs \
 	rust/src/kern/ast.rs \
@@ -34,6 +35,7 @@ MACH_RS_SRCS = \
 	rust/src/kern/sched_prim.rs \
 	rust/src/kern/smp.rs \
 	rust/src/kern/thread.rs \
+	rust/src/kern/types.rs \
 	rust/src/lib.rs \
 	rust/src/panic.rs \
 	rust/src/utils/atoi.rs \
