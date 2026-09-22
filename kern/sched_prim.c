@@ -126,7 +126,7 @@ timeout_data_t	recompute_priorities_timer;
 #define NUMQUEUES	1031
 
 /* Shall be taken at splsched only */
-decl_simple_lock_data(static,	wait_lock[NUMQUEUES])	 /* Lock for... */
+decl_simple_lock_data(,	wait_lock[NUMQUEUES])	 /* Lock for... */
 queue_head_t		wait_queue[NUMQUEUES];
 
 /* NOTE: we want a small positive integer out of this */
@@ -159,18 +159,6 @@ void sched_init(void)
 }
 
 /*
- *	Thread timeout routine, called when timer expires.
- *	Called at splsoftclock.
- */
-static void thread_timeout(
-	void *_thread)
-{
-	thread_t thread = _thread;
-
-	clear_wait(thread, THREAD_TIMED_OUT, FALSE);
-}
-
-/*
  *	thread_set_timeout:
  *
  *	Set a timer for the current thread, if the thread
@@ -193,274 +181,6 @@ void thread_set_timeout(
 	splx(s);
 }
 
-/*
- * Set up thread timeout element when thread is created.
- */
-void thread_timeout_setup(
-	thread_t	thread)
-{
-	thread->timer.fcn = thread_timeout;
-	thread->timer.param = thread;
-	thread->timer.set = 0;
-	thread->depress_timer.fcn = (void (*)(void*))thread_depress_timeout;
-	thread->depress_timer.param = thread;
-	thread->depress_timer.set = 0;
-}
-
-/*
- *	assert_wait:
- *
- *	Assert that the current thread is about to go to
- *	sleep until the specified event occurs.
- */
-void assert_wait(
-	event_t		event,
-	boolean_t	interruptible)
-{
-	queue_t			q;
-	int			index;
-	thread_t		thread;
-	decl_simple_lock_data( , *lock);
-	spl_t			s;
-
-	thread = current_thread();
-	if (thread->wait_event != 0) {
-		panic("assert_wait: already asserted event %p\n",
-		      thread->wait_event);
-	}
- 	s = splsched();
-	if (event != 0) {
-		index = wait_hash(event);
-		q = &wait_queue[index];
-		lock = &wait_lock[index];
-		_simple_lock(lock);
-		_simple_lock(&(thread)->lock);
-		enqueue_tail(q, &(thread->links));
-		thread->wait_event = event;
-		if (interruptible)
-			thread->state |= TH_WAIT;
-		else
-			thread->state |= TH_WAIT | TH_UNINT;
-		_simple_unlock(&(thread)->lock);
-		_simple_unlock(lock);
-	}
-	else {
-		_simple_lock(&(thread)->lock);
-		if (interruptible)
-			thread->state |= TH_WAIT;
-		else
-			thread->state |= TH_WAIT | TH_UNINT;
-		_simple_unlock(&(thread)->lock);
-	}
-	splx(s);
-}
-
-/*
- *	clear_wait:
- *
- *	Clear the wait condition for the specified thread.  Start the thread
- *	executing if that is appropriate.
- *
- *	parameters:
- *	  thread		thread to awaken
- *	  result		Wakeup result the thread should see
- *	  interrupt_only	Don't wake up the thread if it isn't
- *				interruptible.
- */
-void clear_wait(
-	thread_t		thread,
-	int			result,
-	boolean_t		interrupt_only)
-{
-	int			index;
-	queue_t			q;
-	decl_simple_lock_data( , *lock);
-	event_t			event;
-	spl_t			s;
-
-	s = splsched();
-	_simple_lock(&(thread)->lock);
-	if (interrupt_only && (thread->state & TH_UNINT)) {
-		/*
-		 *	can`t interrupt thread
-		 */
-		_simple_unlock(&(thread)->lock);
-		splx(s);
-		return;
-	}
-
-	event = thread->wait_event;
-	if (event != 0) {
-		_simple_unlock(&(thread)->lock);
-		index = wait_hash(event);
-		q = &wait_queue[index];
-		lock = &wait_lock[index];
-		_simple_lock(lock);
-		/*
-		 *	If the thread is still waiting on that event,
-		 *	then remove it from the list.  If it is waiting
-		 *	on a different event, or no event at all, then
-		 *	someone else did our job for us.
-		 */
-		_simple_lock(&(thread)->lock);
-		if (thread->wait_event == event) {
-			remqueue(q, (queue_entry_t)thread);
-			thread->wait_event = 0;
-			event = 0;		/* cause to run below */
-		}
-		_simple_unlock(lock);
-	}
-	if (event == 0) {
-		int	state = thread->state;
-
-		reset_timeout_check(&thread->timer);
-
-		switch (state & TH_SCHED_STATE) {
-		    case	  TH_WAIT | TH_SUSP | TH_UNINT:
-		    case	  TH_WAIT	    | TH_UNINT:
-		    case	  TH_WAIT:
-			/*
-			 *	Sleeping and not suspendable - put
-			 *	on run queue.
-			 */
-			thread->state = (state &~ TH_WAIT) | TH_RUN;
-			thread->wait_result = result;
-			thread_setrun(thread, TRUE);
-			break;
-
-		    case	  TH_WAIT | TH_SUSP:
-		    case TH_RUN | TH_WAIT:
-		    case TH_RUN | TH_WAIT | TH_SUSP:
-		    case TH_RUN | TH_WAIT	    | TH_UNINT:
-		    case TH_RUN | TH_WAIT | TH_SUSP | TH_UNINT:
-			/*
-			 *	Either already running, or suspended.
-			 */
-			thread->state = state &~ TH_WAIT;
-			thread->wait_result = result;
-			break;
-
-		    default:
-			/*
-			 *	Not waiting.
-			 */
-			break;
-		}
-	}
-	_simple_unlock(&(thread)->lock);
-	splx(s);
-}
-
-#define state_panic(thread)						\
-  panic ("thread %p has unexpected state %x (%s%s%s%s%s%s%s%s)",	\
-	 thread, thread->state,						\
-	 thread->state & TH_WAIT ? "TH_WAIT|" : "",			\
-	 thread->state & TH_SUSP ? "TH_SUSP|" : "",			\
-	 thread->state & TH_RUN ? "TH_RUN|" : "",			\
-	 thread->state & TH_UNINT ? "TH_UNINT|" : "",			\
-	 thread->state & TH_HALTED ? "TH_HALTED|" : "",			\
-	 thread->state & TH_IDLE ? "TH_IDLE|" : "",			\
-	 thread->state & TH_SWAPPED ? "TH_SWAPPED|" : "",		\
-	 thread->state & TH_SW_COMING_IN ? "TH_SW_COMING_IN|" : "")
-
-/*
- *	thread_wakeup_prim:
- *
- *	Common routine for thread_wakeup, thread_wakeup_with_result,
- *	and thread_wakeup_one.
- *
- */
-boolean_t thread_wakeup_prim(
-	event_t		event,
-	boolean_t	one_thread,
-	int		result)
-{
-	queue_t			q;
-	int			index;
-	boolean_t woke = FALSE;
-	thread_t		thread, next_th;
-	decl_simple_lock_data( , *lock);
-	spl_t			s;
-	int			state;
-
-	index = wait_hash(event);
-	q = &wait_queue[index];
-	s = splsched();
-	lock = &wait_lock[index];
-	_simple_lock(lock);
-	thread = (thread_t) queue_first(q);
-	while (!queue_end(q, (queue_entry_t)thread)) {
-		next_th = (thread_t) queue_next((queue_t) thread);
-
-		if (thread->wait_event == event) {
-			_simple_lock(&(thread)->lock);
-			remqueue(q, (queue_entry_t) thread);
-			thread->wait_event = 0;
-			reset_timeout_check(&thread->timer);
-
-			state = thread->state;
-			switch (state & TH_SCHED_STATE) {
-
-			    case	  TH_WAIT | TH_SUSP | TH_UNINT:
-			    case	  TH_WAIT	    | TH_UNINT:
-			    case	  TH_WAIT:
-				/*
-				 *	Sleeping and not suspendable - put
-				 *	on run queue.
-				 */
-				thread->state = (state &~ TH_WAIT) | TH_RUN;
-				thread->wait_result = result;
-				thread_setrun(thread, TRUE);
-				break;
-
-			    case	  TH_WAIT | TH_SUSP:
-			    case TH_RUN | TH_WAIT:
-			    case TH_RUN | TH_WAIT | TH_SUSP:
-			    case TH_RUN | TH_WAIT	    | TH_UNINT:
-			    case TH_RUN | TH_WAIT | TH_SUSP | TH_UNINT:
-				/*
-				 *	Either already running, or suspended.
-				 */
-				thread->state = state &~ TH_WAIT;
-				thread->wait_result = result;
-				break;
-
-			    default:
-				state_panic(thread);
-				break;
-			}
-			_simple_unlock(&(thread)->lock);
-			woke = TRUE;
-			if (one_thread)
-				break;
-		}
-		thread = next_th;
-	}
-	_simple_unlock(lock);
-	splx(s);
-	return (woke);
-}
-
-/*
- *	thread_sleep:
- *
- *	Cause the current thread to wait until the specified event
- *	occurs.  The specified lock is unlocked before releasing
- *	the cpu.  (This is a convenient way to sleep without manually
- *	calling assert_wait).
- *
- *	Note: if the event may be woken from an interrupt handler, this must be
- *	called at an spl level that prevents such interrupts.
- */
-void thread_sleep(
-	event_t		event,
-	simple_lock_t	lock,
-	boolean_t	interruptible)
-{
-	assert_wait(event, interruptible);	/* assert event */
-	simple_unlock(lock);			/* release the lock */
-	thread_block(thread_no_continuation);	/* block ourselves */
-}
 
 /*
  *	thread_bind:
@@ -589,6 +309,18 @@ static thread_t thread_select(
 
 	return thread;
 }
+
+#define state_panic(thread)						\
+  panic ("thread %p has unexpected state %x (%s%s%s%s%s%s%s%s)",	\
+	 thread, thread->state,						\
+	 thread->state & TH_WAIT ? "TH_WAIT|" : "",			\
+	 thread->state & TH_SUSP ? "TH_SUSP|" : "",			\
+	 thread->state & TH_RUN ? "TH_RUN|" : "",			\
+	 thread->state & TH_UNINT ? "TH_UNINT|" : "",			\
+	 thread->state & TH_HALTED ? "TH_HALTED|" : "",			\
+	 thread->state & TH_IDLE ? "TH_IDLE|" : "",			\
+	 thread->state & TH_SWAPPED ? "TH_SWAPPED|" : "",		\
+	 thread->state & TH_SW_COMING_IN ? "TH_SW_COMING_IN|" : "")
 
 /*
  *	Stop running the current thread and start running the new thread.
@@ -878,72 +610,6 @@ void thread_run(
 	splx(s);
 }
 
-/*
- *	Dispatches a running thread that is not	on a runq.
- *	Called at splsched.
- */
-
-void thread_dispatch(
-	thread_t	thread)
-{
-	/*
-	 *	If we are discarding the thread's stack, we must do it
-	 *	before the thread has a chance to run.
-	 */
-
-	_simple_lock(&(thread)->lock);
-
-	if (thread->swap_func != thread_no_continuation) {
-		thread->state |= TH_SWAPPED;
-		stack_free(thread);
-	}
-
-	switch (thread->state &~ TH_SWAP_STATE) {
-	    case TH_RUN		  | TH_SUSP:
-	    case TH_RUN		  | TH_SUSP | TH_HALTED:
-	    case TH_RUN | TH_WAIT | TH_SUSP:
-		/*
-		 *	Suspend the thread
-		 */
-		thread->state &= ~TH_RUN;
-		if (thread->wake_active) {
-		    thread->wake_active = FALSE;
-		    _simple_unlock(&(thread)->lock);
-		    thread_wakeup(TH_EV_WAKE_ACTIVE(thread));
-		    return;
-		}
-		break;
-
-	    case TH_RUN		  | TH_SUSP | TH_UNINT:
-	    case TH_RUN			    | TH_UNINT:
-	    case TH_RUN:
-		/*
-		 *	No reason to stop.  Put back on a run queue.
-		 */
-		thread_setrun(thread, FALSE);
-		break;
-
-	    case TH_RUN | TH_WAIT | TH_SUSP | TH_UNINT:
-	    case TH_RUN | TH_WAIT	    | TH_UNINT:
-	    case TH_RUN | TH_WAIT:
-		/*
-		 *	Waiting, and not suspended.
-		 */
-		thread->state &= ~TH_RUN;
-		break;
-
-	    case TH_RUN | TH_IDLE:
-		/*
-		 *	Drop idle thread -- it is already in
-		 *	idle_thread_array.
-		 */
-		break;
-
-	    default:
-		state_panic(thread);
-	}
-	_simple_unlock(&(thread)->lock);
-}
 
 
 /*
@@ -1154,113 +820,6 @@ void update_priority(
 	    _simple_unlock(&(rq)->lock);						\
 	MACRO_END
 #endif	/* DEBUG */
-/*
- *	thread_setrun:
- *
- *	Make thread runnable; dispatch directly onto an idle processor
- *	if possible.  Else put on appropriate run queue (processor
- *	if bound, else processor set.  Caller must have lock on thread.
- *	This is always called at splsched.
- */
-
-void thread_setrun(
-	thread_t		th,
-	boolean_t		may_preempt)
-{
-	processor_t	processor;
-	run_queue_t	rq;
-	processor_set_t	pset;
-
-	/*
-	 *	Update priority if needed.
-	 */
-	if (th->sched_stamp != sched_tick) {
-		update_priority(th);
-	}
-
-
-	/*
-	 *	Try to dispatch the thread directly onto an idle processor.
-	 */
-	if ((processor = th->bound_processor) == PROCESSOR_NULL) {
-	    /*
-	     *	Not bound, any processor in the processor set is ok.
-	     */
-	    pset = th->processor_set;
-
-	    if (pset->idle_count > 0) {
-		_simple_lock(&pset->idle_lock);
-		if (pset->idle_count > 0) {
-		    processor = (processor_t) queue_first(&pset->idle_queue);
-		    queue_remove_generic(&(pset->idle_queue), processor,
-			__builtin_offsetof(typeof(*processor),
-					   processor_queue));
-		    pset->idle_count--;
-		    processor->next_thread = th;
-		    processor->state = PROCESSOR_DISPATCHING;
-		    _simple_unlock(&pset->idle_lock);
-		    if (processor != current_processor())
-			cause_ast_check(processor);
-		    return;
-		}
-		_simple_unlock(&pset->idle_lock);
-	    }
-	    rq = &(pset->runq);
-	    run_queue_enqueue(rq,th);
-	    /*
-	     * Preempt check
-	     */
-	    if (may_preempt &&
-#if	MACH_HOST
-		(pset == current_processor()->processor_set) &&
-#endif	/* MACH_HOST */
-		(current_thread()->sched_pri > th->sched_pri)) {
-			/*
-			 *	Turn off first_quantum to allow csw.
-			 */
-			current_processor()->first_quantum = FALSE;
-			ast_on(cpu_number(), AST_BLOCK);
-	    }
-	}
-	else {
-	    /*
-	     *	Bound, can only run on bound processor.  Have to lock
-	     *  processor here because it may not be the current one.
-	     */
-	    if (processor != PROCESSOR_NULL && processor->state == PROCESSOR_IDLE) {
-		simple_lock(&(processor)->lock);
-		pset = processor->processor_set;
-		_simple_lock(&pset->idle_lock);
-		if (processor->state == PROCESSOR_IDLE) {
-		    queue_remove_generic(&pset->idle_queue, processor,
-			__builtin_offsetof(typeof(*processor),
-					   processor_queue));
-		    pset->idle_count--;
-		    processor->next_thread = th;
-		    processor->state = PROCESSOR_DISPATCHING;
-		    _simple_unlock(&pset->idle_lock);
-		    simple_unlock(&(processor)->lock);
-		    if (processor != current_processor())
-			cause_ast_check(processor);
-		    return;
-		}
-		_simple_unlock(&pset->idle_lock);
-		simple_unlock(&(processor)->lock);
-	    }
-	    rq = &(processor->runq);
-	    run_queue_enqueue(rq,th);
-
-	    /*
-	     *	Cause ast on processor if processor is on line.
-	     */
-	    if (processor == current_processor()) {
-		ast_on(cpu_number(), AST_BLOCK);
-	    }
-	    else if ((processor->state != PROCESSOR_OFF_LINE)) {
-		cause_ast_check(processor);
-	    }
-	}
-}
 
 /*
  *	set_pri:

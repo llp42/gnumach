@@ -6,6 +6,9 @@
 pub mod elf_load;
 pub mod list;
 pub mod lock;
+pub mod processor;
 pub mod queue;
 pub mod rbtree;
+pub mod sched_prim;
 pub mod smp;
+pub mod thread;

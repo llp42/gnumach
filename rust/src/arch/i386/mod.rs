@@ -9,3 +9,4 @@ pub mod kd_event;
 pub mod kd_mouse;
 pub mod mbinfo;
 pub mod mem;
+pub mod percpu;

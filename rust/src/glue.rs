@@ -8,11 +8,19 @@
 //! shim is declared below like any other C function.
 
 use crate::arch::types::{VmOffset, VmSize};
-use crate::kern::lock::LockData;
+use crate::kern::lock::{LockData, SimpleLock};
+use crate::kern::processor::Processor;
+use crate::kern::queue::QueueEntry;
+use crate::kern::sched_prim::NUMQUEUES;
+use crate::kern::thread::{Thread, Timeout};
 use crate::vm::types::{Pmap, VmObject, VmPage, VmProt};
 use core::ffi::{c_char, c_int, c_short, c_uint, c_void};
 
-// `panic()` in <kern/debug.h> is a macro over `Panic()`.
+// The raw pointers below are to `#[repr(C)]` mirrors.  `QueueEntry`
+// ends in the zero-sized `PhantomPinned` marker, which the FFI lint
+// treats as poison even behind a pointer; the C side passes the same
+// pointers, and every layout is asserted in its own module.
+#[expect(improper_ctypes)]
 unsafe extern "C" {
     pub fn Panic(
         file: *const c_char,
@@ -44,6 +52,35 @@ unsafe extern "C" {
     pub fn wakeup(channel: VmOffset);
     pub fn assert_wait(event: *mut c_void, interruptible: c_int);
     pub fn thread_block(continuation: Option<unsafe extern "C" fn()>);
+    // The C half of the scheduler still owns these; the Rust port
+    // calls them.
+    pub fn update_priority(thread: *mut Thread);
+    pub fn stack_free(thread: *mut Thread);
+
+    // <kern/syscall_subr.h>: the priority-depression timeout, stored
+    // in `thread.depress_timer.fcn`.
+    pub fn thread_depress_timeout(thread: *mut c_void);
+
+    // <kern/mach_clock.h>: the wait timeout, set under the thread
+    // lock.
+    pub fn set_timeout(t: *mut Timeout, interval: c_uint);
+    pub fn reset_timeout(t: *mut Timeout) -> c_int;
+
+    // <kern/ast.h>: `cause_ast_check()` is a function; `ast_on()` is a
+    // macro and comes through kern/ast_glue.c.
+    pub fn cause_ast_check(processor: *mut Processor);
+    pub fn ast_on_cpu(cpu: c_int, reasons: usize);
+
+    // <kern/sched_prim.c>: `unsigned sched_tick`, the second counter
+    // priorities age against.
+    pub static mut sched_tick: c_uint;
+
+    // <kern/sched_prim.c>: the event hash table.  `wait_queue_init()`
+    // stays C and builds these; the Rust port hashes exactly as
+    // `wait_hash()` does.  `wait_lock` was `static` in C and is
+    // exported for the port.
+    pub static mut wait_queue: [QueueEntry; NUMQUEUES];
+    pub static mut wait_lock: [SimpleLock; NUMQUEUES];
 
     // <device/ds_routines.h>, the request passed as an opaque handle:
     // `struct io_req` itself belongs to its driver.
@@ -53,6 +90,7 @@ unsafe extern "C" {
 
     // <machine/spl.h>: asm functions, `SPLKD` is a macro over `spltty`.
     pub fn splhi() -> c_int;
+    pub fn splsched() -> c_int;
     pub fn spltty() -> c_int;
     pub fn splsoftclock() -> c_int;
     pub fn splx(level: c_int) -> c_int;

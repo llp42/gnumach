@@ -177,7 +177,9 @@ from §2.
 | `exception.c` | 974 | 32 | L5+L6 | **5** | `src/kern/exception.rs` |
 
 `rbtree.c` has since been ported; its entry below and the §9 table
-are current.
+are current.  `sched_prim.c` is partly ported: the wait/wake
+primitives, `thread_dispatch` and `thread_setrun` are Rust now, and
+its entry below and the §9 table record what moved.
 
 ### 4.1 Detailed entries
 
@@ -832,10 +834,20 @@ are current.
   slices: `task_ras_control`, `task_set_name`, `task_set_essential`,
   `task_get_assignment`, `task_priority`.
 
-#### `kern/sched_prim.c` — 1912 lines — friction 5/5
+#### `kern/sched_prim.c` — 1912 lines — friction 5/5 — partly ported
 * **Role.** Scheduler core: wait-event hash, wakeup/clear-wait, run
   queues, `thread_invoke`/`thread_block`/`thread_run`, priority/aging,
   idle and scheduler threads, stuck-thread scan.
+* **Ported so far.** The wait/wake primitives (`thread_timeout`,
+  `thread_timeout_setup`, `assert_wait`, `clear_wait`,
+  `thread_wakeup_prim`, `thread_sleep`), `thread_dispatch` and
+  `thread_setrun`, with `wait_hash` byte-identical and the state
+  transitions copied line for line.  The `struct thread` mirror is
+  full (`src/kern/thread.rs`), as are the processor and run-queue
+  mirrors (`src/kern/processor.rs`) and the `%gs` accessors
+  (`src/arch/i386/percpu.rs`).  `wait_queue`/`wait_lock` stay C and are
+  reached as externs (`wait_lock` lost its `static`); `state_panic`
+  stays a C macro for `thread_invoke`, and Rust has its own copy.
 * **Exports/data.** ~35: `sched_init`, `assert_wait`, `clear_wait`,
   `thread_sleep`, `thread_wakeup_prim`, `thread_invoke`,
   `thread_block`, `thread_run`, `thread_set_timeout`, `thread_setrun`,
@@ -851,8 +863,8 @@ are current.
   bootstrap, arch context-switch entry points (`switch_context`,
   `call_continuation`, `stack_handoff`, `machine_idle`,
   `MARK_CPU_IDLE/ACTIVE`) and per-CPU/spl.
-* **Blockers.** L1 thread/runq/processor layout, L2 locks/spl/percpu,
-  L6 context-switch and continuation ABI.
+* **Blockers (the rest).** L6 context-switch and continuation ABI;
+  `thread_invoke`'s swap hand-off and `machine_idle` paths.
 * **Boundary / notes.** The idle loop's `volatile` reads of
   `next_thread`/`runq.count` (`:1526-1527`) must stay `read_volatile`;
   `wait_shift` arithmetic wraps and `wait_hash` must be identical or
@@ -1642,6 +1654,7 @@ rbtree's; see §8.
 | `vm/vm_external.c` | `src/vm/vm_external.rs` | `727275e7` |
 | `vm/vm_init.c` | `src/vm/vm_init.rs` | `727275e7` |
 | `vm/vm_map.c` | `src/vm/vm_map.rs`, `src/vm/vm_map_ffi.rs` | `d32c7253` … `170e6104` |
+| `kern/sched_prim.c` (wait/wake, `thread_dispatch`, `thread_setrun`) | `src/kern/sched_prim.rs` + `src/kern/thread.rs`, `src/kern/processor.rs`, `src/arch/i386/percpu.rs` | `(uncommitted)` |
 
 Deleted dead code: `device/blkio.c` (unreachable block pager path) and
 the `#if 0` profiling facility (`profil.h`, `profilparam.h`,
