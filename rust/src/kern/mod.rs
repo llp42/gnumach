@@ -7,6 +7,7 @@ pub mod ast;
 pub mod elf_load;
 pub mod list;
 pub mod lock;
+pub mod mach_clock;
 pub mod processor;
 pub mod queue;
 pub mod rbtree;

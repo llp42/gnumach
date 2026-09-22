@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: CMU-Mach
-// Derived from kern/ast.h and kern/ast.c:
+// Derived from kern/ast.h:
 //   Copyright (c) 1991,1990,1989 Carnegie Mellon University.
+//   Copyright (c) 1993,1994 The University of Utah and the Computer
+//   Systems Laboratory (CSL).
+// Derived from kern/ast.c:
+//   Copyright (c) 1991,1990,1989,1988,1987 Carnegie Mellon University.
 //   Copyright (c) 1993,1994 The University of Utah and the Computer
 //   Systems Laboratory (CSL).
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>

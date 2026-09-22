@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: CMU-Mach
-// Derived from kern/processor.h and kern/sched.h:
+// Derived from kern/processor.h:
 //   Copyright (c) 1991,1990,1989 Carnegie Mellon University.
 //   Copyright (c) 1993,1994 The University of Utah and the Computer
 //   Systems Laboratory (CSL).
+// Derived from kern/sched.h:
+//   Copyright (c) 1991,1990,1989,1988,1987 Carnegie Mellon University
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! Processors, processor sets and run queues, which `kern/processor.h`

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: CMU-Mach
 // Derived from kern/thread.h:
 //   Copyright (c) 1993-1987 Carnegie Mellon University.
+// Derived from kern/timer.h:
+//   Copyright (c) 1991,1990,1989,1988,1987 Carnegie Mellon University.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! The thread record, which `kern/thread.h` declares.
@@ -20,6 +22,7 @@
 
 use crate::arch::types::VmOffset;
 use crate::kern::lock::SimpleLock;
+use crate::kern::mach_clock::Timeout;
 use crate::kern::processor::{Processor, ProcessorSet, RunQueue};
 use crate::kern::queue::QueueEntry;
 use core::ffi::{c_char, c_int, c_long, c_uint, c_void};
@@ -145,28 +148,6 @@ pub struct TimerSave {
     /// `high`: the saved high half.
     pub high: c_uint,
 }
-
-/// `struct timeout` of <kern/mach_clock.h>: a kernel timeout element.
-#[repr(C)]
-pub struct Timeout {
-    /// `chain`: links the element into the timeout queue.
-    pub chain: QueueEntry,
-    /// `fcn`: the routine called at expiry.
-    pub fcn: Option<unsafe extern "C" fn(*mut c_void)>,
-    /// `param`: the argument passed to `fcn`.
-    pub param: *mut c_void,
-    /// `t_time`: the expiration time, in ticks since boot.
-    pub t_time: usize,
-    /// `set`: the `TIMEOUT_*` bits.
-    pub set: u8,
-}
-
-/// `TIMEOUT_ALLOC` in <kern/mach_clock.h>: allocated from the pool.
-pub const TIMEOUT_ALLOC: u8 = 0x1;
-/// `TIMEOUT_ACTIVE`: the timeout is active.
-pub const TIMEOUT_ACTIVE: u8 = 0x2;
-/// `TIMEOUT_PENDING`: the timeout waits for expiry.
-pub const TIMEOUT_PENDING: u8 = 0x4;
 
 /// `struct time_value64` of <mach/time_value.h>: 64-bit seconds and
 /// nanoseconds.
@@ -453,27 +434,6 @@ const _: () = {
     assert!(offset_of!(Thread, depress_timer) == 292);
     assert!(offset_of!(Thread, processor_set) == 320);
     assert!(offset_of!(Thread, bound_processor) == 324);
-};
-
-// `struct timeout`: the queue chain, the callback pair, the expiry and
-// the state byte.
-#[cfg(target_pointer_width = "64")]
-const _: () = {
-    assert!(size_of::<Timeout>() == 48);
-    assert!(offset_of!(Timeout, chain) == 0);
-    assert!(offset_of!(Timeout, fcn) == 16);
-    assert!(offset_of!(Timeout, param) == 24);
-    assert!(offset_of!(Timeout, t_time) == 32);
-    assert!(offset_of!(Timeout, set) == 40);
-};
-#[cfg(target_pointer_width = "32")]
-const _: () = {
-    assert!(size_of::<Timeout>() == 24);
-    assert!(offset_of!(Timeout, chain) == 0);
-    assert!(offset_of!(Timeout, fcn) == 8);
-    assert!(offset_of!(Timeout, param) == 12);
-    assert!(offset_of!(Timeout, t_time) == 16);
-    assert!(offset_of!(Timeout, set) == 20);
 };
 
 // The embedded records whose sizes the thread layout depends on.

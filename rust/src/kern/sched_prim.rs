@@ -25,6 +25,7 @@ use crate::arch::i386::percpu::{
 use crate::glue;
 use crate::kern::ast::{AST_BLOCK, ast_on};
 use crate::kern::lock::SimpleLock;
+use crate::kern::mach_clock::reset_timeout_check;
 use crate::kern::processor::{
     NRQS, PROCESSOR_DISPATCHING, PROCESSOR_IDLE, PROCESSOR_OFF_LINE,
     Processor, RUN_QUEUE_NULL, RunQueue,
@@ -36,8 +37,7 @@ use crate::kern::queue::{
 use crate::kern::smp::smp_get_numcpus;
 use crate::kern::thread::{
     TH_HALTED, TH_IDLE, TH_RUN, TH_SCHED_STATE, TH_SUSP, TH_SW_COMING_IN,
-    TH_SWAP_STATE, TH_SWAPPED, TH_UNINT, TH_WAIT, TIMEOUT_ACTIVE, Thread,
-    Timeout,
+    TH_SWAP_STATE, TH_SWAPPED, TH_UNINT, TH_WAIT, Thread,
 };
 use core::ffi::{CStr, c_char, c_int, c_uint, c_void};
 use core::mem::offset_of;
@@ -82,22 +82,6 @@ fn wait_hash(event: *mut c_void) -> usize {
     // The folded value is non-negative and the modulo is below
     // `NUMQUEUES`, so the cast cannot lose anything.
     (folded % NUMQUEUES as isize) as usize
-}
-
-/// `reset_timeout_check()` of <kern/mach_clock.h>: cancel the thread's
-/// wait timeout if one is active.
-///
-/// # Safety
-///
-/// The caller holds the thread lock, so `t` is stable and only this
-/// thread's timeout can be set.
-unsafe fn reset_timeout_check(t: *mut Timeout) {
-    // SAFETY: the caller's contract; `set` is a plain byte field.
-    if unsafe { (*t).set } & TIMEOUT_ACTIVE != 0 {
-        // SAFETY: the same contract, and `reset_timeout()` takes the
-        // element off the timeout queue at splsched.
-        unsafe { glue::reset_timeout(t) };
-    }
 }
 
 /// The `state_panic()` macro of kern/sched_prim.c: a thread state the

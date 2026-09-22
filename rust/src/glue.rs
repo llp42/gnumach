@@ -12,7 +12,7 @@ use crate::kern::lock::{LockData, SimpleLock};
 use crate::kern::processor::Processor;
 use crate::kern::queue::QueueEntry;
 use crate::kern::sched_prim::NUMQUEUES;
-use crate::kern::thread::{Thread, Timeout};
+use crate::kern::thread::Thread;
 use crate::vm::types::{Pmap, VmObject, VmPage, VmProt};
 use core::ffi::{c_char, c_int, c_short, c_uint, c_void};
 
@@ -62,9 +62,10 @@ unsafe extern "C" {
     pub fn thread_depress_timeout(thread: *mut c_void);
 
     // <kern/mach_clock.h>: the wait timeout, set under the thread
-    // lock.
-    pub fn set_timeout(t: *mut Timeout, interval: c_uint);
-    pub fn reset_timeout(t: *mut Timeout) -> c_int;
+    // lock.  The handle is opaque here; its layout lives in
+    // rust/src/kern/mach_clock.rs, which is GPL-derived.
+    pub fn set_timeout(t: *mut c_void, interval: c_uint);
+    pub fn reset_timeout(t: *mut c_void) -> c_int;
 
     // <kern/ast.h>: `cause_ast_check()` is a function; the `ast_on()`
     // family lives in rust/src/kern/ast.rs.
