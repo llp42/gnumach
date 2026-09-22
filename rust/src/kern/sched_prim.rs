@@ -6,12 +6,12 @@
 //! The wait/wake scheduler primitives, which `kern/sched_prim.c` used
 //! to define.
 //!
-//! The wait hash and its reason for existing are the C file's; this is
-//! a line-for-line translation, including the state transitions of
-//! `clear_wait()` and the lost-wakeup protocol they implement, so that
-//! the next commit can be a change of protocol in one language.  The
-//! waiting protocol itself, the run-queue enqueue and the idle
-//! handoff all keep their C order of operations, locks and spl level.
+//! The wait hash and its reason for existing are the C file's.  The
+//! order of operations, locks and spl level are the C's too, with one
+//! deliberate exception: `clear_wait()` owns the transition of a
+//! thread woken out of `TH_RUN | TH_WAIT`, because the dispatch that
+//! was supposed to clear `TH_RUN` can be bypassed and would otherwise
+//! strand the thread off every run queue.
 //!
 //! The wait buckets stay C (`wait_queue`, `wait_lock`) and are reached
 //! with raw pointers; `wait_queue_init()` still builds them.  The
@@ -20,19 +20,20 @@
 //! are called through `glue`.
 
 use crate::arch::i386::percpu::{
-    cpu_number, current_processor, current_thread,
+    cpu_number, current_processor, current_thread, percpu_at,
 };
 use crate::glue;
 use crate::kern::ast::{AST_BLOCK, ast_on};
 use crate::kern::lock::SimpleLock;
 use crate::kern::processor::{
     NRQS, PROCESSOR_DISPATCHING, PROCESSOR_IDLE, PROCESSOR_OFF_LINE,
-    Processor, RunQueue,
+    Processor, RUN_QUEUE_NULL, RunQueue,
 };
 use crate::kern::queue::{
     QueueEntry, enqueue_tail, queue_end, queue_first, queue_next,
     queue_remove_generic, remqueue,
 };
+use crate::kern::smp::smp_get_numcpus;
 use crate::kern::thread::{
     TH_HALTED, TH_IDLE, TH_RUN, TH_SCHED_STATE, TH_SUSP, TH_SW_COMING_IN,
     TH_SWAP_STATE, TH_SWAPPED, TH_UNINT, TH_WAIT, TIMEOUT_ACTIVE, Thread,
@@ -174,9 +175,45 @@ unsafe fn enqueue_run_queue(rq: *mut RunQueue, th: *mut Thread) {
     }
 }
 
+/// Whether `th` is already scheduled: on a run queue, chosen as some
+/// processor's `next_thread`, or running on a CPU.
+///
+/// The wake path enqueues the thread it wakes, so a
+/// [`thread_dispatch()`] that arrives afterwards must not enqueue it a
+/// second time.
+///
+/// # Safety
+///
+/// `th` must be a live thread locked by the caller, and the caller
+/// must be at splsched.
+unsafe fn already_scheduled(th: *mut Thread) -> bool {
+    // SAFETY: the caller holds the thread lock, which protects `runq`.
+    if unsafe { (*th).runq } != RUN_QUEUE_NULL {
+        return true;
+    }
+    let ncpu = c_int::from(smp_get_numcpus());
+    for cpu in 0..ncpu {
+        // SAFETY: `cpu` is below the probe's count, so the block is in
+        // the C array.  `next_thread` is written under a processor
+        // lock and `active_thread` at each context switch, both at
+        // splsched; they are hints for a thread the caller has locked.
+        unsafe {
+            let block = percpu_at(cpu);
+            if (*block).processor.next_thread == th {
+                return true;
+            }
+            if (*block).active_thread == th {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// `thread_setrun()` of kern/sched_prim.c, the core: make `th`
 /// runnable, dispatching it straight to an idle processor when one
-/// waits, else enqueuing it.
+/// waits, else enqueuing it.  A thread that is already scheduled is
+/// left alone, so a duplicate call is harmless.
 ///
 /// # Safety
 ///
@@ -186,6 +223,10 @@ fn setrun(th: *mut Thread, may_preempt: bool) {
     // SAFETY: the caller's contract; every field read is protected by
     // the thread lock, and the run queues by their own locks.
     unsafe {
+        if already_scheduled(th) {
+            return;
+        }
+
         if (*th).sched_stamp != glue::sched_tick {
             glue::update_priority(th);
         }
@@ -369,8 +410,11 @@ pub unsafe extern "C" fn assert_wait(
 }
 
 /// Clear the wait condition for `thread` and start it if appropriate.
-/// `clear_wait()` of kern/sched_prim.c, reproduced exactly: the
-/// `TH_RUN | TH_WAIT` arms keep their current transitions.
+/// `clear_wait()` of kern/sched_prim.c, one deliberate change: a
+/// thread woken out of `TH_RUN | TH_WAIT` is put on a run queue here,
+/// because the dispatch that would have cleared `TH_RUN` may have been
+/// bypassed, and a wakeup that only cleared `TH_WAIT` would strand the
+/// thread off every run queue.
 ///
 /// # Safety
 ///
@@ -422,12 +466,36 @@ pub unsafe extern "C" fn clear_wait(
                     (*thread).wait_result = result;
                     setrun(thread, true);
                 }
-                // Either already running, or suspended.
-                TH_WAIT_SUSP
-                | TH_RUN_WAIT
-                | TH_RUN_WAIT_SUSP
-                | TH_RUN_WAIT_UNINT
-                | TH_RUN_WAIT_SUSP_UNINT => {
+                // Blocked with TH_RUN still set: the resumer's
+                // dispatch cannot be relied on to clear it, so the
+                // wake owns the transition and enqueues the thread
+                // itself.  A stale dispatch that still arrives is
+                // absorbed by thread_dispatch()'s no-TH_RUN return.
+                TH_RUN_WAIT | TH_RUN_WAIT_UNINT => {
+                    (*thread).set_state(state & !(TH_RUN | TH_WAIT));
+                    (*thread).wait_result = result;
+                    setrun(thread, true);
+                }
+                // Blocked and suspended: clear both bits, keep
+                // TH_SUSP, and wake the suspender exactly as
+                // thread_dispatch() does for the same state.
+                TH_RUN_WAIT_SUSP | TH_RUN_WAIT_SUSP_UNINT => {
+                    (*thread).set_state(state & !(TH_RUN | TH_WAIT));
+                    (*thread).wait_result = result;
+                    if (*thread).wake_active() {
+                        (*thread).set_wake_active(false);
+                        (*thread).lock.unlock();
+                        thread_wakeup_prim(
+                            (*thread).wake_active_event(),
+                            0,
+                            THREAD_AWAKENED,
+                        );
+                        glue::splx(s);
+                        return;
+                    }
+                }
+                // Already suspended: just clear the wait.
+                TH_WAIT_SUSP => {
                     (*thread).set_state(state & !TH_WAIT);
                     (*thread).wait_result = result;
                 }
@@ -532,6 +600,10 @@ pub unsafe extern "C" fn thread_sleep(
 /// Dispatch a running thread that is not on a run queue.
 /// `thread_dispatch()` of kern/sched_prim.c.
 ///
+/// A dispatch for a thread with no `TH_RUN` bit is a no-op: the wake
+/// path already scheduled it and cleared the bit, so the stale
+/// dispatch must not enqueue it a second time.
+///
 /// # Safety
 ///
 /// `thread` must be a live thread that is not on a run queue, and the
@@ -543,6 +615,13 @@ pub unsafe extern "C" fn thread_dispatch(thread: *mut Thread) {
     // state below.
     unsafe {
         (*thread).lock.lock();
+
+        // The wake path cleared TH_RUN when it scheduled the thread,
+        // so a dispatch that still arrives for it has nothing to do.
+        if (*thread).state() & TH_RUN == 0 {
+            (*thread).lock.unlock();
+            return;
+        }
 
         // If the thread's stack is being discarded, free it before the
         // thread has a chance to run.

@@ -98,6 +98,32 @@ pub fn current_thread() -> *mut Thread {
     thread
 }
 
+// `percpu_array` in <i386/percpu.h>: one block per CPU.  The C
+// declares the whole `NCPUS`-element array; the mirror names the first
+// element because `NCPUS` is a C constant, and the pointer arithmetic
+// below strides one block at a time.
+//
+// The FFI lint treats the `PhantomPinned` marker at the end of
+// `QueueEntry` as poison even embedded in a `#[repr(C)]` mirror; the C
+// side hands over the same block, and the offsets are asserted below.
+#[expect(improper_ctypes)]
+unsafe extern "C" {
+    static mut percpu_array: Percpu;
+}
+
+/// The per-CPU block of CPU `cpu` in `percpu_array`.
+///
+/// # Safety
+///
+/// `cpu` must be a CPU number the machine reports, below
+/// `smp_get_numcpus()`.
+pub unsafe fn percpu_at(cpu: c_int) -> *mut Percpu {
+    // SAFETY: the caller promises a live CPU number, and the C array
+    // holds one block for each CPU the probe counted.  `cpu` is a
+    // non-negative CPU number, and widening it to `isize` is exact.
+    unsafe { (&raw mut percpu_array).offset(cpu as isize) }
+}
+
 // `struct percpu` is the C block; the embedded `Processor` must match
 // `struct processor` exactly for `active_thread`'s offset to be right.
 const _: () = assert!(size_of::<Percpu>() == PERCPU_SIZE);

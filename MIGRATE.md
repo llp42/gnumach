@@ -841,8 +841,12 @@ its entry below and the §9 table record what moved.
 * **Ported so far.** The wait/wake primitives (`thread_timeout`,
   `thread_timeout_setup`, `assert_wait`, `clear_wait`,
   `thread_wakeup_prim`, `thread_sleep`), `thread_dispatch` and
-  `thread_setrun`, with `wait_hash` byte-identical and the state
-  transitions copied line for line.  The `struct thread` mirror is
+  `thread_setrun`, with `wait_hash` byte-identical.  The state
+  transitions are copied line for line except in `clear_wait()`,
+  whose wake path owns the `TH_RUN | TH_WAIT` transition and enqueues
+  the thread itself, so a bypassed resumer dispatch cannot strand it;
+  `thread_setrun` leaves a thread that is already scheduled alone and
+  a stale `thread_dispatch` is a no-op.  The `struct thread` mirror is
   full (`src/kern/thread.rs`), as are the processor and run-queue
   mirrors (`src/kern/processor.rs`) and the `%gs` accessors
   (`src/arch/i386/percpu.rs`).  `wait_queue`/`wait_lock` stay C and are
@@ -1654,7 +1658,8 @@ rbtree's; see §8.
 | `vm/vm_external.c` | `src/vm/vm_external.rs` | `727275e7` |
 | `vm/vm_init.c` | `src/vm/vm_init.rs` | `727275e7` |
 | `vm/vm_map.c` | `src/vm/vm_map.rs`, `src/vm/vm_map_ffi.rs` | `d32c7253` … `170e6104` |
-| `kern/sched_prim.c` (wait/wake, `thread_dispatch`, `thread_setrun`) | `src/kern/sched_prim.rs` + `src/kern/thread.rs`, `src/kern/processor.rs`, `src/arch/i386/percpu.rs` | `(uncommitted)` |
+| `kern/sched_prim.c` (wait/wake, `thread_dispatch`, `thread_setrun`) | `src/kern/sched_prim.rs` + `src/kern/thread.rs`, `src/kern/processor.rs`, `src/arch/i386/percpu.rs` | `c4498541` |
+| `kern/ast.h` (`ast_on`, `ast_off`, `ast_needed`) | `src/kern/ast.rs` | `6a6281be` |
 
 Deleted dead code: `device/blkio.c` (unreachable block pager path) and
 the `#if 0` profiling facility (`profil.h`, `profilparam.h`,
