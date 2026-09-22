@@ -150,9 +150,6 @@ m4_include([x86_64/configfrag.ac])
 # General options.
 m4_include([configfrag.ac])
 
-# The test suite.
-m4_include([tests/configfrag.ac])
-
 # The Rust part of the kernel.
 m4_include([rust/configfrag.ac])
 

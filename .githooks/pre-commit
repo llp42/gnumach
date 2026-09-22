@@ -1,18 +1,19 @@
 #!/bin/sh
 #
-# Pre-commit guard: the test suite has to pass before anything is committed.
+# Pre-commit guard: the kernel has to stay compliant with the frozen gnumach
+# ABI before anything is committed.
 #
 # Enable it in your clone with:
 #
 #     git config core.hooksPath .githooks
 #
-# It runs the project's own `make check' on x86_64 and i386, which boots every
-# tests/module-* under qemu -- a few minutes.  It runs on every commit, not
-# just ones that look build-relevant: no list of file extensions can answer
-# what a change affects, and the way a wrong answer shows up is a commit that
-# skipped the suite without saying so.  Rust sources were missing from that
-# list until 2026-09-19; anything added since is missing from it too, unless
-# there is no list.
+# It builds x86_64 and i386 and runs abi-test/run-all.sh against the freshly
+# built kernels: 26 tests per architecture, booted under qemu, that pin the
+# MIG wire format, the trap numbers and the kernel's observable behaviour to
+# the old gnumach ABI.  It runs on every commit, not just ones that look
+# build-relevant: no list of file extensions can answer what a change
+# affects, and the way a wrong answer shows up is a commit that skipped the
+# pack without saying so.
 #
 # Bypass it deliberately with either:
 #
@@ -29,8 +30,16 @@
 set -u
 
 if [ "${SKIP_TESTS:-}" = 1 ]; then
-	echo "pre-commit: SKIP_TESTS=1 -- not running the test suite." >&2
+	echo "pre-commit: SKIP_TESTS=1 -- not running the ABI pack." >&2
 	exit 0
+fi
+
+top=$(git rev-parse --show-toplevel) || exit 3
+cd "$top" || exit 3
+
+if [ ! -f abi-test/run-all.sh ]; then
+	echo "pre-commit: REFUSING TO COMMIT -- abi-test/run-all.sh is missing." >&2
+	exit 1
 fi
 
 run_tests() {
@@ -39,40 +48,41 @@ run_tests() {
 		return $?
 	fi
 
-	# No mise: fall back to whatever build directories already exist.
-	grub=${GRUB_MKRESCUE:-$(command -v grub-mkrescue || command -v grub2-mkrescue || true)}
+	# No mise: build whatever build directories already exist, then run
+	# the pack against their kernels.
+	jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 	found=
 	for b in build-64 build-32; do
 		[ -d "$b" ] || continue
 		found=1
-		( cd "$b" && make GRUB_MKRESCUE="$grub" check ) || return 1
+		make -C "$b" -j"$jobs" || return 1
 	done
-	[ -n "$found" ] && return 0
-
-	# 3, not 2: `make' itself exits 2 on any error, so reusing that would
-	# make a failing build look like an unrunnable test suite.
-	echo "pre-commit: no mise.toml/mise and no build-64 or build-32 to test." >&2
-	return 3
+	if [ -z "$found" ]; then
+		echo "pre-commit: no mise.toml/mise and no build-64 or build-32 to build." >&2
+		return 3
+	fi
+	abi-test/run-all.sh build-32/gnumach build-64/gnumach
 }
 
-echo "pre-commit: running the test suite on x86_64 and i386 -- a few minutes." >&2
+echo "pre-commit: building and running the frozen ABI pack on x86_64 and i386." >&2
 log=$(mktemp)
 
 run_tests >"$log" 2>&1
 rc=$?
 
 if [ "$rc" -eq 0 ]; then
-	grep -E '^(PASS|FAIL|SKIP):|^# (TOTAL|PASS|FAIL|SKIP|ERROR)' "$log" | tail -30 >&2
-	echo "pre-commit: test suite passed." >&2
+	grep -E '^(PASS|FAIL):|^RESULT:|^TOTAL:' "$log" | tail -12 >&2
+	echo "pre-commit: ABI pack passed on both architectures." >&2
 	rm -f "$log"
 	exit 0
 fi
 
 echo >&2
 if [ "$rc" -eq 3 ]; then
-	echo "pre-commit: REFUSING TO COMMIT -- could not run the test suite." >&2
+	echo "pre-commit: REFUSING TO COMMIT -- could not run the ABI pack." >&2
 else
-	echo "pre-commit: REFUSING TO COMMIT -- the test suite FAILED (status $rc)." >&2
+	echo "pre-commit: REFUSING TO COMMIT -- the ABI pack FAILED (status $rc)." >&2
+	echo "pre-commit: the kernel is not compliant with the frozen gnumach ABI." >&2
 fi
 echo >&2
 sed -n '1,200p' "$log" >&2

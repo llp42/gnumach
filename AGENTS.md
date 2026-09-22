@@ -138,8 +138,8 @@ defined in `mise.toml`.
 - Check prerequisites: `mise run deps`
 - Build both kernels: `mise run build`
 - Build one: `mise run build:x86_64` · `mise run build:i386`
-- **Test (the gate): `mise run test`** — boots the suite under qemu on x86_64
-  **and** i386
+- **Test (the gate): `mise run test`** — builds both kernels and runs the
+  frozen ABI pack in `abi-test/` against them on x86_64 **and** i386
 - Test one arch: `mise run test:x86_64` · `mise run test:i386`
 - Clean: `mise run clean` (removes `build-64` and `build-32`)
 
@@ -148,8 +148,9 @@ warnings` run as `rust/lint.stamp`, which `libmach-rs.a` depends on, so an
 ordinary `make` runs them and a warning fails the build.
 
 Without mise, the equivalent is `autoreconf -fi`, then `../configure` in
-`build-64` / `build-32` with the flags `mise.toml` passes, then `make` and
-`make check`. Read the task before hand-rolling it: the i386 build needs
+`build-64` / `build-32` with the flags `mise.toml` passes, then `make`, and
+finally `abi-test/run-all.sh build-32/gnumach build-64/gnumach`. Read the
+task before hand-rolling it: the i386 build needs
 `CC='gcc -m32' LD='ld -m elf_i386'`, and both builds reconfigure when
 `RUST_LIB_SRC` has gone stale.
 <!-- agents-md:end id=commands -->
@@ -157,25 +158,26 @@ Without mise, the equivalent is `autoreconf -fi`, then `../configure` in
 <!-- agents-md:begin id=testing -->
 ## Testing
 
-`mise run test` — the project's own `make check`, booting every
-`tests/module-*` under qemu on x86_64 and i386 — is what decides whether a
-port is correct. A ported routine is verified by being exercised through the
-running kernel; if it has behaviour the suite does not reach, the test to add
-is a C one under `tests/`, beside the others.
+`mise run test` — building both kernels and running the frozen ABI pack in
+`abi-test/` against them, on x86_64 and i386 — is what decides whether a port
+is correct. The pack is 26 binaries per architecture taken from the old
+gnumach ABI, so a ported routine is verified by the running kernel still
+satisfying them; a behaviour the pack does not reach stays unverified, and
+the frozen pack is not edited to make a failure go away.
 
-`.githooks/pre-commit` runs the whole suite on every commit, deliberately and
-without a file-extension filter. Enable it with
+`.githooks/pre-commit` builds and runs the pack on every commit, deliberately
+and without a file-extension filter. Enable it with
 `git config core.hooksPath .githooks`.
 
-There is **no test harness inside the kernel**. The one exception is rule 20:
-a module that needs nothing from the kernel and keeps out of `crate::` can
+There is **no test harness inside the kernel**. Rule 20 still applies: a
+module that needs nothing from the kernel and keeps out of `crate::` can
 carry `#[cfg(test)]` tests that `rustc --test` compiles for the host.
-`src/kern/rbtree.rs` is the only current instance, run by
-`tests/test-rbtree-rs`.
+`src/kern/rbtree.rs` has such tests, but nothing runs them since the host
+runner was dropped with the old suite.
 
 ### Hard rule: the tests are evidence, not an obstacle
 
-**Weakening a test to make it pass is forbidden.** The qemu suite is the only
+**Weakening a test to make it pass is forbidden.** The ABI pack is the only
 correctness gate this project has. A suite made green by editing the suite
 proves nothing, and the next reader cannot tell it from a suite that was green
 on merit.
@@ -184,8 +186,8 @@ Specifically, never:
 
 - delete, rename away, `#if 0`, comment out or `#[ignore]` a test, a case, or
   an assertion;
-- drop a `tests/module-*` from `tests/Makefrag.am` or from the set that gets
-  booted;
+- edit a test in the frozen pack, or replace a pack tarball with a rebuilt
+  one, so that a failing case is no longer reached or no longer fails;
 - loosen an assertion — an exact value into a range, `assert_eq!` into
   `assert!`, a failure into a printed warning;
 - shrink an input set, a loop count, an iteration bound or a table so that the
@@ -268,9 +270,10 @@ A C shim written for an unported caller lives beside its C file instead, named
 `*_glue.c` (`ipc/ipc_thread_glue.c`), with a comment saying what will delete it.
 
 The C half is unchanged Mach: `kern/`, `ipc/`, `vm/`, `device/`, `i386/`,
-`x86_64/`, `chips/`, `util/`, with `include/` for the public interfaces and
-`tests/` for the qemu suite. `build-64/` and `build-32/` are the out-of-tree
-build directories and hold the MIG-generated `*.server.c` / `*.user.c`.
+`x86_64/`, `chips/`, `util/`, with `include/` for the public interfaces.
+`abi-test/` holds the frozen ABI pack that gates every commit. `build-64/`
+and `build-32/` are the out-of-tree build directories and hold the
+MIG-generated `*.server.c` / `*.user.c`.
 
 ### Every new `.rs` file goes in `MACH_RS_SRCS`
 
@@ -700,10 +703,10 @@ macro only when a function or a generic genuinely cannot express it.
 ### 20. Host-testable modules stay `crate::`-free
 
 A module that needs nothing from the kernel keeps out of `crate::` so that
-`rustc --test` can compile it for the host (`tests/test-rbtree-rs` does this
-for the rbtree as part of `make check`). It is still compiled into
-`libmach-rs.a` like any other module — that is not a second build path for the
-kernel.
+`rustc --test` can compile it for the host (the rbtree's `#[cfg(test)]` tests
+were compiled that way until the host runner was dropped with the old suite).
+It is still compiled into `libmach-rs.a` like any other module — that is not a
+second build path for the kernel.
 
 ---
 
@@ -1151,8 +1154,8 @@ bypass it; both are a deliberate statement that you ran the suite another way.
 4. Delete the C definition in the same commit. Two definitions of one symbol
    is a link error, not a fallback. Where an unported caller needs a macro or
    an accessor, add a minimal `*_glue.c` beside it.
-5. If the routine also lives in the test programs, give them their own copy in
-   `tests/string.c`.
+5. The test programs are the frozen binaries in `abi-test/`, so they need no
+   copy here; a port must keep the behaviour their ABI pins.
 6. Record the move in `MIGRATE.md` §9, and in the overview table above.
 7. `mise run test` — both architectures green — before committing.
 
@@ -1288,11 +1291,11 @@ Things that break the build, silently or confusingly, if forgotten.
   uses the new rustc. Reconfigure after a toolchain update; the `mise run
   build` and `mise run test` tasks compare it against `rustc --print sysroot`
   and reconfigure when it has moved.
-- **The test programs are user-mode binaries with their own link.** The string
-  routines they use live in `tests/string.c` rather than in `libmach-rs.a`,
-  which is built for the kernel's target. Moving a routine the tests call
-  means giving them a copy of their own there. `kern/printf.c` is the next one
-  this will bite.
+- **The test programs are frozen user-mode binaries.** They live in
+  `abi-test/` and link their own copies of the string, `printf` and `atoi`
+  routines rather than `libmach-rs.a`, which is built for the kernel's
+  target. Moving a routine they also contain changes only the kernel side;
+  the pack is the ABI those binaries pin.
 - **A C macro cannot be declared in `glue.rs`.** `spl*`, `simple_lock`,
   `percpu_get`, `current_thread()` and `thread_wakeup*` are macros or assembly;
   the first Rust customer of each gets a one-line C shim beside the header
@@ -1367,6 +1370,10 @@ The most important section. Keep it current.
   practices. Rules that assume `std`, an allocator, async, serde or crates.io
   publishing were dropped; the survivors are listed above with kernel-shaped
   examples. See "Deliberately not adopted" for the ones rejected on purpose.
+- The `## Commands` and `## Testing` text was rewritten on 2026-09 for the
+  frozen ABI pack in `abi-test/`; the external agents-md template still
+  describes `make check` and the deleted `tests/` tree, so it needs the same
+  edit before the next regeneration.
 
 ---
 <!-- Content INSIDE `agents-md:begin/end` markers is regenerated on re-run.

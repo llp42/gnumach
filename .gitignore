@@ -20,6 +20,7 @@ Makefile.in.orig
 
 # Makerules.am
 *.gz
+!abi-test/*.tar.gz
 *.stripped
 
 # Makerules.mig.am

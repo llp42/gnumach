@@ -12,6 +12,13 @@ The port contract itself is in `AGENTS.md`; this file is the map,
 not the rules.  Read the map top to bottom if you are choosing work,
 or jump to `kern/<file>.c` for a specific file.
 
+The user test tree (`tests/`) was removed in 2026-09: the correctness
+gate is now the frozen binary pack in `abi-test/`, run against the
+freshly built kernel by `mise run test`.  The per-file "Tests." notes
+below name the old suite's test sources as the coverage that pinned the
+C behaviour; that coverage is frozen in the pack, and no test source is
+edited in this tree any more.
+
 The mechanical data (the `Undef` counts in particular) is an
 audit-time snapshot: it was produced from a clean tree with the first
 six port commits applied, using `nm -g --defined-only` and `nm -u` over
@@ -32,9 +39,10 @@ and `*.user.c`.
    Memory comes from the caller or from kernel allocators through shims.
 4. clippy `-D warnings`, `rustfmt --check` at 79 columns and
    `--enable-queue-debug` are build gates (`rust/Makefrag.am:96-107`).
-5. `mise run test` boots x86_64 and i386 under qemu and is the only
-   correctness gate.  A routine the user tests link needs a C copy under
-   `tests/` (the `tests/string.c` precedent).
+5. `mise run test` builds both kernels and runs the frozen ABI pack in
+   `abi-test/` against them; it is the only correctness gate.  The pack
+   is self-contained, so there is no in-tree user-test source to keep
+   in sync.
 6. `rust/src/` mirrors the C tree: `src/utils/`, `src/kern/`,
    `src/arch/<arch>/`, with C-call shims in `src/glue.rs` and — for
    macros, which cannot cross FFI — small C shim functions.
@@ -119,10 +127,9 @@ Distilled from the ports so far and `AGENTS.md`:
   (`include/mach/mach_types.defs:198-248`), trap entries and asm-read
   globals keep their exact C names and types; rename only after the C
   readers are gone.
-* **Test copies.**  `kern/printf.c` is compiled into the user tests
-  (`tests/user-qemu.mk:135`); moving it requires a `tests/` copy in the
-  same commit.  `util/atoi.c` moved this way, and its copy lives in
-  `tests/string.c`.
+* **Test copies.**  The user tests are frozen binaries in `abi-test/`
+  and link their own copies of `kern/printf.c`, `util/atoi.c` and the
+  string routines, so a port in this tree no longer needs a test copy.
 
 What Rust still lacks (as of the rbtree port): an allocator over
 `kalloc`/`kmem_cache`, an RAII lock/IRQ layer, per-CPU access, a struct
@@ -232,11 +239,11 @@ its entry below and the §9 table record what moved.
 * **Tests.** `rbtree.rs` carries `#[cfg(test)]` tests that reimplement
   the macro protocols (insert, lookup_slot/insert_slot,
   lookup_nearest) and check the red-black rules after every mutation,
-  plus the node colors and the slot round-trip; `tests/test-rbtree-rs`
-  compiles them for the host in `make check`.  The `vm_map` trees
-  (Rust since the port) and `kern/slab.c`'s active-slab tree (used by
-  every non-direct cache, `slab.c:641-652`) also exercise the
-  functions through the qemu suite.
+  plus the node colors and the slot round-trip.  The host runner was
+  dropped with the old suite, so nothing compiles them today; re-add
+  one before relying on them.  The `vm_map` trees (Rust since the port)
+  and `kern/slab.c`'s active-slab tree (used by every non-direct cache,
+  `slab.c:641-652`) exercise the functions through the ABI pack.
 
 #### `kern/timer.c` — 236 lines — friction 3/5
 * **Role.** Per-thread and per-CPU statistical timers (microseconds and
@@ -699,9 +706,9 @@ its entry below and the §9 table record what moved.
   the `%b` bit-field format).
 * **Exports.** The above plus `printnum`, `indent`, `vprintf`.
 * **Dependencies — why.** `cnputc`/`cngetc` (console), `strlen`;
-  three output sinks through function pointers.  ~223 call sites, and
-  the file is linked into the user tests
-  (`tests/user-qemu.mk:137`), so a port needs a `tests/` copy.
+  three output sinks through function pointers.  ~223 call sites; the
+  frozen test modules in `abi-test/` link their own copy, so a port in
+  this tree touches only the kernel side.
 * **Blockers.** `va_list` cannot be implemented in stable Rust.
   The engine can.
 * **Boundary / notes.** Split engine from ABI: a `core`-only formatter
@@ -1505,8 +1512,8 @@ detail §4.1 gives the `kern/` files.
   escape-sequence parameters with `core`'s integer parser instead.
 * **Tests.** Qemu only: boot parses `console=com0`, and
   `test-kd-dev` drives the escape parser on both arches.  `util/atoi.c`
-  was compiled into the user tests, so `tests/string.c` now carries a
-  copy.
+  was compiled into the user tests; their frozen copies live in the
+  `abi-test/` modules now.
 
 ### Hard anchors outside `kern/`
 
@@ -1624,17 +1631,14 @@ rbtree's; see §8.
   the same way.  `kern/boot_script.c`'s
   `boot_script_define_function` has no callers.
 * Host-side Rust tests: `rust/src/kern/rbtree.rs` is free of kernel
-  calls and `crate::` imports, so it carries `#[cfg(test)]` tests and
-  `tests/test-rbtree-rs` compiles it for the host as part of
-  `make check`.  It is the exception, not a second build path; every
+  calls and `crate::` imports, so it carries `#[cfg(test)]` tests, but
+  the host runner went away with the old suite and nothing compiles
+  them today.  It is the exception, not a second build path; every
   other port is exercised through the running kernel.
-* Test-linked routines: `kern/printf.c` is compiled into the user tests
-  (`tests/user-qemu.mk:135`); a port of it is not a port until `tests/`
-  has its own C copy.  `util/atoi.c` moved that way, and its copy is in
-  `tests/string.c`.  `tests/kd_queue.c`,
-  `tests/kd_event.c`, `tests/kd_mouse.c` and `tests/kd.c` are such
-  copies already, pinning the ring-buffer, `X_kdb`, mouse-packet and
-  escape-parser contracts the Rust implements.
+* Test-linked routines: the user tests are the frozen binaries in
+  `abi-test/`; they link their own copies of `kern/printf.c`,
+  `util/atoi.c`, `i386/i386/strings.c`, `kern/strings.c` and the
+  i386at keyboard files, so a port in this tree changes no test copy.
 
 ## 9. Already moved (for reference)
 

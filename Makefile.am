@@ -163,9 +163,6 @@ include Makefrag.am
 # The Rust part of the kernel.
 include rust/Makefrag.am
 
-# Test suite.
-include tests/Makefrag.am
-
 # Documentation.
 include doc/Makefrag.am
 

@@ -11,17 +11,19 @@ idiomatic_version_file_enable_tools = ["rust"]
 # Developer tasks for GNU Mach.
 #
 #   mise run deps           report any missing prerequisites
-#   mise run test           build + run the qemu test suite, x86_64 and i386
+#   mise run test           build + run the ABI pack, x86_64 and i386
 #   mise run test:x86_64    ditto for a single architecture
 #   mise run build          build both kernels without running the tests
 #   mise run clean          remove the build directories
 #
-# The suite is the project's own: `make check` boots each tests/module-* under
-# qemu from a grub ISO built on the fly (see tests/user-qemu.mk).  Kernels are
-# built SMP (--enable-ncpus=2) so the locking is actually exercised; that also
-# flips enable_smp, which makes the harness pass -smp 2 to qemu.  The kernel is
-# multiprocessor-only now -- --enable-ncpus below 2 is an error -- and NCPUS is
-# the number of CPUs it supports, which may be more than the machine has.
+# The correctness gate is the frozen binary pack in abi-test/ (26 tests per
+# architecture) run against the freshly built kernel: the modules are the old
+# gnumach ABI frozen as user-space binaries, so the pack decides whether a
+# port stayed compatible.  Kernels are built SMP (--enable-ncpus=2) so the
+# locking is actually exercised; that also flips enable_smp, and the pack's
+# runners pass -smp 2 to qemu.  The kernel is multiprocessor-only now --
+# --enable-ncpus below 2 is an error -- and NCPUS is the number of CPUs it
+# supports, which may be more than the machine has.
 
 [tasks.deps]
 description = "Report the tools needed to build and test gnumach"
@@ -53,6 +55,11 @@ if   command -v grub-mkrescue  >/dev/null 2>&1; then printf '  ok       grub-mkr
 elif command -v grub2-mkrescue >/dev/null 2>&1; then printf '  ok       grub2-mkrescue\n'
 else printf '  MISSING  %-22s %s\n' grub-mkrescue "builds the bootable test ISO"; missing=1
 fi
+if   command -v grub-file  >/dev/null 2>&1; then printf '  ok       grub-file\n'
+elif command -v grub2-file >/dev/null 2>&1; then printf '  ok       grub2-file\n'
+else printf '  MISSING  %-22s %s\n' grub-file "checks the kernel is an x86 multiboot image"; missing=1
+fi
+need xorriso            "grub-mkrescue writes the ISO with it"
 if printf 'void _start(void){}\n' >/tmp/mise-m32.c &&
    gcc -m32 -static -nostartfiles -nolibc -ffreestanding \
        -o /tmp/mise-m32 /tmp/mise-m32.c 2>/dev/null
@@ -116,32 +123,37 @@ make -j"$(nproc)"
 '''
 
 [tasks."test:x86_64"]
-description = "Build and run the qemu test suite on x86_64"
+description = "Build the x86_64 kernel and run the ABI pack on it"
 depends = ["build:x86_64"]
 run = '''
 set -euo pipefail
 cd "${MISE_PROJECT_ROOT:-$(git rev-parse --show-toplevel)}"
-GRUB_MKRESCUE="$(command -v grub-mkrescue || command -v grub2-mkrescue)" \
-  make -C build-64 check
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/abi-test.XXXXXX")
+trap 'rm -rf "$tmp"' EXIT
+tar xzf abi-test/x86_64.tar.gz -C "$tmp"
+"$tmp/abi-test-x86_64/run-x86_64.sh" build-64/gnumach
 '''
 
 [tasks."test:i386"]
-description = "Build and run the qemu test suite on i386"
+description = "Build the i386 kernel and run the ABI pack on it"
 depends = ["build:i386"]
 run = '''
 set -euo pipefail
 cd "${MISE_PROJECT_ROOT:-$(git rev-parse --show-toplevel)}"
-GRUB_MKRESCUE="$(command -v grub-mkrescue || command -v grub2-mkrescue)" \
-  make -C build-32 check
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/abi-test.XXXXXX")
+trap 'rm -rf "$tmp"' EXIT
+tar xzf abi-test/i386.tar.gz -C "$tmp"
+"$tmp/abi-test-i386/run-i386.sh" build-32/gnumach
 '''
 
 [tasks.test]
-description = "Build and run the qemu test suite on x86_64 and i386"
+description = "Build both kernels and run the ABI pack on x86_64 and i386"
 run = '''
 set -euo pipefail
-mise run test:x86_64
-mise run test:i386
-printf '\nBoth architectures passed.\n'
+cd "${MISE_PROJECT_ROOT:-$(git rev-parse --show-toplevel)}"
+mise run build
+abi-test/run-all.sh build-32/gnumach build-64/gnumach
+printf '\nBoth architectures passed the ABI pack.\n'
 '''
 
 [tasks.build]
