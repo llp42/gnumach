@@ -3,6 +3,7 @@
 
 //! The i386 tree, shared by the i686 and x86_64 kernels; mirrors `i386/`.
 
+pub mod atomic_bits;
 pub mod io_req;
 pub mod kd;
 pub mod kd_event;

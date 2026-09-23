@@ -24,6 +24,9 @@
  * the rights to redistribute these changes.
  */
 /*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
+/*
  *	File:	pmap.h
  *
  *	Authors:  Avadis Tevanian, Jr., Michael Wayne Young
@@ -251,6 +254,15 @@ extern cpu_set		cpus_active;
  *	to see any kernel pmap updates when they become active.
  */
 extern cpu_set		cpus_idle;
+
+/*
+ *	The bit operations that <machine/lock.h> used to define as
+ *	macros; rust/src/arch/i386/atomic_bits.rs exports them.
+ */
+extern void	bit_lock(int bit, void *l);
+extern void	bit_unlock(int bit, void *l);
+extern void	i_bit_set(int bit, void *l);
+extern void	i_bit_clear(int bit, void *l);
 
 /*
  *	Quick test for pmap update requests.

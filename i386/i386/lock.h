@@ -72,54 +72,6 @@
 #define	_simple_lock_try(l) \
 	(!_simple_lock_xchg_(l, 1))
 
-/*
- *	General bit-lock routines.
- */
-#define	bit_lock(bit, l) \
-    ({ \
-	asm volatile("	jmp	1f	\n\
-		    0:	btl	%0, %1	\n\
-			jb	0b	\n\
-		    1:	lock		\n\
-			btsl	%0, %1	\n\
-			jb	0b" \
-		    : \
-		    : "r" ((int)(bit)), "m" (*(volatile int *)(l)) : "memory"); \
-	0; \
-    })
-
-#define	bit_unlock(bit, l) \
-    ({ \
-	asm volatile("	lock		\n\
-			btrl	%0, %1" \
-		    : \
-		    : "r" ((int)(bit)), "m" (*(volatile int *)(l)) : "memory"); \
-	0; \
-    })
-
-/*
- *	Set or clear individual bits in a long word.
- *	The locked access is needed only to lock access
- *	to the word, not to individual bits.
- */
-#define	i_bit_set(bit, l) \
-    ({ \
-	asm volatile("	lock		\n\
-			btsl	%0, %1" \
-		    : \
-		    : "r" ((int)(bit)), "m" (*(l)) ); \
-	0; \
-    })
-
-#define	i_bit_clear(bit, l) \
-    ({ \
-	asm volatile("	lock		\n\
-			btrl	%0, %1" \
-		    : \
-		    : "r" ((int)(bit)), "m" (*(l)) ); \
-	0; \
-    })
-
 #endif	/* __GNUC__ */
 
 extern void simple_lock_pause(void);
