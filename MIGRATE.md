@@ -810,7 +810,8 @@ its entry below and the §9 table record what moved.
   `ipc_pset_*`, `convert_*`) because psets and processors are kobjects;
   task/thread (`task_assign`, `thread_assign`, refs) because it owns
   their membership; `kmem_cache` for pset/processor caches and
-  `kalloc` for the temporary port arrays; `cpu_control` arch stub.
+  `kalloc` for the temporary port arrays; the `cpu_control` hook is
+  `src/arch/i386/mp_desc.rs` now.
 * **Blockers.** L1 pset/processor/runq layout, L2 locks, L5 port
   conversions.  No asm in the file.
 * **Boundary / notes.** `processor_set_tasks/threads` build raw arrays
@@ -1439,7 +1440,7 @@ entry below keeps the detail §4.1 gives the `kern/` files.
 | `apic.c` | 501 | local APIC | 4 | lapic MMIO, kalloc, idt |
 | `fpu.c` | 859 | FPU save/restore | 4 | inline asm, trap, percpu |
 | `gdt.c` | 141 | per-CPU GDT | 4 | `ljmp` asm, percpu |
-| `mp_desc.c` | 329 | SMP per-CPU descriptors | 4 | lapic/idt/gdt, pmap |
+| `mp_desc.c` | 329 | SMP per-CPU descriptors | 4 | `cpu_control`/`simple_lock_pause` ported, rest C; lapic/idt/gdt, pmap |
 | `percpu.c` | 31 | per-CPU base init (anchor) | 4 | `%gs` layout, apic |
 | `phys.c` | 179 | physical address access | 4 | pmap |
 | `smp.c` | 214 | AP bring-up | 4 | `wbinvd`, lapic/ioapic |
@@ -1748,7 +1749,7 @@ No new C, no new mirror, no new constant, no design conversation.
 Tier 0 is worked to exhaustion before any infrastructure is proposed
 (`AGENTS.md`, "Take the free ports first").
 
-Twenty-six functions, thirty-seven counting the stub batch.  Clusters
+Twenty-four functions, thirty-five counting the stub batch.  Clusters
 first, because a whole file leaving C in one commit is worth more than
 the same functions leaving one at a time.
 
@@ -1764,8 +1765,6 @@ the same functions leaving one at a time.
 | Function | Why it is free |
 |---|---|
 | `kern/machine.c:115 host_reboot` | Calls `Debugger` and `halt_all_cpus`, both real.  `host` is only compared against `HOST_NULL`. |
-| `i386/i386/mp_desc.c:189 cpu_control` | One `printf` and a constant return.  Its signature already matches the `glue` declaration Rust calls today. |
-| `i386/i386/mp_desc.c:174 simple_lock_pause` | Calls nothing; spins over a file-local `static volatile int`. |
 | `i386/i386/fpu.c:261 fp_free` | One `kmem_cache_free`, already in `glue`.  Never dereferences its argument; `ifps_cache` is passed by address only.  `ASSERT_IPL` expands to nothing. |
 | `device/subrs.c:44 ether_sprintf`, `:76 sleep`, `:82 wakeup` | Byte formatting and two one-line wrappers over `assert_wait`/`thread_block`/`thread_wakeup_prim`, all reachable. |
 | `device/dev_name.c:105 name_equal` | Pure string comparison, calls nothing. |
@@ -1845,7 +1844,7 @@ or Rust already.  Each phase exists to make the next one legal, and no
 phase contains a shim.  Where the old phasing said "add the shim", the
 replacement says which file to port instead.
 
-* **Phase 0 — Tier 0 (now).**  The twenty-six free functions of
+* **Phase 0 — Tier 0 (now).**  The twenty-four free functions of
   §6.1, worked to exhaustion.  Each needs nothing that does not exist
   today, so this phase can start and finish without a single decision
   from any later one.  Nothing below is begun while Tier 0 has
@@ -1987,6 +1986,7 @@ kernel may add host tests like the rbtree's; see §8.
 | `kern/processor.c` (`processor_init`, `pset_init`, `processor_start/exit/control`, `processor_get_assignment`, `processor_info`, `processor_set_info`, `pset_reference`, `pset_deallocate`, `pset_add/remove_thread`, `thread_change_psets`, `processor_set_max_priority`, `processor_set_policy_enable/disable`) | `src/kern/processor.rs` | `pending` |
 | `kern/thread_swap.c` | `src/kern/thread_swap.rs` | `pending` |
 | `i386/i386/ast_check.c` | `src/arch/i386/ast_check.rs` | `pending` |
+| `i386/i386/mp_desc.c` (`simple_lock_pause`, `cpu_control`; rest stays C) | `src/arch/i386/mp_desc.rs` | `pending` |
 
 Deleted dead code: `device/blkio.c` (unreachable block pager path) and
 the `#if 0` profiling facility (`profil.h`, `profilparam.h`,

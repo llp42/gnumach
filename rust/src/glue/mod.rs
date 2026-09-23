@@ -194,11 +194,6 @@ unsafe extern "C" {
     // still C on both architectures.
     pub fn processor_shutdown(processor: *mut Processor) -> c_int;
 
-    // <i386/i386/mp_desc.c>: the machine-dependent processor control
-    // hook.
-    pub fn cpu_control(cpu: c_int, info: *const c_int, count: c_uint)
-    -> c_int;
-
     // <device/ds_routines.h>, the request passed as an opaque handle:
     // `struct io_req` itself belongs to its driver.
     pub fn iodone(ior: *mut c_void);

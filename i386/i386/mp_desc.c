@@ -165,35 +165,6 @@ mp_desc_init(int mycpu)
 	}
 }
 
-/* XXX should be adjusted per CPU speed */
-int simple_lock_pause_loop = 100;
-
-unsigned int simple_lock_pause_count = 0;	/* debugging */
-
-void
-simple_lock_pause(void)
-{
-	static volatile int dummy;
-	int i;
-
-	simple_lock_pause_count++;
-
-	/*
-	 * Used in loops that are trying to acquire locks out-of-order.
-	 */
-
-	for (i = 0; i < simple_lock_pause_loop; i++)
-	    dummy++;	/* keep the compiler from optimizing the loop away */
-}
-
-kern_return_t
-cpu_control(int cpu, const int *info, unsigned int count)
-{
-	printf("cpu_control(%d, %p, %d) not implemented\n",
-	       cpu, info, count);
-	return KERN_FAILURE;
-}
-
 void
 interrupt_processor(int cpu)
 {

@@ -32,6 +32,7 @@
 //! setters are also ported from the same file.  The adapters below
 //! keep the symbols the C half calls.
 
+use crate::arch::i386::mp_desc::cpu_control;
 use crate::glue;
 use crate::kern::lock::SimpleLock;
 use crate::kern::policy::{POLICY_TIMESHARE, invalid_policy};
@@ -370,11 +371,9 @@ impl Processor {
             return Err(KernError::InvalidArgument);
         };
 
-        // SAFETY: the C hook receives the slice's pointer and length,
-        // and the hook only reads it.
-        kern_error(unsafe {
-            glue::cpu_control(self.slot_num, info.as_ptr(), count)
-        })
+        // SAFETY: the slice's pointer and length agree, so `info` is
+        // valid for `count` reads; the hook only prints the pointer.
+        kern_error(unsafe { cpu_control(self.slot_num, info.as_ptr(), count) })
     }
 
     /// Return the set the processor belongs to, taking a reference on
