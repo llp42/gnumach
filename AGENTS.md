@@ -115,6 +115,7 @@ link error, not a fallback.
 | `i386/i386at/mbinfo.c` | `src/arch/i386/mbinfo.rs` |
 | `vm/vm_map.c` | `src/vm/vm_map.rs`, `src/vm/vm_map_ffi.rs` |
 | `kern/lock.c` | `src/kern/lock.rs` |
+| `i386/i386/lock.h` (simple lock, bit ops) | `src/kern/lock.rs`, `src/arch/i386/atomic_bits.rs` |
 
 Also deleted as dead: `device/blkio.c` and the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`).

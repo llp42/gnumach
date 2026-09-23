@@ -67,7 +67,7 @@ Rust story.  This is the "why" behind every blocker in §4.
 |---|---|---|---|
 | **L0 pure** | string ops (already Rust), byte order (Rust), atoi (Rust), parser tables | nothing | — |
 | **L1 types** | `struct thread`, `task`, `processor`, `processor_set`, `ipc_port`, `vm_map` read/written field-by-field, sometimes by asm (`i386asm.sym`) | `#[repr(C)]` mirror + offset/size `const` asserts, or C accessor shims; decision on who owns the layout | everything in `kern/` |
-| **L2 locks/IRQ/percpu** | `simple_lock`/`_simple_lock` (inline `xchg` macros), `spl*` (`spl.S`, per-CPU `curr_ipl`), `simple_lock_irq`, `percpu_get`/`current_thread()` (`%gs`), `__sync_synchronize`, `cpu_pause` | A `SpinLock` type `repr(transparent)` over `natural_t` so C macros keep working; an `IrqGuard` over `splx`; a per-CPU accessor in `src/arch/`; C shims for the lock/percpu/spl macros (first real shim customers) | `kmutex.c`, `eventcount.c`, `priority.c`, `timer.c`, scheduler/IPC/VM files |
+| **L2 locks/IRQ/percpu** | `simple_lock`/`_simple_lock` (thin macros over the Rust entry points), `spl*` (`spl.S`, per-CPU `curr_ipl`), `simple_lock_irq`, `percpu_get`/`current_thread()` (`%gs`), `__sync_synchronize`, `cpu_pause` | A `SpinLock` type `repr(transparent)` over `natural_t` so C macros keep working; an `IrqGuard` over `splx`; a per-CPU accessor in `src/arch/`; C shims for the lock/percpu/spl macros (first real shim customers) | `kmutex.c`, `eventcount.c`, `priority.c`, `timer.c`, scheduler/IPC/VM files |
 | **L3 memory** | `kalloc`/`kfree`, `kmem_cache_*` (slab), `kmem_alloc_wired`, `vm_page_*` | the same C API behind thin shims; optionally later a `GlobalAlloc` over `kalloc` (an explicit design decision, not a quiet add) | `slab.c` itself, `rdxtree.c`, `syscall_emulation.c`, `processor.c`, `task.c` |
 | **L4 runnable** | `thread_block`, `thread_wakeup`, `assert_wait`, `thread_setrun`, continuations (`extern "C" fn()` passed across `switch_context`), `set_timeout` | Rust `Thread`/`Task` mirror with locked accessors, a continuation type, and sleep/wake shims while `sched_prim.c` stays C | `ipc_sched.c`, `eventcount.c`, `syscall_subr.c`, `thread_swap.c`, `task.c` |
 | **L5 IPC/VM** | `ipc_port`/`ipc_space`/`ipc_kmsg`/`vm_map` with `simple_lock` embedded and refcounts by convention; `copyin`/`copyout`; MIG wire formats | Rust `Port`/`Space`/`Kmsg`/`VmMap` types or opaque handles with C accessors; a safe copyin/copyout wrapper for slices | `exception.c`, `ipc_kobject.c`, `ipc_tt.c`, `ipc_mig.c`, `vm/*`, `device/*` |
@@ -570,6 +570,11 @@ its entry below and the §9 table record what moved.
   gone.  The `waiting` read in `lock_done` stays unsynchronized by
   design (`:187`).  The port rode on `sched_prim.c`'s Rust sleep/wake
   and needs nothing further.
+* **Machine half.** `i386/i386/lock.h` is gone too: its bit operations
+  live in `src/arch/i386/atomic_bits.rs` and its simple-lock primitives
+  are the `mach_simple_*` entry points in `src/kern/lock.rs`.  The
+  header keeps only the ABI structs, the thin dispatch macros and the
+  prototypes, so the C layouts survive until their embedders move.
 
 #### `kern/gsync.c` — 537 lines — friction 4/5
 * **Role.** Address-keyed wait/wake (futex analogue) over 512 sorted
@@ -1677,6 +1682,8 @@ rbtree's; see §8.
 | `vm/vm_init.c` | `src/vm/vm_init.rs` | `727275e7` |
 | `vm/vm_map.c` | `src/vm/vm_map.rs`, `src/vm/vm_map_ffi.rs` | `d32c7253` … `170e6104` |
 | `kern/lock.c` | `src/kern/lock.rs` | `9a9ced86` |
+| `i386/i386/lock.h` (bit ops) | `src/arch/i386/atomic_bits.rs` | `f0a3cb2c` |
+| `i386/i386/lock.h` (simple lock) | `src/kern/lock.rs` | `102c4926` |
 | `kern/sched_prim.c` (wait/wake, `thread_dispatch`, `thread_setrun`) | `src/kern/sched_prim.rs` + `src/kern/thread.rs`, `src/kern/processor.rs`, `src/arch/i386/percpu.rs` | `c4498541` |
 | `kern/ast.h` (`ast_on`, `ast_off`, `ast_needed`) | `src/kern/ast.rs` | `6a6281be` |
 
