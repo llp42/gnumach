@@ -187,7 +187,7 @@ from §2.
 | `timer.c` | 236 | 0 | L0+L2 | **3** | `src/kern/timer.rs` |
 | `thread_swap.c` | 196 | 14 | L4 | **2** | `src/kern/thread_swap.rs` |
 | `mach_factor.c` | 150 | 6 | L1+L4 | **2** | `src/kern/mach_factor.rs` |
-| `kmutex.c` | 75 | 2 | L2+L4 | **3** | `src/kern/kmutex.rs` |
+| `kmutex.c` | 75 | 2 | L2+L4 | **3** | `src/kern/kmutex.rs` — ported |
 | `boot_script.c` | 728 | 14 | L3 | **2** | `src/kern/boot_script.rs` |
 | `rdxtree.c` | 799 | 4 | L3 | **3** | `src/kern/rdxtree.rs` |
 | `ast.c` | 221 | 10 | L1+L2+L6 | **3** | `src/kern/ast.rs` + `src/arch/` |
@@ -368,6 +368,9 @@ its entry below and the §9 table record what moved.
 * **Tests.** Qemu only: `test-gsync` drives the mutex through
   `gsync_wait`/`gsync_wake`; `kmutex_init` runs at boot from
   `gsync_setup` (`kern/startup.c:141`).
+* **No-glue precedent.** The port added no C: every dependency was
+  already a real symbol or already Rust.  It is the worked example of
+  §7's ordering, and the model for `eventcount.c` next.
 
 #### `kern/boot_script.c` — 728 lines — friction 2/5
 * **Role.** Parser/executor for the Multiboot `$0`/`${var}`/`$(func)`
@@ -781,10 +784,11 @@ its entry below and the §9 table record what moved.
   conversions.  No asm in the file.
 * **Boundary / notes.** `processor_set_tasks/threads` build raw arrays
   with `kalloc` and convert in place — call `kalloc` through `glue` and
-  keep the raw arrays, no slices.  Refcount restoration in `pset_deallocate` (`:342-402`) is
-  lock-order sensitive.  `master_cpu` is written once and read widely.
+  keep the raw arrays, no slices.  Refcount restoration in
+  `pset_deallocate` (`:342-402`) is lock-order sensitive.  `master_cpu`
+  is written once and read widely.
 
-#### `kern/printf.c` — 656 lines — friction 5/5
+#### `kern/printf.c` — 656 lines — blocked (friction 5/5)
 * **Role.** The whole console formatting engine (`printnum`, `_doprnt`,
   `printf`/`iprintf`, `sprintf`/`snprintf`/`vsnprintf`, `safe_gets`,
   the `%b` bit-field format).
@@ -1671,38 +1675,143 @@ exactly one hand-written definition, with the exact prototype from the
 generated `.server.h`; the unmarshalling, `TypeCheck` and
 `*_server_routines[]` table remain C.
 
-## 6. Least-friction candidates, in order
+## 6. What to port next — the objective test
 
-Ported from this list so far: `kern/rbtree.c`, `i386/i386at/kd_queue.c`,
-`i386/i386at/mem.c`, `i386/i386at/mbinfo.c`, `ipc/ipc_thread.c`,
-`util/atoi.c`, `kern/kmutex.c` and `ipc/ipc_table.c` (see §9).
+Choosing work is a five-question test, not a judgement call.  Apply it
+to a single C **function**, not to a file; a file is ready when all of
+its functions pass.
 
-Tier 1 — no new infrastructure, and nothing that would need C:
+| # | Question | If the answer is "no" |
+|---|---|---|
+| 1 | Is every function it calls a real linker symbol, rather than a `#define` or a `static inline`? | Port the definer first, or pick another function.  A shim is not available (`AGENTS.md`, the no-glue law). |
+| 2 | Is every struct field it touches covered by a Rust mirror that exists **today**? | Mirror that struct first: §7 Phase 4. |
+| 3 | Does it avoid every array sized by a configure-time constant (`NCPUS`, `NINTR`, `NCOM`, `NIPL`)? | Blocked on §7 Phase 3. |
+| 4 | Is it non-variadic, and free of `va_list`? | Blocked.  See the `kern/printf.c` entry in §4. |
+| 5 | Is its inline assembly, if any, expressible with `core::arch::asm!`? | Blocked on the arch layer. |
 
-1. `ipc/ipc_target.c` — one call to `ipc_mqueue_init`, which is a real
-   symbol `glue` can declare.
-2. `i386/i386/ast_check.c`, `i386/i386/hardclock.c` — tiny, asm-free.
-3. `kern/boot_script.c` — isolated, allocation callbacks only.
+Five exemptions are settled, and do not need re-deciding per port:
 
-Tier 2 — after percpu, locks and the `struct` mirrors have been
-*ported* (Phases 1, 2 and 4; none of them is a shim):
+* **Locks pass question 1.**  `simple_lock`/`simple_unlock`/
+  `simple_lock_try` expand to `mach_simple_lock`/`mach_simple_unlock`/
+  `mach_simple_lock_try` (`kern/lock.h:171-186`), which Rust defines
+  (`rust/src/kern/lock.rs:774`).  `simple_lock_init` is a plain field
+  write over the mirrored `SimpleLock`, and `simple_lock_irq` is
+  `splhigh()` plus `mach_simple_lock`, both real.
+* **`spl*` passes question 1.**  Every one is a real asm function
+  (`i386/i386/spl.h:35-65`), not a macro.
+* **`current_thread()`, `cpu_number()` and `percpu_get` pass.**  They
+  are macros, but `rust/src/arch/i386/percpu.rs` is the Rust
+  equivalent, so Rust never invokes the macro.
+* **`thread_wakeup*` passes.**  The macro expands to
+  `thread_wakeup_prim`, which is Rust already
+  (`rust/src/kern/sched_prim.rs:504`); Rust calls it directly with the
+  literal arguments the macro would have supplied.
+* **`inb`/`outb` pass question 5.**  They are statement-expression
+  macros, but port I/O is one instruction and `asm!` emits it
+  directly, as `percpu.rs` already does.
 
-5. `kern/timer.c` — needs `cpu_number` accessor only.
-6. `kern/kmutex.c`, `kern/mach_factor.c`, `kern/thread_swap.c` — need
-    the lock/sleep layer.
-7. `kern/syscall_sw.c` — the trap table can move once entry layout is
-    `#[repr(C)]`; the routines it names need not have moved.
-8. `device/cirbuf.c`, `device/dev_name.c`, `chips/busses.c`,
-    `ipc/ipc_table.c`, `i386/i386/pit.c`,
-    `i386/i386/irq.c`, `i386/i386/machine_task.c` — small, one or two
-    leaf dependencies.
+The tiers below are just the number of "no" answers.
 
-Tier 3 — the lock/allocator/IPC layers (`rdxtree`, `slab`, `lock`,
-`eventcount`, `priority`, `ipc_tt`, `ipc_host`, `host`).
+### 6.1 Tier 0 — the free ports
 
-Tier 4 — the anchors (`thread`, `task`, `sched_prim`, `ipc_mig`,
-`exception`, `mach_clock`, `startup`, `bootstrap`, `printf` engine,
-`pmap`, `trap`, `pcb`, `ipc_kmsg`, `mach_msg`).
+**Zero "no" answers: these need nothing that does not exist today.**
+No new C, no new mirror, no new constant, no design conversation.
+Tier 0 is worked to exhaustion before any infrastructure is proposed
+(`AGENTS.md`, "Take the free ports first").
+
+Forty-eight functions, fifty-nine counting the stub batch.  Clusters
+first, because a whole file leaving C in one commit is worth more than
+the same functions leaving one at a time.
+
+**Whole-file clusters**
+
+| File | Functions | Why it is free |
+|---|---:|---|
+| `device/cirbuf.c` | 8 — `putc:81`, `getc:106`, `q_to_b:133`, `b_to_q:169`, `ndflush:208`, `cb_clear:237`, `cb_alloc:247`, `cb_free:269` | `struct cirbuf` is already mirrored field-for-field as `Cirbuf` (`rust/src/arch/i386/kd/tty.rs:61`); `CB_CHECK` expands to nothing in this build (`cirbuf.c:75`); the only calls are `memcpy`, `kalloc` and `kfree`, all real and the last two already in `glue`.  The mirror moves from `kd/tty.rs` to a new `rust/src/device/cirbuf.rs` with the port, since the file is machine-independent. |
+| `kern/thread_swap.c` | 5 — `swapper_init:69`, `thread_swapin:85`, `thread_doswapin:122`, `swapin_thread_continue:155`, `swapin_thread:189` | Locks are `mach_simple_lock`; `queue_init`, `enqueue_tail`, `dequeue_head`, `thread_setrun`, `assert_wait` and `thread_wakeup_prim` are Rust; `stack_alloc`, `stack_privilege`, `splsched`, `splx` and `thread_block` are real symbols.  Every field it touches (`state`, `links`, `lock`, `vm_privilege`) is in the `Thread` mirror. |
+| `i386/i386at/rtc.c` | 7 — `rtcinit:62`, `rtcget:72`, `rtcput:89`, `hexdectodec:111`, `yeartoday:134`, `dectohexdec:140`, `readtodc:146` | The three arithmetic helpers call nothing at all.  The rest is port I/O plus `printf` and `splclock`/`splx`, all real.  `struct rtc_st` is used only inside `rtc.c`/`rtc.h`, so it moves with the file rather than needing a mirror. |
+| `i386/i386/pit.c` | 4 — `pit_prepare_sleep:69`, `pit_sleep:89`, `pit_udelay:105`, `pit_mdelay:117` | Port I/O and plain constants only; the two `*delay` entries call their siblings in the same file. |
+
+**Singles and pairs**
+
+| Function | Why it is free |
+|---|---|
+| `kern/timer.c:68 timer_init`, `:80 timer_normalize`, `:109 timer_grab`, `:225 timer_delta` | Touch only the mirrored `Timer`/`TimerSave`.  `timer_grab` is `static`, so it moves with `timer_delta`.  `init_timers` does **not** qualify: it indexes `current_timer[NCPUS]`. |
+| `kern/debug.c:49 SoftDebugger`, `:56 Debugger`, `:71 panic_init` | Only `printf` and `Panic`, both in `glue`.  `panic_init`'s `simple_lock_init_irq` is a field write over the mirrored `SimpleLock`.  `Panic` and `log` themselves stay C: they are variadic (question 4). |
+| `kern/machine.c:115 host_reboot` | Calls `Debugger` and `halt_all_cpus`, both real.  `host` is only compared against `HOST_NULL`. |
+| `i386/i386/ast_check.c:46 init_ast_check`, `:53 cause_ast_check` | The first has an empty body.  The second reads `processor->slot_num`, which the `Processor` mirror covers, and calls the real `smp_remote_ast`.  `APIC_LOGICAL_ID` is arithmetic on a plain constant, which Rust rewrites rather than calls.  `cause_ast_check` is already declared in `glue`, so the port turns that declaration into a Rust definition. |
+| `i386/i386/mp_desc.c:189 cpu_control` | One `printf` and a constant return.  Its signature already matches the `glue` declaration Rust calls today. |
+| `i386/i386/mp_desc.c:174 simple_lock_pause` | Calls nothing; spins over a file-local `static volatile int`. |
+| `i386/i386/fpu.c:261 fp_free` | One `kmem_cache_free`, already in `glue`.  Never dereferences its argument; `ifps_cache` is passed by address only.  `ASSERT_IPL` expands to nothing. |
+| `device/subrs.c:44 ether_sprintf`, `:76 sleep`, `:82 wakeup` | Byte formatting and two one-line wrappers over `assert_wait`/`thread_block`/`thread_wakeup_prim`, all reachable. |
+| `device/dev_name.c:105 name_equal` | Pure string comparison, calls nothing. |
+| `device/net_io.c:2010 bpf_hash` | Pure additive hash over a caller-supplied array. |
+| `device/dev_name.c:42-91` — the eleven `nulldev_*`/`nodev_*`/`nomap` stubs | Each returns a plain constant and touches no parameter.  Low value individually; take them as one batch. |
+| `ipc/ipc_object.c:344 ipc_object_copyin_type` | A `switch` over an integer, with `panic` as the only call. |
+| `ipc/ipc_port.c:68 ipc_port_timestamp` | Two file globals under `simple_lock`.  Touches no IPC struct. |
+| `ipc/mach_port.c:358 mach_port_rename`, `:1200 mach_port_insert_right`, `:1237 mach_port_extract_right` | Scalar and pointer-equality validation, then one real call each (`ipc_object_rename`, `ipc_object_copyout_name`, `ipc_object_copyin`).  Signatures come from `include/mach/mach_port.defs`, so the generated server is unchanged. |
+| `ipc/mach_port.c:1116 mach_port_request_notification` | Its callees own every lock and unlock, so the function body touches no `ipc_port` field.  **Verify before porting** that no return path leaves the port locked in this frame. |
+
+### 6.2 What the rejections teach
+
+Every candidate rejected in the survey failed on one of exactly three
+things, and each is a concrete piece of work rather than a vague
+difficulty:
+
+1. **A configure-time array.**  `init_timers`, `thread_quantum_update`,
+   `compute_mach_factor`, `cpu_up`, `ast_init` and everything in
+   `i386/i386/irq.c` index `NCPUS`- or `NINTR`-sized storage.  §7
+   Phase 3 clears all of them at once.
+2. **An unmirrored struct field.**  Everything in `kern/eventcount.c`
+   (`struct eventcounter`), most of `vm/vm_pageout.c` and
+   `device/net_io.c` (`vm_page`, `vm_object`, `net_hash_entry`), and
+   `i386/i386/machine_task.c` (`task->machine`).  §7 Phase 4.
+3. **A lock macro over an unmirrored struct.**  This is what gates
+   `ipc/` almost entirely: `ip_lock`, `ip_unlock`, `is_write_unlock`
+   and `ips_lock` inline a dereference of `struct ipc_port` or
+   `ipc_space` into the caller, so the caller fails question 2 even
+   though the underlying lock is Rust.  Six functions in the whole
+   directory survive it.
+
+The two cheapest ways to grow Tier 0 are therefore Rust changes, not
+C ones:
+
+* **Mirror `mach_msg_header_t` and `mach_msg_type_t`.**  That alone
+  qualifies all six `ipc_notify_init_*` functions in
+  `ipc/ipc_notify.c`.
+* **Bring `NCPUS` into Rust** (§7 Phase 3).  That clears rejection
+  class 1 and deletes `kern/processor_glue.c` at the same time (§10).
+
+### 6.3 How this list was produced, and when to redo it
+
+Four parallel surveys on 2026-09-23, one each over `kern/`, `ipc/`,
+`vm/` + `device/`, and `i386/` + `x86_64/` + `util/` + `chips/`, with
+every candidate then checked by hand against the C source, the header
+that declares each callee, and the Rust mirror it would need.
+
+**It is a snapshot.**  Every mirror that lands and every constant that
+becomes visible to Rust moves functions from the rejection classes
+into Tier 0, and the test in §6 is what re-derives the list.  Re-run
+it after any Phase 3 or Phase 4 work rather than trusting this table.
+
+Already ported from the earlier lists: `kern/rbtree.c`,
+`i386/i386at/kd_queue.c`, `i386/i386at/mem.c`, `i386/i386at/mbinfo.c`,
+`ipc/ipc_thread.c`, `util/atoi.c`, `kern/kmutex.c` and
+`ipc/ipc_table.c` (see §9).
+
+### 6.4 Tiers 1 to 4
+
+* **Tier 1 — one "no", and the fix is small.**  `ipc/ipc_target.c`,
+  `kern/boot_script.c`, `i386/i386/hardclock.c`.
+* **Tier 2 — one "no", cleared by a numbered phase.**
+  `kern/mach_factor.c`, `kern/syscall_sw.c`, `kern/rdxtree.c`,
+  `i386/i386/irq.c`, `i386/i386/machine_task.c`, `chips/busses.c`.
+* **Tier 3 — the layers themselves.**  `slab`, `eventcount`,
+  `priority`, `ipc_tt`, `ipc_host`, `host`.
+* **Tier 4 — the anchors.**  `thread`, `task`, `sched_prim`,
+  `ipc_mig`, `exception`, `mach_clock`, `startup`, `bootstrap`,
+  `pmap`, `trap`, `pcb`, `ipc_kmsg`, `mach_msg`.  `kern/printf.c` is
+  not in any tier: see §4.
 
 ## 7. Recommended phasing
 
@@ -1712,8 +1821,11 @@ or Rust already.  Each phase exists to make the next one legal, and no
 phase contains a shim.  Where the old phasing said "add the shim", the
 replacement says which file to port instead.
 
-* **Phase 0 — leaves (now).**  The Tier-1 files of §6.  Each port
-  establishes only its own module and needs nothing new.
+* **Phase 0 — Tier 0 (now).**  The forty-eight free functions of
+  §6.1, worked to exhaustion.  Each needs nothing that does not exist
+  today, so this phase can start and finish without a single decision
+  from any later one.  Nothing below is begun while Tier 0 has
+  entries left.
 
 * **Phase 1 — per-CPU.**  Finish the accessor in `src/arch/<arch>/`
   (`src/arch/i386/percpu.rs` is the start).  `percpu_get`,
@@ -1725,17 +1837,25 @@ replacement says which file to port instead.
   *Unblocks:* `timer.c`, `priority.c`, `ast.c`, and the per-CPU half
   of everything later.
 
-* **Phase 2 — locks.**  Finish `kern/lock.h` (`i386/i386/lock.h` is
-  already gone):
-  `src/kern/lock.rs` and `src/arch/i386/atomic_bits.rs` already own
-  the simple lock and the bit ops, and what remains is the read/write
-  `struct lock` and the `simple_lock_irq` pair.  Every remaining lock
-  macro must become a real symbol before any later file can take a
-  lock from Rust, because a lock shim is not available as a fallback.
-  Then `kern/kmutex.c` (its sleep/wake dependencies are Rust already),
-  then `kern/eventcount.c`.
-  *Unblocks:* every file whose only C need was a lock — the largest
-  single group in §4.
+* **Phase 2 — locks: already done.**  This phase is recorded as
+  complete because the audit that named locks a blocker predates the
+  `kern/lock.c` port.  `kern/lock.c` and `i386/i386/lock.h` are gone,
+  `src/kern/lock.rs` defines all fourteen `lock_*` symbols plus
+  `mach_simple_lock`/`mach_simple_unlock`/`mach_simple_lock_try`, and
+  the macros left in `kern/lock.h` expand to exactly those symbols
+  (`kern/lock.h:171-186`).  `simple_lock_init` is a plain field write
+  over the mirrored `SimpleLock`, and `simple_lock_irq` is
+  `splhigh()` plus `mach_simple_lock`, both real.
+  **So taking a lock from Rust needs no glue and no further work**, and
+  any "blocked on locks" note elsewhere in this file is stale.
+  `kern/kmutex.c` is the precedent: it moved whole in `d4fe54dc`,
+  taking `SimpleLock` from `src/kern/lock.rs`, `current_thread()`
+  from `src/arch/i386/percpu.rs` and
+  `thread_sleep`/`thread_wakeup_prim` from `src/kern/sched_prim.rs`,
+  and it added no C.  `kern/eventcount.c` is the next file of the
+  same shape.
+  *Unblocked already:* every file whose only C need was a lock — the
+  largest single group in §4.
 
 * **Phase 3 — the configure-time constants.**  `NCPUS`, `NINTR`,
   `NCOM` and friends size C arrays and shift struct tails, and Rust

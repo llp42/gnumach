@@ -48,9 +48,9 @@ call Rust. As of 2026-09-23 the Rust half is 69 files and about 27,700 lines.
 Getting there is incremental by construction, so at any moment the tree is
 **mixed and noisy** — C files beside Rust modules, Rust modules wrapped in
 `extern "C"` adapters, symbols whose definition has crossed while their
-callers have not. That noise is expected and temporary. It is the cost of keeping the
-kernel booting and the test suite green at every commit, and it is not a
-defect to tidy away by making the Rust look like the C.
+callers have not. That noise is expected and temporary. It is the cost
+of keeping the kernel booting and the test suite green at every commit,
+and it is not a defect to tidy away by making the Rust look like the C.
 
 Two rules hold the shape of it:
 
@@ -198,9 +198,31 @@ file is never created. Deleting the last caller of one deletes it in the
 same commit. `MIGRATE.md` §10 catalogues every piece and names what deletes
 it; two of them are deletable today.
 
-`MIGRATE.md` was written before this rule and names shims as steps in many
-places. Where it does, the step is wrong: that file's ordering is what has
-to change, not this rule.
+`MIGRATE.md`'s ordering was rewritten around this rule: §6 is the test
+that decides whether a function can move, §7 the phases, §10 the debt.
+Where any older note there still names a shim as a step, the step is wrong.
+
+### Take the free ports first
+
+A **free port** is one that needs nothing which does not already exist:
+no new C, no new `#[repr(C)]` mirror, no configure-time constant brought
+into Rust, no design conversation. `MIGRATE.md` §6 is the five-question
+test that decides this mechanically, and §6.1 is the current list of
+forty-eight such functions.
+
+**Free ports are worked to exhaustion before any infrastructure is
+proposed.** They are the only kind of port that cannot be blocked, they
+pay off the glue debt fastest, and each one is a commit that needs a
+decision from nobody.
+
+So before proposing a mirror, a constant, an allocator or a lock layer:
+check whether §6.1 is empty. If it is not, the thing being proposed is
+not next, and the honest answer to "what should I port?" is a name from
+that list. If a listed function turns out not to be free, say which of
+the five questions it fails and fix the entry rather than leaving it.
+
+None of this weakens the no-glue law. A free port is free because it
+needs no glue, not the other way round.
 <!-- agents-md:end id=noglue -->
 
 <!-- agents-md:begin id=commands -->
@@ -1438,7 +1460,9 @@ The most important section. Keep it current.
   every exported `unsafe extern "C" fn`; record the move in `MIGRATE.md`;
   carry the correct SPDX header (BSD-2-Clause on new code and public
   interfaces, the source's license on a translation); pick a port order in
-  which no glue is needed, and stop rather than write C when none exists.
+  which no glue is needed, and stop rather than write C when none exists;
+  take the free ports of `MIGRATE.md` §6.1 before proposing any
+  infrastructure.
 
 - ⚠️ **Ask first**: adding an allocator (`GlobalAlloc` over `kalloc`) or
   anything that allocates; changing a `#[repr(C)]` layout, a MIG signature, an
@@ -1455,8 +1479,9 @@ The most important section. Keep it current.
   assertion; commit `mise.local.toml` or quote its contents; use `static mut`;
   write any new C — a `*_glue.c`, a function in an existing one, a shim, an
   accessor or a header prototype for Rust's benefit — where the answer is a
-  different port order; leave two definitions of one symbol in the tree; edit `build-64/`,
-  `build-32/`, `configure`, `Makefile.in`, or any other generated file by hand;
+  different port order; leave two definitions of one symbol in the tree;
+  edit `build-64/`, `build-32/`, `configure`, `Makefile.in`, or any other
+  generated file by hand;
   force-push a shared branch.
 <!-- agents-md:end id=boundaries -->
 
