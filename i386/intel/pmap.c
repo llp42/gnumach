@@ -24,6 +24,9 @@
  * the rights to redistribute these changes.
  */
 /*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
+/*
  *	File:	pmap.c
  *	Author:	Avadis Tevanian, Jr., Michael Wayne Young
  *	(These guys wrote the Vax version)
@@ -78,6 +81,7 @@
 
 #include <mach/machine/vm_param.h>
 #include <machine/thread.h>
+#include <machine/smp.h>	/* for cpu_pause */
 #include <i386/cpu_number.h>
 #include <i386/proc_reg.h>
 #include <i386/locore.h>

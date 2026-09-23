@@ -54,12 +54,9 @@
  * simple_unlock_irq(s, &mylock);
  *
  * In the following, the _irq versions disable interrupts and the plain
- * versions are the ones to use in ordinary code.  Both are built on the
- * machine's _simple_lock/_simple_unlock/_simple_lock_try primitives.
+ * versions are the ones to use in ordinary code.  Both are built on
+ * the machine entry points below, which src/kern/lock.rs defines.
  */
-
-#include <machine/lock.h>/*XXX*/
-
 
 /*
  *	A simple spin lock.
@@ -78,6 +75,25 @@ struct slock {
 
 typedef struct slock	simple_lock_data_t;
 typedef struct slock	*simple_lock_t;
+
+/*
+ *	Reset a simple lock to unlocked.  Both spellings came from the
+ *	machine header, which is gone.
+ */
+#define SIMPLE_LOCK_INITIALIZER(l) \
+	{.lock_data = 0}
+#define simple_lock_init(l) \
+	((l)->lock_data = 0)
+
+/*
+ *	The machine half of a simple lock, defined in src/kern/lock.rs.
+ *	The macros below are its only callers.
+ */
+extern void mach_simple_lock(simple_lock_t);
+extern void mach_simple_unlock(simple_lock_t);
+extern int mach_simple_lock_try(simple_lock_t);
+
+extern void simple_lock_pause(void);
 
 /*
  *	Use the locks.
@@ -150,23 +166,28 @@ extern void		lock_set_recursive(lock_t);
 extern void		lock_clear_recursive(lock_t);
 
 /* Lock debugging support.  */
-#define have_read_lock(l)	1
-#define have_write_lock(l)	1
 #define lock_check_no_interrupts()
-#define have_lock(l)		(have_read_lock(l) || have_write_lock(l))
 
 #define simple_lock(l)		\
 MACRO_BEGIN \
 	lock_check_no_interrupts(); \
-	_simple_lock(l); \
+	mach_simple_lock(l); \
 MACRO_END
 #define simple_lock_try(l)	({ \
-	_simple_lock_try(l); \
+	mach_simple_lock_try(l); \
 })
 #define simple_unlock(l)	\
 MACRO_BEGIN \
-	_simple_unlock(l); \
+	mach_simple_unlock(l); \
 MACRO_END
+
+/*
+ *	The machine header's spellings, kept for the C callers that
+ *	still use them directly.  Each goes when its last caller moves
+ *	to the plain macros above or to the Rust SimpleLock.
+ */
+#define _simple_lock(l)		mach_simple_lock(l)
+#define _simple_unlock(l)	mach_simple_unlock(l)
 
 /* _irq variants */
 
@@ -186,12 +207,12 @@ class	simple_lock_irq_data_t	name;
 
 #define simple_lock_irq(l)	({ \
 	spl_t __s = splhigh(); \
-	_simple_lock(&(l)->slock); \
+	mach_simple_lock(&(l)->slock); \
 	__s; \
 })
 #define simple_unlock_irq(s, l)	\
 MACRO_BEGIN \
-	_simple_unlock(&(l)->slock); \
+	mach_simple_unlock(&(l)->slock); \
 	splx(s); \
 MACRO_END
 

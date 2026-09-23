@@ -23,6 +23,9 @@
  * any improvements or extensions that they make and grant Carnegie Mellon
  * the rights to redistribute these changes.
  */
+/*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
 
 #include <kern/macros.h>
 #include <kern/cpu_number.h>
@@ -35,7 +38,6 @@
 #include <vm/vm_kern.h>
 
 #include <i386/mp_desc.h>
-#include <i386/lock.h>
 #include <i386/apic.h>
 #include <i386/locore.h>
 #include <i386/fpu.h>

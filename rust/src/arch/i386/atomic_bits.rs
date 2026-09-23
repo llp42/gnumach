@@ -3,9 +3,9 @@
 //   Copyright (c) 1991,1990 Carnegie Mellon University.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! The bit operations of the machine lock headers, which were inline
-//! asm macros in `i386/i386/lock.h` and its `x86_64/x86_64/lock.h`
-//! copy.
+//! The bit operations of the machine lock header, which held them as
+//! inline asm macros in `i386/i386/lock.h` until that file was
+//! deleted.
 //!
 //! `bit_lock` is the test-and-test-and-set lock on one bit of a
 //! bitmap, `bit_unlock` releases it, and `i_bit_set` and `i_bit_clear`

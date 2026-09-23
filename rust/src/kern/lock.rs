@@ -8,12 +8,14 @@
 //! The locks of `kern/lock.h`, which `kern/lock.c` used to define.
 //!
 //! `SimpleLock` mirrors `struct slock`: one `natural_t`, 0 unlocked
-//! and 1 locked.  The C `simple_lock`/`simple_unlock` macros in
-//! <i386/lock.h> use a locked `xchg`; the methods here use
-//! `AtomicU32::swap` with `AcqRel`, so the critical section a lock
-//! acquired release-publishes is acquired by the next locker on every
-//! supported architecture.  On x86 the compiler lowers both to the
-//! same instruction.
+//! and 1 locked.  The C `simple_lock` macros in <kern/lock.h> call
+//! [`mach_simple_lock`], [`mach_simple_unlock`] and
+//! [`mach_simple_lock_try`] below, which replace the locked `xchg`
+//! the machine <i386/lock.h> used to inline; that header is gone.
+//! The methods use `AtomicU32::swap` with `AcqRel`, so the critical
+//! section a lock acquired release-publishes is acquired by the next
+//! locker on every supported architecture.  On x86 the compiler
+//! lowers both to the same instruction.
 //!
 //! `LockData` mirrors `struct lock`, the sleep-capable recursive lock.
 //! Rust cannot express the C bitfield word, so it is one `u32` and the
@@ -760,4 +762,44 @@ pub unsafe extern "C" fn lock_set_recursive(lock: *mut LockData) {
 pub unsafe extern "C" fn lock_clear_recursive(lock: *mut LockData) {
     // SAFETY: the caller promises a live lock it holds.
     unsafe { (*lock).clear_recursive() };
+}
+
+/// Acquire a simple lock, spinning while it is held.  The machine
+/// half of the C `simple_lock()` macro.
+///
+/// # Safety
+///
+/// `lock` must point at a live `struct slock`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mach_simple_lock(lock: *mut SimpleLock) {
+    // SAFETY: the caller promises a live lock.
+    unsafe { (*lock).lock() };
+}
+
+/// Release a simple lock.  The machine half of the C
+/// `simple_unlock()` macro.
+///
+/// # Safety
+///
+/// `lock` must point at a live `struct slock` the caller holds.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mach_simple_unlock(lock: *mut SimpleLock) {
+    // SAFETY: the caller promises a live lock it holds.
+    unsafe { (*lock).unlock() };
+}
+
+/// Try to acquire a simple lock.  The machine half of the C
+/// `simple_lock_try()` macro.
+///
+/// Returns the C boolean the macro produces, nonzero when the lock
+/// was taken.
+///
+/// # Safety
+///
+/// `lock` must point at a live `struct slock`.
+#[unsafe(no_mangle)]
+#[must_use]
+pub unsafe extern "C" fn mach_simple_lock_try(lock: *mut SimpleLock) -> c_int {
+    // SAFETY: the caller promises a live lock.
+    c_int::from(unsafe { (*lock).try_lock() })
 }

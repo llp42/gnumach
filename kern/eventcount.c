@@ -27,6 +27,9 @@
  * the rights to redistribute these changes.
  */
 /*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
+/*
  *	File:	eventcount.c
  *	Author:	Alessandro Forin
  *	Date:	10/91
@@ -50,6 +53,7 @@
 #include <kern/thread.h>
 
 #include <machine/spl.h>	/* For def'n of splsched() */
+#include <machine/smp.h>	/* For def'n of cpu_pause() */
 
 #include <kern/eventcount.h>
 

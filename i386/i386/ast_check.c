@@ -23,6 +23,9 @@
  * any improvements or extensions that they make and grant Carnegie Mellon
  * the rights to redistribute these changes.
  */
+/*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
 
 /*
  * Handle signalling ASTs on other processors.
@@ -35,6 +38,7 @@
 #include <kern/smp.h>
 #include <machine/cpu_number.h>
 #include <machine/apic.h>
+#include <machine/smp.h>
 
 /*
  * Initialize for remote invocation of ast_check.

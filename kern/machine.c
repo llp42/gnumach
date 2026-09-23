@@ -27,6 +27,9 @@
  * the rights to redistribute these changes.
  */
 /*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
+/*
  *	File:	kern/machine.c
  *	Author:	Avadis Tevanian, Jr.
  *	Date:	1987
@@ -53,6 +56,7 @@
 #include <kern/thread.h>
 #include <kern/printf.h>
 #include <machine/spl.h>	/* for splsched */
+#include <machine/smp.h>	/* for cpu_pause */
 #include <machine/model_dep.h>
 #include <machine/pcb.h>
 #include <sys/reboot.h>
