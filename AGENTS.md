@@ -114,6 +114,7 @@ link error, not a fallback.
 | `i386/i386at/mem.c` | `src/arch/i386/mem.rs` |
 | `i386/i386at/mbinfo.c` | `src/arch/i386/mbinfo.rs` |
 | `vm/vm_map.c` | `src/vm/vm_map.rs`, `src/vm/vm_map_ffi.rs` |
+| `kern/lock.c` | `src/kern/lock.rs` |
 
 Also deleted as dead: `device/blkio.c` and the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`).
@@ -1100,11 +1101,10 @@ spin on a C `simple_lock` this tree has not ported.  Every guard carries
 a warning: bind it (`let guard = lock.lock();`) or discard it
 deliberately (`let _ = lock.lock();`).
 
-This is the rule for new lock sites, not a migration order.  `kern/lock.c`
-and its layout mirror `rust/src/kern/lock.rs` stay as they are until
-their own port, and the C callers keep calling the `lock_*` symbols.  A
-lock site inside a C file moves to the vendored primitives when that
-file moves, not before.
+This is the rule for new lock sites, not a migration order.  `kern/lock.h`
+still owns `struct slock` and `struct lock` while C structs embed them,
+so those C layouts go on being the ABI; a lock site inside a C file moves
+to the vendored primitives when that file moves, not before.
 
 ---
 

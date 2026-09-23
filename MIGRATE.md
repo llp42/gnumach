@@ -67,7 +67,7 @@ Rust story.  This is the "why" behind every blocker in §4.
 |---|---|---|---|
 | **L0 pure** | string ops (already Rust), byte order (Rust), atoi (Rust), parser tables | nothing | — |
 | **L1 types** | `struct thread`, `task`, `processor`, `processor_set`, `ipc_port`, `vm_map` read/written field-by-field, sometimes by asm (`i386asm.sym`) | `#[repr(C)]` mirror + offset/size `const` asserts, or C accessor shims; decision on who owns the layout | everything in `kern/` |
-| **L2 locks/IRQ/percpu** | `simple_lock`/`_simple_lock` (inline `xchg` macros), `spl*` (`spl.S`, per-CPU `curr_ipl`), `simple_lock_irq`, `percpu_get`/`current_thread()` (`%gs`), `__sync_synchronize`, `cpu_pause` | A `SpinLock` type `repr(transparent)` over `natural_t` so C macros keep working; an `IrqGuard` over `splx`; a per-CPU accessor in `src/arch/`; C shims for the lock/percpu/spl macros (first real shim customers) | `lock.c`, `kmutex.c`, `eventcount.c`, `priority.c`, `timer.c`, scheduler/IPC/VM files |
+| **L2 locks/IRQ/percpu** | `simple_lock`/`_simple_lock` (inline `xchg` macros), `spl*` (`spl.S`, per-CPU `curr_ipl`), `simple_lock_irq`, `percpu_get`/`current_thread()` (`%gs`), `__sync_synchronize`, `cpu_pause` | A `SpinLock` type `repr(transparent)` over `natural_t` so C macros keep working; an `IrqGuard` over `splx`; a per-CPU accessor in `src/arch/`; C shims for the lock/percpu/spl macros (first real shim customers) | `kmutex.c`, `eventcount.c`, `priority.c`, `timer.c`, scheduler/IPC/VM files |
 | **L3 memory** | `kalloc`/`kfree`, `kmem_cache_*` (slab), `kmem_alloc_wired`, `vm_page_*` | the same C API behind thin shims; optionally later a `GlobalAlloc` over `kalloc` (an explicit design decision, not a quiet add) | `slab.c` itself, `rdxtree.c`, `syscall_emulation.c`, `processor.c`, `task.c` |
 | **L4 runnable** | `thread_block`, `thread_wakeup`, `assert_wait`, `thread_setrun`, continuations (`extern "C" fn()` passed across `switch_context`), `set_timeout` | Rust `Thread`/`Task` mirror with locked accessors, a continuation type, and sleep/wake shims while `sched_prim.c` stays C | `ipc_sched.c`, `eventcount.c`, `syscall_subr.c`, `thread_swap.c`, `task.c` |
 | **L5 IPC/VM** | `ipc_port`/`ipc_space`/`ipc_kmsg`/`vm_map` with `simple_lock` embedded and refcounts by convention; `copyin`/`copyout`; MIG wire formats | Rust `Port`/`Space`/`Kmsg`/`VmMap` types or opaque handles with C accessors; a safe copyin/copyout wrapper for slices | `exception.c`, `ipc_kobject.c`, `ipc_tt.c`, `ipc_mig.c`, `vm/*`, `device/*` |
@@ -538,25 +538,38 @@ its entry below and the §9 table record what moved.
   `-1`/`0`/`N` count protocol (`:149-160`) and the "wait_clear blocks
   forever if already signalled" semantics.
 
-#### `kern/lock.c` — 463 lines — friction 4/5
+#### `kern/lock.c` — 463 lines — ported
 * **Role.** Sleep-capable recursive reader/writer lock built around a
   `simple_lock` interlock; the lock state lives in caller-declared
   `lock_data_t` (`lock.h:110-126`).
-* **Exports.** `lock_init`, `lock_sleepable`, `lock_write`, `lock_read`,
-  `lock_done`, `lock_read_to_write`, `lock_write_to_read`,
-  `lock_try_write`, `lock_try_read`, `lock_try_read_to_write`,
-  `lock_set_recursive`, `lock_clear_recursive`.
-* **Dependencies — why.** `current_thread` for recursion identity;
-  `thread_sleep(lock_addr)`/`thread_wakeup` for the wait path — the
-  interlock must be released **by the scheduler after enqueue**, not
-  before (`lock.c:134`); `cpu_pause` for backoff; `memset`.
-* **Blockers.** L4 sleep/wake and an interlock type that the C macros
-  accept.
-* **Boundary / notes.** A native `SleepLock<T>` can exist, but
-  `struct lock`'s bitfield word is ABI shared with `vm_map`/`ipc_space`;
-  represent it as `u32` + masks.  `lock_done`'s wake policy reads
-  `waiting` unsynchronized by design (`:187`).  Port after
-  `sched_prim.c`'s sleep/wake is callable from Rust.
+* **Rust home.** `src/kern/lock.rs`.  `LockData` keeps its `#[repr(C)]`
+  layout (16 bytes on x86_64, 12 on i386) with the size and offset
+  assertions; `thread` and `state` are `UnsafeCell` so mutation through
+  `&self` under the interlock is sound.  The bitfield word keeps the C
+  packing (`read_count:16, want_upgrade:1, want_write:1, waiting:1,
+  can_sleep:1, recursion_depth:12`, from the least significant bit),
+  reached through named shift/mask accessors.  The eleven exports are
+  thin `unsafe extern "C"` adapters over Rust methods; every algorithm
+  (the 100-pause backoff, the interlock release before sleeping, the
+  `waiting`/`read_count` wake policy, the failed-upgrade semantics of
+  `lock_read_to_write`) is the C one, and the boolean-returning entry
+  points are `#[must_use]`.  Every `unsafe` block carries its own
+  `// SAFETY:` note.
+* **Exports.** `lock_init`, `lock_write`, `lock_read`, `lock_done`,
+  `lock_read_to_write`, `lock_write_to_read`, `lock_try_write`,
+  `lock_try_read`, `lock_try_read_to_write`, `lock_set_recursive`,
+  `lock_clear_recursive`; `lock_sleepable`, which had no caller, was
+  dropped with the port.
+* **Dependencies.** `current_thread` for recursion identity; the Rust
+  `thread_sleep`/`thread_wakeup_prim` for the wait path, which releases
+  the interlock after enqueue exactly as `lock.c:134` did; the
+  `SimpleLock` interlock, which stays because it is part of the
+  `struct lock` layout.
+* **Boundary / notes.** `kern/lock.h` keeps the structs, the macros and
+  the prototypes while C structs embed `struct lock`; the C file is
+  gone.  The `waiting` read in `lock_done` stays unsynchronized by
+  design (`:187`).  The port rode on `sched_prim.c`'s Rust sleep/wake
+  and needs nothing further.
 
 #### `kern/gsync.c` — 537 lines — friction 4/5
 * **Role.** Address-keyed wait/wake (futex analogue) over 512 sorted
@@ -1663,6 +1676,7 @@ rbtree's; see §8.
 | `vm/vm_external.c` | `src/vm/vm_external.rs` | `727275e7` |
 | `vm/vm_init.c` | `src/vm/vm_init.rs` | `727275e7` |
 | `vm/vm_map.c` | `src/vm/vm_map.rs`, `src/vm/vm_map_ffi.rs` | `d32c7253` … `170e6104` |
+| `kern/lock.c` | `src/kern/lock.rs` | `9a9ced86` |
 | `kern/sched_prim.c` (wait/wake, `thread_dispatch`, `thread_setrun`) | `src/kern/sched_prim.rs` + `src/kern/thread.rs`, `src/kern/processor.rs`, `src/arch/i386/percpu.rs` | `c4498541` |
 | `kern/ast.h` (`ast_on`, `ast_off`, `ast_needed`) | `src/kern/ast.rs` | `6a6281be` |
 
