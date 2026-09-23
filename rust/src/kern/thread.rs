@@ -30,10 +30,10 @@ use crate::glue;
 use crate::glue::time_value::TimeValue64;
 use crate::kern::lock::SimpleLock;
 use crate::kern::mach_clock::Timeout;
-use crate::kern::processor::{
-    Processor, ProcessorSet, RUN_QUEUE_NULL, RunQueue,
-};
+use crate::kern::policy::POLICY_TIMESHARE;
+use crate::kern::processor::{Processor, ProcessorSet};
 use crate::kern::queue::{QueueEntry, queue_init};
+use crate::kern::sched::{BASEPRI_SYSTEM, RUN_QUEUE_NULL, RunQueue};
 use crate::kern::timer::{Timer, TimerSave};
 use core::ffi::{c_char, c_int, c_long, c_uint, c_void};
 use core::mem::{MaybeUninit, offset_of};
@@ -68,12 +68,6 @@ pub const TH_SWAPPED: u32 = 0x0100;
 pub const TH_SW_COMING_IN: u32 = 0x0200;
 /// `TH_SWAP_STATE`: the bits `thread_dispatch()` masks off.
 pub const TH_SWAP_STATE: u32 = TH_SWAPPED | TH_SW_COMING_IN;
-
-/// `BASEPRI_SYSTEM` in <kern/sched.h>: the priority of kernel threads.
-pub(crate) const BASEPRI_SYSTEM: c_int = 6;
-/// `POLICY_TIMESHARE` in <mach/policy.h>: the default scheduling
-/// policy.
-pub(crate) const POLICY_TIMESHARE: c_int = 1;
 
 /// A `continuation_t` of <kern/sched_prim.h>, whose null value is
 /// `thread_no_continuation`.

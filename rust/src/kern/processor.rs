@@ -5,24 +5,19 @@
 //   Systems Laboratory (CSL).
 // Derived from kern/processor.c:
 //   Copyright (c) 1993-1988 Carnegie Mellon University
-// Derived from kern/sched.h:
-//   Copyright (c) 1991,1990,1989,1988,1987 Carnegie Mellon University
-// Derived from include/mach/processor_info.h:
-//   Copyright (c) 1993,1992,1991,1990,1989 Carnegie Mellon University.
-// Derived from include/mach/machine.h:
-//   Copyright (c) 1991,1990,1989,1988,1987 Carnegie Mellon University.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! Processors, processor sets and run queues, which `kern/processor.h`
-//! and `kern/sched.h` declare.
+//! Processors and processor sets, which `kern/processor.h` declares
+//! and `kern/processor.c` used to define.
 //!
-//! `RunQueue` and `Processor` are complete mirrors: a per-CPU
-//! `struct percpu` embeds one `struct processor`, so the offset of
-//! `active_thread` inside the per-CPU block depends on this layout
-//! being exact.  `ProcessorSet` is mirrored through `quantum_adj_lock`;
-//! its NCPUS-sized tail (`machine_quantum` through `sched_load`) is
-//! set by the `kern/processor_glue.c` shim, because its offset depends
-//! on the configure-time NCPUS.
+//! `Processor` is a complete mirror: a per-CPU `struct percpu` embeds
+//! one `struct processor`, so the offset of `active_thread` inside the
+//! per-CPU block depends on this layout being exact.  `ProcessorSet`
+//! is mirrored through `quantum_adj_lock`; its NCPUS-sized tail
+//! (`machine_quantum` through `sched_load`) is set by the
+//! `kern/processor_glue.c` shim, because its offset depends on the
+//! configure-time NCPUS.  The run queue itself is
+//! [`crate::kern::sched`]'s.
 //!
 //! [`Processor::init()`] and [`ProcessorSet::init()`] are the bodies
 //! `processor_init()` and `pset_init()` used to hold;
@@ -39,25 +34,24 @@
 
 use crate::glue;
 use crate::kern::lock::SimpleLock;
+use crate::kern::policy::{POLICY_TIMESHARE, invalid_policy};
+use crate::kern::processor_info::{
+    PROCESSOR_BASIC_INFO, PROCESSOR_BASIC_INFO_COUNT,
+    PROCESSOR_SET_BASIC_INFO, PROCESSOR_SET_BASIC_INFO_COUNT,
+    PROCESSOR_SET_SCHED_INFO, PROCESSOR_SET_SCHED_INFO_COUNT,
+    ProcessorBasicInfo, ProcessorSetBasicInfo, ProcessorSetSchedInfo,
+};
 use crate::kern::queue::{
     QueueEntry, queue_end, queue_enter_tail, queue_first, queue_init,
     queue_next, queue_remove_generic,
 };
-use crate::kern::thread::{BASEPRI_SYSTEM, POLICY_TIMESHARE, Thread};
+use crate::kern::sched::{BASEPRI_SYSTEM, NRQS, RunQueue, invalid_pri};
+use crate::kern::thread::Thread;
 use crate::kern::types::KernError;
 use core::ffi::{c_int, c_long, c_uint, c_void};
 use core::mem::offset_of;
 use core::ptr;
 use core::slice;
-
-/// `NRQS` in <kern/sched.h>: one run queue per priority.
-pub const NRQS: usize = 65;
-
-/// `POLICY_LAST` in <mach/policy.h>: the highest defined policy.
-const POLICY_LAST: c_int = 2;
-
-/// `RUN_QUEUE_NULL` in <kern/sched.h>: not on any run queue.
-pub const RUN_QUEUE_NULL: *mut RunQueue = core::ptr::null_mut();
 
 /// `PROCESSOR_OFF_LINE` in <kern/processor.h>: not in the system.
 pub const PROCESSOR_OFF_LINE: c_int = 0;
@@ -71,42 +65,6 @@ pub const PROCESSOR_DISPATCHING: c_int = 3;
 pub const PROCESSOR_ASSIGN: c_int = 4;
 /// `PROCESSOR_SHUTDOWN`: being shut down.
 pub const PROCESSOR_SHUTDOWN: c_int = 5;
-
-/// `PROCESSOR_BASIC_INFO` in <mach/processor_info.h>: the basic
-/// information flavor.
-pub const PROCESSOR_BASIC_INFO: c_int = 1;
-/// `PROCESSOR_BASIC_INFO_COUNT`: the integers that flavor needs.
-pub const PROCESSOR_BASIC_INFO_COUNT: c_uint = 5;
-
-/// `PROCESSOR_SET_BASIC_INFO` in <mach/processor_info.h>: the basic
-/// information flavor.
-pub const PROCESSOR_SET_BASIC_INFO: c_int = 1;
-/// `PROCESSOR_SET_BASIC_INFO_COUNT`: the integers that flavor needs.
-pub const PROCESSOR_SET_BASIC_INFO_COUNT: c_uint = 5;
-
-/// `PROCESSOR_SET_SCHED_INFO` in <mach/processor_info.h>: the
-/// scheduling information flavor.
-pub const PROCESSOR_SET_SCHED_INFO: c_int = 2;
-/// `PROCESSOR_SET_SCHED_INFO_COUNT`: the integers that flavor needs.
-pub const PROCESSOR_SET_SCHED_INFO_COUNT: c_uint = 2;
-
-/// `CPU_STATE_MAX` in <mach/machine.h>: the per-state tick counters
-/// every machine slot carries.
-pub const CPU_STATE_MAX: usize = 3;
-
-/// `struct run_queue` of <kern/sched.h>: the `NRQS` priority queues
-/// and their lock.
-#[repr(C)]
-pub struct RunQueue {
-    /// `runq`: one queue per priority.
-    pub runq: [QueueEntry; NRQS],
-    /// `lock`: one lock for all the queues, taken at splsched.
-    pub lock: SimpleLock,
-    /// `low`: the lowest non-empty queue.
-    pub low: c_int,
-    /// `count`: the number of runnable threads.
-    pub count: c_int,
-}
 
 /// `struct processor` of <kern/processor.h>.
 #[repr(C)]
@@ -203,23 +161,6 @@ pub struct ProcessorSet {
     pub quantum_adj_lock: SimpleLock,
 }
 
-// `struct run_queue`: 65 `struct queue_entry`s, then the lock word and
-// the two counts; the C compiler's sizes are 1056 and 532.
-#[cfg(target_pointer_width = "64")]
-const _: () = assert!(size_of::<RunQueue>() == 1056);
-#[cfg(target_pointer_width = "32")]
-const _: () = assert!(size_of::<RunQueue>() == 532);
-const _: () =
-    assert!(offset_of!(RunQueue, lock) == NRQS * size_of::<QueueEntry>());
-const _: () = assert!(
-    offset_of!(RunQueue, low)
-        == offset_of!(RunQueue, lock) + size_of::<SimpleLock>()
-);
-const _: () = assert!(
-    offset_of!(RunQueue, count)
-        == offset_of!(RunQueue, low) + size_of::<c_int>()
-);
-
 // `struct processor`: the run queue, the queue link, the state and
 // pointers, the second queue link, the lock, the ports and the slot;
 // 1176 and 600 bytes.
@@ -302,106 +243,6 @@ const _: () = {
     assert!(offset_of!(ProcessorSet, quantum_adj_lock) == 636);
 };
 
-/// `struct machine_slot` of <mach/machine.h>: what the arch probe
-/// records about each possible CPU.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct MachineSlot {
-    /// `is_cpu`: whether there is a cpu in this slot.
-    pub is_cpu: c_int,
-    /// `cpu_type`: the type of the cpu.
-    pub cpu_type: c_int,
-    /// `cpu_subtype`: the subtype of the cpu.
-    pub cpu_subtype: c_int,
-    /// `running`: whether the cpu is running.
-    pub running: c_int,
-    /// `cpu_ticks`: the ticks accumulated per `CPU_STATE_*`.
-    pub cpu_ticks: [c_int; CPU_STATE_MAX],
-    /// `clock_freq`: the clock interrupt frequency.
-    pub clock_freq: c_int,
-}
-
-// `struct machine_slot`: six `integer_t`s, with the three tick
-// counters between `running` and `clock_freq`; the C compiler's size
-// is 32 and its alignment 4.
-const _: () = assert!(size_of::<MachineSlot>() == 32);
-const _: () = assert!(align_of::<MachineSlot>() == align_of::<c_int>());
-const _: () = assert!(offset_of!(MachineSlot, is_cpu) == 0);
-const _: () = assert!(offset_of!(MachineSlot, cpu_type) == 4);
-const _: () = assert!(offset_of!(MachineSlot, cpu_subtype) == 8);
-const _: () = assert!(offset_of!(MachineSlot, running) == 12);
-const _: () = assert!(offset_of!(MachineSlot, cpu_ticks) == 16);
-const _: () = assert!(offset_of!(MachineSlot, clock_freq) == 28);
-
-/// `struct processor_basic_info` of <mach/processor_info.h>: what the
-/// `PROCESSOR_BASIC_INFO` flavor reports.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ProcessorBasicInfo {
-    /// `cpu_type`: the type of cpu.
-    pub cpu_type: c_int,
-    /// `cpu_subtype`: the subtype of cpu.
-    pub cpu_subtype: c_int,
-    /// `running`: whether the processor is running.
-    pub running: c_int,
-    /// `slot_num`: the machine-independent slot number.
-    pub slot_num: c_int,
-    /// `is_master`: whether this is the master processor.
-    pub is_master: c_int,
-}
-
-// `struct processor_basic_info`: five `integer_t`s; 20 bytes, which
-// `PROCESSOR_BASIC_INFO_COUNT` counts.
-const _: () = assert!(size_of::<ProcessorBasicInfo>() == 20);
-const _: () = assert!(offset_of!(ProcessorBasicInfo, cpu_type) == 0);
-const _: () = assert!(offset_of!(ProcessorBasicInfo, cpu_subtype) == 4);
-const _: () = assert!(offset_of!(ProcessorBasicInfo, running) == 8);
-const _: () = assert!(offset_of!(ProcessorBasicInfo, slot_num) == 12);
-const _: () = assert!(offset_of!(ProcessorBasicInfo, is_master) == 16);
-
-/// `struct processor_set_basic_info` of <mach/processor_info.h>: what
-/// the `PROCESSOR_SET_BASIC_INFO` flavor reports.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ProcessorSetBasicInfo {
-    /// `processor_count`: how many processors the set holds.
-    pub processor_count: c_int,
-    /// `task_count`: how many tasks are assigned.
-    pub task_count: c_int,
-    /// `thread_count`: how many threads are assigned.
-    pub thread_count: c_int,
-    /// `load_average`: the scaled load average.
-    pub load_average: c_int,
-    /// `mach_factor`: the scaled mach factor.
-    pub mach_factor: c_int,
-}
-
-// `struct processor_set_basic_info`: five `integer_t`s in the C
-// struct's order, `load_average` before `mach_factor`; 20 bytes.
-const _: () = assert!(size_of::<ProcessorSetBasicInfo>() == 20);
-const _: () = assert!(offset_of!(ProcessorSetBasicInfo, processor_count) == 0);
-const _: () = assert!(offset_of!(ProcessorSetBasicInfo, task_count) == 4);
-const _: () = assert!(offset_of!(ProcessorSetBasicInfo, thread_count) == 8);
-const _: () = assert!(offset_of!(ProcessorSetBasicInfo, load_average) == 12);
-const _: () = assert!(offset_of!(ProcessorSetBasicInfo, mach_factor) == 16);
-
-/// `struct processor_set_sched_info` of <mach/processor_info.h>: what
-/// the `PROCESSOR_SET_SCHED_INFO` flavor reports.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ProcessorSetSchedInfo {
-    /// `policies`: the allowed policies.
-    pub policies: c_int,
-    /// `max_priority`: the maximum priority for new threads.
-    pub max_priority: c_int,
-}
-
-// `struct processor_set_sched_info`: two `integer_t`s; 8 bytes, which
-// `PROCESSOR_SET_SCHED_INFO_COUNT` counts.
-const _: () = assert!(size_of::<ProcessorSetSchedInfo>() == 8);
-const _: () = assert!(offset_of!(ProcessorSetSchedInfo, policies) == 0);
-const _: () = assert!(offset_of!(ProcessorSetSchedInfo, max_priority) == 4);
-
 /// The data a [`ProcessorSet::info()`] call reports, one variant per
 /// accepted flavor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -455,21 +296,6 @@ fn kern_error(code: c_int) -> Result<(), KernError> {
     match u8::try_from(code) {
         Ok(code) => KernError::from_u8(code),
         Err(_) => Err(KernError::Failure),
-    }
-}
-
-/// Whether `policy` names no policy a processor set could hold; the C
-/// `invalid_policy()` of <mach/policy.h>.
-fn invalid_policy(policy: c_int) -> bool {
-    policy <= 0 || policy > POLICY_LAST
-}
-
-/// Whether `priority` is outside the `NRQS` run queues; the C
-/// `invalid_pri()` of <kern/sched.h>.
-fn invalid_pri(priority: c_int) -> bool {
-    match usize::try_from(priority) {
-        Ok(priority) => priority >= NRQS,
-        Err(_) => true,
     }
 }
 

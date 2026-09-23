@@ -17,7 +17,8 @@ pub mod time_value;
 
 use crate::arch::types::{VmOffset, VmSize};
 use crate::kern::lock::SimpleLock;
-use crate::kern::processor::{MachineSlot, Processor, ProcessorSet};
+use crate::kern::machine::MachineSlot;
+use crate::kern::processor::{Processor, ProcessorSet};
 use crate::kern::queue::QueueEntry;
 use crate::kern::sched_prim::NUMQUEUES;
 use crate::kern::thread::Thread;

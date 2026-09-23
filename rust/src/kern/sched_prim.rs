@@ -27,13 +27,13 @@ use crate::kern::ast::{AST_BLOCK, ast_on};
 use crate::kern::lock::SimpleLock;
 use crate::kern::mach_clock::reset_timeout_check;
 use crate::kern::processor::{
-    NRQS, PROCESSOR_DISPATCHING, PROCESSOR_IDLE, PROCESSOR_OFF_LINE,
-    Processor, RUN_QUEUE_NULL, RunQueue,
+    PROCESSOR_DISPATCHING, PROCESSOR_IDLE, PROCESSOR_OFF_LINE, Processor,
 };
 use crate::kern::queue::{
     QueueEntry, enqueue_tail, queue_end, queue_first, queue_next,
     queue_remove_generic, remqueue,
 };
+use crate::kern::sched::{NRQS, RUN_QUEUE_NULL, RunQueue};
 use crate::kern::smp::smp_get_numcpus;
 use crate::kern::thread::{
     TH_HALTED, TH_IDLE, TH_RUN, TH_SCHED_STATE, TH_SUSP, TH_SW_COMING_IN,
