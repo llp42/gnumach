@@ -334,6 +334,14 @@ unsafe extern "C" {
     // address is named; this declaration dies when kern/slab.c moves.
     pub static mut ifps_cache: c_void;
 
+    // <i386/i386/machine_task.c>: the cache of I/O permission bitmaps
+    // that rust/src/arch/i386/machine_task.rs's
+    // `machine_task_module_init()` builds and that the rest of that C
+    // file still allocates from.  It is a `struct kmem_cache` with no
+    // Rust mirror, so only the address is named; this declaration dies
+    // when kern/slab.c moves.
+    pub static mut machine_task_iopb_cache: c_void;
+
     // <kern/kalloc.h>: the page-list copyin's continuation argument
     // block, allocated for the continuation and freed after it runs.
     pub fn kalloc(size: VmSize) -> VmOffset;
@@ -442,15 +450,6 @@ unsafe extern "C" {
     );
     pub fn vm_page_wire(page: *mut VmPage);
     pub fn vm_page_activate(page: *mut VmPage);
-
-    // <vm/pmap.h>: make a pmap range pageable, used when a wired copy
-    // is entered.
-    pub fn pmap_pageable(
-        pmap: *mut Pmap,
-        start: VmOffset,
-        end: VmOffset,
-        pageable: c_int,
-    );
 
     // Shims in vm/vm_map_glue.c: the thread privilege bump the map
     // lock performs through `current_thread()`, and the machine-dependent

@@ -33,16 +33,6 @@
 struct kmem_cache machine_task_iopb_cache;
 
 
-/* Initialize the machine task module.  The function is called once at
-   start up by task_init in kern/task.c.  */
-void
-machine_task_module_init (void)
-{
-  kmem_cache_init (&machine_task_iopb_cache, "i386_task_iopb", IOPB_BYTES, 0,
-		   NULL, 0);
-}
-
-
 /* Initialize the machine specific part of task TASK.  */
 void
 machine_task_init (task_t task)

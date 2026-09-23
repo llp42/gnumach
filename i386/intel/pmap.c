@@ -2108,29 +2108,6 @@ pmap_copy_page(vm_offset_t src, vm_offset_t dst)
 #endif	/* 0 */
 
 /*
- *	Routine:	pmap_pageable
- *	Function:
- *		Make the specified pages (by pmap, offset)
- *		pageable (or not) as requested.
- *
- *		A page which is not pageable may not take
- *		a fault; therefore, its page table entry
- *		must remain valid for the duration.
- *
- *		This routine is merely advisory; pmap_enter
- *		will specify that these pages are to be wired
- *		down (or not) as appropriate.
- */
-void
-pmap_pageable(
-	pmap_t		pmap,
-	vm_offset_t	start,
-	vm_offset_t	end,
-	boolean_t	pageable)
-{
-}
-
-/*
  *	Clear specified attribute bits.
  */
 static void

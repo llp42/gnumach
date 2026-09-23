@@ -222,16 +222,6 @@ void halt_all_cpus(boolean_t reboot)
 	  machine_idle (cpu_number ());
 }
 
-void db_halt_cpu(void)
-{
-	halt_all_cpus(0);
-}
-
-void db_reset_cpu(void)
-{
-	halt_all_cpus(1);
-}
-
 
 static void
 register_boot_data(const struct multiboot_raw_info *mbi)

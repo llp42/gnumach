@@ -34,15 +34,16 @@
 //! the structures are Rust-owned, construction moves to `MaybeUninit`
 //! or a `new()`.
 
+use crate::arch::i386::pmap::pmap_pageable;
 use crate::arch::types::{VmOffset, VmSize};
 use crate::glue::{
     Panic, assert_wait, ipc_port_copy_send, ipc_port_release_send, kalloc,
     kernel_map, kernel_object, kernel_pmap, kernel_virtual_end,
     kernel_virtual_start, kfree, kmem_cache_alloc, kmem_cache_free,
-    kmem_cache_init, pmap_create, pmap_destroy, pmap_pageable, pmap_protect,
-    pmap_remove, printf, projected_buffer_collect, thread_block,
-    vm_fault_copy, vm_fault_page, vm_fault_unwire, vm_fault_wire,
-    vm_map_cache, vm_map_copy_cache, vm_map_entry_cache,
+    kmem_cache_init, pmap_create, pmap_destroy, pmap_protect, pmap_remove,
+    printf, projected_buffer_collect, thread_block, vm_fault_copy,
+    vm_fault_page, vm_fault_unwire, vm_fault_wire, vm_map_cache,
+    vm_map_copy_cache, vm_map_entry_cache,
     vm_map_glue_memory_object_create_proxy, vm_map_glue_object_can_coalesce,
     vm_map_glue_object_can_release, vm_map_glue_object_extend_size,
     vm_map_glue_object_is_pristine_submap, vm_map_glue_object_is_shadowed,
@@ -5516,13 +5517,9 @@ impl VmMap {
                             // lock.
                             unwire_end =
                                 unsafe { (*src_entry.as_ptr()).links.end };
-                            // SAFETY: the entry's pmap range is being
-                            // made pageable, as the C does.
-                            unsafe {
-                                pmap_pageable(
-                                    self.pmap, page_vaddr, unwire_end, 1,
-                                )
-                            };
+                            pmap_pageable(
+                                self.pmap, page_vaddr, unwire_end, 1,
+                            );
                         }
                         // SAFETY: the page's object is live; relock it
                         // as the C does.
