@@ -79,6 +79,7 @@ const WRITER: usize = 1;
 ///
 /// When the guard falls out of scope it will decrement the read count,
 /// potentially releasing the lock.
+#[must_use = "if unused the RwLock will immediately unlock"]
 pub struct RwLockReadGuard<'a, T: 'a + ?Sized, R = Spin> {
     inner: &'a RwLock<T, R>,
 }
@@ -86,6 +87,7 @@ pub struct RwLockReadGuard<'a, T: 'a + ?Sized, R = Spin> {
 /// A guard that provides mutable data access.
 ///
 /// When the guard falls out of scope it will release the lock.
+#[must_use = "if unused the RwLock will immediately unlock"]
 pub struct RwLockWriteGuard<'a, T: 'a + ?Sized, R = Spin> {
     inner: &'a RwLock<T, R>,
 }
@@ -97,6 +99,7 @@ pub struct RwLockWriteGuard<'a, T: 'a + ?Sized, R = Spin> {
 /// when the lock is acquired.
 ///
 /// When the guard falls out of scope it will release the lock.
+#[must_use = "if unused the RwLock will immediately unlock"]
 pub struct RwLockUpgradableGuard<'a, T: 'a + ?Sized, R = Spin> {
     inner: &'a RwLock<T, R>,
 }

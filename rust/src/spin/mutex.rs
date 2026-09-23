@@ -94,6 +94,7 @@ pub struct Mutex<T: ?Sized, R = Spin> {
 /// uses either a ticket lock or a normal spin mutex.
 ///
 /// For more info see [`TicketMutexGuard`] or [`SpinMutexGuard`].
+#[must_use = "if unused the Mutex will immediately unlock"]
 pub struct MutexGuard<'a, T: 'a + ?Sized, R = Spin> {
     inner: InnerMutexGuard<'a, T, R>,
 }

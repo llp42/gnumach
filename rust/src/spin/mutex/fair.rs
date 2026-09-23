@@ -81,6 +81,7 @@ pub struct FairMutex<T: ?Sized, R = Spin> {
 /// A guard that provides mutable data access.
 ///
 /// When the guard falls out of scope it will release the lock.
+#[must_use = "if unused the Mutex will immediately unlock"]
 pub struct FairMutexGuard<'a, T: ?Sized + 'a, R = Spin> {
     inner: &'a FairMutex<T, R>,
 }

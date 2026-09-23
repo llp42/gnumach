@@ -81,6 +81,7 @@ pub struct TicketMutex<T: ?Sized, R = Spin> {
 /// A guard that protects some data.
 ///
 /// When the guard is dropped, the next ticket will be processed.
+#[must_use = "if unused the Mutex will immediately unlock"]
 pub struct TicketMutexGuard<'a, T: ?Sized + 'a, R = Spin> {
     inner: &'a TicketMutex<T, R>,
     ticket: usize,
