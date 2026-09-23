@@ -30,6 +30,7 @@ MACH_RS_SRCS = \
 	rust/src/ipc/ipc_thread.rs \
 	rust/src/ipc/mod.rs \
 	rust/src/kern/ast.rs \
+	rust/src/kern/debug.rs \
 	rust/src/kern/elf_load.rs \
 	rust/src/kern/kmutex.rs \
 	rust/src/kern/list.rs \

@@ -4,6 +4,7 @@
 //! Kernel facilities; mirrors `kern/`.
 
 pub mod ast;
+pub mod debug;
 pub mod elf_load;
 pub mod kmutex;
 pub mod list;

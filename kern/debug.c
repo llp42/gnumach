@@ -23,6 +23,7 @@
  * any improvements or extensions that they make and grant Carnegie Mellon
  * the rights to redistribute these changes.
  */
+/* Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com> */
 
 #include <kern/printf.h>
 #include <stdarg.h>
@@ -46,32 +47,14 @@ do_cnputc(char c, vm_offset_t offset)
 }
 
 
-void SoftDebugger(const char *message)
-{
-	printf("Debugger invoked: %s\n", message);
-
-	printf("But no debugger, continuing.\n");
-}
-
-void Debugger(const char *message)
-{
-	panic("Debugger invoked, but there isn't one!");
-}
-
 /* Be prepared to panic anytime,
    even before panic_init() gets called from the "normal" place in kern/startup.c.
    (panic_init() still needs to be called from there
    to make sure we get initialized before starting multiple processors.)  */
-def_simple_lock_irq_data(static,	panic_lock)
+decl_simple_lock_irq_data(extern,	panic_lock)
 
 const char     		*panicstr;
 int			paniccpu;
-
-void
-panic_init(void)
-{
-	simple_lock_init_irq(&panic_lock);
-}
 
 extern boolean_t reboot_on_panic;
 

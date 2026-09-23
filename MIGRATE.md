@@ -459,15 +459,23 @@ its entry below and the §9 table record what moved.
   reorder or make it private.  `ast_taken` must clear `need_ast` before
   `spl0()` exactly as `ast.c:75-77` does.
 
-#### `kern/debug.c` — 146 lines — friction 3/5
+#### `kern/debug.c` — 146 lines — partly ported
 * **Role.** `Panic`, soft debugger stubs, `log`, stack-canary support.
-* **Exports/data.** `SoftDebugger`, `Debugger`, `panic_init`, `Panic`,
-  `log`, `panicstr`, `paniccpu`, `__stack_chk_guard`,
-  `__stack_chk_fail`.
+* **Rust home.** `src/kern/debug.rs`: the port moved `SoftDebugger`,
+  `Debugger` and `panic_init`, each behind its same-named adapter.
+  `panic_lock` is that module's `SimpleLock` static, exported as the
+  C symbol `panic_lock`; `def_simple_lock_irq_data`'s `struct
+  slock_irq` is layout-identical to a bare `struct slock`, so
+  `kern/debug.c` now carries `decl_simple_lock_irq_data(extern,
+  panic_lock)` and the C `Panic()` keeps taking the same object with
+  `simple_lock_irq()`.
+* **Exports/data.** Still C: `Panic`, `log`, `do_cnputc` (static),
+  `panicstr`, `paniccpu`, `__stack_chk_guard`, `__stack_chk_fail`.
+  `Panic` and `log` stay C because they are variadic (question 4).
 * **Dependencies — why.** `printf`/`_doprnt` for the varargs formatter,
   `cnputc` for the console, `halt_cpu`/`halt_all_cpus` for the halt
   path, `delay` (now Rust), `cpu_number`.  Locks are
-  `simple_lock_irq`/`simple_unlock_irq` (`debug.c:65-94`).
+  `simple_lock_irq`/`simple_unlock_irq` (`debug.c:70-99`).
 * **Blockers.** `Panic` is variadic and must stay the C symbol; the
   Rust `#[panic_handler]` already calls it through `glue`.  The
   canary symbols are referenced by compiler-generated code and cannot
@@ -1740,7 +1748,7 @@ No new C, no new mirror, no new constant, no design conversation.
 Tier 0 is worked to exhaustion before any infrastructure is proposed
 (`AGENTS.md`, "Take the free ports first").
 
-Thirty-one functions, forty-two counting the stub batch.  Clusters
+Twenty-eight functions, thirty-nine counting the stub batch.  Clusters
 first, because a whole file leaving C in one commit is worth more than
 the same functions leaving one at a time.
 
@@ -1755,7 +1763,6 @@ the same functions leaving one at a time.
 
 | Function | Why it is free |
 |---|---|
-| `kern/debug.c:49 SoftDebugger`, `:56 Debugger`, `:71 panic_init` | Only `printf` and `Panic`, both in `glue`.  `panic_init`'s `simple_lock_init_irq` is a field write over the mirrored `SimpleLock`.  `Panic` and `log` themselves stay C: they are variadic (question 4). |
 | `kern/machine.c:115 host_reboot` | Calls `Debugger` and `halt_all_cpus`, both real.  `host` is only compared against `HOST_NULL`. |
 | `i386/i386/ast_check.c:46 init_ast_check`, `:53 cause_ast_check` | The first has an empty body.  The second reads `processor->slot_num`, which the `Processor` mirror covers, and calls the real `smp_remote_ast`.  `APIC_LOGICAL_ID` is arithmetic on a plain constant, which Rust rewrites rather than calls.  `cause_ast_check` is already declared in `glue`, so the port turns that declaration into a Rust definition. |
 | `i386/i386/mp_desc.c:189 cpu_control` | One `printf` and a constant return.  Its signature already matches the `glue` declaration Rust calls today. |
@@ -1839,7 +1846,7 @@ or Rust already.  Each phase exists to make the next one legal, and no
 phase contains a shim.  Where the old phasing said "add the shim", the
 replacement says which file to port instead.
 
-* **Phase 0 — Tier 0 (now).**  The thirty-one free functions of
+* **Phase 0 — Tier 0 (now).**  The twenty-eight free functions of
   §6.1, worked to exhaustion.  Each needs nothing that does not exist
   today, so this phase can start and finish without a single decision
   from any later one.  Nothing below is begun while Tier 0 has
@@ -1977,6 +1984,7 @@ kernel may add host tests like the rbtree's; see §8.
 | `kern/thread.c` (`thread_init`) | `src/kern/thread.rs` | `pending` |
 | `kern/sched.h` (`thread_timer_delta`) | `src/kern/thread.rs`, `src/kern/timer.rs` | `pending` |
 | `kern/timer.c` (the five read/normalize/init functions) | `src/kern/timer.rs` | `pending` |
+| `kern/debug.c` (`SoftDebugger`, `Debugger`, `panic_init`) | `src/kern/debug.rs` | `pending` |
 | `kern/processor.c` (`processor_init`, `pset_init`, `processor_start/exit/control`, `processor_get_assignment`, `processor_info`, `processor_set_info`, `pset_reference`, `pset_deallocate`, `pset_add/remove_thread`, `thread_change_psets`, `processor_set_max_priority`, `processor_set_policy_enable/disable`) | `src/kern/processor.rs` | `pending` |
 | `kern/thread_swap.c` | `src/kern/thread_swap.rs` | `pending` |
 
