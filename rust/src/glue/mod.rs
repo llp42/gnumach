@@ -25,6 +25,47 @@ use crate::kern::sched_prim::NUMQUEUES;
 use crate::kern::thread::Thread;
 use crate::vm::types::{Pmap, VmObject, VmPage, VmProt};
 use core::ffi::{c_char, c_int, c_long, c_short, c_uint, c_ulong, c_void};
+use core::mem::offset_of;
+
+/// `NSPEEDS` of <device/tty_status.h>: how many baud-rate slots
+/// `ttlowat[]` and `tthiwat[]` are indexed by.
+pub const NSPEEDS: usize = 18;
+
+/// `struct ldisc_switch` of <device/tty.h>: the entry points one line
+/// discipline provides.
+///
+/// The tty and request pointers are `*mut c_void`, as the rest of
+/// this module's <device/tty.h> declarations spell them, because the
+/// `Tty` mirror belongs to the kd driver rather than to the
+/// interface.  `l_modem` and `l_start` are carried so the record has
+/// the C layout; only the C side calls them.
+#[repr(C)]
+pub struct LdiscSwitch {
+    /// `l_read`: hand a read request to the discipline.
+    pub l_read:
+        Option<unsafe extern "C" fn(*mut c_void, *mut c_void) -> c_int>,
+    /// `l_write`: hand a write request to the discipline.
+    pub l_write:
+        Option<unsafe extern "C" fn(*mut c_void, *mut c_void) -> c_int>,
+    /// `l_rint`: feed one received character to the discipline.
+    pub l_rint: Option<unsafe extern "C" fn(c_uint, *mut c_void)>,
+    /// `l_modem`: report a modem carrier change.
+    pub l_modem: Option<unsafe extern "C" fn(*mut c_void, c_int) -> c_int>,
+    /// `l_start`: restart stalled output.
+    pub l_start: Option<unsafe extern "C" fn(*mut c_void)>,
+}
+
+// Five function pointers, in the order <device/tty.h> declares them.
+const _: () = {
+    const PTR: usize = size_of::<*const c_void>();
+    assert!(size_of::<LdiscSwitch>() == 5 * PTR);
+    assert!(align_of::<LdiscSwitch>() == align_of::<*const c_void>());
+    assert!(offset_of!(LdiscSwitch, l_read) == 0);
+    assert!(offset_of!(LdiscSwitch, l_write) == PTR);
+    assert!(offset_of!(LdiscSwitch, l_rint) == 2 * PTR);
+    assert!(offset_of!(LdiscSwitch, l_modem) == 3 * PTR);
+    assert!(offset_of!(LdiscSwitch, l_start) == 4 * PTR);
+};
 
 // The raw pointers below are to `#[repr(C)]` mirrors.  `QueueEntry`
 // ends in the zero-sized `PhantomPinned` marker, which the FFI lint
@@ -120,10 +161,9 @@ unsafe extern "C" {
     // `stack_alloc_try()` on it always succeeds.
     pub fn stack_privilege(thread: *mut Thread);
 
-    // <kern/mach_clock.h>: the wait timeout, set under the thread
+    // <kern/mach_clock.h>: cancel a wait timeout, under the thread
     // lock.  The handle is opaque here; its layout lives in
     // rust/src/kern/mach_clock.rs, which is GPL-derived.
-    pub fn set_timeout(t: *mut c_void, interval: c_uint);
     pub fn reset_timeout(t: *mut c_void) -> c_int;
 
     // <i386/i386/smp.h>: the remote-AST IPI that
@@ -236,6 +276,7 @@ unsafe extern "C" {
     pub fn spltty() -> c_int;
     pub fn splsoftclock() -> c_int;
     pub fn splclock() -> c_int;
+    pub fn splhigh() -> c_int;
     pub fn splx(level: c_int) -> c_int;
     // <i386/i386/spl.h>: the flags pair, defined per arch in
     // i386/i386/spl.S or x86_64/spl.S.  `sploff()` disables interrupts
@@ -271,24 +312,12 @@ unsafe extern "C" {
     pub fn tty_portdeath(tp: *mut c_void, port: *mut c_void) -> c_int;
     pub fn tty_queue_completion(queue: *mut c_void);
 
-    // Shims in i386/i386at/kd_glue.c, for the tty lock macros, the
-    // line discipline switch, `ttlowat[]` and `phystokv()`.
-    pub fn kd_simple_lock_irq(lock: *mut c_void) -> c_int;
-    pub fn kd_simple_unlock_irq(s: c_int, lock: *mut c_void);
-    pub fn kd_simple_lock(lock: *mut c_void);
-    pub fn kd_simple_unlock(lock: *mut c_void);
-    pub fn kd_ldisc_read(
-        line: c_int,
-        tp: *mut c_void,
-        ior: *mut c_void,
-    ) -> c_int;
-    pub fn kd_ldisc_write(
-        line: c_int,
-        tp: *mut c_void,
-        ior: *mut c_void,
-    ) -> c_int;
-    pub fn kd_ldisc_rint(line: c_int, c: c_uint, tp: *mut c_void);
-    pub fn kd_ttlowat(speed: c_int) -> c_short;
+    // <device/tty.h>: the line-discipline switch and the output
+    // low-water marks, both built by device/chario.c's initializers
+    // and never written afterwards.  `linesw[]` holds the single
+    // character discipline this kernel has.
+    pub static linesw: [LdiscSwitch; 1];
+    pub static ttlowat: [c_short; NSPEEDS];
 
     // <kern/mach_clock.h> and <i386/i386at/model_dep.c>
     pub static hz: c_int;

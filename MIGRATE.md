@@ -1585,8 +1585,10 @@ detail §4.1 gives the `kern/` files.
   for field, with the offsets pinned per target (`t_lock`, `t_inq`,
   `t_outq`, `t_state`, `t_line`, the delayed queues, `t_timeout` and
   the size); `kd_tty` is Rust storage now, and `ttychars()` initializes
-  its queues.  The lock macros, the `linesw[]` switch, `ttlowat[]` and
-  `phystokv()` are the shims in the new `i386/i386at/kd_glue.c`;
+  its queues.  `t_lock` is taken through the Rust `SimpleLock` over
+  `splhigh()`, and the `linesw[]` switch and `ttlowat[]` are read
+  straight out of `device/chario.c`'s statics through a
+  `#[repr(C)]` `LdiscSwitch` mirror;
   `char_open`/`ttychars`/`ttyclose`/`tty_get_status`/`tty_set_status`/
   `tty_portdeath`/`tty_queue_completion`/`getc` and the `hz`/
   `rebootflag` data come through `glue`.
@@ -2119,4 +2121,17 @@ deletes it.
 | `kern/sched_prim.c:716` — `thread_glue_pset_sched_load` | The same pset tail, read from the scheduler | Phase 3, with the row above |
 | `i386/i386/irq.c` — `irq_mask`, `irq_unmask`, `irq_{set,get}_handler`, `irq_{set,get}_unit` | `ivect`/`iunit` are `NINTR`-sized arrays and `mask_irq` is `static inline` under APIC | Phase 3 (`NINTR`), plus a Rust `mask_irq` equivalent |
 | `i386/i386at/com.c` — `com_base_addr`, `com_irq` | `cominfo` is an `NCOM`-sized array | Phase 3 (`NCOM`), or porting `com.c` |
-| `i386/i386at/kd_glue.c` | `struct tty`'s lock macros, the line-discipline switch, `ttlowat[]` | Phase 2 (locks) for the first four; the `tty`/`ldisc` port for the rest |
+
+`i386/i386at/kd_glue.c` is **deleted**.  Its eight shims needed no
+phase: four were the tty lock, which is Rust's own `mach_simple_lock`
+behind `_simple_lock`, so `tty.rs` takes `t_lock` directly and pairs
+it with the real `splhigh()` asm entry; three read `linesw[]`, a
+one-entry C array now mirrored by `glue::LdiscSwitch`; and
+`kd_ttlowat` read `ttlowat[]`, an `NSPEEDS`-sized C static Rust can
+declare.  Nothing here was blocked; the row had simply gone stale
+after Phase 2 landed.  Worth re-reading the rows above with that in
+mind: `vm_map_glue.c`'s `pmap_copy` shim calls a macro that expands to
+nothing, its `pmap_attribute` shim returns a constant, its
+`thread_wakeup` shim calls `thread_wakeup_prim`, which is Rust, and
+its two page-queue shims lock `vm_page_queue_lock`, a real `struct
+slock` symbol.

@@ -11,9 +11,10 @@
 //!
 //! The mirror is `#[repr(C)]` and its offsets are pinned below, because
 //! the C tty layer (`device/chario.c`) reads and writes the same bytes;
-//! `kd_tty` itself is Rust storage now.  The locks, the line-discipline
-//! switch and `ttlowat[]` are reached through the shims in
-//! `i386/i386at/kd_glue.c`.
+//! `kd_tty` itself is Rust storage now.  `t_lock` is taken through the
+//! Rust [`SimpleLock`], and the line-discipline switch and
+//! `ttlowat[]` are read straight out of the C statics that
+//! `device/chario.c` builds.
 
 use super::*;
 use crate::arch::i386::io_req::{DevT, IoReq};
@@ -146,15 +147,29 @@ fn tty() -> &'static mut Tty {
     &mut super::kd().tty
 }
 
-fn lock() -> *mut c_void {
-    core::ptr::addr_of_mut!(tty().t_lock).cast()
+/// The line discipline `tp.t_line` names, or [`None`] when the tty
+/// names one this kernel does not have.
+///
+/// `t_line` is the "fake line discipline number" of <device/tty.h>
+/// and is zero on every tty here, so `linesw[]`'s single entry always
+/// answers; the fallible form is what keeps the index inside it.
+fn ldisc(tp: &Tty) -> Option<&'static glue::LdiscSwitch> {
+    let line = usize::try_from(tp.t_line).ok()?;
+    // SAFETY: `linesw` is a C static that device/chario.c's
+    // initializer builds before any device is open and nothing
+    // writes afterwards, so a shared reference outlives the kernel.
+    unsafe { glue::linesw.get(line) }
 }
 
-/// Feed one character to the line discipline: the `linesw` shim.
+/// Feed one character to the line discipline.
 pub(crate) fn line_rint(c: u8) {
     let tp = tty();
-    // SAFETY: the tty is up once the console is open.
-    unsafe { glue::kd_ldisc_rint(tp.t_line, c as c_uint, ptr(tp)) };
+    let Some(rint) = ldisc(tp).and_then(|d| d.l_rint) else {
+        return;
+    };
+    // SAFETY: the discipline is device/chario.c's `ttyinput()`, and
+    // the tty is up once the console is open.
+    unsafe { rint(c_uint::from(c), ptr(tp)) };
 }
 
 /// Allocate the input buffer: the `ttychars()` shim.
@@ -179,13 +194,17 @@ pub unsafe extern "C" fn kdopen(
     ior: *mut IoReq,
 ) -> c_int {
     let tp = tty();
-    // SAFETY: the tty lock is the driver's.
-    let o_pri = unsafe { glue::kd_simple_lock_irq(lock()) };
+    // SAFETY: `splhigh()` is the asm entry of <machine/spl.h>.  It
+    // and the lock below are the two halves of the C
+    // `simple_lock_irq()` macro, in its order.
+    let o_pri = unsafe { glue::splhigh() };
+    tp.t_lock.lock();
     if tp.t_state & (TS_ISOPEN | TS_WOPEN) == 0 {
-        // SAFETY: ttychars allocates the character buffers.
-        unsafe { glue::kd_simple_unlock(lock()) };
+        tp.t_lock.unlock();
+        // SAFETY: ttychars allocates the character buffers, and must
+        // not run under the tty lock.
         unsafe { glue::ttychars(ptr(tp)) };
-        unsafe { glue::kd_simple_lock(lock()) };
+        tp.t_lock.lock();
         // Special support for boot-time rc scripts, which do not stty
         // the console.
         tp.t_start = Some(kdstart);
@@ -196,7 +215,9 @@ pub unsafe extern "C" fn kdopen(
         kdinit();
     }
     tp.t_state |= TS_CARR_ON;
-    unsafe { glue::kd_simple_unlock_irq(o_pri, lock()) };
+    tp.t_lock.unlock();
+    // SAFETY: `o_pri` is the level `splhigh()` returned above.
+    unsafe { glue::splx(o_pri) };
     // SAFETY: the request and tty are the caller's.
     unsafe { glue::char_open(dev as c_int, ptr(tp), flag, ior.cast()) }
 }
@@ -209,10 +230,15 @@ pub unsafe extern "C" fn kdopen(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kdclose(_dev: DevT, _flag: c_int) {
     let tp = tty();
-    // SAFETY: the tty lock is the driver's.
-    let s = unsafe { glue::kd_simple_lock_irq(lock()) };
+    // SAFETY: `splhigh()` is the asm entry of <machine/spl.h>; the
+    // tty lock is taken at that level, as `simple_lock_irq()` did.
+    let s = unsafe { glue::splhigh() };
+    tp.t_lock.lock();
+    // SAFETY: the tty is the driver's own.
     unsafe { glue::ttyclose(ptr(tp)) };
-    unsafe { glue::kd_simple_unlock_irq(s, lock()) };
+    tp.t_lock.unlock();
+    // SAFETY: `s` is the level `splhigh()` returned above.
+    unsafe { glue::splx(s) };
 }
 
 /// Read from the console.  `kdread()` in C.
@@ -224,8 +250,12 @@ pub unsafe extern "C" fn kdclose(_dev: DevT, _flag: c_int) {
 pub unsafe extern "C" fn kdread(_dev: DevT, uio: *mut IoReq) -> c_int {
     let tp = tty();
     tp.t_state |= TS_CARR_ON;
-    // SAFETY: the line discipline is the tty layer's.
-    unsafe { glue::kd_ldisc_read(tp.t_line, ptr(tp), uio.cast()) }
+    let Some(read) = ldisc(tp).and_then(|d| d.l_read) else {
+        return Err(DeviceError::InvalidOperation).as_io_return();
+    };
+    // SAFETY: the discipline is device/chario.c's `char_read()`, and
+    // the tty and the request are the device layer's.
+    unsafe { read(ptr(tp), uio.cast()) }
 }
 
 /// Write to the console.  `kdwrite()` in C.
@@ -236,8 +266,12 @@ pub unsafe extern "C" fn kdread(_dev: DevT, uio: *mut IoReq) -> c_int {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kdwrite(_dev: DevT, uio: *mut IoReq) -> c_int {
     let tp = tty();
-    // SAFETY: the line discipline is the tty layer's.
-    unsafe { glue::kd_ldisc_write(tp.t_line, ptr(tp), uio.cast()) }
+    let Some(write) = ldisc(tp).and_then(|d| d.l_write) else {
+        return Err(DeviceError::InvalidOperation).as_io_return();
+    };
+    // SAFETY: the discipline is device/chario.c's `char_write()`, and
+    // the tty and the request are the device layer's.
+    unsafe { write(ptr(tp), uio.cast()) }
 }
 
 /// Map the bitmap frame buffer.  `kdmmap()` in C.
@@ -359,8 +393,14 @@ unsafe extern "C" fn kdstart(tp: *mut Tty) {
         super::esc::putc_esc(ch);
         unsafe { glue::splx(o_pri) };
     }
-    // SAFETY: `ttlowat[]` is the tty layer's.
-    let lowat = unsafe { glue::kd_ttlowat(tp.t_ospeed as c_int) };
+    // SAFETY: `ttlowat[]` is a C static of `NSPEEDS` shorts, written
+    // only by device/chario.c's initializer.
+    let lowat = match unsafe { glue::ttlowat.get(usize::from(tp.t_ospeed)) } {
+        Some(&w) => w,
+        // `tty_set_status()` rejects a speed past `NSPEEDS`, so no
+        // tty reaches this; a zero mark wakes the writer at once.
+        None => 0,
+    };
     if tp.t_outq.count() <= lowat {
         // tt_write_wakeup(tp)
         // SAFETY: the delayed write queue is the tty's.

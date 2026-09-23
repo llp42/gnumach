@@ -185,22 +185,29 @@ a per-CPU accessor), not a shim to add quietly.
 
 ### The glue already in the tree
 
-Four `*_glue.c` files predate this rule, and three ordinary C files carry
+Three `*_glue.c` files predate this rule, and three ordinary C files carry
 shim functions too. All of it is debt, not precedent:
 
 ```
-i386/i386at/kd_glue.c       vm/vm_map_glue.c
-kern/processor_glue.c       vm/vm_external_glue.c
+vm/vm_map_glue.c            vm/vm_external_glue.c
+kern/processor_glue.c
 
 kern/sched_prim.c           thread_glue_pset_sched_load
 i386/i386/irq.c             irq_mask, irq_unmask, irq_{set,get}_{handler,unit}
 i386/i386at/com.c           com_base_addr, com_irq
 ```
 
-They may shrink and they may be deleted. They may never grow, and a fifth
-file is never created. Deleting the last caller of one deletes it in the
+They may shrink and they may be deleted. They may never grow, and no new
+one ever joins them. Deleting the last caller of one deletes it in the
 same commit. `MIGRATE.md` §10 catalogues every piece and names what deletes
-it; none is deletable without a phase.
+it.
+
+**Not every row is waiting on a phase.** `i386/i386at/kd_glue.c` was listed
+as blocked on the lock phase long after that phase had landed, and it came
+out whole: its lock shims called `mach_simple_lock`, which Rust defines, and
+its array shims read C statics Rust can declare. Before believing a row,
+check what the shim actually calls. A shim that calls a Rust symbol, an
+empty macro, a constant macro or a plain C global is removable today.
 
 `MIGRATE.md`'s ordering was rewritten around this rule: §6 is the test
 that decides whether a function can move, §7 the phases, §10 the debt.
@@ -374,7 +381,7 @@ the C file it came out of.
   macro is ported first, so that there is a real symbol to declare.
 - `rust/src/panic.rs` — `#[panic_handler]`, routed into the kernel's `Panic()`.
 
-The four `*_glue.c` files in the C tree are pre-rule debt, listed under "The
+The three `*_glue.c` files in the C tree are pre-rule debt, listed under "The
 no-glue law". Nothing adds to them and nothing joins them.
 
 The C half is unchanged Mach: `kern/`, `ipc/`, `vm/`, `device/`, `i386/`,
@@ -791,9 +798,13 @@ pub fn lock(&self) {
 ### 18. Doc comments and visibility
 
 Every module's doc comment names the C file it replaces and the header it
-mirrors. Every public item has a doc line; every `unsafe extern "C" fn` has
-`# Safety`. Visibility is the smallest that works — internals stay private so
-that the module boundary *is* the safe API.
+mirrors. Every `unsafe extern "C" fn` has `# Safety`. Outside those, a public
+item carries a doc line only where the item's contract is not evident from its
+name and signature; a doc that merely restates the name, the parameters or the
+body is removed. A doc that names a C function, macro or header keeps that name
+when it differs from the Rust name or is needed to find the original.
+Visibility is the smallest that works — internals stay private so that the
+module boundary *is* the safe API.
 
 ```rust
 //! The generic SMP controller, which `kern/smp.c` used to define.

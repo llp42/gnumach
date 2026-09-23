@@ -58,7 +58,6 @@ libkernel_a_SOURCES += \
 	i386/i386at/int_init.h \
 	i386/i386at/interrupt.S \
 	i386/i386at/kd.h \
-	i386/i386at/kd_glue.c \
 	i386/i386at/kd_event.h \
 	i386/i386at/kd_mouse.h \
 	i386/i386at/kdasm.S \
