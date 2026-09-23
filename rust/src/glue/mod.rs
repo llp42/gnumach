@@ -199,6 +199,12 @@ unsafe extern "C" {
     // has no Rust mirror, so only the address is named.
     pub static mut realhost: c_void;
 
+    // <version.c>: `const char version[]`, the package name and
+    // version the build stamps in.  The array has no size in C, so
+    // this names its first byte and the Rust side reads from there to
+    // the terminator.
+    pub static version: c_char;
+
     // <kern/machine.h>: the machine-dependent shutdown of a processor,
     // still C on both architectures.
     pub fn processor_shutdown(processor: *mut Processor) -> c_int;

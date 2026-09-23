@@ -200,35 +200,6 @@ kern_return_t	host_info(
 }
 
 /*
- *	Return kernel version string (more than you ever
- *	wanted to know about what version of the kernel this is).
- */
-
-kern_return_t host_get_kernel_version(
-	const host_t		host,
-	kernel_version_t	out_version)
-{
-	extern char	version[];
-
-	if (host == HOST_NULL)
-		return KERN_INVALID_ARGUMENT;
-
-	(void) strncpy(out_version, version, sizeof(kernel_version_t));
-
-	return KERN_SUCCESS;
-}
-
-#if defined(__i386__) || (defined(__x86_64__) && defined(USER32))
-/* Same as above, but only exists on i386.  */
-kern_return_t host_kernel_version(
-	const host_t		host,
-	kernel_version_t	out_version)
-{
-	return host_get_kernel_version(host, out_version);
-}
-#endif
-
-/*
  *	host_processor_sets:
  *
  *	List all processor sets on the host.

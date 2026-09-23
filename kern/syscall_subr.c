@@ -33,7 +33,6 @@
 #include <ipc/ipc_space.h>
 #include <kern/ipc_kobject.h>
 #include <kern/mach_clock.h>
-#include <kern/printf.h>
 #include <kern/processor.h>
 #include <kern/sched.h>
 #include <kern/sched_prim.h>
@@ -351,17 +350,4 @@ thread_depress_abort(thread_t thread)
     _simple_unlock(&(thread)->lock);
     (void) splx(s);
     return(KERN_SUCCESS);
-}
-
-/*
- *	mach_print
- *
- *	Display a null-terminated character string on the Mach console.
- *	This system call is meant as a debugging tool useful to circumvent
- *	messaging altogether.
- */
-void
-mach_print(const char *s)
-{
-	printf("%s", s);
 }

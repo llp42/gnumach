@@ -93,14 +93,6 @@ mach_msg_send_from_kernel(
 	return MACH_MSG_SUCCESS;
 }
 
-mach_msg_return_t
-mach_msg_rpc_from_kernel(const mach_msg_header_t *msg,
-	mach_msg_size_t send_size,
-	mach_msg_size_t reply_size)
-{
-	panic("mach_msg_rpc_from_kernel"); /*XXX*/
-}
-
 /*
  *	Routine:	mach_msg_abort_rpc
  *	Purpose:
@@ -240,69 +232,6 @@ mig_get_reply_port(void)
 		self->ith_mig_reply = mach_reply_port();
 
 	return self->ith_mig_reply;
-}
-
-/*
- *	Routine:	mig_dealloc_reply_port
- *	Purpose:
- *		Called by client side interfaces to get rid of a reply port.
- *		Shouldn't ever be called inside the kernel, because
- *		kernel calls shouldn't prompt Mig to call it.
- */
-
-void
-mig_dealloc_reply_port(
-	mach_port_t	reply_port)
-{
-	panic("mig_dealloc_reply_port");
-}
-
-/*
- *	Routine:	mig_put_reply_port
- *	Purpose:
- *		Called by client side interfaces after each RPC to
- *		let the client recycle the reply port if it wishes.
- */
-void
-mig_put_reply_port(
-	mach_port_t	reply_port)
-{
-}
-
-/*
- * mig_strncpy.c - by Joshua Block
- *
- * mig_strncpy -- Bounded string copy.  Does almost what the library routine
- * strncpy does: Copies the (null terminated) string in src into dest,
- * a buffer of length len, but ensures dest is null terminated. If len is
- * less than the length of the src string plus the null character, the
- * string is truncated.
- * Returns the length of the destination string excluding the terminating null.
- *
- * Parameters:
- *
- *     dest - Pointer to destination buffer.
- *
- *     src - Pointer to source string.
- *
- *     len - Length of destination buffer.
- */
-vm_size_t
-mig_strncpy(char *dest, const char *src, vm_size_t len)
-{
-	vm_size_t i;
-
-	if (len == 0)
-		return 0;
-
-	for (i = 0; i < len - 1; i++) {
-		if (! (*dest++ = *src++))
-			return i;
-	}
-
-	/* Always null terminate the string. */
-	*dest = '\0';
-	return len - 1;
 }
 
 /* Called by MiG to deallocate memory, which in this case happens

@@ -44,6 +44,8 @@ MACH_RS_SRCS = \
 	rust/src/kern/ast.rs \
 	rust/src/kern/debug.rs \
 	rust/src/kern/elf_load.rs \
+	rust/src/kern/host.rs \
+	rust/src/kern/ipc_mig.rs \
 	rust/src/kern/kmutex.rs \
 	rust/src/kern/list.rs \
 	rust/src/kern/lock.rs \
@@ -58,6 +60,7 @@ MACH_RS_SRCS = \
 	rust/src/kern/sched.rs \
 	rust/src/kern/sched_prim.rs \
 	rust/src/kern/smp.rs \
+	rust/src/kern/syscall_subr.rs \
 	rust/src/kern/timer.rs \
 	rust/src/kern/thread.rs \
 	rust/src/kern/thread_swap.rs \

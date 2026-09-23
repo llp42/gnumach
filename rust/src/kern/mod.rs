@@ -6,6 +6,8 @@
 pub mod ast;
 pub mod debug;
 pub mod elf_load;
+pub mod host;
+pub mod ipc_mig;
 pub mod kmutex;
 pub mod list;
 pub mod lock;
@@ -19,6 +21,7 @@ pub mod rbtree;
 pub mod sched;
 pub mod sched_prim;
 pub mod smp;
+pub mod syscall_subr;
 pub mod thread;
 pub mod thread_swap;
 pub mod timer;
