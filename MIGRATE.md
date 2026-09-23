@@ -765,7 +765,10 @@ its entry below and the §9 table record what moved.
 * **Role.** Machine-independent CPU/processor control: `cpu_up`/
   `cpu_down`, `processor_assign`/`processor_shutdown`, reboot, and the
   `action_thread` that performs them.
-* **Exports/data.** `cpu_up`, `host_reboot`, `processor_assign`,
+* **Ported so far.** `host_reboot` is `src/kern/machine.rs` now, its
+  adapter keeping the <mach/mach_host.defs> prototype; the file stays
+  C for the rest.
+* **Exports/data.** `cpu_up`, `processor_assign`,
   `processor_shutdown`, `action_thread_continue`, `action_thread`,
   `processor_doshutdown`; owns `machine_info`, `machine_slot[NCPUS]`,
   `action_queue`.
@@ -1752,7 +1755,7 @@ No new C, no new mirror, no new constant, no design conversation.
 Tier 0 is worked to exhaustion before any infrastructure is proposed
 (`AGENTS.md`, "Take the free ports first").
 
-Twelve functions.  Clusters first, because a whole file leaving C
+Eleven functions.  Clusters first, because a whole file leaving C
 in one commit is worth more than the same functions leaving one at a
 time.
 
@@ -1762,12 +1765,6 @@ time.
 |---|---:|---|
 | `i386/i386at/rtc.c` | 7 — `rtcinit:62`, `rtcget:72`, `rtcput:89`, `hexdectodec:111`, `yeartoday:134`, `dectohexdec:140`, `readtodc:146` | The three arithmetic helpers call nothing at all.  The rest is port I/O plus `printf` and `splclock`/`splx`, all real.  `struct rtc_st` is used only inside `rtc.c`/`rtc.h`, so it moves with the file rather than needing a mirror. |
 | `i386/i386/pit.c` | 4 — `pit_prepare_sleep:69`, `pit_sleep:89`, `pit_udelay:105`, `pit_mdelay:117` | Port I/O and plain constants only; the two `*delay` entries call their siblings in the same file. |
-
-**Singles and pairs**
-
-| Function | Why it is free |
-|---|---|
-| `kern/machine.c:115 host_reboot` | Calls `Debugger` and `halt_all_cpus`, both real.  `host` is only compared against `HOST_NULL`. |
 
 ### 6.2 What the rejections teach
 
@@ -1838,7 +1835,7 @@ or Rust already.  Each phase exists to make the next one legal, and no
 phase contains a shim.  Where the old phasing said "add the shim", the
 replacement says which file to port instead.
 
-* **Phase 0 — Tier 0 (now).**  The twelve free functions of
+* **Phase 0 — Tier 0 (now).**  The eleven free functions of
   §6.1, worked to exhaustion.  Each needs nothing that does not exist
   today, so this phase can start and finish without a single decision
   from any later one.  Nothing below is begun while Tier 0 has
@@ -1979,6 +1976,7 @@ kernel may add host tests like the rbtree's; see §8.
 | `kern/timer.c` (the five read/normalize/init functions) | `src/kern/timer.rs` | `pending` |
 | `kern/debug.c` (`SoftDebugger`, `Debugger`, `panic_init`) | `src/kern/debug.rs` | `pending` |
 | `kern/processor.c` (`processor_init`, `pset_init`, `processor_start/exit/control`, `processor_get_assignment`, `processor_info`, `processor_set_info`, `pset_reference`, `pset_deallocate`, `pset_add/remove_thread`, `thread_change_psets`, `processor_set_max_priority`, `processor_set_policy_enable/disable`) | `src/kern/processor.rs` | `pending` |
+| `kern/machine.c` (`host_reboot`; rest stays C) | `src/kern/machine.rs` | `pending` |
 | `kern/thread_swap.c` | `src/kern/thread_swap.rs` | `pending` |
 | `i386/i386/ast_check.c` | `src/arch/i386/ast_check.rs` | `pending` |
 | `i386/i386/mp_desc.c` (`simple_lock_pause`, `cpu_control`; rest stays C) | `src/arch/i386/mp_desc.rs` | `pending` |

@@ -53,6 +53,11 @@ unsafe extern "C" {
     // <kern/machine.c>
     pub fn cpu_shutdown();
 
+    // <i386/i386/model_dep.h>: halt every CPU, or reboot when `reboot`
+    // is nonzero.  It is defined in i386/i386at/model_dep.c and marked
+    // `noreturn`, so the Rust declaration diverges too.
+    pub fn halt_all_cpus(reboot: c_int) -> !;
+
     // <i386at/kd.h>, the screen block moves in kdasm.S
     pub fn kd_slmwd(start: *mut c_void, count: c_int, value: c_int);
     pub fn kd_slmscu(from: *mut c_void, to: *mut c_void, count: c_int);

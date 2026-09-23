@@ -210,7 +210,7 @@ A **free port** is one that needs nothing which does not already exist:
 no new C, no new `#[repr(C)]` mirror, no configure-time constant brought
 into Rust, no design conversation. `MIGRATE.md` §6 is the five-question
 test that decides this mechanically, and §6.1 is the current list of
-twelve such functions.
+eleven such functions.
 
 **Free ports are worked to exhaustion before any infrastructure is
 proposed.** They are the only kind of port that cannot be blocked, they

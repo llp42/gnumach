@@ -111,25 +111,6 @@ void cpu_up(int cpu)
 	simple_unlock(&(&default_pset)->lock);
 }
 
-kern_return_t
-host_reboot(const host_t host, int options)
-{
-	if (host == HOST_NULL)
-		return (KERN_INVALID_HOST);
-
-	if (options & RB_DEBUGGER) {
-		Debugger("Debugger");
-	} else {
-#ifdef parisc
-/* XXX this could be made common */
-		halt_all_cpus(options);
-#else
-		halt_all_cpus(!(options & RB_HALT));
-#endif
-	}
-	return (KERN_SUCCESS);
-}
-
 /*
  *	cpu_down:
  *
