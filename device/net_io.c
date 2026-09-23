@@ -24,6 +24,9 @@
  * the rights to redistribute these changes.
  */
 /*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
+/*
  *	Author: David B. Golub, Carnegie Mellon University
  *	Date: 	3/98
  *
@@ -2005,19 +2008,6 @@ bpf_eq(
 	};
 	return TRUE;
 }
-
-unsigned int
-bpf_hash (int n,
-	const unsigned int *keys)
-{
-	unsigned int hval = 0;
-	
-	while (n--) {
-		hval += *keys++;
-	}
-	return (hval % NET_HASH_SIZE);
-}
-
 
 int
 bpf_match (net_hash_header_t hash,

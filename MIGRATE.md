@@ -1419,7 +1419,7 @@ entry below keeps the detail §4.1 gives the `kern/` files.
 | `intr.c` | 395 | user interrupt delivery | 4 | irq threads, ipc, spl |
 | `chario.c` | 1060 | tty line discipline | 5 | spl, MIG-U, vm_map |
 | `ds_routines.c` | 1859 | `device_*` server routines | 5 | MIG-S/U, spl, vm |
-| `net_io.c` | 2178 | network filter/IPC | 5 | spl, kmsg/mqueue, sched |
+| `net_io.c` | 2178 | network filter/IPC; `bpf_hash` ported (§9), rest stays C | 5 | spl, kmsg/mqueue, sched |
 
 ### i386/i386/ (22 files, 5,698 LOC — arch-shared i686/x86_64)
 
@@ -1752,7 +1752,7 @@ No new C, no new mirror, no new constant, no design conversation.
 Tier 0 is worked to exhaustion before any infrastructure is proposed
 (`AGENTS.md`, "Take the free ports first").
 
-Nineteen functions.  Clusters first, because a whole file leaving C
+Eighteen functions.  Clusters first, because a whole file leaving C
 in one commit is worth more than the same functions leaving one at a
 time.
 
@@ -1768,7 +1768,6 @@ time.
 | Function | Why it is free |
 |---|---|
 | `kern/machine.c:115 host_reboot` | Calls `Debugger` and `halt_all_cpus`, both real.  `host` is only compared against `HOST_NULL`. |
-| `device/net_io.c:2010 bpf_hash` | Pure additive hash over a caller-supplied array. |
 | `ipc/ipc_object.c:344 ipc_object_copyin_type` | A `switch` over an integer, with `panic` as the only call. |
 | `ipc/ipc_port.c:68 ipc_port_timestamp` | Two file globals under `simple_lock`.  Touches no IPC struct. |
 | `ipc/mach_port.c:358 mach_port_rename`, `:1200 mach_port_insert_right`, `:1237 mach_port_extract_right` | Scalar and pointer-equality validation, then one real call each (`ipc_object_rename`, `ipc_object_copyout_name`, `ipc_object_copyin`).  Signatures come from `include/mach/mach_port.defs`, so the generated server is unchanged. |
@@ -1843,7 +1842,7 @@ or Rust already.  Each phase exists to make the next one legal, and no
 phase contains a shim.  Where the old phasing said "add the shim", the
 replacement says which file to port instead.
 
-* **Phase 0 — Tier 0 (now).**  The nineteen free functions of
+* **Phase 0 — Tier 0 (now).**  The eighteen free functions of
   §6.1, worked to exhaustion.  Each needs nothing that does not exist
   today, so this phase can start and finish without a single decision
   from any later one.  Nothing below is begun while Tier 0 has
@@ -1989,6 +1988,7 @@ kernel may add host tests like the rbtree's; see §8.
 | `i386/i386/mp_desc.c` (`simple_lock_pause`, `cpu_control`; rest stays C) | `src/arch/i386/mp_desc.rs` | `pending` |
 | `i386/i386/fpu.c` (`fp_free`; rest stays C) | `src/arch/i386/fpu.rs` | `pending` |
 | `device/dev_name.c` (`name_equal` and the eleven `nulldev_*`/`nodev_*`/`nomap` stubs; `dev_name_lookup`/`dev_set_indirection` stay C) | `src/device/dev_name.rs` | `pending` |
+| `device/net_io.c` (`bpf_hash`; rest stays C) | `src/device/net_io.rs` | `pending` |
 
 Deleted dead code: `device/blkio.c` (unreachable block pager path) and
 the `#if 0` profiling facility (`profil.h`, `profilparam.h`,
