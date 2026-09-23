@@ -4,6 +4,8 @@
 //! The Rust home of the C `device/` tree, the machine-independent
 //! device layer.
 //!
-//! `cirbuf.rs` holds the circular character buffers.
+//! `cirbuf.rs` holds the circular character buffers, and `subrs.rs`
+//! the Ethernet formatter and the BSD wait/wake wrappers.
 
 pub mod cirbuf;
+pub mod subrs;

@@ -58,7 +58,6 @@ unsafe extern "C" {
     pub fn kd_slmscd(from: *mut c_void, to: *mut c_void, count: c_int);
 
     // <kern/sched_prim.h>
-    pub fn wakeup(channel: VmOffset);
     pub fn assert_wait(event: *mut c_void, interruptible: c_int);
     pub fn thread_block(continuation: Option<unsafe extern "C" fn()>);
     // The C half of the scheduler still owns these; the Rust port

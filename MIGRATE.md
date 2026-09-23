@@ -1409,7 +1409,7 @@ entry below keeps the detail §4.1 gives the `kern/` files.
 | File | LOC | Role | Friction | Blockers |
 |---|---:|---|---:|---|
 | `cons.c` | 176 | console dispatch | 2 | `constab`, `kmsg_putchar` |
-| `subrs.c` | 85 | `ether_sprintf`, `sleep`, `wakeup` | 2 | thread primitives |
+| `subrs.c` | 85 | `ether_sprintf`, `sleep`, `wakeup` | 2 | three ported (see §9); `if_init_queues` stays C |
 | `cirbuf.c` | 277 | circular char buffer | 2 | ported; see §9 |
 | `dev_name.c` | 242 | name/indirection tables | 2 | static tables + strcmp |
 | `device_init.c` | 63 | device bring-up | 3 | kernel ports, io/net threads |
@@ -1520,12 +1520,14 @@ detail §4.1 gives the `kern/` files.
   kernels.  Every name in `kd_mouse.h` is unchanged, and `kd.c`'s two
   direct uses (`mouse_in_use`, `mouse_handle_byte()`) stay exported.
 * **Bridges.** `glue` declares the plain C functions: `splhi`/
-  `spltty`/`splx` (asm functions, not macros), `printf`, `wakeup`,
-  `assert_wait`, `thread_block`, `iodone`, `device_read_alloc`,
+  `spltty`/`splx` (asm functions, not macros), `printf`, `thread_block`,
+  `iodone`, `device_read_alloc`,
   `ds_read_done`, `comgetc`, `kd_sendcmd`, `kd_cmdreg_write`,
-  `kd_mouse_drain`, `kdintr`.  The `inb`/`outb` statement expressions
-  are `src/arch/i386/pio.rs` now; the `pio_glue.c` shims they needed
-  were deleted with that port.  The remaining macros and config-shaped
+  `kd_mouse_drain`, `kdintr`.  The wait and wake primitives go to
+  Rust: `assert_wait`, `thread_wakeup_prim` and the `subrs::wakeup`
+  wrapper are Rust.  Port I/O is `src/arch/i386/pio.rs` now; the
+  `pio_glue.c` shims it replaced were deleted with that port.  The
+  remaining macros and config-shaped
   data got C shims instead — pre-rule debt now, and §10 says what
   deletes each: `irq_mask`/`irq_unmask`
   and `ivect`/`iunit` accessors added to `i386/i386/irq.c` (`mask_irq`
@@ -1749,7 +1751,7 @@ No new C, no new mirror, no new constant, no design conversation.
 Tier 0 is worked to exhaustion before any infrastructure is proposed
 (`AGENTS.md`, "Take the free ports first").
 
-Twenty-three functions, thirty-four counting the stub batch.  Clusters
+Twenty functions, thirty-one counting the stub batch.  Clusters
 first, because a whole file leaving C in one commit is worth more than
 the same functions leaving one at a time.
 
@@ -1765,7 +1767,6 @@ the same functions leaving one at a time.
 | Function | Why it is free |
 |---|---|
 | `kern/machine.c:115 host_reboot` | Calls `Debugger` and `halt_all_cpus`, both real.  `host` is only compared against `HOST_NULL`. |
-| `device/subrs.c:44 ether_sprintf`, `:76 sleep`, `:82 wakeup` | Byte formatting and two one-line wrappers over `assert_wait`/`thread_block`/`thread_wakeup_prim`, all reachable. |
 | `device/dev_name.c:105 name_equal` | Pure string comparison, calls nothing. |
 | `device/net_io.c:2010 bpf_hash` | Pure additive hash over a caller-supplied array. |
 | `device/dev_name.c:42-91` — the eleven `nulldev_*`/`nodev_*`/`nomap` stubs | Each returns a plain constant and touches no parameter.  Low value individually; take them as one batch. |
@@ -1843,7 +1844,7 @@ or Rust already.  Each phase exists to make the next one legal, and no
 phase contains a shim.  Where the old phasing said "add the shim", the
 replacement says which file to port instead.
 
-* **Phase 0 — Tier 0 (now).**  The twenty-three free functions of
+* **Phase 0 — Tier 0 (now).**  The twenty free functions of
   §6.1, worked to exhaustion.  Each needs nothing that does not exist
   today, so this phase can start and finish without a single decision
   from any later one.  Nothing below is begun while Tier 0 has
@@ -1978,6 +1979,7 @@ kernel may add host tests like the rbtree's; see §8.
 | `kern/kmutex.c` | `src/kern/kmutex.rs` | `d4fe54dc` |
 | `ipc/ipc_table.c` | `src/ipc/ipc_table.rs` | `bd582ec6` |
 | `device/cirbuf.c` | `src/device/cirbuf.rs` | `pending` |
+| `device/subrs.c` (`ether_sprintf`, `sleep`, `wakeup`; `if_init_queues` stays C) | `src/device/subrs.rs` | `pending` |
 | `kern/thread.c` (`thread_init`) | `src/kern/thread.rs` | `pending` |
 | `kern/sched.h` (`thread_timer_delta`) | `src/kern/thread.rs`, `src/kern/timer.rs` | `pending` |
 | `kern/timer.c` (the five read/normalize/init functions) | `src/kern/timer.rs` | `pending` |

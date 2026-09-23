@@ -27,6 +27,7 @@ use super::io_req::{
     KERN_SUCCESS, drain,
 };
 use crate::arch::i386::pio::Port;
+use crate::device::subrs;
 use crate::glue;
 use crate::kern::queue::QueueEntry;
 use crate::utils::kd_queue::{KdEvent, KdEventQueue, KevType, MouseMotion};
@@ -519,7 +520,7 @@ fn handle_byte(s: &mut State, ch: u8) {
         if s.mouse_char_wanted {
             s.mouse_char_wanted = false;
             // SAFETY: the channel is the buffer `read_char()` waits on.
-            unsafe { glue::wakeup(ptr::addr_of!(s.mousebuf) as usize) };
+            unsafe { subrs::wakeup(ptr::addr_of!(s.mousebuf) as usize) };
         }
         return;
     }

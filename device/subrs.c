@@ -24,6 +24,9 @@
  * the rights to redistribute these changes.
  */
 /*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
+/*
  * Random device subroutines and stubs.
  */
 
@@ -38,26 +41,6 @@
 
 
 /*
- * Convert Ethernet address to printable (loggable) representation.
- */
-char *
-ether_sprintf(const u_char *ap)
-{
-	int i;
-	static char etherbuf[18];
-	char *cp = etherbuf;
-	static char digits[] = "0123456789abcdef";
-
-	for (i = 0; i < 6; i++) {
-		*cp++ = digits[*ap >> 4];
-		*cp++ = digits[*ap++ & 0xf];
-		*cp++ = ':';
-	}
-	*--cp = 0;
-	return (etherbuf);
-}
-
-/*
  * Initialize send and receive queues on an interface.
  */
 void if_init_queues(struct ifnet *ifp)
@@ -67,19 +50,4 @@ void if_init_queues(struct ifnet *ifp)
 	queue_init(&ifp->if_snd_port_list);
 	simple_lock_init(&ifp->if_rcv_port_list_lock);
 	simple_lock_init(&ifp->if_snd_port_list_lock);
-}
-
-
-/*
- * Compatibility with BSD device drivers.
- */
-void sleep(vm_offset_t channel, int priority)
-{
-	assert_wait((event_t) channel, FALSE);	/* not interruptible XXX */
-	thread_block((void (*)()) 0);
-}
-
-void wakeup(vm_offset_t channel)
-{
-	thread_wakeup((event_t) channel);
 }
