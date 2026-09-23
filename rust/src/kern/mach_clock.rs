@@ -45,9 +45,7 @@ pub struct Timeout {
 
 /// `TIMEOUT_ALLOC` in <kern/mach_clock.h>: allocated from the pool.
 pub const TIMEOUT_ALLOC: u8 = 0x1;
-/// `TIMEOUT_ACTIVE`: the timeout is active.
 pub const TIMEOUT_ACTIVE: u8 = 0x2;
-/// `TIMEOUT_PENDING`: the timeout waits for expiry.
 pub const TIMEOUT_PENDING: u8 = 0x4;
 
 /// `reset_timeout_check()` of <kern/mach_clock.h>: cancel the timeout

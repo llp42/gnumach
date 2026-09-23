@@ -79,33 +79,19 @@ enum RtcError {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct RtcSt {
-    /// `rtc_sec`: seconds, register 0.
     rtc_sec: u8,
-    /// `rtc_asec`: alarm seconds, register 1.
     rtc_asec: u8,
-    /// `rtc_min`: minutes, register 2.
     rtc_min: u8,
-    /// `rtc_amin`: alarm minutes, register 3.
     rtc_amin: u8,
-    /// `rtc_hr`: hours, register 4.
     rtc_hr: u8,
-    /// `rtc_ahr`: alarm hours, register 5.
     rtc_ahr: u8,
-    /// `rtc_dow`: day of the week, register 6.
     rtc_dow: u8,
-    /// `rtc_dom`: day of the month, register 7.
     rtc_dom: u8,
-    /// `rtc_mon`: month, register 8.
     rtc_mon: u8,
-    /// `rtc_yr`: year, register 9.
     rtc_yr: u8,
-    /// `rtc_statusa`: register A, register 10.
     rtc_statusa: u8,
-    /// `rtc_statusb`: register B, register 11.
     rtc_statusb: u8,
-    /// `rtc_statusc`: register C, register 12.
     rtc_statusc: u8,
-    /// `rtc_statusd`: register D, register 13.
     rtc_statusd: u8,
 }
 
@@ -254,15 +240,12 @@ fn dectohexdec(value: u64) -> u8 {
 /// The number of days in `year`: `yeartoday()` of `rtc.c`.
 fn yeartoday(year: u32) -> u32 {
     if !year.is_multiple_of(4) {
-        // Not divisible by 4, not bissextile.
         return 365;
     }
     if !year.is_multiple_of(100) {
-        // Not divisible by 100, bissextile.
         return 366;
     }
     if !year.is_multiple_of(400) {
-        // Not divisible by 400, not bissextile.
         return 365;
     }
     // Divisible by 400: 2000 was made bissextile, and the rules after

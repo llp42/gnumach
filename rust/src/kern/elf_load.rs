@@ -50,15 +50,10 @@ use core::mem::{MaybeUninit, size_of};
 pub struct ExecSectype(c_int);
 
 impl ExecSectype {
-    /// `EXEC_SECTYPE_READ`.
     pub const READ: Self = Self(VmProt::READ.bits());
-    /// `EXEC_SECTYPE_WRITE`.
     pub const WRITE: Self = Self(VmProt::WRITE.bits());
-    /// `EXEC_SECTYPE_EXECUTE`.
     pub const EXECUTE: Self = Self(VmProt::EXECUTE.bits());
-    /// `EXEC_SECTYPE_ALLOC`.
     pub const ALLOC: Self = Self(0x0100);
-    /// `EXEC_SECTYPE_LOAD`.
     pub const LOAD: Self = Self(0x0200);
 }
 
@@ -228,7 +223,6 @@ enum ExecError {
 }
 
 impl ExecError {
-    /// The `c_int` the caller sees.
     #[inline]
     fn code(self) -> c_int {
         match self {

@@ -40,9 +40,7 @@ pub struct Timer {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TimerSave {
-    /// `low`: the saved low half.
     pub low: c_uint,
-    /// `high`: the saved high half.
     pub high: c_uint,
 }
 

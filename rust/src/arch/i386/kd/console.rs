@@ -131,7 +131,6 @@ pub(crate) fn maygetc() -> c_int {
             super::keyboard::kbd_magic(scancode as c_int);
         }
         if (scancode as usize) < NUMKEYS {
-            // Look up in the map, then process.
             let mut char_idx = super::keyboard::state2idx(
                 super::kd().state_bits() as c_uint,
                 state().kd_extended,
@@ -161,7 +160,6 @@ pub(crate) fn maygetc() -> c_int {
                     _ => K_ESC as c_int,
                 };
             } else if !up {
-                // A regular key-down.
                 if c == K_CR {
                     c = K_LF;
                 }

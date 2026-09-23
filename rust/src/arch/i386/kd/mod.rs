@@ -345,7 +345,6 @@ pub(crate) fn kdinit() {
         s.kd_attrflags = 0;
         s.kd_color = KA_NORMAL;
     }
-    // Board-specific initialization, then the controller.
     display::xga_init();
 
     // Get rid of any garbage in the output buffer.
@@ -369,7 +368,6 @@ pub(crate) fn kdinit() {
     kd().set_state_bits(KS_NORMAL);
     keyboard::cn_set_leds(KS_NORMAL as u8);
 
-    // Allocate the input buffer.
     tty::ttychars_init();
 }
 

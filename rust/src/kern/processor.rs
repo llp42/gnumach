@@ -56,21 +56,15 @@ use core::slice;
 
 /// `PROCESSOR_OFF_LINE` in <kern/processor.h>: not in the system.
 pub const PROCESSOR_OFF_LINE: c_int = 0;
-/// `PROCESSOR_RUNNING`: running normally.
 pub const PROCESSOR_RUNNING: c_int = 1;
-/// `PROCESSOR_IDLE`: idle.
 pub const PROCESSOR_IDLE: c_int = 2;
-/// `PROCESSOR_DISPATCHING`: dispatching an idle processor.
 pub const PROCESSOR_DISPATCHING: c_int = 3;
-/// `PROCESSOR_ASSIGN`: assignment is changing.
 pub const PROCESSOR_ASSIGN: c_int = 4;
-/// `PROCESSOR_SHUTDOWN`: being shut down.
 pub const PROCESSOR_SHUTDOWN: c_int = 5;
 
 /// `struct processor` of <kern/processor.h>.
 #[repr(C)]
 pub struct Processor {
-    /// `runq`: the processor-local run queue.
     pub runq: RunQueue,
     /// `processor_queue`: the idle/assign/shutdown queue link.
     pub processor_queue: QueueEntry,
@@ -78,19 +72,12 @@ pub struct Processor {
     pub state: c_int,
     /// `next_thread`: the thread to run if dispatched.
     pub next_thread: *mut Thread,
-    /// `idle_thread`: this processor's idle thread.
     pub idle_thread: *mut Thread,
-    /// `quantum`: the quantum for the current thread.
     pub quantum: c_int,
-    /// `first_quantum`: whether this is the first quantum in a row.
     pub first_quantum: c_int,
-    /// `last_quantum`: the last quantum assigned.
     pub last_quantum: c_int,
-    /// `processor_set`: the set this processor belongs to.
     pub processor_set: *mut ProcessorSet,
-    /// `processor_set_next`: the set it will belong to.
     pub processor_set_next: *mut ProcessorSet,
-    /// `processors`: the set's processor list.
     pub processors: QueueEntry,
     /// `lock`: taken at splsched.
     pub lock: SimpleLock,
@@ -112,35 +99,23 @@ pub struct Processor {
 /// `kern/processor_glue.c` shim, whose offset this side cannot name.
 #[repr(C)]
 pub struct ProcessorSet {
-    /// `runq`: the set's shared run queue.
     pub runq: RunQueue,
-    /// `idle_queue`: the idle processors.
     pub idle_queue: QueueEntry,
-    /// `idle_count`: how many processors are idle.
     pub idle_count: c_int,
     /// `idle_lock`: protects the two fields above, at splsched.
     pub idle_lock: SimpleLock,
-    /// `processors`: all processors in this set.
     pub processors: QueueEntry,
-    /// `processor_count`: how many processors are in the set.
     pub processor_count: c_int,
-    /// `empty`: true when the set has no processors.
     pub empty: c_int,
-    /// `tasks`: the tasks assigned to the set.
     pub tasks: QueueEntry,
-    /// `task_count`: how many tasks are assigned.
     pub task_count: c_int,
-    /// `threads`: the threads in this set.
     pub threads: QueueEntry,
-    /// `thread_count`: how many threads are in the set.
     pub thread_count: c_int,
-    /// `ref_count`: the structure reference count.
     pub ref_count: c_int,
     /// `ref_lock`: protects `ref_count`.
     pub ref_lock: SimpleLock,
     /// `all_psets`: the link in the global processor-set list.
     pub all_psets: QueueEntry,
-    /// `active`: whether the set is in use.
     pub active: c_int,
     /// `lock`: protects everything else.
     pub lock: SimpleLock,
@@ -148,13 +123,10 @@ pub struct ProcessorSet {
     pub pset_self: *mut c_void,
     /// `pset_name_self`: the port for information.
     pub pset_name_self: *mut c_void,
-    /// `max_priority`: the maximum priority allowed.
     pub max_priority: c_int,
     /// `policies`: the bit vector of enabled policies.
     pub policies: c_int,
-    /// `set_quantum`: the current default quantum.
     pub set_quantum: c_int,
-    /// `quantum_adj_index`: the runtime quantum adjustment.
     pub quantum_adj_index: c_int,
     /// `quantum_adj_lock`: protects `quantum_adj_index`; the C
     /// `struct slock_irq` wraps one `struct slock`, so it is a
@@ -539,8 +511,7 @@ impl ProcessorSet {
             return;
         }
 
-        // The set is destroyable.  The C's paranoia checks, with its
-        // message.
+        // The C's paranoia checks, with its message.
         let is_default = ptr::from_mut(self).cast::<c_void>()
             == ptr::addr_of_mut!(glue::default_pset);
         if is_default

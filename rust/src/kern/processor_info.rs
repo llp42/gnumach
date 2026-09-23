@@ -31,15 +31,11 @@ pub const PROCESSOR_SET_SCHED_INFO_COUNT: c_uint = 2;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ProcessorBasicInfo {
-    /// `cpu_type`: the type of cpu.
     pub cpu_type: c_int,
-    /// `cpu_subtype`: the subtype of cpu.
     pub cpu_subtype: c_int,
-    /// `running`: whether the processor is running.
     pub running: c_int,
     /// `slot_num`: the machine-independent slot number.
     pub slot_num: c_int,
-    /// `is_master`: whether this is the master processor.
     pub is_master: c_int,
 }
 
@@ -57,11 +53,8 @@ const _: () = assert!(offset_of!(ProcessorBasicInfo, is_master) == 16);
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ProcessorSetBasicInfo {
-    /// `processor_count`: how many processors the set holds.
     pub processor_count: c_int,
-    /// `task_count`: how many tasks are assigned.
     pub task_count: c_int,
-    /// `thread_count`: how many threads are assigned.
     pub thread_count: c_int,
     /// `load_average`: the scaled load average.
     pub load_average: c_int,
@@ -83,7 +76,6 @@ const _: () = assert!(offset_of!(ProcessorSetBasicInfo, mach_factor) == 16);
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ProcessorSetSchedInfo {
-    /// `policies`: the allowed policies.
     pub policies: c_int,
     /// `max_priority`: the maximum priority for new threads.
     pub max_priority: c_int,

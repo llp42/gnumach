@@ -61,7 +61,6 @@ impl Color {
         }
     }
 
-    /// The color a stored low bit stands for.
     const fn from_bit(bit: usize) -> Color {
         if bit == 0 { Color::Red } else { Color::Black }
     }
@@ -76,7 +75,6 @@ enum Side {
 }
 
 impl Side {
-    /// The children array index.
     const fn index(self) -> usize {
         match self {
             Side::Left => LEFT,
@@ -84,7 +82,6 @@ impl Side {
         }
     }
 
-    /// The other side.
     const fn opposite(self) -> Side {
         match self {
             Side::Left => Side::Right,
@@ -315,12 +312,10 @@ impl Rbtree {
         found.map(|node| node.0)
     }
 
-    /// The root, if any.
     fn root(&self) -> Option<NodeRef> {
         self.root.map(NodeRef)
     }
 
-    /// Change the root.
     fn set_root(&mut self, node: Option<NodeRef>) {
         self.root = node.map(|n| n.0);
     }

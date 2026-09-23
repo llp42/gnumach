@@ -113,9 +113,7 @@ pub unsafe extern "C" fn thread_swapin(thread: *mut Thread) {
                 thread_wakeup_prim(swapin_event(), 0, THREAD_AWAKENED);
             }
         }
-        // Already queued for the swapin thread, or being swapped in.
         TH_SW_COMING_IN => (),
-        // Already swapped in.
         _ => {
             // SAFETY: `Panic` halts the kernel and never returns; the
             // arguments are the C `panic()` macro's.

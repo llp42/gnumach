@@ -68,7 +68,6 @@ pub unsafe extern "C" fn host_get_kernel_version(
 
     copy_version(out, version);
 
-    // KERN_SUCCESS.
     0
 }
 

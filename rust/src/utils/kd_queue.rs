@@ -168,12 +168,10 @@ impl KdEventQueue {
         }
     }
 
-    /// The slot after `index`, wrapping at `KDQSIZE`.
     fn next(index: c_int) -> c_int {
         (index + 1) % KDQSIZE as c_int
     }
 
-    /// Whether the queue holds no events.
     pub fn is_empty(&self) -> bool {
         self.firstfree == self.firstout
     }
@@ -185,7 +183,6 @@ impl KdEventQueue {
         Self::next(self.firstfree) == self.firstout
     }
 
-    /// Make the queue empty.
     pub fn clear(&mut self) {
         self.firstfree = 0;
         self.firstout = 0;

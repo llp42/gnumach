@@ -29,7 +29,6 @@ impl IpcPort {
         NonNull::new(port).map(Self)
     }
 
-    /// The raw pointer the C side passes.
     pub(crate) fn as_ptr(self) -> *mut c_void {
         self.0.as_ptr()
     }
@@ -47,7 +46,6 @@ impl IpcSpace {
         NonNull::new(space).map(Self)
     }
 
-    /// The raw pointer the C side passes.
     pub(crate) fn as_ptr(self) -> *mut c_void {
         self.0.as_ptr()
     }

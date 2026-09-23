@@ -35,9 +35,7 @@ pub const TIME_NANOS_MAX: i64 = 1_000_000_000;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct RpcTimeValue {
-    /// `seconds`.
     pub seconds: c_long,
-    /// `microseconds`.
     pub microseconds: c_int,
 }
 
@@ -46,9 +44,7 @@ pub struct RpcTimeValue {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TimeValue {
-    /// `seconds`.
     pub seconds: c_long,
-    /// `microseconds`.
     pub microseconds: c_int,
 }
 
@@ -57,9 +53,7 @@ pub struct TimeValue {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TimeValue64 {
-    /// `seconds`.
     pub seconds: i64,
-    /// `nanoseconds`.
     pub nanoseconds: i64,
 }
 

@@ -173,7 +173,6 @@ pub(crate) fn xga_init() {
         s.kd_io_reg = EGA_IO_REG as c_short;
         s.kd_lines = 25;
         s.kd_cols = 80;
-        // Clear the first 200 bytes of the bitmap.
         let addr = phystokv(C_BITMAP_START) as *mut u8;
         // SAFETY: the bitmap base is mapped by the boot.
         unsafe { core::ptr::write_bytes(addr, 0, BITMAP_CLEAR_BYTES) };

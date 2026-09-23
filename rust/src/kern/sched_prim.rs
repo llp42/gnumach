@@ -216,10 +216,8 @@ fn setrun(th: *mut Thread, may_preempt: bool) {
             glue::update_priority(th);
         }
 
-        // Try to dispatch the thread directly onto an idle processor.
         let mut processor = (*th).bound_processor;
         if processor.is_null() {
-            // Unbound: any processor in the set is acceptable.
             let pset = (*th).processor_set;
             if (*pset).idle_count > 0 {
                 (*pset).idle_lock.lock();
@@ -283,7 +281,6 @@ fn setrun(th: *mut Thread, may_preempt: bool) {
             let rq = &raw mut (*processor).runq;
             enqueue_run_queue(rq, th);
 
-            // Cause an AST on the processor if it is on line.
             if processor == current_processor() {
                 ast_on(cpu_number(), AST_BLOCK);
             } else if (*processor).state != PROCESSOR_OFF_LINE {
@@ -416,13 +413,11 @@ pub unsafe extern "C" fn clear_wait(
     unsafe {
         (*thread).lock.lock();
         if interrupt_only != 0 && (*thread).state() & TH_UNINT != 0 {
-            // Cannot interrupt the thread.
             (*thread).lock.unlock();
             glue::splx(s);
             return;
         }
 
-        // If the thread waits on an event, take it off the bucket.
         // The hash lock must be taken before any thread lock, so the
         // thread lock is dropped first.
         let mut event = (*thread).wait_event;
@@ -445,7 +440,6 @@ pub unsafe extern "C" fn clear_wait(
             let state = (*thread).state();
             reset_timeout_check(&raw mut (*thread).timer);
             match state & TH_SCHED_STATE {
-                // Sleeping and not suspendable: put on a run queue.
                 TH_WAIT | TH_WAIT_UNINT | TH_WAIT_SUSP_UNINT => {
                     (*thread).set_state((state & !TH_WAIT) | TH_RUN);
                     (*thread).wait_result = result;
@@ -479,12 +473,10 @@ pub unsafe extern "C" fn clear_wait(
                         return;
                     }
                 }
-                // Already suspended: just clear the wait.
                 TH_WAIT_SUSP => {
                     (*thread).set_state(state & !TH_WAIT);
                     (*thread).wait_result = result;
                 }
-                // Not waiting.
                 _ => (),
             }
         }
@@ -529,13 +521,11 @@ pub unsafe extern "C" fn thread_wakeup_prim(
 
                 let state = (*thread).state();
                 match state & TH_SCHED_STATE {
-                    // Sleeping and not suspendable: put on a run queue.
                     TH_WAIT | TH_WAIT_UNINT | TH_WAIT_SUSP_UNINT => {
                         (*thread).set_state((state & !TH_WAIT) | TH_RUN);
                         (*thread).wait_result = result;
                         setrun(thread, true);
                     }
-                    // Either already running, or suspended.
                     TH_WAIT_SUSP
                     | TH_RUN_WAIT
                     | TH_RUN_WAIT_SUSP
@@ -617,7 +607,6 @@ pub unsafe extern "C" fn thread_dispatch(thread: *mut Thread) {
 
         match (*thread).state() & !TH_SWAP_STATE {
             TH_RUN_SUSP | TH_RUN_SUSP_HALTED | TH_RUN_WAIT_SUSP => {
-                // Suspend the thread.
                 (*thread).set_state((*thread).state() & !TH_RUN);
                 if (*thread).wake_active() {
                     (*thread).set_wake_active(false);
@@ -632,7 +621,6 @@ pub unsafe extern "C" fn thread_dispatch(thread: *mut Thread) {
                 setrun(thread, false);
             }
             TH_RUN_WAIT_SUSP_UNINT | TH_RUN_WAIT_UNINT | TH_RUN_WAIT => {
-                // Waiting, and not suspended.
                 (*thread).set_state((*thread).state() & !TH_RUN);
             }
             TH_RUN_IDLE => {

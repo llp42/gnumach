@@ -354,13 +354,11 @@ impl LockData {
         self.interlock.lock();
 
         if self.owned_by_current() {
-            // Recursive lock.
             self.set_recursion_depth(self.recursion_depth().wrapping_add(1));
             self.interlock.unlock();
             return;
         }
 
-        // Try to acquire the want_write bit.
         while self.want_write() {
             self.pause_until(|| self.want_write());
 
@@ -370,7 +368,6 @@ impl LockData {
         }
         self.set_want_write(true);
 
-        // Wait for readers (and upgrades) to finish.
         while self.read_count() != 0 || self.want_upgrade() {
             self.pause_until(|| self.read_count() != 0 || self.want_upgrade());
 
@@ -413,7 +410,6 @@ impl LockData {
         self.interlock.lock();
 
         if self.owned_by_current() {
-            // Recursive lock.
             self.set_read_count(self.read_count().wrapping_add(1));
             self.interlock.unlock();
             return;
@@ -443,7 +439,6 @@ impl LockData {
         self.set_read_count(self.read_count().wrapping_sub(1));
 
         if self.owned_by_current() {
-            // Recursive lock.
             self.set_recursion_depth(self.recursion_depth().wrapping_add(1));
             self.interlock.unlock();
             return false;
@@ -502,7 +497,6 @@ impl LockData {
         self.interlock.lock();
 
         if self.owned_by_current() {
-            // Recursive lock.
             self.set_recursion_depth(self.recursion_depth().wrapping_add(1));
             self.interlock.unlock();
             return true;
@@ -525,7 +519,6 @@ impl LockData {
         self.interlock.lock();
 
         if self.owned_by_current() {
-            // Recursive lock.
             self.set_read_count(self.read_count().wrapping_add(1));
             self.interlock.unlock();
             return true;
@@ -551,7 +544,6 @@ impl LockData {
         self.interlock.lock();
 
         if self.owned_by_current() {
-            // Recursive lock.
             self.set_read_count(self.read_count().wrapping_sub(1));
             self.set_recursion_depth(self.recursion_depth().wrapping_add(1));
             self.interlock.unlock();

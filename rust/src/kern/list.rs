@@ -105,8 +105,6 @@ impl List {
         self.prev.is_none()
     }
 
-    /// Whether this node is in some list.  The negation of
-    /// `is_unlinked()`.
     pub fn is_linked(&self) -> bool {
         !self.is_unlinked()
     }

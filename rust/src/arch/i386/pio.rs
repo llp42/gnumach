@@ -20,7 +20,6 @@ use core::arch::asm;
 pub struct Port(u16);
 
 impl Port {
-    /// A port at `address`.
     #[must_use]
     pub const fn new(address: u16) -> Self {
         Self(address)

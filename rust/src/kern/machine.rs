@@ -35,13 +35,9 @@ pub const CPU_STATE_MAX: usize = 3;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MachineSlot {
-    /// `is_cpu`: whether there is a cpu in this slot.
     pub is_cpu: c_int,
-    /// `cpu_type`: the type of the cpu.
     pub cpu_type: c_int,
-    /// `cpu_subtype`: the subtype of the cpu.
     pub cpu_subtype: c_int,
-    /// `running`: whether the cpu is running.
     pub running: c_int,
     /// `cpu_ticks`: the ticks accumulated per `CPU_STATE_*`.
     pub cpu_ticks: [c_int; CPU_STATE_MAX],

@@ -175,7 +175,6 @@ impl KMutex {
             )
             .is_ok()
         {
-            // No waiters.
             return;
         }
 

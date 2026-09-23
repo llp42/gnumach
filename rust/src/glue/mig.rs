@@ -12,7 +12,6 @@ use crate::kern::types::KernError;
 use core::ffi::c_int;
 
 impl From<KernError> for c_int {
-    /// The `c_int` code of `error`.
     fn from(error: KernError) -> Self {
         c_int::from(error.as_u8())
     }

@@ -13,29 +13,17 @@
 
 use core::ffi::c_int;
 
-/// `KERN_SUCCESS`.
 pub const KERN_SUCCESS: c_int = 0;
-/// `KERN_INVALID_ADDRESS`.
 pub const KERN_INVALID_ADDRESS: c_int = 1;
-/// `KERN_PROTECTION_FAILURE`.
 pub const KERN_PROTECTION_FAILURE: c_int = 2;
-/// `KERN_NO_SPACE`.
 pub const KERN_NO_SPACE: c_int = 3;
-/// `KERN_INVALID_ARGUMENT`.
 pub const KERN_INVALID_ARGUMENT: c_int = 4;
-/// `KERN_FAILURE`.
 pub const KERN_FAILURE: c_int = 5;
-/// `KERN_RESOURCE_SHORTAGE`.
 pub const KERN_RESOURCE_SHORTAGE: c_int = 6;
-/// `KERN_NO_ACCESS`.
 pub const KERN_NO_ACCESS: c_int = 8;
-/// `KERN_MEMORY_ERROR`.
 pub const KERN_MEMORY_ERROR: c_int = 10;
-/// `KERN_INVALID_NAME`.
 pub const KERN_INVALID_NAME: c_int = 15;
-/// `KERN_INVALID_TASK`.
 pub const KERN_INVALID_TASK: c_int = 16;
-/// `KERN_WRITE_PROTECTION_FAILURE`.
 pub const KERN_WRITE_PROTECTION_FAILURE: c_int = 24;
 /// `MACH_SEND_INTERRUPTED` of <mach/message.h>: the pager wait an
 /// object copy performs was interrupted.  It reaches the VM map

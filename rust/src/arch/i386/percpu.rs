@@ -26,15 +26,10 @@ use core::mem::offset_of;
 pub struct Percpu {
     /// `self`: the block's own address; `%gs:0`.
     pub self_ptr: *mut Percpu,
-    /// `apic_id`: the local APIC id.
     pub apic_id: c_int,
-    /// `cpu_id`: the Mach CPU number.
     pub cpu_id: c_int,
-    /// `processor`: the embedded processor record.
     pub processor: Processor,
-    /// `active_thread`: the thread running on this CPU.
     pub active_thread: *mut Thread,
-    /// `active_stack`: its kernel stack.
     pub active_stack: VmOffset,
 }
 

@@ -39,17 +39,14 @@ const K_KP_END: c_int = 0x4f;
 const K_DOWNSC: c_int = 0x50;
 const K_KP_PGDN: c_int = 0x51;
 
-/// Read the shared modifier state.
 fn state_bits() -> c_int {
     super::kd().state_bits()
 }
 
-/// Write the shared modifier state.
 fn set_state_bits(value: c_int) {
     super::kd().set_state_bits(value);
 }
 
-/// The current keyboard mode.
 fn mode() -> c_int {
     kb_mode()
 }
@@ -347,7 +344,6 @@ fn intr() {
         scancode &= !K_UP;
     }
     if (scancode as usize) < NUMKEYS {
-        // Look up in the map, then process.
         let mut char_idx =
             state2idx(state_bits() as c_uint, state().kd_extended);
         let mut c = unsafe { KEY_MAP[scancode as usize][char_idx] };
@@ -357,7 +353,6 @@ fn intr() {
             let st = modifier(state_bits(), c, up);
             set_state_bits(st);
         } else if !up {
-            // A regular key-down.
             let mut max = char_idx + NUMOUTPUT;
             char_idx += 1;
             if !state().kd_extended {
@@ -380,7 +375,6 @@ fn intr() {
                     char_idx += 1;
                 }
             }
-            // Put the character (or sequence) on the input queue.
             while c != K_DONE && char_idx <= max {
                 // SAFETY: the tty feeds the line discipline at SPLKD.
                 super::tty::line_rint(c);

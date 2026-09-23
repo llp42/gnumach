@@ -40,8 +40,6 @@ use core::ffi::{c_char, c_int, c_long, c_uint, c_void};
 use core::mem::{MaybeUninit, offset_of};
 use core::ptr;
 
-/// `size_of(struct thread)` on each kernel; see the module's layout
-/// assertions.
 #[cfg(target_pointer_width = "64")]
 const THREAD_SIZE: usize = 560;
 #[cfg(target_pointer_width = "32")]
@@ -86,14 +84,10 @@ pub type Continuation = Option<unsafe extern "C" fn()>;
 pub struct StateBits(u32);
 
 impl StateBits {
-    /// The `state:16` mask.
     const STATE_MASK: u32 = 0xffff;
-    /// The `wake_active:1` bit.
     const WAKE_ACTIVE: u32 = 1 << 16;
-    /// The `active:1` bit.
     const ACTIVE: u32 = 1 << 17;
 
-    /// The `state` half of the word.
     pub const fn state(self) -> u32 {
         self.0 & Self::STATE_MASK
     }
@@ -104,7 +98,6 @@ impl StateBits {
         self.0 & Self::WAKE_ACTIVE != 0
     }
 
-    /// The `active` bit: how alive the thread is.
     pub const fn active(self) -> bool {
         self.0 & Self::ACTIVE != 0
     }
@@ -115,7 +108,6 @@ impl StateBits {
         self.0 = (self.0 & !Self::STATE_MASK) | (state & Self::STATE_MASK);
     }
 
-    /// Sets or clears `wake_active`.
     pub fn set_wake_active(&mut self, active: bool) {
         if active {
             self.0 |= Self::WAKE_ACTIVE;
@@ -160,17 +152,13 @@ pub union ThreadData {
 pub struct SavedReceive {
     /// `msg`: the user message header.
     pub msg: *mut c_void,
-    /// `option`: the receive options.
     pub option: c_int,
-    /// `rcv_size`: the receive buffer size.
     pub rcv_size: c_uint,
-    /// `timeout`: the receive timeout.
     pub timeout: c_uint,
     /// `notify`: the notification port name.
     pub notify: c_uint,
     /// `object`: the object being received from.
     pub object: *mut c_void,
-    /// `mqueue`: the message queue.
     pub mqueue: *mut c_void,
 }
 
@@ -178,13 +166,9 @@ pub struct SavedReceive {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct SavedException {
-    /// `port`: the exception port.
     pub port: *mut c_void,
-    /// `exc`: the exception number.
     pub exc: c_int,
-    /// `code`: the exception code.
     pub code: c_int,
-    /// `subcode`: the exception subcode.
     pub subcode: c_long,
 }
 
@@ -212,17 +196,13 @@ pub struct Thread {
     pub links: QueueEntry,
     /// `runq`: the run queue the thread is on, or `RUN_QUEUE_NULL`.
     pub runq: *mut RunQueue,
-    /// `task`: the task to which the thread belongs.
     pub task: *mut c_void,
-    /// `thread_list`: the task's thread list.
     pub thread_list: QueueEntry,
     /// `state`, `wake_active`, `active` and `event_key`.
     pub state_event: StateEvent,
-    /// `pset_threads`: the processor set's thread list.
     pub pset_threads: QueueEntry,
     /// `lock`: the thread lock, taken at splsched.
     pub lock: SimpleLock,
-    /// `ref_count`: the number of references to the thread.
     pub ref_count: c_int,
     /// `pcb`: the machine-dependent process control block.
     pub pcb: *mut c_void,
@@ -232,21 +212,17 @@ pub struct Thread {
     pub stack_privilege: VmOffset,
     /// `swap_func`: where the thread starts after swap-in.
     pub swap_func: Continuation,
-    /// `wait_event`: the event the thread is waiting on.
     pub wait_event: *mut c_void,
     /// `suspend_count`: internal use only.
     pub suspend_count: c_int,
-    /// `wait_result`: the outcome of the wait.
     pub wait_result: c_int,
     /// `priority`: the base priority.
     pub priority: c_int,
-    /// `max_priority`: the maximum priority.
     pub max_priority: c_int,
     /// `sched_pri`: the computed priority.
     pub sched_pri: c_int,
     /// `sched_data`: for use by the policy.
     pub sched_data: c_int,
-    /// `policy`: the scheduling policy.
     pub policy: c_int,
     /// `depress_priority`: the priority when depressed.
     pub depress_priority: c_int,
@@ -288,19 +264,14 @@ pub struct Thread {
     pub ith_rpc_reply: *mut c_void,
     /// `saved`: the state saved when the stack is discarded.
     pub saved: Saved,
-    /// `user_timer`: the user-mode timer.
     pub user_timer: Timer,
-    /// `system_timer`: the system-mode timer.
     pub system_timer: Timer,
-    /// `user_timer_save`: the saved user timer.
     pub user_timer_save: TimerSave,
-    /// `system_timer_save`: the saved system timer.
     pub system_timer_save: TimerSave,
     /// `cpu_delta`: the CPU usage since the last update.
     pub cpu_delta: c_uint,
     /// `sched_delta`: the weighted CPU usage since the last update.
     pub sched_delta: c_uint,
-    /// `creation_time`: the creation timestamp.
     pub creation_time: TimeValue64,
     /// `timer`: the wait timeout.
     pub timer: Timeout,
@@ -308,9 +279,7 @@ pub struct Thread {
     pub depress_timer: Timeout,
     /// `ast`: the pending ASTs; see <kern/ast.h>.
     pub ast: c_int,
-    /// `processor_set`: the assigned processor set.
     pub processor_set: *mut ProcessorSet,
-    /// `bound_processor`: the processor the thread is bound to.
     pub bound_processor: *mut Processor,
     /// `may_assign`: whether assignment may change (MACH_HOST).
     pub may_assign: c_int,
@@ -318,7 +287,6 @@ pub struct Thread {
     pub assign_active: c_int,
     /// `last_processor`: the processor the thread last ran on.
     pub last_processor: *mut Processor,
-    /// `name`: the thread's name.
     pub name: [c_char; TASK_NAME_SIZE],
 }
 
@@ -420,27 +388,23 @@ impl Thread {
         }
     }
 
-    /// The `state:16` half of the bitfield word.
     pub fn state(&self) -> u32 {
         // SAFETY: the `state` member shares the low word with
         // `event_key`, and every bit pattern is a valid `StateBits`.
         unsafe { self.state_event.state.state() }
     }
 
-    /// Replaces the `state` half, as the C field assignment does.
     pub fn set_state(&mut self, state: u32) {
         // SAFETY: as `state()`, and the write only touches the low
         // word.
         unsafe { self.state_event.state.set_state(state) };
     }
 
-    /// The `wake_active:1` bit.
     pub fn wake_active(&self) -> bool {
         // SAFETY: as `state()`.
         unsafe { self.state_event.state.wake_active() }
     }
 
-    /// Sets or clears the `wake_active` bit.
     pub fn set_wake_active(&mut self, active: bool) {
         // SAFETY: as `state()`.
         unsafe { self.state_event.state.set_wake_active(active) };

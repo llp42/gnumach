@@ -30,7 +30,6 @@ use core::slice;
 /// of sizes is zero.
 #[repr(C)]
 pub struct IpcTableSize {
-    /// `its_size`: the number of elements in the table.
     pub its_size: c_uint,
 }
 
@@ -42,9 +41,7 @@ const _: () = assert!(offset_of!(IpcTableSize, its_size) == 0);
 /// an index into the table.
 #[repr(C)]
 union RequestNotify {
-    /// `port`: the port that holds the request.
     port: *mut core::ffi::c_void,
-    /// `index`: the request's index in the table.
     index: c_uint,
 }
 
@@ -52,9 +49,7 @@ union RequestNotify {
 /// size record the table is growing to.
 #[repr(C)]
 union RequestName {
-    /// `name`: the name the request is registered under.
     name: c_uint,
-    /// `size`: the table size the request moved to.
     size: *mut IpcTableSize,
 }
 
@@ -65,9 +60,7 @@ union RequestName {
 /// this module never reads a field.
 #[repr(C)]
 struct IpcPortRequest {
-    /// `notify`: the two interpretations of the first word.
     notify: RequestNotify,
-    /// `name`: the two interpretations of the second word.
     name: RequestName,
 }
 

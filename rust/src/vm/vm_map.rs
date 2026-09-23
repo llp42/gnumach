@@ -157,7 +157,6 @@ pub const VME_NEEDS_COPY: u32 = 1 << 5;
 /// sentinel from `hdr.links` that way.
 #[repr(C)]
 pub struct VmMapEntry {
-    /// Chain links, `links` in C.
     pub links: VmMapLinks,
     /// Node in the address-ordered tree, `tree_node` in C.
     pub tree_node: RbtreeNode,
@@ -173,15 +172,10 @@ pub struct VmMapEntry {
     pub offset: VmOffset,
     /// The packed boolean bits, `in_gap_tree` through `needs_copy`.
     pub flags: u32,
-    /// Protection code, `protection` in C.
     pub protection: VmProt,
-    /// Maximum protection, `max_protection` in C.
     pub max_protection: VmProt,
-    /// Inheritance, `inheritance` in C.
     pub inheritance: VmInherit,
-    /// Wire count, `wired_count` in C.
     pub wired_count: u16,
-    /// Wiring access types, `wired_access` in C.
     pub wired_access: VmProt,
     /// The projected-buffer tag, `projected_on` in C: null for a
     /// normal entry, all ones for a non-persistent kernel-map entry,
@@ -207,9 +201,7 @@ assert_layout!(VmMapEntry, 88, 4, {
 /// The object-or-submap tag of an entry, `union vm_map_object`.
 #[repr(C)]
 pub union VmMapObject {
-    /// The memory object mapped.
     pub vm_object: *mut VmObject,
-    /// The subordinate map.
     pub sub_map: *mut VmMap,
 }
 
@@ -270,67 +262,54 @@ impl VmMapEntry {
         }
     }
 
-    /// Whether `is_shared` is set.
     pub fn is_shared(&self) -> bool {
         self.flags & VME_IS_SHARED != 0
     }
 
-    /// Set or clear `is_shared`.
     pub fn set_shared(&mut self, shared: bool) {
         self.set_flag(VME_IS_SHARED, shared);
     }
 
-    /// Whether `is_sub_map` is set.
     pub fn is_sub_map(&self) -> bool {
         self.flags & VME_IS_SUB_MAP != 0
     }
 
-    /// Set or clear `is_sub_map`.
     pub fn set_sub_map(&mut self, sub_map: bool) {
         self.set_flag(VME_IS_SUB_MAP, sub_map);
     }
 
-    /// Whether `in_gap_tree` is set.
     pub fn in_gap_tree(&self) -> bool {
         self.flags & VME_IN_GAP_TREE != 0
     }
 
-    /// Set or clear `in_gap_tree`.
     pub fn set_in_gap_tree(&mut self, value: bool) {
         self.set_flag(VME_IN_GAP_TREE, value);
     }
 
-    /// Whether `in_transition` is set.
     pub fn in_transition(&self) -> bool {
         self.flags & VME_IN_TRANSITION != 0
     }
 
-    /// Set or clear `in_transition`.
     pub fn set_in_transition(&mut self, value: bool) {
         self.set_flag(VME_IN_TRANSITION, value);
     }
 
-    /// Whether `needs_wakeup` is set.
     pub fn needs_wakeup(&self) -> bool {
         self.flags & VME_NEEDS_WAKEUP != 0
     }
 
-    /// Set or clear `needs_wakeup`.
     pub fn set_needs_wakeup(&mut self, value: bool) {
         self.set_flag(VME_NEEDS_WAKEUP, value);
     }
 
-    /// Whether `needs_copy` is set.
     pub fn needs_copy(&self) -> bool {
         self.flags & VME_NEEDS_COPY != 0
     }
 
-    /// Set or clear `needs_copy`.
     pub fn set_needs_copy(&mut self, value: bool) {
         self.set_flag(VME_NEEDS_COPY, value);
     }
 
-    /// Set or clear one flag bit.
     fn set_flag(&mut self, bit: u32, value: bool) {
         if value {
             self.flags |= bit;
@@ -339,7 +318,6 @@ impl VmMapEntry {
         }
     }
 
-    /// The projection state of this entry.
     pub fn projection(&self) -> Projection {
         if self.projected_on.is_null() {
             Projection::None
@@ -369,7 +347,6 @@ pub struct VmMapHeader {
     pub tree: Rbtree,
     /// The gap-size tree.
     pub gap_tree: Rbtree,
-    /// Number of entries.
     pub nentries: c_int,
 }
 
@@ -403,32 +380,25 @@ pub const VM_MAP_WIRING_REQUIRED: u32 = 1 << 1;
 pub struct VmMap {
     /// The sleep lock protecting the map data.
     pub lock: LockData,
-    /// The entry header.
     pub hdr: VmMapHeader,
-    /// The physical map.
     pub pmap: *mut Pmap,
     /// Current virtual size.
     pub size: VmSize,
-    /// Wired size.
     pub size_wired: VmSize,
     /// Size of the `VM_PROT_NONE` regions.
     pub size_none: VmSize,
     /// Reference count; guarded by `ref_lock`, so Rust reaches it
     /// through `UnsafeCell` while holding that lock.
     pub ref_count: UnsafeCell<c_int>,
-    /// The reference-count lock.
     pub ref_lock: SimpleLock,
     /// Last used entry; guarded by `hint_lock`.
     pub hint: UnsafeCell<*mut VmMapEntry>,
-    /// The hint lock.
     pub hint_lock: SimpleLock,
-    /// First free-space hint.
     pub first_free: *mut VmMapEntry,
     /// `wait_for_space` and `wiring_required`.
     pub flags: u32,
     /// Version number, bumped by every write lock.
     pub timestamp: c_uint,
-    /// The map's name.
     pub name: *const c_char,
     /// Current virtual-memory limit.
     pub size_cur_limit: VmSize,
@@ -878,7 +848,6 @@ pub(crate) struct VmMapLookup {
     pub offset: VmOffset,
     /// The effective protection.
     pub protection: VmProt,
-    /// Whether the entry is wired.
     pub wired: bool,
     /// The map's timestamp at the time of the lookup.
     pub timestamp: c_uint,
@@ -1299,7 +1268,6 @@ pub type VmMapCopyContFn = unsafe extern "C" fn(
 /// The `OBJECT` variant of a copy, `c_u.c_o`.
 #[repr(C)]
 pub struct VmMapCopyObject {
-    /// The object the copy holds.
     pub object: *mut VmObject,
 }
 
@@ -1355,7 +1323,6 @@ pub struct VmMapCopy {
     pub type_: c_int,
     /// Offset of the region within the object.
     pub offset: VmOffset,
-    /// Size of the region.
     pub size: VmSize,
     /// The three shapes.
     pub c_u: VmMapCopyU,
@@ -1376,9 +1343,7 @@ assert_layout!(VmMapCopy, 280, 4, {
 pub struct VmMapCopyinArgs {
     /// The map the copy came from.
     pub map: *mut VmMap,
-    /// The source address.
     pub src_addr: VmOffset,
-    /// The source length.
     pub src_len: VmSize,
     /// The address to destroy once copied.
     pub destroy_addr: VmOffset,
@@ -2350,7 +2315,6 @@ impl VmMap {
         // memory.
         let allocated = self.size.wrapping_sub(self.size_none);
         let new_size = allocated.wrapping_add(size);
-        // Check for integer overflow.
         if new_size < size {
             return Err(Error::InvalidArgument);
         }
@@ -2497,7 +2461,6 @@ impl VmMap {
             let start = entry_end.wrapping_add(mask) & !mask;
             let end = start.wrapping_add(size);
             if end > max {
-                // Does not respect the allowed maximum.
                 // SAFETY: `printf` only formats.
                 unsafe {
                     printf(c"%lx does not respect %lx\n".as_ptr(), end, max)
@@ -2823,7 +2786,6 @@ impl VmMapHeader {
 }
 
 impl VmMap {
-    /// The saved lookup hint.
     fn hint(&self) -> *mut VmMapEntry {
         // SAFETY: `hint` is written only under `hint_lock`; this is a
         // snapshot, as the C `SAVE_HINT` readers take.
@@ -3029,7 +2991,6 @@ impl VmMap {
             unsafe { (*first_entry.as_ptr()).links.next.unwrap_or(sentinel) }
         };
 
-        // Save the free space hint.
         let first_free = self.first_free_entry();
         if unsafe { (*first_free.as_ptr()).links.start } >= start {
             let prev = unsafe { (*entry.as_ptr()).links.prev };
@@ -3193,7 +3154,6 @@ impl VmMap {
             return false;
         }
 
-        // Update the hints.
         if self.hint() == entry.as_ptr() {
             self.save_hint(prev);
         }
@@ -3268,7 +3228,6 @@ impl VmMap {
         let map = NonNull::from(&mut *self);
         let mut do_wire_faults = false;
 
-        // Pass 1. Update counters and prepare wiring faults.
         let mut entry = start_entry;
         while !self.hdr.is_sentinel(entry)
             && unsafe { (*entry.as_ptr()).links.start } < end
@@ -3347,7 +3306,6 @@ impl VmMap {
             entry = next;
         }
 
-        // Pass 2. Trigger wiring faults.
         if !do_wire_faults {
             return;
         }
@@ -3445,7 +3403,6 @@ impl VmMap {
             unsafe { (*temp_entry.as_ptr()).links.next.unwrap_or(sentinel) }
         };
 
-        // Pass 1: protection violations.
         let mut current = entry;
         while !self.hdr.is_sentinel(current)
             && unsafe { (*current.as_ptr()).links.start } < end
@@ -3659,7 +3616,6 @@ impl VmMap {
         }
         let end_entry = entry;
 
-        // Pass 2: set the desired wired access.
         let mut entry = start_entry;
         while entry != end_entry {
             // SAFETY: the entries up to `end_entry` are live and the
@@ -3774,13 +3730,10 @@ pub(crate) struct EnterRequest<'a> {
     pub(crate) object: *mut VmObject,
     /// Offset into `object`.
     pub(crate) offset: VmOffset,
-    /// Whether the mapping is copy-on-write.
     pub(crate) needs_copy: bool,
     /// Protection of the new mapping.
     pub(crate) cur_protection: VmProt,
-    /// Maximum protection.
     pub(crate) max_protection: VmProt,
-    /// Inheritance.
     pub(crate) inheritance: VmInherit,
 }
 
@@ -3914,7 +3867,6 @@ impl VmMap {
             return EnterOutcome::Error(error);
         }
 
-        // See whether the preceding entry can absorb the range.
         // SAFETY: `entry` is live under the map lock.
         let extend_prev = !self.hdr.is_sentinel(entry)
             && unsafe {
@@ -3962,7 +3914,6 @@ impl VmMap {
             }
         }
 
-        // See whether the following entry can absorb the range.
         // SAFETY: `next_entry` is the header or a live entry under the
         // map lock.
         let extend_next = !self.hdr.is_sentinel(next_entry)
@@ -4013,7 +3964,6 @@ impl VmMap {
             }
         }
 
-        // Create a new entry.
         // SAFETY: the entry cache is initialized and the map is
         // locked.
         let new_entry = unsafe { VmMapEntry::create() };
@@ -4522,12 +4472,10 @@ impl VmMap {
         len: VmSize,
         src_destroy: bool,
     ) -> Result<NonNull<VmMapCopy>, Error> {
-        // Check that the end address doesn't overflow.
         if src_addr.wrapping_add(len) <= src_addr {
             return Err(Error::InvalidAddress);
         }
 
-        // Compute the start and end of the region.
         let mut src_start = trunc_page(src_addr);
         let src_end = round_page(src_addr.wrapping_add(len));
 
@@ -4536,7 +4484,6 @@ impl VmMap {
             return Err(Error::InvalidAddress);
         }
 
-        // Allocate the header element for the entry list.
         // SAFETY: `vm_map_init()` initialized the caches before any
         // map exists.
         let copy = unsafe { VmMapCopy::new_entry_list(src_addr, len) };
@@ -4546,7 +4493,6 @@ impl VmMap {
         let map = NonNull::from(&mut *self);
         VmMap::lock(map);
 
-        // Find the beginning of the region.
         let sentinel = self.to_entry();
         let (found, mut tmp_entry) = self.lookup_entry(src_start);
         if !found {
@@ -4560,7 +4506,6 @@ impl VmMap {
         // entry that starts before `src_start`.
         unsafe { self.hdr.clip_start_at(tmp_entry, src_start, true) };
 
-        // Go through entries until we get to the end.
         'entry: loop {
             let mut entry = tmp_entry;
             // SAFETY: `entry` is a live entry of the locked map.
@@ -4569,7 +4514,6 @@ impl VmMap {
                 (e.protection, e.is_shared())
             };
 
-            // Verify that the region can be read.
             if !protection.contains(VmProt::READ) {
                 VmMap::unlock(map);
                 // SAFETY: the copy is live and owned by this call.
@@ -4594,8 +4538,6 @@ impl VmMap {
                 )
             };
 
-            // Create a new entry to hold the result, copying the
-            // source fields into it.
             // SAFETY: the entry cache is initialized and the map is
             // locked.
             let new_entry = unsafe { VmMapEntry::create() };
@@ -4846,7 +4788,6 @@ impl VmMap {
                             );
                             VmMapEntry::dispose(new_entry);
                         }
-                        // `tmp_entry` is the entry just looked up.
                         continue 'entry;
                     }
                 }
@@ -4860,14 +4801,12 @@ impl VmMap {
                 (*copy_header.as_ptr()).entry_link(last, new_entry, false);
             }
 
-            // Determine whether the entire region has been copied.
             // SAFETY: `new_entry` is now linked in the copy.
             src_start = unsafe { (*new_entry.as_ptr()).links.end };
             if src_start >= src_end && src_end != 0 {
                 break;
             }
 
-            // Verify that there are no gaps in the region.
             // SAFETY: `entry` is live under the map lock, and its
             // next link is live or the sentinel.
             tmp_entry =
@@ -5079,12 +5018,10 @@ impl VmMap {
             return Ok(None);
         }
 
-        // Check that the end address doesn't overflow.
         if src_addr.wrapping_add(len) <= src_addr {
             return Err(Error::InvalidAddress);
         }
 
-        // Compute the start and end of the region.
         let mut src_start = trunc_page(src_addr);
         let mut src_end = round_page(src_addr.wrapping_add(len));
 
@@ -5093,7 +5030,6 @@ impl VmMap {
             return Err(Error::InvalidAddress);
         }
 
-        // Allocate the header element for the page list.
         // SAFETY: `vm_map_init()` initialized the copy cache before any
         // map exists.
         let copy = unsafe { VmMapCopy::new_page_list(src_addr, len) };
@@ -5110,7 +5046,6 @@ impl VmMap {
         'do_map_lookup: loop {
             VmMap::lock(map);
 
-            // Find the beginning of the region.
             let (found, entry) = self.lookup_entry(src_start);
             if !found {
                 VmMap::unlock(map);
@@ -5121,7 +5056,6 @@ impl VmMap {
             src_entry = entry;
             need_map_lookup = false;
 
-            // Go through entries until the region is copied.
             loop {
                 // SAFETY: `src_entry` is a live entry of the locked
                 // map.
@@ -5414,7 +5348,6 @@ impl VmMap {
                     continue 'do_map_lookup;
                 }
 
-                // Verify that there are no gaps in the region.
                 src_start = entry_end;
                 // SAFETY: `src_entry` is live and the map is locked;
                 // its next link is live or the sentinel.
@@ -5780,7 +5713,6 @@ impl VmMap {
             }
         }
 
-        // Correct the page alignment for the result.
         let dst_addr =
             start.wrapping_add(copy_offset.wrapping_sub(vm_copy_start));
 
@@ -6300,8 +6232,6 @@ impl VmMap {
         let copy_sentinel: NonNull<VmMapEntry> =
             unsafe { VmMapCopy::header(copy) }.cast();
 
-        // Pass 1: verify that the destination is all writeable and
-        // contiguous for the whole copy.
         let mut tmp_entry: NonNull<VmMapEntry>;
         'pass_1: loop {
             VmMap::lock(map);
@@ -6369,7 +6299,6 @@ impl VmMap {
             break;
         }
 
-        // Pass 2: overwrite the data, walking the copy's entries.
         let mut start = dst_addr;
         loop {
             // SAFETY: the copy holds the live `ENTRY_LIST` variant,
@@ -6409,7 +6338,6 @@ impl VmMap {
                 return Err(Error::ProtectionFailure);
             }
 
-            // Adjust to the source size first.
             if copy_entry_size < size {
                 // SAFETY: `entry` is live and the map is locked; this
                 // is the guarded `vm_map_clip_end()` macro.
@@ -6420,7 +6348,6 @@ impl VmMap {
                 size = copy_entry_size;
             }
 
-            // Adjust to the destination size.
             if size < copy_entry_size {
                 // SAFETY: `copy_entry` is live in the copy.
                 let end = unsafe {
@@ -6626,15 +6553,11 @@ impl VmMap {
 pub(crate) struct VmMapRegion {
     /// The region's first address, which replaces the caller's.
     pub address: VmOffset,
-    /// The region's length.
     pub size: VmSize,
     /// The region's current protection.
     pub protection: VmProt,
-    /// The region's maximum protection.
     pub max_protection: VmProt,
-    /// The region's inheritance.
     pub inheritance: VmInherit,
-    /// Whether the region is shared.
     pub is_shared: bool,
     /// A naked send right naming the region's pager, or `None` for
     /// `IP_NULL`.
