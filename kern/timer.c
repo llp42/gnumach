@@ -23,6 +23,9 @@
  * any improvements or extensions that they make and grant Carnegie Mellon
  * the rights to redistribute these changes.
  */
+/*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
 
 #include <mach/kern_return.h>
 #include <mach/port.h>
@@ -62,95 +65,11 @@ void init_timers(void)
 	start_timer(&kernel_timer[cpu_number()]);
 }
 
-/*
- *	timer_init initializes a single timer.
- */
-void timer_init(timer_t this_timer)
-{
-	this_timer->low_bits = 0;
-	this_timer->high_bits = 0;
-	this_timer->tstamp = 0;
-	this_timer->high_bits_check = 0;
-}
-
-/*
- *	timer_normalize normalizes the value of a timer.  It is
- *	called only rarely, to make sure low_bits never overflows.
- */
-void timer_normalize(timer_t timer)
-{
-	unsigned int	high_increment;
-
-	/*
-	 *	Calculate high_increment, then write high check field first
-	 *	followed by low and high.  timer_grab() reads these fields in
-	 *	reverse order so if high and high check match, we know
-	 *	that the values read are ok.
-	 */
-
-	high_increment = timer->low_bits/TIMER_RATE;
-	timer->high_bits_check += high_increment;
-	__sync_synchronize();
-	timer->low_bits %= TIMER_RATE;
-	__sync_synchronize();
-	timer->high_bits += high_increment;
-}
-
-/*
- *	timer_grab() retrieves the value of a timer.
- *
- *	Critical scheduling code uses the Rust TimerSave::delta(), the
- *	TIMER_DELTA macro's port (called from thread_timer_delta in
- *	src/kern/thread.rs).
- *
- *      Keep coherent with db_time_grab below.
- */
-
-static void timer_grab(
-	timer_t		timer,
-	timer_save_t	save)
-{
-	do {
-		(save)->high = (timer)->high_bits;
-		__sync_synchronize ();
-		(save)->low = (timer)->low_bits;
-		__sync_synchronize ();
-	/*
-	 *	If the timer was normalized while we were doing this,
-	 *	the high_bits value read above and the high_bits check
-	 *	value will not match because high_bits_check is the first
-	 *	field touched by the normalization procedure, and
-	 *	high_bits is the last.
-	 *
-	 *	Additions to timer only touch low bits and
-	 *	are therefore atomic with respect to this.
-	 */
-	} while ( (save)->high != (timer)->high_bits_check);
-}
-
 #define TIMER_TO_TIME_VALUE64(tv, timer) 				\
 MACRO_BEGIN								\
 		(tv)->seconds = (timer)->high + (timer)->low / 1000000;	\
 		(tv)->nanoseconds = (timer)->low % 1000000 * 1000;	\
 MACRO_END
-
-/*
- *	timer_read reads the value of a timer into a time_value64_t.  If the
- *	timer was modified during the read, retry.  The value returned
- *	is accurate to the last update; time accumulated by a running
- *	timer since its last timestamp is not included.
- */
-
-void
-timer_read(
-	timer_t 	timer,
-	time_value64_t 	*tv)
-{
-	timer_save_data_t	temp;
-
-	timer_grab(timer,&temp);
-	TIMER_TO_TIME_VALUE64(tv, &temp);
-}
 
 /*
  *	thread_read_times reads the user and system times from a thread.
@@ -173,7 +92,7 @@ void	thread_read_times(
  *
  * 	Db_timer_grab(): used by db_thread_read_times. An nonblocking
  *      version of db_thread_get_times. Keep coherent with timer_grab
- *      above.
+ *      in rust/src/kern/timer.rs.
  *
  */
 static void db_timer_grab(
@@ -211,28 +130,4 @@ void	db_thread_read_times(
 {
 	nonblocking_timer_read(&thread->user_timer, user_time_p);
 	nonblocking_timer_read(&thread->system_timer, system_time_p);
-}
-
-/*
- *	timer_delta takes the difference of a saved timer value
- *	and the current one, and updates the saved value to current.
- *	The difference is returned as a function value.  See the
- *	TimerSave::delta() port of TIMER_DELTA for the optimization to
- *	this.
- */
-
-unsigned
-timer_delta(
-	timer_t		timer,
-	timer_save_t	save)
-{
-	timer_save_data_t	new_save;
-	unsigned		result;
-
-	timer_grab(timer,&new_save);
-	result = (new_save.high - save->high) * TIMER_RATE +
-		new_save.low - save->low;
-	save->high = new_save.high;
-	save->low = new_save.low;
-	return(result);
 }

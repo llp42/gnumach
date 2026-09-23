@@ -279,31 +279,42 @@ its entry below and the §9 table record what moved.
   and `kern/slab.c`'s active-slab tree (used by every non-direct cache,
   `slab.c:641-652`) exercise the functions through the ABI pack.
 
-#### `kern/timer.c` — 236 lines — friction 3/5
+#### `kern/timer.c` — 236 lines — partly ported
 * **Role.** Per-thread and per-CPU statistical timers (microseconds and
   seconds) with a seqlock-style read (`high_bits_check`) tolerant of
   concurrent normalization.
-* **Exports/data.** `timer_init`, `init_timers`, `timer_normalize`,
-  `timer_read`, `timer_delta`, `thread_read_times`,
-  `db_thread_read_times`; owns `current_timer[NCPUS]` and
-  `kernel_timer[NCPUS]` (`timer.c:39-40`).
+* **Rust home.** `src/kern/timer.rs`: the port moved `timer_init`,
+  `timer_normalize`, `timer_grab` (private), `timer_delta` and
+  `timer_read`, the first two and the last two behind their same-named
+  adapters.  `timer_grab` is `static` in C, so it could not stay behind;
+  `timer_read` came along because it is the other caller, and leaving
+  it C would have needed that static helper exported, which the no-glue
+  law forbids.
+* **Exports/data.** Still C: `init_timers`, `thread_read_times`,
+  `db_thread_read_times`, and the debugger's `db_timer_grab` and
+  `nonblocking_timer_read` (both `static`); owns `current_timer[NCPUS]`
+  and `kernel_timer[NCPUS]` (`timer.c:39-40`).  `thread_read_times`
+  keeps calling `timer_read` through `timer.h:96`, unchanged;
+  `db_thread_read_times` stays on its own `nonblocking_timer_read`
+  path.
 * **Dependencies — why.** `cpu_number()` is the `percpu_get` macro over
   `%gs` (`i386/i386/cpu_number.h:54`), needed to index the per-CPU
-  arrays; `__sync_synchronize()` makes the check/high publish order safe
-  (`timer.c:93-116`).  `timer_bump` is a macro in `timer.h:105` that
+  arrays; `__sync_synchronize()` became `fence(SeqCst)` in the Rust
+  `grab`/`normalize` pair, which keeps the check-first, high-last
+  publish order.  `timer_bump` is a macro in `timer.h:105` that
   `mach_clock.c` applies directly to `struct timer` fields, so the
   fields must stay C-visible.  `TIMER_DELTA` moved to
-  `src/kern/timer.rs` as `TimerSave::delta`, which calls `timer_delta()`
-  for its coherency slow path.
-* **Blockers.** The per-CPU accessor in `src/arch/`, finished:
-  `cpu_number()` is a macro, so there is nothing to shim and Phase 1
-  is the prerequisite.  Plus the `struct timer` mirror.
+  `src/kern/timer.rs` as `TimerSave::delta`, which now calls the Rust
+  `delta` helper for its coherency slow path instead of
+  `glue::timer_delta`.
+* **Blockers.** `init_timers` alone: it indexes `current_timer[NCPUS]`,
+  so the per-CPU accessor in `src/arch/` (Phase 1) is still the
+  prerequisite.
 * **Boundary / notes.** `#[no_mangle] static mut` arrays with the same
   size/alignment; write order in `timer_normalize` (check first, high
   last) and `fence(SeqCst)` must match — a safe `Timer` API can exist
   internally, but the C macros keep poking the fields until
-  `thread.c`/`mach_clock.c` move.  `timer_delta` is pure arithmetic and
-  can be fully safe.
+  `thread.c`/`mach_clock.c` move.
 
 #### `kern/thread_swap.c` — 196 lines — ported
 * **Role.** The swapin queue and the swapper kernel thread: allocate a
@@ -1729,7 +1740,7 @@ No new C, no new mirror, no new constant, no design conversation.
 Tier 0 is worked to exhaustion before any infrastructure is proposed
 (`AGENTS.md`, "Take the free ports first").
 
-Thirty-five functions, forty-six counting the stub batch.  Clusters
+Thirty-one functions, forty-two counting the stub batch.  Clusters
 first, because a whole file leaving C in one commit is worth more than
 the same functions leaving one at a time.
 
@@ -1744,7 +1755,6 @@ the same functions leaving one at a time.
 
 | Function | Why it is free |
 |---|---|
-| `kern/timer.c:68 timer_init`, `:80 timer_normalize`, `:109 timer_grab`, `:225 timer_delta` | Touch only the mirrored `Timer`/`TimerSave`.  `timer_grab` is `static`, so it moves with `timer_delta`.  `init_timers` does **not** qualify: it indexes `current_timer[NCPUS]`. |
 | `kern/debug.c:49 SoftDebugger`, `:56 Debugger`, `:71 panic_init` | Only `printf` and `Panic`, both in `glue`.  `panic_init`'s `simple_lock_init_irq` is a field write over the mirrored `SimpleLock`.  `Panic` and `log` themselves stay C: they are variadic (question 4). |
 | `kern/machine.c:115 host_reboot` | Calls `Debugger` and `halt_all_cpus`, both real.  `host` is only compared against `HOST_NULL`. |
 | `i386/i386/ast_check.c:46 init_ast_check`, `:53 cause_ast_check` | The first has an empty body.  The second reads `processor->slot_num`, which the `Processor` mirror covers, and calls the real `smp_remote_ast`.  `APIC_LOGICAL_ID` is arithmetic on a plain constant, which Rust rewrites rather than calls.  `cause_ast_check` is already declared in `glue`, so the port turns that declaration into a Rust definition. |
@@ -1829,7 +1839,7 @@ or Rust already.  Each phase exists to make the next one legal, and no
 phase contains a shim.  Where the old phasing said "add the shim", the
 replacement says which file to port instead.
 
-* **Phase 0 — Tier 0 (now).**  The thirty-five free functions of
+* **Phase 0 — Tier 0 (now).**  The thirty-one free functions of
   §6.1, worked to exhaustion.  Each needs nothing that does not exist
   today, so this phase can start and finish without a single decision
   from any later one.  Nothing below is begun while Tier 0 has
@@ -1966,6 +1976,7 @@ kernel may add host tests like the rbtree's; see §8.
 | `device/cirbuf.c` | `src/device/cirbuf.rs` | `pending` |
 | `kern/thread.c` (`thread_init`) | `src/kern/thread.rs` | `pending` |
 | `kern/sched.h` (`thread_timer_delta`) | `src/kern/thread.rs`, `src/kern/timer.rs` | `pending` |
+| `kern/timer.c` (the five read/normalize/init functions) | `src/kern/timer.rs` | `pending` |
 | `kern/processor.c` (`processor_init`, `pset_init`, `processor_start/exit/control`, `processor_get_assignment`, `processor_info`, `processor_set_info`, `pset_reference`, `pset_deallocate`, `pset_add/remove_thread`, `thread_change_psets`, `processor_set_max_priority`, `processor_set_policy_enable/disable`) | `src/kern/processor.rs` | `pending` |
 | `kern/thread_swap.c` | `src/kern/thread_swap.rs` | `pending` |
 

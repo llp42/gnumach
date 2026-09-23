@@ -22,7 +22,6 @@ use crate::kern::processor::{Processor, ProcessorSet};
 use crate::kern::queue::QueueEntry;
 use crate::kern::sched_prim::NUMQUEUES;
 use crate::kern::thread::Thread;
-use crate::kern::timer::{Timer, TimerSave};
 use crate::vm::types::{Pmap, VmObject, VmPage, VmProt};
 use core::ffi::{c_char, c_int, c_long, c_short, c_uint, c_void};
 
@@ -131,11 +130,6 @@ unsafe extern "C" {
     pub fn thread_bootstrap_return();
     // <i386/i386/pcb.h>
     pub fn pcb_module_init();
-
-    // <kern/timer.h>: the coherency slow path of the timer-delta
-    // protocol, which the Rust `TimerSave::delta()` calls.  The C
-    // prototype takes no const, but the routine only reads the timer.
-    pub fn timer_delta(timer: *const Timer, save: *mut TimerSave) -> c_uint;
 
     // <kern/sched_prim.c>: the shim for `processor_set.sched_load`,
     // whose offset depends on the configure-time NCPUS.  It dies when
