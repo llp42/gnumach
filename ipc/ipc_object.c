@@ -24,6 +24,9 @@
  * the rights to redistribute these changes.
  */
 /*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
+/*
  *	File:	ipc/ipc_object.c
  *	Author:	Rich Draves
  *	Date:	1989
@@ -333,38 +336,6 @@ ipc_object_alloc_name(
 
 	*objectp = object;
 	return KERN_SUCCESS;
-}
-
-/*
- *	Routine:	ipc_object_copyin_type
- *	Purpose:
- *		Convert a send type name to a received type name.
- */
-
-mach_msg_type_name_t
-ipc_object_copyin_type(
-	mach_msg_type_name_t	msgt_name)
-{
-	switch (msgt_name) {
-	    case 0:
-		return 0;
-
-	    case MACH_MSG_TYPE_MOVE_RECEIVE:
-		return MACH_MSG_TYPE_PORT_RECEIVE;
-
-	    case MACH_MSG_TYPE_MOVE_SEND_ONCE:
-	    case MACH_MSG_TYPE_MAKE_SEND_ONCE:
-		return MACH_MSG_TYPE_PORT_SEND_ONCE;
-
-	    case MACH_MSG_TYPE_MOVE_SEND:
-	    case MACH_MSG_TYPE_MAKE_SEND:
-	    case MACH_MSG_TYPE_COPY_SEND:
-		return MACH_MSG_TYPE_PORT_SEND;
-
-	    default:
-		panic("ipc_object_copyin_type: strange rights");
-		return 0; /* in case assert/panic returns */
-	}
 }
 
 /*

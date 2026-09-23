@@ -10,6 +10,7 @@
 use core::ffi::c_void;
 use core::ptr::NonNull;
 
+pub mod ipc_object;
 pub mod ipc_table;
 pub mod ipc_thread;
 
