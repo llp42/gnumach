@@ -3,6 +3,9 @@
 //   Copyright (c) 1991,1990,1989,1988 Carnegie Mellon University.
 // And from include/mach/vm_param.h:
 //   Copyright (c) 1991,1990,1989,1988,1987 Carnegie Mellon University.
+// Derived from i386/i386/vm_param.h and x86_64/x86_64/vm_param.h:
+//   Copyright (c) 1994 The University of Utah and the Computer Systems
+//   Laboratory at the University of Utah (CSL).
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! Page geometry, from `i386/include/mach/i386/vm_param.h`, the header
@@ -24,3 +27,7 @@ pub const PAGE_SIZE: VmSize = 1 << PAGE_SHIFT;
 
 /// `PAGE_MASK`: the in-page offset bits, `PAGE_SIZE - 1` in the C.
 pub const PAGE_MASK: VmSize = PAGE_SIZE - 1;
+
+/// `KERNEL_STACK_SIZE` of <machine/vm_param.h>: the size and alignment
+/// of one kernel stack, `1*I386_PGBYTES` in the C.
+pub const KERNEL_STACK_SIZE: VmSize = PAGE_SIZE;

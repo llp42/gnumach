@@ -1,0 +1,209 @@
+// SPDX-License-Identifier: CMU-Mach
+// Derived from include/mach/time_value.h:
+//   Copyright (c) 1991,1990,1989,1988,1987 Carnegie Mellon University.
+// Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+
+//! The time records of `include/mach/time_value.h`.
+//!
+//! [`TimeValue`] is the legacy seconds/microseconds form the MIG
+//! interfaces still use, [`TimeValue64`] the kernel's internal
+//! nanoseconds form, and [`MappedTimeValue`] the page the user side
+//! reads the clock through.  [`RpcTimeValue`] is what the kernel's
+//! generated MIG stubs exchange with the user side.
+//!
+//! Only the constants a Rust caller needs come over.  The arithmetic
+//! macros (`time_value64_add`, `TIME_VALUE64_TO_TIME_VALUE`, the
+//! `TIMESPEC` family) stay in the C header until a ported routine needs
+//! them.  `struct thread` embeds a [`TimeValue64`], so that layout is
+//! pinned here.
+
+use core::ffi::{c_int, c_long};
+use core::mem::offset_of;
+use core::time::Duration;
+
+/// `TIME_NANOS_MAX` in <mach/time_value.h>: one second in
+/// nanoseconds, the carry bound of the `time_value64` macros.
+pub const TIME_NANOS_MAX: i64 = 1_000_000_000;
+
+/// `struct rpc_time_value` of <mach/time_value.h> as the kernel
+/// compiles it.
+///
+/// `rpc_long_integer_t` is C `long_integer_t` in the default
+/// configuration, which `c_long` mirrors on both targets.  The
+/// `--enable-user32` configuration makes the C field 32 bits through a
+/// define Rust cannot see, so only the default layout is mirrored.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RpcTimeValue {
+    /// `seconds`.
+    pub seconds: c_long,
+    /// `microseconds`.
+    pub microseconds: c_int,
+}
+
+/// `struct time_value` of <mach/time_value.h>: the legacy
+/// seconds/microseconds record the kernel interfaces use.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TimeValue {
+    /// `seconds`.
+    pub seconds: c_long,
+    /// `microseconds`.
+    pub microseconds: c_int,
+}
+
+/// `struct time_value64` of <mach/time_value.h>: 64-bit seconds and
+/// nanoseconds.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TimeValue64 {
+    /// `seconds`.
+    pub seconds: i64,
+    /// `nanoseconds`.
+    pub nanoseconds: i64,
+}
+
+/// `mapped_time_value_t` of <mach/time_value.h>: the clock page the
+/// user side maps, read with the double-check idiom the header
+/// documents.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MappedTimeValue {
+    /// `seconds`: the microsecond clock's seconds.
+    pub seconds: c_int,
+    /// `microseconds`: the microsecond clock's fraction.
+    pub microseconds: c_int,
+    /// `check_seconds`: a reader's copy of `seconds`.
+    pub check_seconds: c_int,
+    /// `time_value`: the wall-clock time.
+    pub time_value: TimeValue64,
+    /// `check_seconds64`: a reader's copy of `time_value.seconds`.
+    pub check_seconds64: i64,
+    /// `uptime_value`: the time since boot.
+    pub uptime_value: TimeValue64,
+    /// `check_upseconds64`: a reader's copy of
+    /// `uptime_value.seconds`.
+    pub check_upseconds64: i64,
+}
+
+/// The `convert_time_value_to_user()` inline of <mach/time_value.h>.
+impl From<TimeValue> for RpcTimeValue {
+    fn from(value: TimeValue) -> Self {
+        Self {
+            seconds: value.seconds,
+            microseconds: value.microseconds,
+        }
+    }
+}
+
+/// The `convert_time_value_from_user()` inline of <mach/time_value.h>.
+impl From<RpcTimeValue> for TimeValue {
+    fn from(value: RpcTimeValue) -> Self {
+        Self {
+            seconds: value.seconds,
+            microseconds: value.microseconds,
+        }
+    }
+}
+
+/// Why a [`TimeValue64`] is not a [`Duration`], and the other way
+/// round.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TimeValueError {
+    /// The seconds are negative, which a `Duration` cannot hold.
+    Negative,
+    /// The nanoseconds are negative or at least one second, which the
+    /// C macros renormalize away.
+    NanosecondsOutOfRange,
+    /// The seconds exceed `i64`, which a `time_value64_t` cannot hold.
+    SecondsOverflow,
+}
+
+/// A `time_value64_t` becomes a `Duration` only when the C side left
+/// it normalized and non-negative.
+impl TryFrom<TimeValue64> for Duration {
+    type Error = TimeValueError;
+
+    fn try_from(value: TimeValue64) -> Result<Self, Self::Error> {
+        let seconds = u64::try_from(value.seconds)
+            .map_err(|_| TimeValueError::Negative)?;
+        let nanoseconds = u32::try_from(value.nanoseconds)
+            .map_err(|_| TimeValueError::NanosecondsOutOfRange)?;
+        if i64::from(nanoseconds) >= TIME_NANOS_MAX {
+            return Err(TimeValueError::NanosecondsOutOfRange);
+        }
+        Ok(Duration::new(seconds, nanoseconds))
+    }
+}
+
+/// A `Duration` is always a `time_value64_t` until its seconds stop
+/// fitting `i64`.
+impl TryFrom<Duration> for TimeValue64 {
+    type Error = TimeValueError;
+
+    fn try_from(value: Duration) -> Result<Self, Self::Error> {
+        let seconds = i64::try_from(value.as_secs())
+            .map_err(|_| TimeValueError::SecondsOverflow)?;
+        Ok(Self {
+            seconds,
+            nanoseconds: i64::from(value.subsec_nanos()),
+        })
+    }
+}
+
+// The C compiler's numbers for the default kernel configuration.
+#[cfg(target_pointer_width = "64")]
+const _: () = {
+    assert!(size_of::<RpcTimeValue>() == 16);
+    assert!(align_of::<RpcTimeValue>() == 8);
+    assert!(offset_of!(RpcTimeValue, seconds) == 0);
+    assert!(offset_of!(RpcTimeValue, microseconds) == 8);
+    assert!(size_of::<TimeValue>() == 16);
+    assert!(align_of::<TimeValue>() == 8);
+    assert!(offset_of!(TimeValue, seconds) == 0);
+    assert!(offset_of!(TimeValue, microseconds) == 8);
+};
+#[cfg(target_pointer_width = "32")]
+const _: () = {
+    assert!(size_of::<RpcTimeValue>() == 8);
+    assert!(align_of::<RpcTimeValue>() == 4);
+    assert!(offset_of!(RpcTimeValue, seconds) == 0);
+    assert!(offset_of!(RpcTimeValue, microseconds) == 4);
+    assert!(size_of::<TimeValue>() == 8);
+    assert!(align_of::<TimeValue>() == 4);
+    assert!(offset_of!(TimeValue, seconds) == 0);
+    assert!(offset_of!(TimeValue, microseconds) == 4);
+};
+
+const _: () = assert!(size_of::<TimeValue64>() == 16);
+const _: () = assert!(offset_of!(TimeValue64, seconds) == 0);
+const _: () = assert!(offset_of!(TimeValue64, nanoseconds) == 8);
+#[cfg(target_pointer_width = "64")]
+const _: () = assert!(align_of::<TimeValue64>() == 8);
+#[cfg(target_pointer_width = "32")]
+const _: () = assert!(align_of::<TimeValue64>() == 4);
+
+// `mapped_time_value_t`: the 32-bit clock pair, the two 64-bit
+// snapshots and the reader checks between them.
+#[cfg(target_pointer_width = "64")]
+const _: () = {
+    assert!(size_of::<MappedTimeValue>() == 64);
+    assert!(offset_of!(MappedTimeValue, seconds) == 0);
+    assert!(offset_of!(MappedTimeValue, microseconds) == 4);
+    assert!(offset_of!(MappedTimeValue, check_seconds) == 8);
+    assert!(offset_of!(MappedTimeValue, time_value) == 16);
+    assert!(offset_of!(MappedTimeValue, check_seconds64) == 32);
+    assert!(offset_of!(MappedTimeValue, uptime_value) == 40);
+    assert!(offset_of!(MappedTimeValue, check_upseconds64) == 56);
+};
+#[cfg(target_pointer_width = "32")]
+const _: () = {
+    assert!(size_of::<MappedTimeValue>() == 60);
+    assert!(offset_of!(MappedTimeValue, seconds) == 0);
+    assert!(offset_of!(MappedTimeValue, microseconds) == 4);
+    assert!(offset_of!(MappedTimeValue, check_seconds) == 8);
+    assert!(offset_of!(MappedTimeValue, time_value) == 12);
+    assert!(offset_of!(MappedTimeValue, check_seconds64) == 28);
+    assert!(offset_of!(MappedTimeValue, uptime_value) == 36);
+    assert!(offset_of!(MappedTimeValue, check_upseconds64) == 52);
+};

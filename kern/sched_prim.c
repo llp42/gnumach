@@ -708,6 +708,20 @@ void recompute_priorities(void *param)
 }
 
 /*
+ *	The one shim the Rust timer port needs: `processor_set.sched_load`
+ *	sits after `machine_quantum[NCPUS+1]`, whose size is a configure
+ *	constant Rust cannot see.  Delete this when kern/processor.c moves
+ *	and the pset tail can be mirrored.
+ */
+long thread_glue_pset_sched_load(processor_set_t pset);
+
+long thread_glue_pset_sched_load(
+	processor_set_t	pset)
+{
+	return pset->sched_load;
+}
+
+/*
  *	update_priority
  *
  *	Cause the priority computation of a thread that has been

@@ -1,25 +1,29 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! The C functions Rust calls.
+//! The C functions Rust calls, and the interface records both halves
+//! share.
 //!
 //! C *macros* cannot come through here; when Rust needs one, it gets a
 //! small C shim function beside the header that defines it, and that
 //! shim is declared below like any other C function.
 //!
 //! [`mig`] holds the conversions between the Rust error codes and the
-//! result codes the C side passes.
+//! result codes the C side passes, and [`time_value`] the time records
+//! of <mach/time_value.h>.
 
 pub mod mig;
+pub mod time_value;
 
 use crate::arch::types::{VmOffset, VmSize};
 use crate::kern::lock::SimpleLock;
-use crate::kern::processor::Processor;
+use crate::kern::processor::{Processor, ProcessorSet};
 use crate::kern::queue::QueueEntry;
 use crate::kern::sched_prim::NUMQUEUES;
 use crate::kern::thread::Thread;
+use crate::kern::timer::{Timer, TimerSave};
 use crate::vm::types::{Pmap, VmObject, VmPage, VmProt};
-use core::ffi::{c_char, c_int, c_short, c_uint, c_void};
+use core::ffi::{c_char, c_int, c_long, c_short, c_uint, c_void};
 
 // The raw pointers below are to `#[repr(C)]` mirrors.  `QueueEntry`
 // ends in the zero-sized `PhantomPinned` marker, which the FFI lint
@@ -86,6 +90,30 @@ unsafe extern "C" {
     // exported for the port.
     pub static mut wait_queue: [QueueEntry; NUMQUEUES];
     pub static mut wait_lock: [SimpleLock; NUMQUEUES];
+
+    // <kern/thread.c>: the module state `thread_init()` builds and the
+    // C half goes on using.
+    pub static mut thread_cache: c_void;
+    pub static mut thread_stack_cache: c_void;
+    pub static mut thread_template: Thread;
+    pub static mut reaper_queue: QueueEntry;
+    pub static mut reaper_lock: SimpleLock;
+    pub static mut stack_lock_data: SimpleLock;
+    pub static mut stack_usage_lock: SimpleLock;
+    // <kern/sched_prim.h>: where a fresh thread starts execution.
+    pub fn thread_bootstrap_return();
+    // <i386/i386/pcb.h>
+    pub fn pcb_module_init();
+
+    // <kern/timer.h>: the coherency slow path of the timer-delta
+    // protocol, which the Rust `TimerSave::delta()` calls.  The C
+    // prototype takes no const, but the routine only reads the timer.
+    pub fn timer_delta(timer: *const Timer, save: *mut TimerSave) -> c_uint;
+
+    // <kern/sched_prim.c>: the shim for `processor_set.sched_load`,
+    // whose offset depends on the configure-time NCPUS.  It dies when
+    // kern/processor.c moves.
+    pub fn thread_glue_pset_sched_load(pset: *mut ProcessorSet) -> c_long;
 
     // <device/ds_routines.h>, the request passed as an opaque handle:
     // `struct io_req` itself belongs to its driver.

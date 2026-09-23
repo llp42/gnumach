@@ -99,8 +99,9 @@ void timer_normalize(timer_t timer)
 /*
  *	timer_grab() retrieves the value of a timer.
  *
- *	Critical scheduling code uses TIMER_DELTA macro in timer.h
- *	(called from thread_timer_delta in sched.h).
+ *	Critical scheduling code uses the Rust TimerSave::delta(), the
+ *	TIMER_DELTA macro's port (called from thread_timer_delta in
+ *	src/kern/thread.rs).
  *
  *      Keep coherent with db_time_grab below.
  */
@@ -215,8 +216,9 @@ void	db_thread_read_times(
 /*
  *	timer_delta takes the difference of a saved timer value
  *	and the current one, and updates the saved value to current.
- *	The difference is returned as a function value.  See
- *	TIMER_DELTA macro (timer.h) for optimization to this.
+ *	The difference is returned as a function value.  See the
+ *	TimerSave::delta() port of TIMER_DELTA for the optimization to
+ *	this.
  */
 
 unsigned

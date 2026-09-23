@@ -110,30 +110,6 @@ MACRO_BEGIN							\
 	}							\
 MACRO_END
 
-/*
- *	TIMER_DELTA finds the difference between a timer and a saved value,
- *	and updates the saved value.  Look at high_bits check field after
- *	reading low because that's the first written by a normalize
- *	operation; this isn't necessary for current usage because
- *	this macro is only used when the timer can't be normalized:
- *	thread is not running, or running thread calls it on itself at
- *	splsched().
- */
-
-#define TIMER_DELTA(timer, save, result)			\
-MACRO_BEGIN							\
-	unsigned	temp;					\
-								\
-	temp = (timer).low_bits;				\
-	if ((save).high != (timer).high_bits_check) {		\
-		result += timer_delta(&(timer), &(save));	\
-	}							\
-	else {							\
-		result += temp - (save).low;			\
-		(save).low = temp;				\
-	}							\
-MACRO_END
-
 extern void init_timers(void);
 
 void timer_init(timer_t this_timer);

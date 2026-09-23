@@ -76,14 +76,14 @@ struct kmem_cache thread_cache;
 struct kmem_cache thread_stack_cache;
 
 queue_head_t		reaper_queue;
-def_simple_lock_data(static,	reaper_lock)
+def_simple_lock_data(,	reaper_lock)
 
 /* private */
 struct thread	thread_template;
 
 #define	STACK_MARKER	0xdeadbeefU
 boolean_t		stack_check_usage = FALSE;
-def_simple_lock_data(static,	stack_usage_lock)
+def_simple_lock_data(,	stack_usage_lock)
 vm_size_t		stack_max_usage = 0;
 
 /*
@@ -106,7 +106,7 @@ vm_size_t		stack_max_usage = 0;
  *	because stack_alloc_try/thread_invoke operate at splsched.
  */
 
-def_simple_lock_data(static, stack_lock_data)/* splsched only */
+def_simple_lock_data(, stack_lock_data)/* splsched only */
 
 vm_offset_t stack_free_list;		/* splsched only */
 unsigned int stack_free_count = 0;	/* splsched only */
@@ -261,109 +261,6 @@ void stack_privilege(
 
 	if (thread->stack_privilege == 0)
 		thread->stack_privilege = current_stack();
-}
-
-void thread_init(void)
-{
-	kmem_cache_init(&thread_cache, "thread", sizeof(struct thread), 0,
-			NULL, 0);
-	/*
-	 *	Kernel stacks should be naturally aligned,
-	 *	so that it is easy to find the starting/ending
-	 *	addresses of a stack given an address in the middle.
-	 */
-	kmem_cache_init(&thread_stack_cache, "thread_stack",
-			KERNEL_STACK_SIZE, KERNEL_STACK_SIZE,
-			NULL, 0);
-
-	/*
-	 *	Fill in a template thread for fast initialization.
-	 *	[Fields that must be (or are typically) reset at
-	 *	time of creation are so noted.]
-	 */
-
-	/* thread_template.links (none) */
-	thread_template.runq = RUN_QUEUE_NULL;
-
-	/* thread_template.task (later) */
-	/* thread_template.thread_list (later) */
-	/* thread_template.pset_threads (later) */
-
-	/* thread_template.lock (later) */
-	/* one ref for being alive; one for the guy who creates the thread */
-	thread_template.ref_count = 2;
-
-	thread_template.pcb = (pcb_t) 0;		/* (reset) */
-	thread_template.kernel_stack = (vm_offset_t) 0;
-	thread_template.stack_privilege = (vm_offset_t) 0;
-
-	thread_template.wait_event = 0;
-	/* thread_template.suspend_count (later) */
-	thread_template.wait_result = KERN_SUCCESS;
-	thread_template.wake_active = FALSE;
-	thread_template.state = TH_SUSP | TH_SWAPPED;
-	thread_template.swap_func = thread_bootstrap_return;
-
-/*	thread_template.priority (later) */
-	/*
-	 *	Set an a priori max priority, but avoid going
-	 *	higher than SYSTEM threads.
-	 */
-	thread_template.max_priority = BASEPRI_SYSTEM;
-/*	thread_template.sched_pri (later - compute_priority) */
-	thread_template.sched_data = 0;
-	thread_template.policy = POLICY_TIMESHARE;
-	thread_template.depress_priority = -1;
-	thread_template.cpu_usage = 0;
-	thread_template.sched_usage = 0;
-	/* thread_template.sched_stamp (later) */
-
-	thread_template.recover = (vm_offset_t) 0;
-	thread_template.vm_privilege = 0;
-
-	thread_template.user_stop_count = 1;
-
-	/* thread_template.<IPC structures> (later) */
-
-	timer_init(&(thread_template.user_timer));
-	timer_init(&(thread_template.system_timer));
-	thread_template.user_timer_save.low = 0;
-	thread_template.user_timer_save.high = 0;
-	thread_template.system_timer_save.low = 0;
-	thread_template.system_timer_save.high = 0;
-	thread_template.cpu_delta = 0;
-	thread_template.sched_delta = 0;
-
-	thread_template.active = FALSE; /* reset */
-	thread_template.ast = AST_ZILCH;
-
-	/* thread_template.processor_set (later) */
-	thread_template.bound_processor = PROCESSOR_NULL;
-#if	MACH_HOST
-	thread_template.may_assign = TRUE;
-	thread_template.assign_active = FALSE;
-#endif	/* MACH_HOST */
-
-	/* thread_template.last_processor  (later) */
-
-	/*
-	 *	Initialize other data structures used in
-	 *	this module.
-	 */
-
-	queue_init(&reaper_queue);
-	simple_lock_init(&reaper_lock);
-
-	simple_lock_init(&stack_lock_data);
-
-	simple_lock_init(&stack_usage_lock);
-
-	/*
-	 *	Initialize any machine-dependent
-	 *	per-thread structures necessary.
-	 */
-
-	pcb_module_init();
 }
 
 kern_return_t thread_create(

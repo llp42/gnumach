@@ -1,19 +1,23 @@
 // SPDX-License-Identifier: CMU-Mach
 // Derived from kern/thread.h:
 //   Copyright (c) 1993-1987 Carnegie Mellon University.
-// Derived from kern/timer.h:
-//   Copyright (c) 1991,1990,1989,1988,1987 Carnegie Mellon University.
+// Derived from kern/thread.c:
+//   Copyright (c) 1994-1987 Carnegie Mellon University.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! The thread record, which `kern/thread.h` declares.
+//!
+//! [`Thread::new()`] is the template `thread_init()` used to build;
+//! `Thread::init()` rebuilds the two slab caches, the reaper queue and
+//! the stack locks around it.
 //!
 //! This is the full `struct thread` mirror, field for field through
 //! `name`, because the scheduler reaches fields late in the record
 //! (`timer`, `processor_set`, `bound_processor`) and only the whole
 //! layout can be asserted against the C compiler's numbers.  The
 //! embedded records that Rust does not operate on yet (the saved IPC
-//! state, the statistical timers) are mirrored for their size and
-//! alignment alone.
+//! state) are mirrored for their size and alignment alone; the timer
+//! records live in [`crate::kern::timer`].
 //!
 //! `state`, `wake_active` and `active` are an anonymous C bitfield
 //! unioned with `event_key`; Rust cannot express either, so the word
@@ -21,12 +25,18 @@
 //! same address for the C code that forms `TH_EV_WAKE_ACTIVE(t)`.
 
 use crate::arch::types::VmOffset;
+use crate::arch::vm_param::KERNEL_STACK_SIZE;
+use crate::glue;
+use crate::glue::time_value::TimeValue64;
 use crate::kern::lock::SimpleLock;
 use crate::kern::mach_clock::Timeout;
-use crate::kern::processor::{Processor, ProcessorSet, RunQueue};
-use crate::kern::queue::QueueEntry;
+use crate::kern::processor::{
+    Processor, ProcessorSet, RUN_QUEUE_NULL, RunQueue,
+};
+use crate::kern::queue::{QueueEntry, queue_init};
+use crate::kern::timer::{Timer, TimerSave};
 use core::ffi::{c_char, c_int, c_long, c_uint, c_void};
-use core::mem::offset_of;
+use core::mem::{MaybeUninit, offset_of};
 
 /// `size_of(struct thread)` on each kernel; see the module's layout
 /// assertions.
@@ -58,6 +68,12 @@ pub const TH_SWAPPED: u32 = 0x0100;
 pub const TH_SW_COMING_IN: u32 = 0x0200;
 /// `TH_SWAP_STATE`: the bits `thread_dispatch()` masks off.
 pub const TH_SWAP_STATE: u32 = TH_SWAPPED | TH_SW_COMING_IN;
+
+/// `BASEPRI_SYSTEM` in <kern/sched.h>: the priority of kernel threads.
+const BASEPRI_SYSTEM: c_int = 6;
+/// `POLICY_TIMESHARE` in <mach/policy.h>: the default scheduling
+/// policy.
+const POLICY_TIMESHARE: c_int = 1;
 
 /// A `continuation_t` of <kern/sched_prim.h>, whose null value is
 /// `thread_no_continuation`.
@@ -123,41 +139,6 @@ impl StateBits {
 pub union StateEvent {
     state: StateBits,
     event_key: *mut c_void,
-}
-
-/// `struct timer` of <kern/timer.h>: the statistical CPU timer.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Timer {
-    /// `low_bits`: the microsecond count.
-    pub low_bits: c_uint,
-    /// `high_bits`: the seconds count.
-    pub high_bits: c_uint,
-    /// `high_bits_check`: a reader's copy of `high_bits`.
-    pub high_bits_check: c_uint,
-    /// `tstamp`: the last reading's timestamp.
-    pub tstamp: c_uint,
-}
-
-/// `struct timer_save` of <kern/timer.h>: a saved timer reading.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct TimerSave {
-    /// `low`: the saved low half.
-    pub low: c_uint,
-    /// `high`: the saved high half.
-    pub high: c_uint,
-}
-
-/// `struct time_value64` of <mach/time_value.h>: 64-bit seconds and
-/// nanoseconds.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct TimeValue64 {
-    /// `seconds`.
-    pub seconds: i64,
-    /// `nanoseconds`.
-    pub nanoseconds: i64,
 }
 
 /// `struct ipc_kmsg_queue` of <ipc/ipc_kmsg_queue.h>.
@@ -346,6 +327,103 @@ pub struct Thread {
 }
 
 impl Thread {
+    /// The initial image of a thread, which `thread_init()` wrote into
+    /// `thread_template`: suspended, swapped out, and holding two
+    /// references.
+    ///
+    /// `thread_create()` copies this image and fills in the fields that
+    /// depend on the run-time task and processor set.
+    #[must_use]
+    pub fn new() -> Self {
+        // SAFETY: Every field accepts the all-zero image: the pointers
+        // are null, the two unions begin as a null `event_key` and a
+        // null `other`, and the locks' atomics start unlocked.  This is
+        // the BSS image the C template started from.
+        let mut thread: Thread =
+            unsafe { MaybeUninit::zeroed().assume_init() };
+
+        thread.runq = RUN_QUEUE_NULL;
+        thread.ref_count = 2;
+        thread.set_state(TH_SUSP | TH_SWAPPED);
+        thread.swap_func = Some(glue::thread_bootstrap_return);
+        // The zero image is KERN_SUCCESS for `wait_result`, AST_ZILCH
+        // for `ast`, PROCESSOR_NULL for `bound_processor`, and the
+        // timers `timer_init()` zeroes.  MACH_HOST is on in this build.
+        thread.max_priority = BASEPRI_SYSTEM;
+        thread.policy = POLICY_TIMESHARE;
+        thread.depress_priority = -1;
+        thread.user_stop_count = 1;
+        thread.may_assign = 1;
+        thread
+    }
+
+    /// Bring up the thread module: the two slab caches, the template
+    /// thread, the reaper queue, the stack locks and the machine-
+    /// dependent pcb state.  `thread_init()` in C.
+    fn init() {
+        // SAFETY: The boot caller runs this once, before any thread
+        // exists, and the C globals below are exactly the ones the C
+        // `thread_init()` initialized, in the same order.
+        unsafe {
+            glue::kmem_cache_init(
+                &raw mut glue::thread_cache,
+                c"thread".as_ptr(),
+                size_of::<Thread>(),
+                0,
+                None,
+                0,
+            );
+            glue::kmem_cache_init(
+                &raw mut glue::thread_stack_cache,
+                c"thread_stack".as_ptr(),
+                KERNEL_STACK_SIZE,
+                KERNEL_STACK_SIZE,
+                None,
+                0,
+            );
+            glue::thread_template = Self::new();
+            queue_init(&raw mut glue::reaper_queue);
+            let reaper_lock = &raw mut glue::reaper_lock;
+            (*reaper_lock).init();
+            let stack_lock = &raw mut glue::stack_lock_data;
+            (*stack_lock).init();
+            let usage_lock = &raw mut glue::stack_usage_lock;
+            (*usage_lock).init();
+            glue::pcb_module_init();
+        }
+    }
+
+    /// Fold the elapsed system and user timer ticks into `cpu_delta`
+    /// and `sched_delta`.  `thread_timer_delta()` of <kern/sched.h>.
+    ///
+    /// # Safety
+    ///
+    /// `thread` must be live, and the caller must hold its lock at
+    /// splsched, as `update_priority()` and the quantum expiry do.
+    pub unsafe fn timer_delta(thread: *mut Thread) {
+        // SAFETY: the caller's contract; the thread lock serializes
+        // the timer records and the two accounting fields.
+        let delta = unsafe {
+            let system =
+                (*thread).system_timer_save.delta(&(*thread).system_timer);
+            let user = (*thread).user_timer_save.delta(&(*thread).user_timer);
+            system.wrapping_add(user)
+        };
+        // SAFETY: as above; `processor_set` is the thread's own set.
+        let load = unsafe {
+            glue::thread_glue_pset_sched_load((*thread).processor_set)
+        };
+        // The C multiplies an `unsigned` by a `long` and stores the
+        // product into an `unsigned`, so only the low 32 bits survive;
+        // the truncating cast is exact for that.
+        let scaled = delta.wrapping_mul(load as c_uint);
+        // SAFETY: as above.
+        unsafe {
+            (*thread).cpu_delta = (*thread).cpu_delta.wrapping_add(delta);
+            (*thread).sched_delta = (*thread).sched_delta.wrapping_add(scaled);
+        }
+    }
+
     /// The `state:16` half of the bitfield word.
     pub fn state(&self) -> u32 {
         // SAFETY: the `state` member shares the low word with
@@ -380,6 +458,12 @@ impl Thread {
         (&raw const self.state_event.event_key)
             .cast::<c_void>()
             .cast_mut()
+    }
+}
+
+impl Default for Thread {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -437,9 +521,6 @@ const _: () = {
 };
 
 // The embedded records whose sizes the thread layout depends on.
-const _: () = assert!(size_of::<Timer>() == 16);
-const _: () = assert!(size_of::<TimerSave>() == 8);
-const _: () = assert!(size_of::<TimeValue64>() == 16);
 const _: () = assert!(size_of::<IpcKmsgQueue>() == size_of::<*mut c_void>());
 #[cfg(target_pointer_width = "64")]
 const _: () = {
@@ -457,3 +538,27 @@ const _: () = {
 const _: () = assert!(size_of::<ThreadData>() == 8);
 #[cfg(target_pointer_width = "32")]
 const _: () = assert!(size_of::<ThreadData>() == 4);
+
+/// Initialize the thread module.  `thread_init()` of kern/thread.c.
+///
+/// # Safety
+///
+/// Must be called once during boot, before the first thread is created;
+/// `setup_main()` is the only caller.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn thread_init() {
+    Thread::init();
+}
+
+/// Update a thread's CPU accounting.  `thread_timer_delta()` of
+/// kern/sched.h, which used to be a macro.
+///
+/// # Safety
+///
+/// `thread` must be a live thread whose lock the caller holds, at
+/// splsched.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn thread_timer_delta(thread: *mut Thread) {
+    // SAFETY: the caller's contract.
+    unsafe { Thread::timer_delta(thread) };
+}

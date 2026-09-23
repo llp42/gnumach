@@ -130,21 +130,9 @@ extern unsigned	sched_tick;
 #define SCHED_SHIFT	7
 
 /*
- *	thread_timer_delta macro takes care of both thread timers.
+ *	thread_timer_delta takes care of both thread timers.
  */
 
-#define thread_timer_delta(thread)  				\
-MACRO_BEGIN							\
-	unsigned	delta;					\
-								\
-	delta = 0;						\
-	TIMER_DELTA((thread)->system_timer,			\
-		(thread)->system_timer_save, delta);		\
-	TIMER_DELTA((thread)->user_timer,			\
-		(thread)->user_timer_save, delta);		\
-	(thread)->cpu_delta += delta;				\
-	(thread)->sched_delta += delta * 			\
-			(thread)->processor_set->sched_load;	\
-MACRO_END
+extern void	thread_timer_delta(thread_t);
 
 #endif	/* _KERN_SCHED_H_ */

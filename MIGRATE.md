@@ -257,9 +257,11 @@ its entry below and the §9 table record what moved.
 * **Dependencies — why.** `cpu_number()` is the `percpu_get` macro over
   `%gs` (`i386/i386/cpu_number.h:54`), needed to index the per-CPU
   arrays; `__sync_synchronize()` makes the check/high publish order safe
-  (`timer.c:93-116`).  `timer_bump`/`TIMER_DELTA` are macros in
-  `timer.h:105,123` that C callers (`mach_clock.c`, `sched.h:141`) apply
-  directly to `struct timer` fields, so the fields must stay C-visible.
+  (`timer.c:93-116`).  `timer_bump` is a macro in `timer.h:105` that
+  `mach_clock.c` applies directly to `struct timer` fields, so the
+  fields must stay C-visible.  `TIMER_DELTA` moved to
+  `src/kern/timer.rs` as `TimerSave::delta`, which calls `timer_delta()`
+  for its coherency slow path.
 * **Blockers.** A per-CPU accessor: either `src/arch/` asm or a C shim
   for `cpu_number()`; the `struct timer` mirror.
 * **Boundary / notes.** `#[no_mangle] static mut` arrays with the same
@@ -800,6 +802,10 @@ its entry below and the §9 table record what moved.
 * **Role.** Thread object lifecycle (create/suspend/resume/halt/terminate/
   reaper), thread state/info MIG entries, priorities/policies,
   processor-set assignment, kernel-stack cache.
+* **Ported so far.** `thread_init` — `Thread::new()` and the
+  `thread_init()` adapter in `src/kern/thread.rs`, beside the full
+  `struct thread` mirror the scheduler port landed.  `thread_deallocate`
+  and the rest of the file stay C.
 * **Exports/data.** ~58 exports: `thread_init`, `thread_create`,
   `thread_terminate[_release]`, `thread_deallocate/reference`,
   `thread_force_terminate`, `thread_halt[_self]`, `thread_hold/release/
@@ -1376,9 +1382,10 @@ detail §4.1 gives the `kern/` files.
 #### `i386/i386at/kd_queue.c` — 109 lines — ported
 * **Rust home.** `src/utils/kd_queue.rs`, shared by both x86 kernels.
   A `#[repr(C)]` mirror of `kd_event` and `kd_event_queue` with size and
-  offset asserts; `c_long` mirrors `rpc_long_integer_t`, so only the
-  default configuration is covered (`--enable-user32` makes the C field
-  32 bits, which Rust cannot see).
+  offset asserts; the embedded `rpc_time_value` comes from
+  `src/glue/time_value.rs`, whose `c_long` mirrors `rpc_long_integer_t`,
+  so only the default configuration is covered (`--enable-user32` makes
+  the C field 32 bits, which Rust cannot see).
 * **Boundary.** Pure Rust now: the drivers use its safe `clear`/
   `push_back`/`pop_front`/`is_empty`/`is_full` operations.  The five
   `kdq_*` `extern "C"` wrappers and `kd_queue.h` went when `kd_event.c`
@@ -1684,8 +1691,10 @@ rbtree's; see §8.
 | `kern/lock.c` | `src/kern/lock.rs` | `9a9ced86` |
 | `i386/i386/lock.h` (bit ops) | `src/arch/i386/atomic_bits.rs` | `f0a3cb2c` |
 | `i386/i386/lock.h` (simple lock) | `src/kern/lock.rs` | `102c4926` |
-| `kern/sched_prim.c` (wait/wake, `thread_dispatch`, `thread_setrun`) | `src/kern/sched_prim.rs` + `src/kern/thread.rs`, `src/kern/processor.rs`, `src/arch/i386/percpu.rs` | `c4498541` |
+| `kern/sched_prim.c` (wait/wake, `thread_dispatch`, `thread_setrun`) | `src/kern/sched_prim.rs` + `src/kern/thread.rs`, `src/kern/timer.rs`, `src/kern/processor.rs`, `src/arch/i386/percpu.rs` | `c4498541` |
 | `kern/ast.h` (`ast_on`, `ast_off`, `ast_needed`) | `src/kern/ast.rs` | `6a6281be` |
+| `kern/thread.c` (`thread_init`) | `src/kern/thread.rs` | `pending` |
+| `kern/sched.h` (`thread_timer_delta`) | `src/kern/thread.rs`, `src/kern/timer.rs` | `pending` |
 
 Deleted dead code: `device/blkio.c` (unreachable block pager path) and
 the `#if 0` profiling facility (`profil.h`, `profilparam.h`,

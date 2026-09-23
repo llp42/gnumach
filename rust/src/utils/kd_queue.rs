@@ -23,25 +23,12 @@
 //! `kd_event` smaller; only the default configuration is mirrored, as
 //! in `src/kern/elf_load.rs`.
 
-use core::ffi::{c_int, c_long};
+use crate::glue::time_value::RpcTimeValue;
+use core::ffi::c_int;
 use core::mem::{offset_of, size_of};
 
 /// `KDQSIZE` in <i386at/kd_queue.h>.
 const KDQSIZE: usize = 100;
-
-/// `rpc_time_value` of <mach/time_value.h> as the kernel compiles it.
-///
-/// `rpc_long_integer_t` is C `long_integer_t`, i.e. `long`, which
-/// `c_long` mirrors on both supported targets.  The field is obsolete
-/// (kept for user ABI compatibility) and never read here: this struct
-/// exists only so that `KdEvent`'s size and alignment come out right.
-#[repr(C)]
-#[derive(Clone, Copy)]
-#[allow(dead_code)]
-struct RpcTimeValue {
-    seconds: c_long,
-    microseconds: c_int,
-}
 
 /// `kev_type` of <device/input.h>: an event type.
 pub type KevType = u16;
