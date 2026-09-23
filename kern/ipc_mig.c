@@ -23,6 +23,9 @@
  * any improvements or extensions that they make and grant Carnegie Mellon
  * the rights to redistribute these changes.
  */
+/*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
 
 #include <mach/boolean.h>
 #include <mach/port.h>
@@ -91,32 +94,6 @@ mach_msg_send_from_kernel(
 	ipc_mqueue_send_always(kmsg);
 
 	return MACH_MSG_SUCCESS;
-}
-
-/*
- *	Routine:	mach_msg_abort_rpc
- *	Purpose:
- *		Destroy the thread's ith_rpc_reply port.
- *		This will interrupt a mach_msg_rpc_from_kernel
- *		with a MACH_RCV_PORT_DIED return code.
- *	Conditions:
- *		Nothing locked.
- */
-
-void
-mach_msg_abort_rpc(ipc_thread_t thread)
-{
-	ipc_port_t reply = IP_NULL;
-
-	simple_lock(&(thread)->ith_lock_data);
-	if (thread->ith_self != IP_NULL) {
-		reply = thread->ith_rpc_reply;
-		thread->ith_rpc_reply = IP_NULL;
-	}
-	simple_unlock(&(thread)->ith_lock_data);
-
-	if (reply != IP_NULL)
-		ipc_port_dealloc_reply(reply);
 }
 
 /*
@@ -213,35 +190,6 @@ mach_msg(
 	}
 
 	return MACH_MSG_SUCCESS;
-}
-
-/*
- *	Routine:	mig_get_reply_port
- *	Purpose:
- *		Called by client side interfaces living in the kernel
- *		to get a reply port.  This port is used for
- *		mach_msg() calls which are kernel calls.
- */
-
-mach_port_name_t
-mig_get_reply_port(void)
-{
-	ipc_thread_t self = current_thread();
-
-	if (self->ith_mig_reply == MACH_PORT_NULL)
-		self->ith_mig_reply = mach_reply_port();
-
-	return self->ith_mig_reply;
-}
-
-/* Called by MiG to deallocate memory, which in this case happens
- * to be kernel memory. */
-void
-mig_deallocate(vm_address_t addr, vm_size_t size)
-{
-	(void) size;
-	/* We do the same thing as in ipc_kmsg_clean_body. */
-	vm_map_copy_discard((vm_map_copy_t) addr);
 }
 
 #define	fast_send_right_lookup(name, port, abort)			\
@@ -800,46 +748,6 @@ kern_return_t syscall_thread_depress_abort(mach_port_name_t thread)
 	thread_deallocate(t);
 
 	return result;
-}
-
-/*
- *	Routine:	thread_set_self_state [mach trap]
- *	Purpose:
- *		Set current thread's state, as if with
- *		thread_set_state() RPC.
- *
- *		When setting the generic state (one that contains
- *		the register used for syscall return value) succeeds,
- *		the successful return does not overwire the just-set
- *		register value.
- *	Conditions:
- *		Nothing locked.
- *	Returns:
- *		Nothing at all		Successfully set generic state.
- *		KERN_SUCCESS		Successfully set other state.
- *		KERN_INVALID_ARGUMENT	Invalid flavor or state.
- */
-kern_return_t thread_set_self_state(
-	int		flavor,
-	thread_state_t	new_state,
-	natural_t	new_state_count)
-{
-	thread_t	t = current_thread();
-	kern_return_t	kr;
-	natural_t	new_state_copy[150];
-
-	if (new_state_count <= 0 || new_state_count > 150)
-		return KERN_INVALID_ARGUMENT;
-
-	if (copyin(new_state, new_state_copy, new_state_count * sizeof(natural_t)))
-		return KERN_INVALID_ARGUMENT;
-
-	thread_set_syscall_return(t, KERN_SUCCESS);
-	kr = thread_setstatus(t, flavor, new_state_copy, new_state_count);
-	if (kr == KERN_SUCCESS)
-		thread_exception_return();
-
-	return kr;
 }
 
 /*

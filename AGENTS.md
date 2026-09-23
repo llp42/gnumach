@@ -375,6 +375,11 @@ the C file it came out of.
 - `rust/src/kern/` — machine-independent facilities, mirroring `kern/`.
 - `rust/src/ipc/`, `rust/src/vm/` — mirroring `ipc/` and `vm/`.
 - `rust/src/arch/<arch>/` — code written twice, for i686 and x86_64.
+- `rust/src/ffi/` — the `extern "C"` entry points C still calls, one
+  module per interface definition file (`ffi/mach_host.rs` holds the
+  `mach_host.defs` server entries). Adapters only: the cores stay in
+  `kern/`, `ipc/` or `vm/`. Not to be confused with `glue/`, which
+  points the other way.
 - `rust/src/glue/` — the C functions Rust calls, declared with the C
   signature exactly, inside an `unsafe extern "C"` block. A C *macro* cannot
   come through here, and no shim may be written for it: whatever defines the
@@ -1523,6 +1528,12 @@ The most important section. Keep it current.
   frozen ABI pack in `abi-test/`; the external agents-md template still
   describes `make check` and the deleted `tests/` tree, so it needs the same
   edit before the next regeneration.
+- `--enable-user32` is out of scope.  The Rust half builds for the two ABI
+  gate configurations, i686 and x86_64, and no Rust declaration uses the
+  `rpc_vm_*` 32-bit types.  Do not add `--cfg user32` plumbing or a
+  user32-shaped declaration for a shim: the deleted
+  `memory_object_create_proxy` shim was the last one, and reviving the
+  configuration is a project decision, not a port.
 
 ---
 <!-- Content INSIDE `agents-md:begin/end` markers is regenerated on re-run.

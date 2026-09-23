@@ -34,48 +34,47 @@
 //! the structures are Rust-owned, construction moves to `MaybeUninit`
 //! or a `new()`.
 
+use crate::arch::i386::percpu::current_thread;
 use crate::arch::i386::pmap::pmap_pageable;
 use crate::arch::types::{VmOffset, VmSize};
 use crate::glue::{
     Panic, assert_wait, ipc_port_copy_send, ipc_port_release_send, kalloc,
     kernel_map, kernel_object, kernel_pmap, kernel_virtual_end,
     kernel_virtual_start, kfree, kmem_cache_alloc, kmem_cache_free,
-    kmem_cache_init, pmap_create, pmap_destroy, pmap_protect, pmap_remove,
-    printf, projected_buffer_collect, thread_block, vm_fault_copy,
-    vm_fault_page, vm_fault_unwire, vm_fault_wire, vm_map_cache,
-    vm_map_copy_cache, vm_map_entry_cache,
-    vm_map_glue_memory_object_create_proxy, vm_map_glue_object_can_coalesce,
-    vm_map_glue_object_can_release, vm_map_glue_object_extend_size,
-    vm_map_glue_object_is_pristine_submap, vm_map_glue_object_is_shadowed,
-    vm_map_glue_object_is_temporary, vm_map_glue_object_lock,
-    vm_map_glue_object_make_shared, vm_map_glue_object_needs_shadow,
-    vm_map_glue_object_pager, vm_map_glue_object_paging_begin,
-    vm_map_glue_object_paging_end, vm_map_glue_object_unlock,
-    vm_map_glue_object_use_shared_copy, vm_map_glue_page_activate_if_idle,
-    vm_map_glue_page_clear_busy, vm_map_glue_page_free,
+    kmem_cache_init, memory_object_create_proxy, pmap_create, pmap_destroy,
+    pmap_protect, pmap_remove, printf, projected_buffer_collect, thread_block,
+    vm_fault_copy, vm_fault_page, vm_fault_unwire, vm_fault_wire,
+    vm_map_cache, vm_map_copy_cache, vm_map_entry_cache,
+    vm_map_glue_object_can_coalesce, vm_map_glue_object_can_release,
+    vm_map_glue_object_extend_size, vm_map_glue_object_is_pristine_submap,
+    vm_map_glue_object_is_shadowed, vm_map_glue_object_is_temporary,
+    vm_map_glue_object_lock, vm_map_glue_object_make_shared,
+    vm_map_glue_object_needs_shadow, vm_map_glue_object_pager,
+    vm_map_glue_object_paging_begin, vm_map_glue_object_paging_end,
+    vm_map_glue_object_unlock, vm_map_glue_object_use_shared_copy,
+    vm_map_glue_page_activate_if_idle, vm_map_glue_page_clear_busy,
     vm_map_glue_page_is_absent, vm_map_glue_page_is_busy,
     vm_map_glue_page_is_error, vm_map_glue_page_is_fictitious,
     vm_map_glue_page_is_precious, vm_map_glue_page_is_tabled,
     vm_map_glue_page_object, vm_map_glue_page_offset,
-    vm_map_glue_page_protect, vm_map_glue_page_queue_lock,
-    vm_map_glue_page_queue_unlock, vm_map_glue_page_set_busy,
+    vm_map_glue_page_protect, vm_map_glue_page_set_busy,
     vm_map_glue_page_set_dirty, vm_map_glue_page_steal,
     vm_map_glue_page_wakeup_done, vm_map_glue_page_wire_count,
-    vm_map_glue_pmap_attribute, vm_map_glue_pmap_copy, vm_map_glue_pmap_enter,
-    vm_map_glue_privilege_dec, vm_map_glue_privilege_inc,
-    vm_map_glue_thread_wakeup, vm_object_allocate, vm_object_coalesce,
+    vm_map_glue_pmap_enter, vm_object_allocate, vm_object_coalesce,
     vm_object_collapse, vm_object_copy_slowly, vm_object_copy_strategically,
     vm_object_copy_temporary, vm_object_deallocate, vm_object_name,
     vm_object_page_remove, vm_object_pager_create, vm_object_pmap_protect,
     vm_object_pmap_remove, vm_object_reference, vm_object_shadow,
-    vm_page_activate, vm_page_copy, vm_page_grab, vm_page_lookup,
-    vm_page_mem_size, vm_page_more_fictitious, vm_page_replace, vm_page_wait,
-    vm_page_wire, vm_submap_object,
+    vm_page_activate, vm_page_copy, vm_page_free, vm_page_grab,
+    vm_page_lookup, vm_page_mem_size, vm_page_more_fictitious,
+    vm_page_queue_lock, vm_page_replace, vm_page_wait, vm_page_wire,
+    vm_submap_object,
 };
 use crate::ipc::{IpcPort, IpcSpace};
 use crate::kern::list::{List, entry as list_entry};
 use crate::kern::lock::{LockData, SimpleLock};
 use crate::kern::rbtree::{RBTREE_LEFT, RBTREE_RIGHT, Rbtree, RbtreeNode};
+use crate::kern::sched_prim::{THREAD_AWAKENED, thread_wakeup_prim};
 use crate::vm::error::{
     Error, KERN_SUCCESS, error_from_kern_return, kern_return,
 };
@@ -467,8 +466,15 @@ impl VmMap {
         // SAFETY: the caller owns the map, and the sleep lock lives in
         // its storage.
         unsafe { (*map.as_ptr()).lock.write() };
-        // SAFETY: the shim reads the current thread, if any.
-        unsafe { vm_map_glue_privilege_inc() };
+        // SAFETY: `current_thread()` is the running thread, or null
+        // early in boot; the C `vm_privilege++` wraps as an unsigned
+        // int.
+        let thread = current_thread();
+        if !thread.is_null() {
+            unsafe {
+                (*thread).vm_privilege = (*thread).vm_privilege.wrapping_add(1)
+            };
+        }
         // SAFETY: the write lock is held, so this is the only writer;
         // the C `timestamp++` wraps as an unsigned int.
         unsafe {
@@ -479,9 +485,15 @@ impl VmMap {
 
     /// Unlock a map locked by `lock()`.  `vm_map_unlock()` in C.
     pub(crate) fn unlock(map: NonNull<VmMap>) {
-        // SAFETY: the shim reads the current thread, if any, and the
-        // C code balances the privilege bump with this call.
-        unsafe { vm_map_glue_privilege_dec() };
+        // SAFETY: `current_thread()` is the running thread, or null
+        // early in boot, and the C code balances the privilege bump
+        // with this decrement.
+        let thread = current_thread();
+        if !thread.is_null() {
+            unsafe {
+                (*thread).vm_privilege = (*thread).vm_privilege.wrapping_sub(1)
+            };
+        }
         // SAFETY: the caller holds the write lock on this map.
         unsafe { (*map.as_ptr()).lock.done() };
     }
@@ -805,8 +817,6 @@ impl VmMap {
         map: NonNull<VmMap>,
         address: VmOffset,
         size: VmSize,
-        attribute: c_uint,
-        value: *mut c_int,
     ) -> Result<(), Error> {
         // SAFETY: the caller owns the map for the call.
         let (min, max) = unsafe {
@@ -818,24 +828,14 @@ impl VmMap {
             return Err(Error::InvalidArgument);
         }
 
+        // On i386 and x86_64 `pmap_attribute` is the constant
+        // KERN_INVALID_ADDRESS.  The lock pair stays because the C
+        // `vm_map_lock()` bumps the map timestamp and the thread's
+        // privilege even when the attribute call cannot succeed.
         VmMap::lock(map);
-        // SAFETY: the map is write-locked, and the shim is the
-        // machine's pmap_attribute.  On x86 it is the constant
-        // KERN_INVALID_ADDRESS, so the `error_from_kern_return`
-        // round-trip is exact; a real pmap returning an unnamed code
-        // would be reported as KERN_FAILURE from here.
-        let result = unsafe {
-            vm_map_glue_pmap_attribute(
-                (*map.as_ptr()).pmap,
-                address,
-                size,
-                attribute,
-                value,
-            )
-        };
         VmMap::unlock(map);
 
-        error_from_kern_return(result)
+        Err(Error::InvalidAddress)
     }
 }
 
@@ -1615,8 +1615,13 @@ impl VmMapCopy {
             // copy holds a paging reference to its object.
             if unsafe { vm_map_glue_page_is_tabled(page) } == 0 {
                 // SAFETY: a stolen page is in no object, so it goes
-                // back to the free list.
-                unsafe { vm_map_glue_page_free(page) };
+                // back to the free list; the C `VM_PAGE_FREE` holds
+                // the page queue lock across `vm_page_free`.
+                unsafe {
+                    (*addr_of_mut!(vm_page_queue_lock)).lock();
+                    vm_page_free(page);
+                    (*addr_of_mut!(vm_page_queue_lock)).unlock();
+                }
             } else {
                 // SAFETY: a tabled page belongs to a live object the
                 // copy holds a paging reference on.
@@ -3049,9 +3054,14 @@ impl VmMap {
         }
 
         if self.wait_for_space() {
-            // SAFETY: the C code wakes the map address.
+            // SAFETY: the C code wakes the map address, which is the
+            // event `assert_wait` sleeps on.
             unsafe {
-                vm_map_glue_thread_wakeup(ptr::from_mut(self).cast::<c_void>())
+                thread_wakeup_prim(
+                    ptr::from_mut(self).cast::<c_void>(),
+                    0,
+                    THREAD_AWAKENED,
+                )
             };
         }
 
@@ -4205,16 +4215,8 @@ impl VmMap {
                     new.hdr.entry_link(last, new_entry, true);
                 }
 
-                // SAFETY: both pmaps are live and the old map locked.
-                unsafe {
-                    vm_map_glue_pmap_copy(
-                        (*new_map.as_ptr()).pmap,
-                        (*old_map.as_ptr()).pmap,
-                        (*new_entry.as_ptr()).links.start,
-                        entry_size,
-                        (*old_entry.as_ptr()).links.start,
-                    );
-                }
+                // `pmap_copy` is a no-op macro on i386 and x86_64, so
+                // the C call has no Rust counterpart.
 
                 new_size = new_size.wrapping_add(entry_size);
                 // SAFETY: the entry is live under the map lock.
@@ -5294,7 +5296,9 @@ impl VmMap {
                             // `src_object`; free it and drop both.
                             unsafe {
                                 vm_map_glue_object_lock(src_object);
-                                vm_map_glue_page_free(top_page);
+                                (*addr_of_mut!(vm_page_queue_lock)).lock();
+                                vm_page_free(top_page);
+                                (*addr_of_mut!(vm_page_queue_lock)).unlock();
                                 vm_map_glue_object_paging_end(src_object);
                                 vm_map_glue_object_unlock(src_object);
                             }
@@ -5960,7 +5964,7 @@ impl VmMap {
 
         // SAFETY: the page queue lock orders the page state, and the
         // object lock is held from the extension or creation above.
-        unsafe { vm_map_glue_page_queue_lock() };
+        unsafe { (*addr_of_mut!(vm_page_queue_lock)).lock() };
 
         let mut dst_addr: Option<VmOffset> = None;
         let result: Result<(), Error>;
@@ -6042,7 +6046,7 @@ impl VmMap {
                     // were taken above; the C drops all three around
                     // the continuation call.
                     unsafe {
-                        vm_map_glue_page_queue_unlock();
+                        (*addr_of_mut!(vm_page_queue_lock)).unlock();
                         vm_map_glue_object_unlock(object);
                     }
                     VmMap::unlock(map);
@@ -6093,7 +6097,7 @@ impl VmMap {
                     VmMap::lock(map);
                     unsafe {
                         vm_map_glue_object_lock(object);
-                        vm_map_glue_page_queue_lock();
+                        (*addr_of_mut!(vm_page_queue_lock)).lock();
                     }
                 }
 
@@ -6103,7 +6107,7 @@ impl VmMap {
             // SAFETY: the page queue and object locks were taken
             // before the loop and the C releases them here.
             unsafe {
-                vm_map_glue_page_queue_unlock();
+                (*addr_of_mut!(vm_page_queue_lock)).unlock();
                 vm_map_glue_object_unlock(object);
             }
 
@@ -6156,8 +6160,10 @@ impl VmMap {
             // SAFETY: the map is unlocked; the wakeup event is the map
             // header, as the C `vm_map_entry_wakeup()` uses.
             unsafe {
-                vm_map_glue_thread_wakeup(
+                thread_wakeup_prim(
                     addr_of_mut!((*map.as_ptr()).hdr).cast::<c_void>(),
+                    0,
+                    THREAD_AWAKENED,
                 )
             };
         }
@@ -6734,19 +6740,27 @@ impl VmMap {
             start,
         } = locked?;
 
+        // The C passes one-element arrays of the object, offset,
+        // start and length, and a slot for the out-port.
+        let mut object = pager.map_or(ptr::null_mut(), IpcPort::as_ptr);
+        let mut offset: VmOffset = 0;
+        let mut start = start;
+        let mut len = len;
         let mut port: *mut c_void = ptr::null_mut();
-        // The C passes one-element arrays; the shim casts them to the
-        // MIG `rpc_vm_*` types and writes the out-port.
-        // SAFETY: the shim's contract is the C call's: one object, one
-        // offset, one start and one length, and a writable out-port.
+        // SAFETY: the C call's contract is one object, one offset,
+        // one start and one length, and a writable out-port.
         let result = unsafe {
-            vm_map_glue_memory_object_create_proxy(
+            memory_object_create_proxy(
                 space.map_or(ptr::null_mut(), IpcSpace::as_ptr),
                 max_protection.bits(),
-                pager.map_or(ptr::null_mut(), IpcPort::as_ptr),
-                0,
-                start,
-                len,
+                &mut object,
+                1,
+                &mut offset,
+                1,
+                &mut start,
+                1,
+                &mut len,
+                1,
                 &mut port,
             )
         };

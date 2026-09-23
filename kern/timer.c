@@ -72,23 +72,6 @@ MACRO_BEGIN								\
 MACRO_END
 
 /*
- *	thread_read_times reads the user and system times from a thread.
- *	Time accumulated since last timestamp is not included.  Should
- *	be called at splsched() to avoid having user and system times
- *	be out of step.  Doesn't care if caller locked thread.
- *
- *      Needs to be kept coherent with thread_read_times ahead.
- */
-void	thread_read_times(
-	thread_t 	thread,
-	time_value64_t	*user_time_p,
-	time_value64_t	*system_time_p)
-{
-	timer_read(&thread->user_timer, user_time_p);
-	timer_read(&thread->system_timer, system_time_p);
-}
-
-/*
  *
  * 	Db_timer_grab(): used by db_thread_read_times. An nonblocking
  *      version of db_thread_get_times. Keep coherent with timer_grab

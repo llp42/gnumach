@@ -24,6 +24,9 @@
  * the rights to redistribute these changes.
  */
 /*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
+/*
  *	host.c
  *
  *	Non-ipc host functions.
@@ -333,57 +336,3 @@ host_processor_sets(
 	return KERN_SUCCESS;
 }
 #endif	/* MACH_HOST */
-
-/*
- *	host_processor_set_priv:
- *
- *	Return control port for given processor set.
- */
-kern_return_t
-host_processor_set_priv(
-	const host_t	host,
-	processor_set_t	pset_name,
-	processor_set_t	*pset)
-{
-	if ((host == HOST_NULL) || (pset_name == PROCESSOR_SET_NULL)) {
-		*pset = PROCESSOR_SET_NULL;
-		return KERN_INVALID_ARGUMENT;
-	}
-
-	*pset = pset_name;
-	pset_reference(*pset);
-	return KERN_SUCCESS;
-}
-
-kern_return_t processor_set_processors(
-	const processor_set_t	pset,
-	processor_name_array_t	*processor_list,
-	natural_t		*countp)
-{
-	unsigned int		count, i = 0;
-	processor_t		p;
-	ipc_port_t		*tp;
-
-	if (pset == PROCESSOR_SET_NULL)
-		return KERN_INVALID_ARGUMENT;
-
-	simple_lock(&pset->lock);
-
-	count = pset->processor_count;
-
-	tp = (ipc_port_t *)kalloc(count * sizeof(ipc_port_t));
-	if (tp == NULL) {
-		simple_unlock(&pset->lock);
-		return KERN_RESOURCE_SHORTAGE;
-	}
-
-	queue_iterate(&pset->processors, p, processor_t, processors) {
-		tp[i++] = convert_processor_name_to_port(p);
-	}
-
-	*countp = count;
-	*processor_list = (mach_port_t *)tp;
-
-	simple_unlock(&pset->lock);
-	return KERN_SUCCESS;
-}

@@ -3,15 +3,17 @@
 //   Copyright (c) 1991,1990,1989 Carnegie Mellon University.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! The send-to-received type-name conversion, which `ipc/ipc_object.c`
-//! used to define and `ipc/ipc_object.h` declares.
+//! The send-name conversion and the naked-capability destruction, which
+//! `ipc/ipc_object.c` used to define and `ipc/ipc_object.h` declares.
 //!
-//! Only [`ipc_object_copyin_type()`] has moved; the rest of
-//! `ipc/ipc_object.c` stays C until its slab and rights dependencies
-//! have Rust homes.
+//! Only [`ipc_object_copyin_type()`] and [`ipc_object_destroy()`] have
+//! moved; the rest of `ipc/ipc_object.c` stays C until its slab and
+//! rights dependencies have Rust homes.
 
 use crate::glue;
-use core::ffi::{c_int, c_uint};
+use crate::ipc::IpcPort;
+use core::ffi::{CStr, c_int, c_uint, c_void};
+use core::ptr::NonNull;
 
 /// A `mach_msg_type_name_t` the C `switch` accepted: the type names a
 /// message can carry for a port right, plus the bare zero.
@@ -80,19 +82,93 @@ impl MsgTypeName {
 pub extern "C" fn ipc_object_copyin_type(msgt_name: c_uint) -> c_uint {
     match MsgTypeName::from_u32(msgt_name) {
         Some(name) => name.received() as c_uint,
-        None => {
-            // SAFETY: `Panic` does not return; the file, function and
-            // message tags are the C `panic()` macro's, and the line
-            // is this Rust file's.
-            unsafe {
-                glue::Panic(
-                    c"ipc/ipc_object.c".as_ptr(),
-                    // Only `c_int` widths can reach `Panic`'s varargs.
-                    line!() as c_int,
-                    c"ipc_object_copyin_type".as_ptr(),
-                    c"ipc_object_copyin_type: strange rights".as_ptr(),
-                )
-            }
+        None => strange_rights(
+            c"ipc_object_copyin_type",
+            c"ipc_object_copyin_type: strange rights",
+        ),
+    }
+}
+
+/// The C `default: panic()` arm of a rights switch.
+///
+/// `fun` and `message` are the arguments the C `panic()` received, so
+/// the halt reads exactly as the C's did.
+fn strange_rights(fun: &'static CStr, message: &'static CStr) -> ! {
+    // SAFETY: `Panic` does not return; the file is the one the switch
+    // belongs to, the line is this Rust file's, and `fun` and `message`
+    // are the C's own tags.
+    unsafe {
+        glue::Panic(
+            c"ipc/ipc_object.c".as_ptr(),
+            // Only `c_int` widths can reach `Panic`'s varargs.
+            line!() as c_int,
+            fun.as_ptr(),
+            message.as_ptr(),
+        )
+    }
+}
+
+/// Destroys a naked capability, consuming one reference to the port.
+/// The core of `ipc_object_destroy()`.
+///
+/// The C switch accepted only the three port names; every other name
+/// halts through [`glue::Panic`], as its `default` arm did.
+fn destroy(port: IpcPort, name: MsgTypeName) {
+    match name {
+        MsgTypeName::MoveReceive => {
+            // SAFETY: the caller owns the one reference the port
+            // holds, which `ipc_port_release_receive` consumes.
+            unsafe { glue::ipc_port_release_receive(port.as_ptr()) }
         }
+        MsgTypeName::MoveSend => {
+            // SAFETY: the caller owns the one reference the port
+            // holds, which `ipc_port_release_send` consumes.
+            unsafe { glue::ipc_port_release_send(port.as_ptr()) }
+        }
+        MsgTypeName::MoveSendOnce => {
+            // SAFETY: the caller owns the one send-once right the port
+            // holds, which `ipc_notify_send_once` consumes.
+            unsafe { glue::ipc_notify_send_once(port.as_ptr()) }
+        }
+        MsgTypeName::Null
+        | MsgTypeName::CopySend
+        | MsgTypeName::MakeSend
+        | MsgTypeName::MakeSendOnce => strange_rights(
+            c"ipc_object_destroy",
+            c"ipc_object_destroy: strange rights",
+        ),
+    }
+}
+
+/// Destroys a naked capability.  `ipc_object_destroy()` in C.
+///
+/// # Safety
+///
+/// `object` must be a live `ipc_object` of the port kind, and the
+/// caller must own the one reference the destruction consumes.  A
+/// receive right must be in limbo or in transit, as the C contract
+/// says.
+///
+/// # Panics
+///
+/// Halts through [`glue::Panic`] when `msgt_name` is not one of the
+/// three port names, as the C `default` arm did.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ipc_object_destroy(
+    object: *mut c_void,
+    msgt_name: c_uint,
+) {
+    // SAFETY: the caller promises a live object for the names the C
+    // switch accepted; these three each dereference it.  This is the
+    // unchecked form of the `ipc_object_t` to `ipc_port_t` cast the C
+    // performs.
+    let port = IpcPort(unsafe { NonNull::new_unchecked(object) });
+
+    match MsgTypeName::from_u32(msgt_name) {
+        Some(name) => destroy(port, name),
+        None => strange_rights(
+            c"ipc_object_destroy",
+            c"ipc_object_destroy: strange rights",
+        ),
     }
 }

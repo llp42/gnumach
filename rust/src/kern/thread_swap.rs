@@ -22,7 +22,8 @@ use crate::glue;
 use crate::kern::lock::SimpleLock;
 use crate::kern::queue::QueueEntry;
 use crate::kern::sched_prim::{
-    THREAD_AWAKENED, assert_wait, thread_setrun, thread_wakeup_prim,
+    THREAD_AWAKENED, assert_wait, thread_continue, thread_setrun,
+    thread_wakeup_prim,
 };
 use crate::kern::thread::{
     TH_RUN, TH_SW_COMING_IN, TH_SWAP_STATE, TH_SWAPPED, Thread,
@@ -139,10 +140,12 @@ pub unsafe extern "C" fn thread_swapin(thread: *mut Thread) {
 /// lock protects, because the stack allocation can block; the caller
 /// must hold no spin lock.
 unsafe fn doswapin(thread: *mut Thread) -> c_int {
-    // SAFETY: the caller's contract; the C `stack_alloc()` may block
-    // and resumes the thread through `thread_continue` once it has a
-    // stack.
-    let kr = unsafe { glue::stack_alloc(thread, Some(glue::thread_continue)) };
+    // SAFETY: the caller's contract; the Rust `stack_alloc()` may
+    // block and resumes the thread through `thread_continue` once it
+    // has a stack.
+    let kr = unsafe {
+        crate::kern::thread::stack_alloc(thread, Some(thread_continue))
+    };
     if kr != KERN_SUCCESS {
         return kr;
     }
@@ -252,7 +255,7 @@ pub unsafe extern "C" fn swapin_thread() -> ! {
     unsafe {
         let thread = current_thread();
         (*thread).vm_privilege = 1;
-        glue::stack_privilege(thread);
+        crate::kern::thread::stack_privilege(thread);
         swapin_thread_continue()
     }
 }

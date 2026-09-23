@@ -10,7 +10,9 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod arch;
+pub mod config;
 pub mod device;
+pub mod ffi;
 pub mod glue;
 pub mod ipc;
 pub mod kern;

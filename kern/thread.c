@@ -24,6 +24,9 @@
  * the rights to redistribute these changes.
  */
 /*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
+/*
  *	File:	kern/thread.c
  *	Author:	Avadis Tevanian, Jr., Michael Wayne Young, David Golub
  *	Date:	1986
@@ -118,150 +121,6 @@ unsigned int stack_free_limit = 1;	/* patchable */
  */
 
 #define stack_next(stack) (*((vm_offset_t *)((stack) + KERNEL_STACK_SIZE) - 1))
-
-/*
- *	stack_alloc_try:
- *
- *	Non-blocking attempt to allocate a kernel stack.
- *	Called at splsched with the thread locked.
- */
-
-boolean_t stack_alloc_try(
-	thread_t	thread,
-	void		(*resume)(thread_t))
-{
-	vm_offset_t stack;
-
-	simple_lock(&stack_lock_data);
-	stack = stack_free_list;
-	if (stack != 0) {
-		stack_free_list = stack_next(stack);
-		stack_free_count--;
-	} else {
-		stack = thread->stack_privilege;
-	}
-	simple_unlock(&stack_lock_data);
-
-	if (stack != 0) {
-		stack_attach(thread, stack, resume);
-		return TRUE;
-	} else {
-		return FALSE;
-	}
-}
-
-/*
- *	stack_alloc:
- *
- *	Allocate a kernel stack for a thread.
- *	May block.
- */
-
-kern_return_t stack_alloc(
-	thread_t	thread,
-	void		(*resume)(thread_t))
-{
-	vm_offset_t stack;
-	spl_t s;
-
-	/*
-	 *	We first try the free list.  It is probably empty,
-	 *	or stack_alloc_try would have succeeded, but possibly
-	 *	a stack was freed before the swapin thread got to us.
-	 */
-
-	s = splsched();
-	simple_lock(&stack_lock_data);
-	stack = stack_free_list;
-	if (stack != 0) {
-		stack_free_list = stack_next(stack);
-		stack_free_count--;
-	}
-	simple_unlock(&stack_lock_data);
-	(void) splx(s);
-
-	if (stack == 0) {
-		stack = kmem_cache_alloc(&thread_stack_cache);
-		stack_init(stack);
-	}
-
-	stack_attach(thread, stack, resume);
-	return KERN_SUCCESS;
-}
-
-/*
- *	stack_free:
- *
- *	Free a thread's kernel stack.
- *	Called at splsched with the thread locked.
- */
-
-void stack_free(
-	thread_t thread)
-{
-	vm_offset_t stack;
-
-	stack = stack_detach(thread);
-
-	if (stack != thread->stack_privilege) {
-		simple_lock(&stack_lock_data);
-		stack_next(stack) = stack_free_list;
-		stack_free_list = stack;
-		stack_free_count += 1;
-		simple_unlock(&stack_lock_data);
-	}
-}
-
-/*
- *	stack_collect:
- *
- *	Free excess kernel stacks.
- *	May block.
- */
-
-void stack_collect(void)
-{
-	vm_offset_t stack;
-	spl_t s;
-
-	s = splsched();
-	simple_lock(&stack_lock_data);
-	while (stack_free_count > stack_free_limit) {
-		stack = stack_free_list;
-		stack_free_list = stack_next(stack);
-		stack_free_count--;
-		simple_unlock(&stack_lock_data);
-		(void) splx(s);
-
-		stack_finalize(stack);
-		kmem_cache_free(&thread_stack_cache, stack);
-
-		s = splsched();
-		simple_lock(&stack_lock_data);
-	}
-	simple_unlock(&stack_lock_data);
-	(void) splx(s);
-}
-
-/*
- *	stack_privilege:
- *
- *	stack_alloc_try on this thread must always succeed.
- */
-
-void stack_privilege(
-	thread_t thread)
-{
-	/*
-	 *	This implementation only works for the current thread.
-	 */
-
-	if (thread != current_thread())
-		panic("stack_privilege");
-
-	if (thread->stack_privilege == 0)
-		thread->stack_privilege = current_stack();
-}
 
 kern_return_t thread_create(
 	task_t	parent_task,
@@ -569,21 +428,6 @@ void thread_deallocate(
 	kmem_cache_free(&thread_cache, (vm_offset_t) thread);
 }
 
-void thread_reference(
-	thread_t	thread)
-{
-	spl_t		s;
-
-	if (thread == THREAD_NULL)
-		return;
-
-	s = splsched();
-	_simple_lock(&(thread)->lock);
-	thread->ref_count++;
-	_simple_unlock(&(thread)->lock);
-	(void) splx(s);
-}
-
 /*
  *	thread_terminate:
  *
@@ -733,50 +577,6 @@ kern_return_t thread_terminate_release(
 
 	return thread_terminate(thread);
 }
-
-/*
- *	thread_force_terminate:
- *
- *	Version of thread_terminate called by task_terminate.  thread is
- *	not the current thread.  task_terminate is the dominant operation,
- *	so we can force this thread to stop.
- */
-void
-thread_force_terminate(
-	thread_t	thread)
-{
-	boolean_t	deallocate_here;
-	spl_t s;
-
-	ipc_thread_disable(thread);
-
-#if	MACH_HOST
-	/*
-	 *	Reassign thread to default pset if needed.
-	 */
-	thread_freeze(thread);
-	if (thread->processor_set != &default_pset)
-		thread_doassign(thread, &default_pset, FALSE);
-#endif	/* MACH_HOST */
-
-	s = splsched();
-	_simple_lock(&(thread)->lock);
-	deallocate_here = thread->active;
-	thread->active = FALSE;
-	_simple_unlock(&(thread)->lock);
-	(void) splx(s);
-
-	(void) thread_halt(thread, TRUE);
-	ipc_thread_terminate(thread);
-
-#if	MACH_HOST
-	thread_unfreeze(thread);
-#endif	/* MACH_HOST */
-
-	if (deallocate_here)
-		thread_deallocate(thread);
-}
-
 
 /*
  *	Halt a thread at a clean point, leaving it suspended.
@@ -1043,26 +843,6 @@ void	thread_halt_self(continuation_t continuation)
 }
 
 /*
- *	thread_hold:
- *
- *	Suspend execution of the specified thread.
- *	This is a recursive-style suspension of the thread, a count of
- *	suspends is maintained.
- */
-void thread_hold(
-	thread_t	thread)
-{
-	spl_t			s;
-
-	s = splsched();
-	_simple_lock(&(thread)->lock);
-	thread->suspend_count++;
-	thread->state |= TH_SUSP;
-	_simple_unlock(&(thread)->lock);
-	(void) splx(s);
-}
-
-/*
  *	thread_dowait:
  *
  *	Wait for a thread to actually enter stopped state.
@@ -1174,25 +954,6 @@ thread_dowait(
 	return ret;
 }
 
-void thread_release(
-	thread_t	thread)
-{
-	spl_t			s;
-
-	s = splsched();
-	_simple_lock(&(thread)->lock);
-	if (--thread->suspend_count == 0) {
-		thread->state &= ~(TH_SUSP | TH_HALTED);
-		if ((thread->state & (TH_WAIT | TH_RUN)) == 0) {
-			/* was only suspended */
-			thread->state |= TH_RUN;
-			thread_setrun(thread, TRUE);
-		}
-	}
-	_simple_unlock(&(thread)->lock);
-	(void) splx(s);
-}
-
 kern_return_t thread_suspend(
 	thread_t	thread)
 {
@@ -1236,103 +997,6 @@ kern_return_t thread_suspend(
 			(void) thread_dowait(thread, TRUE);
 	}
 	return KERN_SUCCESS;
-}
-
-
-kern_return_t thread_resume(
-	thread_t	thread)
-{
-	kern_return_t		ret;
-	spl_t			s;
-
-	if (thread == THREAD_NULL)
-		return KERN_INVALID_ARGUMENT;
-
-	ret = KERN_SUCCESS;
-
-	s = splsched();
-	_simple_lock(&(thread)->lock);
-	if (thread->user_stop_count > 0) {
-	    if (--thread->user_stop_count == 0) {
-		if (--thread->suspend_count == 0) {
-		    thread->state &= ~(TH_SUSP | TH_HALTED);
-		    if ((thread->state & (TH_WAIT | TH_RUN)) == 0) {
-			    /* was only suspended */
-			    thread->state |= TH_RUN;
-			    thread_setrun(thread, TRUE);
-		    }
-		}
-	    }
-	}
-	else {
-		ret = KERN_FAILURE;
-	}
-
-	_simple_unlock(&(thread)->lock);
-	(void) splx(s);
-
-	return ret;
-}
-
-/*
- *	Return thread's machine-dependent state.
- */
-kern_return_t thread_get_state(
-	thread_t		thread,
-	int			flavor,
-	thread_state_t		old_state,	/* pointer to OUT array */
-	natural_t		*old_state_count)	/*IN/OUT*/
-{
-	kern_return_t		ret;
-
-#if defined(__i386__) || defined(__x86_64__)
-	if (flavor == i386_DEBUG_STATE && thread == current_thread())
-		/* This state can be obtained directly for the curren thread.  */
-		return thread_getstatus(thread, flavor, old_state, old_state_count);
-#endif
-
-	if (thread == THREAD_NULL || thread == current_thread())
-		return KERN_INVALID_ARGUMENT;
-
-	thread_hold(thread);
-	(void) thread_dowait(thread, TRUE);
-
-	ret = thread_getstatus(thread, flavor, old_state, old_state_count);
-
-	thread_release(thread);
-	return ret;
-}
-
-/*
- *	Change thread's machine-dependent state.
- */
-kern_return_t thread_set_state(
-	thread_t		thread,
-	int			flavor,
-	thread_state_t		new_state,
-	natural_t		new_state_count)
-{
-	kern_return_t		ret;
-
-#if defined(__i386__) || defined(__x86_64__)
-	if (flavor == i386_DEBUG_STATE && thread == current_thread())
-		/* This state can be set directly for the curren thread.  */
-		return thread_setstatus(thread, flavor, new_state, new_state_count);
-	if (flavor == i386_FSGS_BASE_STATE && thread == current_thread())
-		/* This state can be set directly for the curren thread.  */
-		return thread_setstatus(thread, flavor, new_state, new_state_count);
-#endif
-
-	if (thread == THREAD_NULL || thread == current_thread())
-		return KERN_INVALID_ARGUMENT;
-
-	thread_hold(thread);
-	(void) thread_dowait(thread, TRUE);
-
-	ret = thread_setstatus(thread, flavor, new_state, new_state_count);
-
-	thread_release(thread);
-	return ret;
 }
 
 kern_return_t thread_info(
@@ -1480,62 +1144,6 @@ kern_return_t thread_info(
 	return KERN_INVALID_ARGUMENT;
 }
 
-kern_return_t	thread_abort(
-	thread_t	thread)
-{
-	if (thread == THREAD_NULL || thread == current_thread()) {
-		return KERN_INVALID_ARGUMENT;
-	}
-
-	/*
-	 *
-	 *	clear it of an event wait
-	 */
-
-	evc_notify_abort(thread);
-
-	/*
-	 *	Try to force the thread to a clean point
-	 *	If the halt operation fails return KERN_ABORTED.
-	 *	ipc code will convert this to an ipc interrupted error code.
-	 */
-	if (thread_halt(thread, FALSE) != KERN_SUCCESS)
-		return KERN_ABORTED;
-
-	/*
-	 *	If the thread was in an exception, abort that too.
-	 */
-	mach_msg_abort_rpc(thread);
-
-	/*
-	 *	Then set it going again.
-	 */
-	thread_release(thread);
-
-	/*
-	 *	Also abort any depression.
-	 */
-	if (thread->depress_priority != -1)
-		thread_depress_abort(thread);
-
-	return KERN_SUCCESS;
-}
-
-/*
- *	thread_start:
- *
- *	Start a thread at the specified routine.
- *	The thread must	be in a swapped state.
- */
-
-void
-thread_start(
-	thread_t	thread,
-	continuation_t	start)
-{
-	thread->swap_func = start;
-}
-
 /*
  *	kernel_thread:
  *
@@ -1666,26 +1274,6 @@ thread_freeze(thread_t thread)
 	thread->may_assign = FALSE;
 	_simple_unlock(&(thread)->lock);
 	(void) splx(s);
-}
-
-/*
- *	thread_unfreeze: release freeze on thread's assignment.
- */
-void
-thread_unfreeze(
-	thread_t	thread)
-{
-	spl_t 	s;
-
-	s = splsched();
-	_simple_lock(&(thread)->lock);
-	thread->may_assign = TRUE;
-	if (thread->assign_active) {
-		thread->assign_active = FALSE;
-		thread_wakeup((event_t)&thread->assign_active);
-	}
-	_simple_unlock(&(thread)->lock);
-	splx(s);
 }
 
 /*
@@ -1838,260 +1426,6 @@ thread_assign(
 #endif	/* MACH_HOST */
 
 /*
- *	thread_get_assignment
- *
- *	Return current assignment for this thread.
- */	    
-kern_return_t thread_get_assignment(
-	thread_t	thread,
-	processor_set_t	*pset)
-{
-	if (thread == THREAD_NULL)
-		return KERN_INVALID_ARGUMENT;
-
-	*pset = thread->processor_set;
-	pset_reference(*pset);
-	return KERN_SUCCESS;
-}
-
-/*
- *	thread_priority:
- *
- *	Set priority (and possibly max priority) for thread.
- */
-kern_return_t
-thread_priority(
-	thread_t	thread,
-	int		priority,
-	boolean_t	set_max)
-{
-    spl_t		s;
-    kern_return_t	ret = KERN_SUCCESS;
-
-    if ((thread == THREAD_NULL) || invalid_pri(priority))
-	return KERN_INVALID_ARGUMENT;
-
-    s = splsched();
-    _simple_lock(&(thread)->lock);
-
-    /*
-     *	Check for violation of max priority
-     */
-    if (priority < thread->max_priority)
-	ret = KERN_FAILURE;
-    else {
-	/*
-	 *	Set priorities.  If a depression is in progress,
-	 *	change the priority to restore.
-	 */
-	if (thread->depress_priority >= 0)
-	    thread->depress_priority = priority;
-
-	else {
-	    thread->priority = priority;
-	    compute_priority(thread, TRUE);
-	}
-
-	if (set_max)
-	    thread->max_priority = priority;
-    }
-    _simple_unlock(&(thread)->lock);
-    (void) splx(s);
-
-    return ret;
-}
-
-/*
- *	thread_set_own_priority:
- *
- *	Internal use only; sets the priority of the calling thread.
- *	Will adjust max_priority if necessary.
- */
-void
-thread_set_own_priority(
-	int	priority)
-{
-    spl_t	s;
-    thread_t	thread = current_thread();
-
-    s = splsched();
-    _simple_lock(&(thread)->lock);
-
-    if (priority < thread->max_priority)
-	thread->max_priority = priority;
-    thread->priority = priority;
-    compute_priority(thread, TRUE);
-
-    _simple_unlock(&(thread)->lock);
-    (void) splx(s);
-}
-
-/*
- *	thread_max_priority:
- *
- *	Reset the max priority for a thread.
- */
-kern_return_t
-thread_max_priority(
-	thread_t	thread,
-	processor_set_t	pset,
-	int		max_priority)
-{
-    spl_t		s;
-    kern_return_t	ret = KERN_SUCCESS;
-
-    if ((thread == THREAD_NULL) || (pset == PROCESSOR_SET_NULL) ||
-	invalid_pri(max_priority))
-	    return KERN_INVALID_ARGUMENT;
-
-    s = splsched();
-    _simple_lock(&(thread)->lock);
-
-#if	MACH_HOST
-    /*
-     *	Check for wrong processor set.
-     */
-    if (pset != thread->processor_set)
-	ret = KERN_FAILURE;
-
-    else {
-#endif	/* MACH_HOST */
-	thread->max_priority = max_priority;
-
-	/*
-	 *	Reset priority if it violates new max priority
-	 */
-	if (max_priority > thread->priority) {
-	    thread->priority = max_priority;
-
-	    compute_priority(thread, TRUE);
-	}
-	else {
-	    if (thread->depress_priority >= 0 &&
-		max_priority > thread->depress_priority)
-		    thread->depress_priority = max_priority;
-	    }
-#if	MACH_HOST
-    }
-#endif	/* MACH_HOST */
-
-    _simple_unlock(&(thread)->lock);
-    (void) splx(s);
-
-    return ret;
-}
-
-/*
- *	thread_policy:
- *
- *	Set scheduling policy for thread.
- */
-kern_return_t
-thread_policy(
-	thread_t	thread,
-	int		policy,
-	int		data)
-{
-	kern_return_t	ret = KERN_SUCCESS;
-	int		temp;
-	spl_t		s;
-
-	if ((thread == THREAD_NULL) || invalid_policy(policy))
-		return KERN_INVALID_ARGUMENT;
-
-	s = splsched();
-	_simple_lock(&(thread)->lock);
-
-	/*
-	 *	Check if changing policy.
-	 */
-	if (policy == thread->policy) {
-	    /*
-	     *	Just changing data.  This is meaningless for
-	     *	timesharing, quantum for fixed priority (but
-	     *	has no effect until current quantum runs out).
-	     */
-	    if (policy == POLICY_FIXEDPRI) {
-		temp = data * 1000;
-		if (temp % tick)
-			temp += tick;
-		thread->sched_data = temp/tick;
-	    }
-	}
-	else {
-	    /*
-	     *	Changing policy.  Check if new policy is allowed.
-	     */
-	    if ((thread->processor_set->policies & policy) == 0)
-		    ret = KERN_FAILURE;
-	    else {
-		/*
-		 *	Changing policy.  Save data and calculate new
-		 *	priority.
-		 */
-		thread->policy = policy;
-		if (policy == POLICY_FIXEDPRI) {
-			temp = data * 1000;
-			if (temp % tick)
-				temp += tick;
-			thread->sched_data = temp/tick;
-		}
-		compute_priority(thread, TRUE);
-	    }
-	}
-	_simple_unlock(&(thread)->lock);
-	(void) splx(s);
-
-	return ret;
-}
-
-/*
- *	thread_wire:
- *
- *	Specify that the target thread must always be able
- *	to run and to allocate memory.
- */
-kern_return_t
-thread_wire(
-	host_t		host,
-	thread_t	thread,
-	boolean_t	wired)
-{
-	spl_t		s;
-
-	if (host == HOST_NULL)
-	    return KERN_INVALID_ARGUMENT;
-
-	if (thread == THREAD_NULL)
-	    return KERN_INVALID_ARGUMENT;
-
-	/*
-	 * This implementation only works for the current thread.
-	 * See stack_privilege.
-	 */
-	if (thread != current_thread())
-	    return KERN_INVALID_ARGUMENT;
-
-	s = splsched();
-	_simple_lock(&(thread)->lock);
-
-	if (wired) {
-	    thread->vm_privilege = 1;
-	    stack_privilege(thread);
-	}
-	else {
-	    thread->vm_privilege = 0;
-/*XXX	    stack_unprivilege(thread); */
-	    thread->stack_privilege = 0;
-	}
-
-	_simple_unlock(&(thread)->lock);
-	splx(s);
-
-	return KERN_SUCCESS;
-}
-
-/*
  *	thread_collect_scan:
  *
  *	Attempt to free resources owned by threads.
@@ -2192,22 +1526,6 @@ static vm_size_t stack_usage(vm_offset_t stack)
 		break;
 
 	return KERNEL_STACK_SIZE - i * sizeof(unsigned int);
-}
-
-/*
- *	Machine-dependent code should call stack_init
- *	before doing its own initialization of the stack.
- */
-
-void stack_init(
-	vm_offset_t stack)
-{
-	if (stack_check_usage) {
-	    unsigned i;
-
-	    for (i = 0; i < KERNEL_STACK_SIZE/sizeof(unsigned int); i++)
-		((unsigned int *)stack)[i] = STACK_MARKER;
-	}
 }
 
 /*
@@ -2415,63 +1733,5 @@ kern_return_t processor_set_stack_usage(
 	*residentp = *spacep = total * round_page(KERNEL_STACK_SIZE);
 	*maxusagep = maxusage;
 	*maxstackp = maxstack;
-	return KERN_SUCCESS;
-}
-
-/*
- *	Useful in the debugger:
- */
-void
-thread_stats(void)
-{
-	thread_t thread;
-	int total = 0, rpcreply = 0;
-
-	queue_iterate(&default_pset.threads, thread, thread_t, pset_threads) {
-		total++;
-		if (thread->ith_rpc_reply != IP_NULL)
-			rpcreply++;
-	}
-
-	printf("%d total threads.\n", total);
-	printf("%d using rpc_reply.\n", rpcreply);
-}
-
-/*
- *	thread_set_name
- *
- *	Set the name of thread THREAD to NAME.
- */
-kern_return_t
-thread_set_name(
-	thread_t	thread,
-	const_kernel_debug_name_t	name)
-{
-	if (thread == THREAD_NULL)
-		return KERN_INVALID_ARGUMENT;
-
-	strncpy(thread->name, name, sizeof thread->name - 1);
-	thread->name[sizeof thread->name - 1] = '\0';
-	return KERN_SUCCESS;
-}
-
-/*
- *  thread_get_name
- *
- *  Return the name of the thread THREAD.
- *  Will use the name of the thread as set by thread_set_name.
- *  If thread_set_name was not used, this will return the name of the task
- *  copied when the thread was created.
- */
-kern_return_t
-thread_get_name(
-		thread_t	thread,
-		kernel_debug_name_t	name)
-{
-	if (thread == THREAD_NULL)
-		return KERN_INVALID_ARGUMENT;
-
-	strncpy(name, thread->name, sizeof thread->name);
-
 	return KERN_SUCCESS;
 }

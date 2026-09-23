@@ -2505,22 +2505,6 @@ void pmap_update_interrupt(void)
 	splx(s);
 }
 
-#if defined(__i386__) || defined (__x86_64__)
-/* Unmap page 0 to trap NULL references.  */
-void
-pmap_unmap_page_zero (void)
-{
-  int *pte;
-
-  printf("Unmapping the zero page.  Some BIOS functions may not be working any more.\n");
-  pte = (int *) pmap_pte (kernel_pmap, 0);
-  if (!pte)
-    return;
-  *pte = 0;
-  INVALIDATE_TLB(kernel_pmap, 0, PAGE_SIZE);
-}
-#endif /* __i386__ */
-
 void
 pmap_make_temporary_mapping(void)
 {

@@ -27,6 +27,9 @@
  * the rights to redistribute these changes.
  */
 /*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
+/*
  *	kern/ipc_host.c
  *
  *	Routines to implement host ports.
@@ -104,125 +107,6 @@ mach_host_self(void)
 
 	sright = ipc_port_make_send(realhost.host_self);
 	return ipc_port_copyout_send(sright, current_space());
-}
-
-/*
- *	ipc_processor_init:
- *
- *	Initialize ipc access to processor by allocating the ports.
- *	Enable ipc control of processor by setting port object.
- */
-
-void
-ipc_processor_init(
-	processor_t	processor)
-{
-	ipc_port_t	port;
-
-	port = ipc_port_alloc_kernel();
-	if (port == IP_NULL)
-		panic("ipc_processor_init");
-	processor->processor_self = port;
-	ipc_kobject_set(port, (ipc_kobject_t) processor, IKOT_PROCESSOR);
-
-        port = ipc_port_alloc_kernel();
-        if (port == IP_NULL)
-                panic("ipc_processor_init");
-        processor->processor_name_self = port;
-        ipc_kobject_set(port, (ipc_kobject_t) processor, IKOT_PROCESSOR_NAME);
-}
-
-
-/*
- *	ipc_pset_init:
- *
- *	Initialize ipc control of a processor set by allocating its ports.
- */
-
-void
-ipc_pset_init(
-	processor_set_t		pset)
-{
-	ipc_port_t	port;
-
-	port = ipc_port_alloc_kernel();
-	if (port == IP_NULL)
-		panic("ipc_pset_init");
-	pset->pset_self = port;
-
-	port = ipc_port_alloc_kernel();
-	if (port == IP_NULL)
-		panic("ipc_pset_init");
-	pset->pset_name_self = port;
-}
-
-/*
- *	ipc_pset_enable:
- *
- *	Enable ipc access to a processor set.
- */
-void
-ipc_pset_enable(
-	processor_set_t		pset)
-{
-	simple_lock(&(pset)->lock);
-	if (likely(pset->active)) {
-		ipc_kobject_set(pset->pset_self,
-				(ipc_kobject_t) pset, IKOT_PSET);
-		ipc_kobject_set(pset->pset_name_self,
-				(ipc_kobject_t) pset, IKOT_PSET_NAME);
-		simple_lock(&(pset)->ref_lock);
-		pset->ref_count += 2;
-		simple_unlock(&(pset)->ref_lock);
-	}
-	simple_unlock(&(pset)->lock);
-}
-
-/*
- *	ipc_pset_disable:
- *
- *	Disable ipc access to a processor set by clearing the port objects.
- *	Caller must hold pset lock and a reference to the pset.  Ok to
- *	just decrement pset reference count as a result.
- */
-void
-ipc_pset_disable(
-	processor_set_t		pset)
-{
-	ipc_kobject_set(pset->pset_self, IKO_NULL, IKOT_NONE);
-	ipc_kobject_set(pset->pset_name_self, IKO_NULL, IKOT_NONE);
-	pset->ref_count -= 2;
-}
-
-/*
- *	ipc_pset_terminate:
- *
- *	Processor set is dead.  Deallocate the ipc control structures.
- */
-void
-ipc_pset_terminate(
-	processor_set_t		pset)
-{
-	ipc_port_dealloc_kernel(pset->pset_self);
-	ipc_port_dealloc_kernel(pset->pset_name_self);
-}
-
-/*
- *	processor_set_default:
- *
- *	Return ports for manipulating default_processor set.
- */
-kern_return_t
-processor_set_default(
-	const host_t	host,
-	processor_set_t	*pset)
-{
-	if (unlikely(host == HOST_NULL))
-		return KERN_INVALID_ARGUMENT;
-
-	*pset = &default_pset;
-	pset_reference(*pset);
-	return KERN_SUCCESS;
 }
 
 /*

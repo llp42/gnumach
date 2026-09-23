@@ -9,26 +9,14 @@
  * Shims for the Rust port of vm/vm_map.c, for what cannot cross
  * FFI.
  *
- * The privilege bump is `current_thread()`, a per-CPU macro; it moves
- * into kern/thread.rs when the thread structure does.
- *
- * `pmap_attribute` is a macro on this machine (it is the constant
- * KERN_INVALID_ADDRESS), and `pmap_copy` is a no-op macro over the
- * pmap type, so Rust cannot declare either; the pair goes when
- * i386/intel/pmap.c/pmap.h move.
- *
- * `thread_wakeup` is a macro over `thread_wakeup_prim()`; it goes when
- * the scheduler's wait/wake interface is callable from Rust.
- *
  * The object lock, the page-release probe and the submap-placeholder
  * probe read `struct vm_object`, which stays C until vm/vm_object.c
  * moves; they go then.
  *
  * The page shims (`vm_map_glue_page_*`, `vm_map_glue_pmap_enter`) read
  * `struct vm_page` bitfields and expand PMAP_ENTER/PAGE_WAKEUP_DONE/
- * VM_PAGE_FREE/VM_PAGE_QUEUES_REMOVE and the page-locked
- * `pmap_page_protect` of the page-list copyin, which stay C until
- * vm/vm_page.c moves.
+ * VM_PAGE_QUEUES_REMOVE and the page-locked `pmap_page_protect` of the
+ * page-list copyin, which stay C until vm/vm_page.c moves.
  *
  * The fork shims read `struct vm_object`'s sharing fields
  * (`shadowed`, `temporary`, `size`, `use_shared_copy`, `ref_count`);
@@ -42,11 +30,7 @@
  *
  * The region shims read `struct task`'s `map` and `itk_space` fields
  * and `struct vm_object`'s `pager`; the task pair dies with
- * kern/task.c, the pager one with vm/vm_object.c.  The proxy call is a
- * shim because `memory_object_create_proxy`'s `rpc_vm_*` arguments are
- * `uint32_t` under USER32 and pointer-sized otherwise, so the guarded
- * cast from the native `vm_*` values stays on this side; it dies with
- * vm/memory_object_proxy.c.
+ * kern/task.c, the pager one with vm/vm_object.c.
  *
  * The three caches of the map module and the `vm_submap_object`
  * placeholder are storage rather than shims: they stay here because
@@ -54,18 +38,13 @@
  * to Rust with kern/slab.c and vm/vm_object.c.
  */
 
-#include <kern/mach4.server.h>
 #include <kern/slab.h>
 #include <kern/task.h>
-#include <kern/thread.h>
 #include <ipc/ipc_port.h>
-#include <mach/vm_attributes.h>
 #include <vm/pmap.h>
 #include <vm/vm_object.h>
 #include <vm/vm_page.h>
 
-void vm_map_glue_privilege_inc(void);
-void vm_map_glue_privilege_dec(void);
 boolean_t vm_map_glue_object_is_pristine_submap(vm_object_t object);
 boolean_t vm_map_glue_object_needs_shadow(
 	vm_object_t object,
@@ -85,7 +64,6 @@ boolean_t vm_map_glue_page_is_fictitious(vm_page_t page);
 boolean_t vm_map_glue_page_is_error(vm_page_t page);
 boolean_t vm_map_glue_page_is_precious(vm_page_t page);
 vm_object_t vm_map_glue_page_object(vm_page_t page);
-void vm_map_glue_page_free(vm_page_t page);
 void vm_map_glue_page_steal(vm_page_t page);
 void vm_map_glue_page_protect(vm_page_t page, vm_prot_t protection);
 void vm_map_glue_page_set_busy(vm_page_t page);
@@ -95,8 +73,6 @@ void vm_map_glue_page_wakeup_done(vm_page_t page);
 void vm_map_glue_page_activate_if_idle(vm_page_t page);
 int vm_map_glue_page_wire_count(vm_page_t page);
 vm_offset_t vm_map_glue_page_offset(vm_page_t page);
-void vm_map_glue_page_queue_lock(void);
-void vm_map_glue_page_queue_unlock(void);
 boolean_t vm_map_glue_object_can_coalesce(vm_object_t object);
 void vm_map_glue_object_extend_size(vm_object_t object, vm_size_t size);
 void vm_map_glue_pmap_enter(
@@ -105,33 +81,12 @@ void vm_map_glue_pmap_enter(
 	vm_page_t page,
 	vm_prot_t protection,
 	boolean_t wired);
-kern_return_t vm_map_glue_pmap_attribute(
-	pmap_t pmap,
-	vm_offset_t address,
-	vm_size_t size,
-	vm_machine_attribute_t attribute,
-	vm_machine_attribute_val_t *value);
-void vm_map_glue_pmap_copy(
-	pmap_t dst,
-	pmap_t src,
-	vm_offset_t dst_addr,
-	vm_size_t len,
-	vm_offset_t src_addr);
-void vm_map_glue_thread_wakeup(void *event);
 void vm_map_glue_object_lock(vm_object_t object);
 void vm_map_glue_object_unlock(vm_object_t object);
 boolean_t vm_map_glue_object_can_release(vm_object_t object);
 ipc_port_t vm_map_glue_object_pager(vm_object_t object);
 struct vm_map *vm_map_glue_task_map(struct task *task);
 ipc_space_t vm_map_glue_task_space(struct task *task);
-kern_return_t vm_map_glue_memory_object_create_proxy(
-	ipc_space_t space,
-	vm_prot_t max_protection,
-	ipc_port_t object,
-	vm_offset_t offset,
-	vm_offset_t start,
-	vm_size_t len,
-	ipc_port_t *port);
 
 /*
  * The map module's slab caches, and its submap placeholder.  The
@@ -151,52 +106,6 @@ struct kmem_cache    vm_map_copy_cache; 	/* cache for vm_map_copy structures */
 
 static struct vm_object	vm_submap_object_store;
 vm_object_t		vm_submap_object = &vm_submap_object_store;
-
-void
-vm_map_glue_privilege_inc(void)
-{
-	struct thread *thread = current_thread();
-
-	if (thread != THREAD_NULL)
-		thread->vm_privilege++;
-}
-
-void
-vm_map_glue_privilege_dec(void)
-{
-	struct thread *thread = current_thread();
-
-	if (thread != THREAD_NULL)
-		thread->vm_privilege--;
-}
-
-kern_return_t
-vm_map_glue_pmap_attribute(
-	pmap_t pmap,
-	vm_offset_t address,
-	vm_size_t size,
-	vm_machine_attribute_t attribute,
-	vm_machine_attribute_val_t *value)
-{
-	return pmap_attribute(pmap, address, size, attribute, value);
-}
-
-void
-vm_map_glue_pmap_copy(
-	pmap_t dst,
-	pmap_t src,
-	vm_offset_t dst_addr,
-	vm_size_t len,
-	vm_offset_t src_addr)
-{
-	pmap_copy(dst, src, dst_addr, len, src_addr);
-}
-
-void
-vm_map_glue_thread_wakeup(void *event)
-{
-	thread_wakeup((event_t) event);
-}
 
 void
 vm_map_glue_object_lock(vm_object_t object)
@@ -337,12 +246,6 @@ vm_map_glue_page_object(vm_page_t page)
 }
 
 void
-vm_map_glue_page_free(vm_page_t page)
-{
-	VM_PAGE_FREE(page);
-}
-
-void
 vm_map_glue_page_steal(vm_page_t page)
 {
 	simple_lock(&vm_page_queue_lock);
@@ -394,18 +297,6 @@ vm_map_glue_page_offset(vm_page_t page)
 }
 
 void
-vm_map_glue_page_queue_lock(void)
-{
-	simple_lock(&vm_page_queue_lock);
-}
-
-void
-vm_map_glue_page_queue_unlock(void)
-{
-	simple_unlock(&vm_page_queue_lock);
-}
-
-void
 vm_map_glue_page_activate_if_idle(vm_page_t page)
 {
 	simple_lock(&vm_page_queue_lock);
@@ -447,30 +338,4 @@ ipc_space_t
 vm_map_glue_task_space(struct task *task)
 {
 	return task->itk_space;
-}
-
-/*
- * The `rpc_vm_*` types are `uint32_t` under USER32 and pointer-sized
- * otherwise; the casts from the native `vm_*` arguments stay on this
- * side of the boundary, where the guard lives.
- */
-kern_return_t
-vm_map_glue_memory_object_create_proxy(
-	ipc_space_t space,
-	vm_prot_t max_protection,
-	ipc_port_t object,
-	vm_offset_t offset,
-	vm_offset_t start,
-	vm_size_t len,
-	ipc_port_t *port)
-{
-	rpc_vm_offset_t rpc_offset = (rpc_vm_offset_t) offset;
-	rpc_vm_offset_t rpc_start = (rpc_vm_offset_t) start;
-	rpc_vm_size_t rpc_len = (rpc_vm_size_t) len;
-
-	return memory_object_create_proxy(space, max_protection,
-					  &object, 1,
-					  &rpc_offset, 1,
-					  &rpc_start, 1,
-					  &rpc_len, 1, port);
 }

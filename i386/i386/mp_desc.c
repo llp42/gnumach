@@ -165,12 +165,6 @@ mp_desc_init(int mycpu)
 	}
 }
 
-void
-interrupt_processor(int cpu)
-{
-	smp_pmap_update(APIC_LOGICAL_ID(cpu));
-}
-
 static void
 paging_enable(void)
 {

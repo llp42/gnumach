@@ -3,10 +3,13 @@
 
 //! The i386 tree, shared by the i686 and x86_64 kernels; mirrors `i386/`.
 
+pub mod acpi_parse_apic;
+pub mod apic;
 pub mod ast_check;
 pub mod atomic_bits;
 pub mod fpu;
 pub mod io_req;
+pub mod ioapic;
 pub mod kd;
 pub mod kd_event;
 pub mod kd_mouse;
@@ -15,7 +18,9 @@ pub mod mbinfo;
 pub mod mem;
 pub mod model_dep;
 pub mod mp_desc;
+pub mod pcb;
 pub mod percpu;
+pub mod phys;
 pub mod pio;
 pub mod pit;
 pub mod pmap;

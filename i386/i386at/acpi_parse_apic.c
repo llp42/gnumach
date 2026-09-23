@@ -37,22 +37,6 @@ unsigned lapic_addr;
 uint32_t *hpet_addr;
 
 /*
- * acpi_print_info: shows by screen the ACPI's rsdp and rsdt virtual address
- * and the number of entries stored in RSDT table.
- *
- * Receives as input the references of RSDP and RSDT tables,
- * and the number of entries stored in RSDT.
- */
-void
-acpi_print_info(phys_addr_t rsdp, void *rsdt, int acpi_rsdt_n)
-{
-
-    printf("ACPI:\n");
-    printf(" rsdp = 0x%llx\n", (unsigned long long) rsdp);
-    printf(" rsdt/xsdt = 0x%p (n = %d)\n", rsdt, acpi_rsdt_n);
-}
-
-/*
  * acpi_checksum: calculates the checksum of an ACPI table.
  * Receives as input the virtual address of the table.
  *

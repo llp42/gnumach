@@ -24,6 +24,9 @@
  * the rights to redistribute these changes.
  */
 /*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
+/*
  *  Common code for printf et al.
  *
  *  The calling routine typically takes a variable number of arguments,
@@ -128,26 +131,6 @@
 
 #define MAXBUF (sizeof(long long int) * 8)	 /* enough for binary */
 
-
-void printnum(
-	unsigned long long	u,
-	int			base,
-	void			(*putc)( char, vm_offset_t ),
-	vm_offset_t		putc_arg)
-{
-	char	buf[MAXBUF];	/* build number here */
-	char *	p = &buf[MAXBUF-1];
-	static char digs[] = "0123456789abcdef";
-
-	do {
-	    *p-- = digs[u % base];
-	    u /= base;
-	} while (u != 0);
-
-	while (++p != &buf[MAXBUF])
-	    (*putc)(*p, putc_arg);
-
-}
 
 boolean_t	_doprnt_truncates = FALSE;
 
@@ -606,51 +589,4 @@ snprintf(char *buf, size_t size, const char *fmt, ...)
 	written = vsnprintf(buf, size, fmt, listp);
 	va_end(listp);
 	return written;
-}
-
-void safe_gets(
-	char *str,
-	int  maxlen)
-{
-	char *lp;
-	int c;
-	char *strmax = str + maxlen - 1; /* allow space for trailing 0 */
-
-	lp = str;
-	for (;;) {
-		c = cngetc();
-		switch (c) {
-		case '\n':
-		case '\r':
-			printf("\n");
-			*lp++ = 0;
-			return;
-			
-		case '\b':
-		case '#':
-		case '\177':
-			if (lp > str) {
-				printf("\b \b");
-				lp--;
-			}
-			continue;
-
-		case '@':
-		case 'u'&037:
-			lp = str;
-			printf("\n\r");
-			continue;
-
-		default:
-			if (c >= ' ' && c < '\177') {
-				if (lp < strmax) {
-					*lp++ = c;
-					printf("%c", c);
-				}
-				else {
-					printf("%c", '\007'); /* beep */
-				}
-			}
-		}
-	}
 }

@@ -93,6 +93,24 @@ pub fn current_thread() -> *mut Thread {
     thread
 }
 
+/// The kernel stack of the thread running on the current CPU.
+/// `current_stack()` in <kern/thread.h>, which is
+/// `percpu_get(vm_offset_t, active_stack)`.
+pub fn current_stack() -> VmOffset {
+    let stack: VmOffset;
+    // SAFETY: as `cpu_number()`; `active_stack` is set by the context
+    // switch on the way to the thread that is running.
+    unsafe {
+        asm!(
+            "mov {stack}, gs:[{off}]",
+            stack = out(reg) stack,
+            off = const offset_of!(Percpu, active_stack),
+            options(nostack, preserves_flags, readonly),
+        );
+    }
+    stack
+}
+
 // `percpu_array` in <i386/percpu.h>: one block per CPU.  The C
 // declares the whole `NCPUS`-element array; the mirror names the first
 // element because `NCPUS` is a C constant, and the pointer arithmetic

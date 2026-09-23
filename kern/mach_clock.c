@@ -27,6 +27,9 @@
  * the rights to redistribute these changes.
  */
 /*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
+/*
  *	File:	mach_clock.c
  *	Author:	Avadis Tevanian, Jr.
  *	Date:	1986
@@ -522,18 +525,6 @@ record_time_stamp(time_value64_t *stamp)
 }
 
 /*
- * Read a timestamp in STAMP into RESULT.  Returns values in the
- * real-time clock frame.
- */
-void
-read_time_stamp (const time_value64_t *stamp, time_value64_t *result)
-{
-	*result = *stamp;
-	time_value64_sub(result, &clock_boottime_offset);
-}
-
-
-/*
  * Read the time (deprecated version).
  */
 kern_return_t
@@ -559,17 +550,6 @@ host_get_time64(const host_t host, time_value64_t *current_time)
 
 	read_mapped_time(current_time);
 	return (KERN_SUCCESS);
-}
-
-/*
- * Set the time.  Only available to privileged users.
- */
-kern_return_t
-host_set_time(const host_t host, time_value_t new_time)
-{
-	time_value64_t new_time64;
-	TIME_VALUE_TO_TIME_VALUE64(&new_time, &new_time64);
-	return host_set_time64(host, new_time64);
 }
 
 kern_return_t
@@ -600,80 +580,6 @@ host_set_time64(const host_t host, time_value64_t new_time)
 	thread_bind(current_thread(), PROCESSOR_NULL);
 
 	return(KERN_SUCCESS);
-}
-
-/*
- * Adjust the time gradually.
- */
-kern_return_t
-host_adjust_time(
-	const host_t	host,
-	time_value_t	new_adjustment,
-	time_value_t	*old_adjustment	/* OUT */)
-{
-	time_value64_t	old_adjustment64;
-	time_value64_t new_adjustment64;
-	kern_return_t ret;
-
-	TIME_VALUE_TO_TIME_VALUE64(&new_adjustment, &new_adjustment64);
-	ret = host_adjust_time64(host, new_adjustment64, &old_adjustment64);
-	if (ret == KERN_SUCCESS) {
-		TIME_VALUE64_TO_TIME_VALUE(&old_adjustment64, old_adjustment);
-	}
-	return ret;
-}
-
-/*
- * Adjust the time gradually.
- */
-kern_return_t
-host_adjust_time64(
-	const host_t	host,
-	time_value64_t	new_adjustment,
-	time_value64_t	*old_adjustment	/* OUT */)
-{
-	time_value64_t	oadj;
-	spl_t		s;
-
-	if (host == HOST_NULL)
-		return (KERN_INVALID_HOST);
-
-	thread_bind(current_thread(), master_processor);
-	if (current_processor() != master_processor)
-	    thread_block(thread_no_continuation);
-
-	s = splclock();
-
-	oadj.seconds = timedelta / MICROSECONDS_IN_ONE_SECOND;
-	oadj.nanoseconds = (timedelta % MICROSECONDS_IN_ONE_SECOND) * 1000;
-
-	if (new_adjustment.nanoseconds != MACH_ADJTIME_NSECS_OMIT)
-	  {
-	    int64_t ndelta_microseconds;
-
-	    /* Note we only adjust up to microsecond precision */
-	    ndelta_microseconds = new_adjustment.seconds * MICROSECONDS_IN_ONE_SECOND
-	      + new_adjustment.nanoseconds / 1000;
-
-	    if (timedelta == 0) {
-	      if (ndelta_microseconds > bigadj || ndelta_microseconds < -bigadj)
-		tickdelta = 10 * tickadj;
-	      else
-		tickdelta = tickadj;
-	    }
-	    /* Make ndelta_microseconds a multiple of tickdelta */
-	    if (ndelta_microseconds % tickdelta)
-	      ndelta_microseconds = ndelta_microseconds / tickdelta * tickdelta;
-
-	    timedelta = ndelta_microseconds;
-	  }
-
-	splx(s);
-	thread_bind(current_thread(), PROCESSOR_NULL);
-
-	*old_adjustment = oadj;
-
-	return (KERN_SUCCESS);
 }
 
 /*

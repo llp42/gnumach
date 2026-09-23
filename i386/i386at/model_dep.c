@@ -183,17 +183,6 @@ void machine_init(void)
 #endif
 }
 
-/* Conserve power on processor CPU.  */
-void machine_idle (int cpu)
-{
-  asm volatile ("hlt" : : : "memory");
-}
-
-void machine_relax (void)
-{
-	asm volatile ("rep; nop" : : : "memory");
-}
-
 /*
  * Halt a cpu.
  */
@@ -463,16 +452,6 @@ void c_boot_entry(vm_offset_t bi)
 #include <vm/pmap.h>
 #include <mach/time_value.h>
 
-vm_offset_t
-timemmap(dev_t dev, vm_offset_t off, vm_prot_t prot)
-{
-	extern time_value_t *mtime;
-
-	if (prot & VM_PROT_WRITE) return (-1);
-
-	return (i386_btop(pmap_extract(pmap_kernel(), (vm_offset_t) mtime)));
-}
-
 void
 startrtclock(void)
 {
@@ -486,50 +465,4 @@ startrtclock(void)
 	clkstart();
 	unmask_irq(0);
 #endif
-}
-
-void
-inittodr(void)
-{
-	time_value64_t	new_time;
-	uint64_t	newsecs;
-
-	(void) readtodc(&newsecs);
-	new_time.seconds = newsecs;
-	new_time.nanoseconds = 0;
-
-	{
-	    spl_t	s = splhigh();
-	    time = new_time;
-	    splx(s);
-	}
-}
-
-void
-resettodr(void)
-{
-	writetodc();
-}
-
-boolean_t
-init_alloc_aligned(vm_size_t size, vm_offset_t *addrp)
-{
-	*addrp = biosmem_bootalloc(vm_page_atop(vm_page_round(size)));
-
-	if (*addrp == 0)
-		return FALSE;
-
-	return TRUE;
-}
-
-/* Grab a physical page:
-   the standard memory allocation mechanism
-   during system initialization.  */
-vm_offset_t
-pmap_grab_page(void)
-{
-	vm_offset_t addr;
-	if (!init_alloc_aligned(PAGE_SIZE, &addr))
-		panic("Not enough memory to initialize Mach");
-	return addr;
 }

@@ -485,41 +485,6 @@ ipc_object_copyin_from_kernel(
 }
 
 /*
- *	Routine:	ipc_object_destroy
- *	Purpose:
- *		Destroys a naked capability.
- *		Consumes a ref for the object.
- *
- *		A receive right should be in limbo or in transit.
- *	Conditions:
- *		Nothing locked.
- */
-
-void
-ipc_object_destroy(
-	ipc_object_t		object,
-	mach_msg_type_name_t	msgt_name)
-{
-
-	switch (msgt_name) {
-	    case MACH_MSG_TYPE_PORT_SEND:
-		ipc_port_release_send((ipc_port_t) object);
-		break;
-
-	    case MACH_MSG_TYPE_PORT_SEND_ONCE:
-		ipc_notify_send_once((ipc_port_t) object);
-		break;
-
-	    case MACH_MSG_TYPE_PORT_RECEIVE:
-		ipc_port_release_receive((ipc_port_t) object);
-		break;
-
-	    default:
-		panic("ipc_object_destroy: strange rights");
-	}
-}
-
-/*
  *	Routine:	ipc_object_copyout
  *	Purpose:
  *		Copyout a capability, placing it into a space.

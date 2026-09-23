@@ -734,14 +734,6 @@ boot_script_prompt_task_resume (struct cmd *cmd)
   return boot_script_task_resume (cmd);
 }
 
-void
-boot_script_free_task (task_t task, int aborting)
-{
-  if (aborting)
-    task_terminate (task);
-  task_deallocate (task);
-}
-
 int
 boot_script_insert_right (struct cmd *cmd, mach_port_t port, mach_port_name_t *name)
 {

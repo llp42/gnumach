@@ -11,11 +11,11 @@
 //! reads the clock through.  [`RpcTimeValue`] is what the kernel's
 //! generated MIG stubs exchange with the user side.
 //!
-//! Only the constants a Rust caller needs come over.  The arithmetic
-//! macros (`time_value64_add`, `TIME_VALUE64_TO_TIME_VALUE`, the
-//! `TIMESPEC` family) stay in the C header until a ported routine needs
-//! them.  `struct thread` embeds a [`TimeValue64`], so that layout is
-//! pinned here.
+//! Only the parts a Rust caller needs come over: [`TimeValue64::sub`]
+//! and the [`TimeValue`]/[`TimeValue64`] conversions below.  The rest
+//! of the arithmetic macros (`time_value64_add`, the `TIMESPEC` family)
+//! stay in the C header until a ported routine needs them.  `struct
+//! thread` embeds a [`TimeValue64`], so that layout is pinned here.
 
 use core::ffi::{c_int, c_long};
 use core::mem::offset_of;
@@ -24,6 +24,11 @@ use core::time::Duration;
 /// `TIME_NANOS_MAX` in <mach/time_value.h>: one second in
 /// nanoseconds, the carry bound of the `time_value64` macros.
 pub const TIME_NANOS_MAX: i64 = 1_000_000_000;
+
+/// `MACH_ADJTIME_NSECS_OMIT` in <mach/time_value.h>: the nanoseconds
+/// component that asks `host_adjust_time64()` to report the
+/// outstanding adjustment without changing it.
+pub const MACH_ADJTIME_NSECS_OMIT: i64 = TIME_NANOS_MAX;
 
 /// `struct rpc_time_value` of <mach/time_value.h> as the kernel
 /// compiles it.
@@ -55,6 +60,35 @@ pub struct TimeValue {
 pub struct TimeValue64 {
     pub seconds: i64,
     pub nanoseconds: i64,
+}
+
+impl TimeValue64 {
+    /// The `time_value64_sub()` macro of <mach/time_value.h>:
+    /// subtract `subtrahend`, borrowing one second when the
+    /// nanoseconds go negative.
+    ///
+    /// The `wrapping_*` spellings keep an out-of-range operand defined
+    /// where the C's signed arithmetic was not; the operands are
+    /// assumed normalized, as the header says.
+    #[must_use]
+    pub const fn sub(self, subtrahend: Self) -> Self {
+        let nanoseconds =
+            self.nanoseconds.wrapping_sub(subtrahend.nanoseconds);
+        if nanoseconds < 0 {
+            Self {
+                seconds: self
+                    .seconds
+                    .wrapping_sub(subtrahend.seconds)
+                    .wrapping_sub(1),
+                nanoseconds: nanoseconds.wrapping_add(TIME_NANOS_MAX),
+            }
+        } else {
+            Self {
+                seconds: self.seconds.wrapping_sub(subtrahend.seconds),
+                nanoseconds,
+            }
+        }
+    }
 }
 
 /// `mapped_time_value_t` of <mach/time_value.h>: the clock page the
@@ -96,6 +130,39 @@ impl From<RpcTimeValue> for TimeValue {
         Self {
             seconds: value.seconds,
             microseconds: value.microseconds,
+        }
+    }
+}
+
+/// The `TIME_VALUE_TO_TIME_VALUE64()` macro of <mach/time_value.h>.
+impl From<TimeValue> for TimeValue64 {
+    // `c_long` is `i64` already on x86_64, so the widening there is the
+    // same value; on i686 it is the sign extension the C assignment
+    // performed.
+    #[cfg_attr(
+        target_pointer_width = "64",
+        expect(clippy::useless_conversion)
+    )]
+    fn from(value: TimeValue) -> Self {
+        Self {
+            seconds: i64::from(value.seconds),
+            // The C product is `int`, and `microseconds` is the
+            // sub-second fraction, so the widened product is the same.
+            nanoseconds: i64::from(value.microseconds) * 1000,
+        }
+    }
+}
+
+/// The `TIME_VALUE64_TO_TIME_VALUE()` macro of <mach/time_value.h>.
+///
+/// The C assigns an `int64_t` to a `long`, then divides and assigns an
+/// `int64_t` to an `int`.  On i686 both assignments truncate, which the
+/// casts spell out; on x86_64 the first is exact.
+impl From<TimeValue64> for TimeValue {
+    fn from(value: TimeValue64) -> Self {
+        Self {
+            seconds: value.seconds as c_long,
+            microseconds: (value.nanoseconds / 1000) as c_int,
         }
     }
 }

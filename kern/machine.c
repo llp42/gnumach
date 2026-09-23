@@ -602,12 +602,6 @@ void __attribute__((noreturn)) action_thread_continue(void)
 	}
 }
 
-void __attribute__((noreturn)) action_thread(void)
-{
-	action_thread_continue();
-	/*NOTREACHED*/
-}
-
 /*
  *	Actually do the processor shutdown.  This is called at splsched,
  *	running on the processor's shutdown stack.

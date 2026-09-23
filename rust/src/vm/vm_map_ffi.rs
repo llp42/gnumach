@@ -316,20 +316,19 @@ pub unsafe extern "C" fn vm_map_fork(old_map: *mut VmMap) -> *mut VmMap {
 ///
 /// # Safety
 ///
-/// `map` must be a valid map and `value` a valid attribute value.
+/// `map` must be a valid map.  The attribute and value are ignored:
+/// `pmap_attribute` is a constant on i386 and x86_64.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vm_map_machine_attribute(
     map: *mut VmMap,
     address: VmOffset,
     size: VmSize,
-    attribute: c_uint,
-    value: *mut c_int,
+    _attribute: c_uint,
+    _value: *mut c_int,
 ) -> c_int {
     // SAFETY: the caller promises a valid, non-null map.
     let map = unsafe { NonNull::new_unchecked(map) };
-    kern_return(VmMap::machine_attribute(
-        map, address, size, attribute, value,
-    ))
+    kern_return(VmMap::machine_attribute(map, address, size))
 }
 
 /// Synchronize a map region out to its memory manager.

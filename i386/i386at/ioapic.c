@@ -148,12 +148,6 @@ picdisable(void)
     outb ( PIC_MASTER_OCW, PICM_MASK );
 }
 
-void
-intnull(int unit_dev)
-{
-    printf("intnull(%d)\n", unit_dev);
-}
-
 static uint32_t
 ioapic_read(uint8_t id, uint8_t reg)
 {

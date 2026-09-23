@@ -24,6 +24,9 @@
  * the rights to redistribute these changes.
  */
 /*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
+/*
  *	File:	kern/task.c
  *	Author:	Avadis Tevanian, Jr., Michael Wayne Young, David Golub,
  *		David Black
@@ -79,18 +82,6 @@ void task_init(void)
 	(void) task_create_kernel(TASK_NULL, FALSE, &kernel_task);
 	(void) task_set_name(kernel_task, "gnumach");
 	vm_map_set_name(kernel_map, kernel_task->name);
-}
-
-kern_return_t task_create(
-	task_t		parent_task,
-	boolean_t	inherit_memory,
-	task_t		*child_task)		/* OUT */
-{
-	if (parent_task == TASK_NULL)
-		return KERN_INVALID_TASK;
-
-	return task_create_kernel (parent_task, inherit_memory,
-				   child_task);
 }
 
 kern_return_t
@@ -1258,38 +1249,6 @@ void consider_task_collect(void)
 		task_collect_last_tick = sched_tick;
 		task_collect_scan();
 	}
-}
-
-kern_return_t
-task_ras_control(
- 	task_t task,
- 	vm_offset_t pc,
- 	vm_offset_t endpc,
-	int flavor)
-{
-    /* Restartable atomic sequences are not implemented.  */
-    return KERN_FAILURE;
-}
-
-/*
- *	register_new_task_notification
- *
- *	Register a port to which a notification about newly created
- *	tasks are sent.
- */
-kern_return_t
-register_new_task_notification(
-	const host_t host,
-	ipc_port_t notification)
-{
-	if (host == HOST_NULL)
-		return KERN_INVALID_HOST;
-
-	if (new_task_notification != NULL)
-		return KERN_NO_ACCESS;
-
-	new_task_notification = notification;
-	return KERN_SUCCESS;
 }
 
 /*

@@ -24,6 +24,9 @@
  * the rights to redistribute these changes.
  */
 /*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
+/*
  *	Author: David B. Golub, Carnegie Mellon University
  *	Date: 	8/88
  *
@@ -711,20 +714,6 @@ void queue_delayed_reply(
 {
 	ior->io_done = io_done;
 	enqueue_tail(qh, (queue_entry_t)ior);
-}
-
-/*
- * Retry delayed IO operations for TTY.
- * TTY containing queue must be locked (at spltty).
- */
-void tty_queue_completion(
-	queue_t	qh)
-{
-	io_req_t	ior;
-
-	while ((ior = (io_req_t)dequeue_head(qh)) != 0) {
-	    iodone(ior);
-	}
 }
 
 /*

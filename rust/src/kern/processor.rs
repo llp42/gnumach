@@ -770,15 +770,16 @@ impl ProcessorSet {
                 {
                     // SAFETY: `thread` is a live member of the list.
                     if unsafe { (*thread).policy == policy } {
-                        // SAFETY: the C routine takes the thread lock
-                        // itself, and timesharing is a policy this set
-                        // can switch a thread to.  The C ignores the
-                        // result.
+                        // SAFETY: the Rust `Thread::policy()` takes the
+                        // thread lock itself, and timesharing is a
+                        // policy this set can switch a thread to.  The
+                        // C ignores the result.
                         unsafe {
-                            glue::thread_policy(thread, POLICY_TIMESHARE, 0);
+                            let _ =
+                                Thread::policy(thread, POLICY_TIMESHARE, 0);
                         }
                     }
-                    // SAFETY: `thread_policy()` does not unlink
+                    // SAFETY: `Thread::policy()` does not unlink
                     // `thread`.
                     let next =
                         unsafe { queue_next(&raw mut (*thread).pset_threads) };
@@ -823,11 +824,13 @@ impl ProcessorSet {
                 while queue_end(list, thread.cast::<QueueEntry>()) == 0 {
                     // SAFETY: `thread` is a live member of the list.
                     if (*thread).max_priority < max_priority {
-                        // SAFETY: the C routine takes the thread lock
-                        // itself.  The C ignores the result.
-                        glue::thread_max_priority(thread, pset, max_priority);
+                        // SAFETY: the Rust `Thread::max_priority()`
+                        // takes the thread lock itself.  The C ignores
+                        // the result.
+                        let _ =
+                            Thread::max_priority(thread, pset, max_priority);
                     }
-                    // SAFETY: `thread_max_priority()` does not unlink
+                    // SAFETY: `Thread::max_priority()` does not unlink
                     // `thread`.
                     thread = queue_next(&raw mut (*thread).pset_threads)
                         .cast::<Thread>();

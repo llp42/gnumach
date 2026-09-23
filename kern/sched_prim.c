@@ -159,53 +159,6 @@ void sched_init(void)
 }
 
 /*
- *	thread_set_timeout:
- *
- *	Set a timer for the current thread, if the thread
- *	is ready to wait.  Must be called between assert_wait()
- *	and thread_block().
- */
-
-void thread_set_timeout(
-	int	t)	/* timeout interval in ticks */
-{
-	thread_t	thread = current_thread();
-	spl_t 		s;
-
-	s = splsched();
-	_simple_lock(&(thread)->lock);
-	if ((thread->state & TH_WAIT) != 0) {
-		set_timeout(&thread->timer, t);
-	}
-	_simple_unlock(&(thread)->lock);
-	splx(s);
-}
-
-
-/*
- *	thread_bind:
- *
- *	Force a thread to execute on the specified processor.
- *	If the thread is currently executing, it may wait until its
- *	time slice is up before switching onto the specified processor.
- *
- *	A processor of PROCESSOR_NULL causes the thread to be unbound.
- *	xxx - DO NOT export this to users.
- */
-void thread_bind(
-	thread_t	thread,
-	processor_t	processor)
-{
-	spl_t		s;
-
-	s = splsched();
-	_simple_lock(&(thread)->lock);
-	thread->bound_processor = processor;
-	_simple_unlock(&(thread)->lock);
-	(void) splx(s);
-}
-
-/*
  *	Select a thread for this processor (the current processor) to run.
  *	May select the current thread.
  *	Assumes splsched.
@@ -524,32 +477,6 @@ boolean_t thread_invoke(
 }
 
 /*
- *	thread_continue:
- *
- *	Called when the current thread is given a new stack.
- *	Called at splsched.
- */
-void thread_continue(
-	thread_t old_thread)
-{
-	continuation_t	continuation = current_thread()->swap_func;
-
-	/*
-	 *	We must dispatch the old thread and then
-	 *	call the current thread's continuation.
-	 *	There might not be an old thread, if we are
-	 *	the first thread to run on this processor.
-	 */
-
-	if (old_thread != THREAD_NULL)
-		thread_dispatch(old_thread);
-	(void) spl0();
-	(*continuation)();
-	/*NOTREACHED*/
-}
-
-
-/*
  *	thread_block:
  *
  *	Block the current thread.  If the thread is runnable
@@ -640,72 +567,6 @@ shift_data_t	wait_shift[32] = {
 	    + ((th)->sched_usage >> (PRI_SHIFT + SCHED_SHIFT));		\
 	if ((pri) > NRQS - 1) (pri) = NRQS - 1;				\
 	MACRO_END
-
-/*
- *	compute_priority:
- *
- *	Compute the effective priority of the specified thread.
- *	The effective priority computation is as follows:
- *
- *	Take the base priority for this thread and add
- *	to it an increment derived from its cpu_usage.
- *
- *	The thread *must* be locked by the caller.
- */
-
-void compute_priority(
-	thread_t		thread,
-	boolean_t		resched)
-{
-	int	pri;
-
-	if (thread->policy == POLICY_TIMESHARE) {
-	    do_priority_computation(thread, pri);
-	    if (thread->depress_priority < 0)
-		set_pri(thread, pri, resched);
-	    else
-		thread->depress_priority = pri;
-	}
-	else {
-	    set_pri(thread, thread->priority, resched);
-	}
-}
-
-/*
- *	compute_my_priority:
- *
- *	Version of compute priority for current thread or thread
- *	being manipulated by scheduler (going on or off a runq).
- *	Only used for priority updates.  Policy or priority changes
- *	must call compute_priority above.  Caller must have thread
- *	locked and know it is timesharing and not depressed.
- */
-
-void compute_my_priority(
-	thread_t	thread)
-{
-	int temp_pri;
-
-	do_priority_computation(thread,temp_pri);
-	thread->sched_pri = temp_pri;
-}
-
-/*
- *	recompute_priorities:
- *
- *	Update the priorities of all threads periodically.
- */
-void recompute_priorities(void *param)
-{
-	sched_tick++;		/* age usage one more time */
-	set_timeout(&recompute_priorities_timer, hz);
-	/*
-	 *	Wakeup scheduler thread.
-	 */
-	if (sched_thread_id != THREAD_NULL) {
-		clear_wait(sched_thread_id, THREAD_AWAKENED, FALSE);
-	}
-}
 
 /*
  *	The one shim the Rust timer port needs: `processor_set.sched_load`
@@ -836,32 +697,6 @@ void update_priority(
 #endif	/* DEBUG */
 
 /*
- *	set_pri:
- *
- *	Set the priority of the specified thread to the specified
- *	priority.  This may cause the thread to change queues.
- *
- *	The thread *must* be locked by the caller.
- */
-
-void set_pri(
-	thread_t	th,
-	int		pri,
-	boolean_t	resched)
-{
-	struct run_queue	*rq;
-
-	rq = rem_runq(th);
-	th->sched_pri = pri;
-	if (rq != RUN_QUEUE_NULL) {
-	    if (resched)
-		thread_setrun(th, TRUE);
-	    else
-		run_queue_enqueue(rq, th);
-	}
-}
-
-/*
  *	rem_runq:
  *
  *	Remove a thread from its run queue.
@@ -969,88 +804,6 @@ thread_t choose_thread(
 
 	simple_lock(&pset->runq.lock);
 	return choose_pset_thread(myprocessor,pset);
-}
-
-/*
- *	choose_pset_thread:  choose a thread from processor_set runq or
- *		set processor idle and choose its idle thread.
- *
- *	Caller must be at splsched and have a lock on the runq.  This
- *	lock is released by this routine.  myprocessor is always the current
- *	processor, and pset must be its processor set.
- *	This routine chooses and removes a thread from the runq if there
- *	is one (and returns it), else it sets the processor idle and
- *	returns its idle thread.
- */
-
-thread_t choose_pset_thread(
-	processor_t		myprocessor,
-	processor_set_t		pset)
-{
-	run_queue_t runq;
-	thread_t th;
-	queue_t q;
-	int i;
-
-	runq = &pset->runq;
-
-	if (runq->count > 0) {
-	    q = runq->runq + runq->low;
-	    for (i = runq->low; i < NRQS ; i++, q++) {
-		if (!queue_empty(q)) {
-		    th = (thread_t) dequeue_head(q);
-		    th->runq = RUN_QUEUE_NULL;
-		    runq->count--;
-		    /*
-		     *	For POLICY_FIXEDPRI, runq->low must be
-		     *	accurate!
-		     */
-		    if ((runq->count > 0) &&
-			(pset->policies & POLICY_FIXEDPRI)) {
-			    while (queue_empty(q)) {
-				q++;
-				i++;
-			    }
-		    }
-		    runq->low = i;
-#if	DEBUG
-		    checkrq(runq, "choose_pset_thread");
-#endif	/* DEBUG */
-		    simple_unlock(&runq->lock);
-		    return th;
-		}
-	    }
-	    panic("choose_pset_thread");
-	    /*NOTREACHED*/
-	}
-	simple_unlock(&runq->lock);
-
-	/*
-	 *	Nothing is runnable, so set this processor idle if it
-	 *	was running.  If it was in an assignment or shutdown,
-	 *	leave it alone.  Return its idle thread.
-	 */
-	_simple_lock(&pset->idle_lock);
-	if (myprocessor->state == PROCESSOR_RUNNING) {
-	    myprocessor->state = PROCESSOR_IDLE;
-	    /*
-	     *	XXX Until it goes away, put master on end of queue, others
-	     *	XXX on front so master gets used last.
-	     */
-	    if (myprocessor == master_processor) {
-		queue_enter_tail(&(pset->idle_queue), myprocessor,
-		    __builtin_offsetof(typeof(*myprocessor), processor_queue));
-	    }
-	    else {
-		queue_enter_head(&(pset->idle_queue), myprocessor,
-			__builtin_offsetof(typeof(*myprocessor), processor_queue));
-	    }
-
-	    pset->idle_count++;
-	}
-	_simple_unlock(&pset->idle_lock);
-
-	return myprocessor->idle_thread;
 }
 
 /*

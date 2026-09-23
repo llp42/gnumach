@@ -614,24 +614,6 @@ void fpinherit(thread_t parent_thread, thread_t thread)
 }
 
 /*
- * Coprocessor not present.
- */
-void
-fpnoextflt(void)
-{
-	/*
-	 * Enable FPU use.
-	 */
-ASSERT_IPL(SPL0);
-	clear_ts();
-
-	/*
-	 * Load this thread`s state into the FPU.
-	 */
-	fp_load(current_thread());
-}
-
-/*
  * FPU overran end of segment.
  * Re-initialize FPU.  Floating point state is not valid.
  */

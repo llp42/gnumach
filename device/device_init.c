@@ -24,6 +24,9 @@
  * the rights to redistribute these changes.
  */
 /*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
+/*
  *	Author: David B. Golub, Carnegie Mellon University
  *	Date: 	8/89
  *
@@ -44,20 +47,3 @@
 
 
 ipc_port_t	master_device_port;
-
-void
-device_service_create(void)
-{
-	master_device_port = ipc_port_alloc_kernel();
-	if (master_device_port == IP_NULL)
-	    panic("can't allocate master device port");
-
-	mach_device_init();
-	dev_lookup_init();
-	net_io_init();
-	device_pager_init();
-	chario_init();
-
-	(void) kernel_thread(kernel_task, "io_done", io_done_thread, 0);
-	(void) kernel_thread(kernel_task, "net", net_thread, 0);
-}

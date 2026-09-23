@@ -23,6 +23,9 @@
  * any improvements or extensions that they make and grant Carnegie Mellon
  * the rights to redistribute these changes.
  */
+/*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
 
 #include <mach/message.h>
 #include "cpu_number.h"
@@ -36,119 +39,6 @@
 #include <kern/ipc_sched.h>
 #include <machine/spl.h>	/* for splsched/splx */
 #include <machine/pmap.h>
-
-
-
-/*
- *	These functions really belong in kern/sched_prim.c.
- */
-
-/*
- *	Routine:	thread_go
- *	Purpose:
- *		Start a thread running.
- *	Conditions:
- *		IPC locks may be held.
- */
-
-void
-thread_go(
-	thread_t thread)
-{
-	int	state;
-	spl_t	s;
-
-	s = splsched();
-	_simple_lock(&(thread)->lock);
-
-	reset_timeout_check(&thread->timer);
-
-	state = thread->state;
-	switch (state & TH_SCHED_STATE) {
-
-	    case TH_WAIT | TH_SUSP | TH_UNINT:
-	    case TH_WAIT	   | TH_UNINT:
-	    case TH_WAIT:
-		/*
-		 *	Sleeping and not suspendable - put
-		 *	on run queue.
-		 */
-		thread->state = (state &~ TH_WAIT) | TH_RUN;
-		thread->wait_result = THREAD_AWAKENED;
-		thread_setrun(thread, TRUE);
-		break;
-
-	    case	  TH_WAIT | TH_SUSP:
-	    case TH_RUN | TH_WAIT:
-	    case TH_RUN | TH_WAIT | TH_SUSP:
-	    case TH_RUN | TH_WAIT	    | TH_UNINT:
-	    case TH_RUN | TH_WAIT | TH_SUSP | TH_UNINT:
-		/*
-		 *	Either already running, or suspended.
-		 */
-		thread->state = state & ~TH_WAIT;
-		thread->wait_result = THREAD_AWAKENED;
-		break;
-
-	    default:
-		/*
-		 *	Not waiting.
-		 */
-		break;
-	}
-
-	_simple_unlock(&(thread)->lock);
-	splx(s);
-}
-
-/*
- *	Routine:	thread_will_wait
- *	Purpose:
- *		Assert that the thread intends to block.
- */
-
-void
-thread_will_wait(
-	thread_t thread)
-{
-	spl_t	s;
-
-	s = splsched();
-	_simple_lock(&(thread)->lock);
-
-	thread->wait_result = -1;	/* for later assertions */
-	thread->state |= TH_WAIT;
-
-	_simple_unlock(&(thread)->lock);
-	splx(s);
-}
-
-/*
- *	Routine:	thread_will_wait_with_timeout
- *	Purpose:
- *		Assert that the thread intends to block,
- *		with a timeout.
- */
-
-void
-thread_will_wait_with_timeout(
-	thread_t thread,
-	mach_msg_timeout_t msecs)
-{
-	natural_t ticks = convert_ipc_timeout_to_ticks(msecs);
-	spl_t	s;
-
-	s = splsched();
-	_simple_lock(&(thread)->lock);
-
-	thread->wait_result = -1;	/* for later assertions */
-	thread->state |= TH_WAIT;
-
-	set_timeout(&thread->timer, ticks);
-
-	_simple_unlock(&(thread)->lock);
-	splx(s);
-}
 
 #if	MACH_HOST
 #define check_processor_set(thread)	\

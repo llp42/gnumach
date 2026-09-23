@@ -3,16 +3,18 @@
 //   Copyright (c) 1991,1990 Carnegie Mellon University.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! The processor control hook and the lock pause, which
-//! `i386/i386/mp_desc.c` used to define and `i386/i386/mp_desc.h` and
-//! `kern/lock.h` declare.
+//! The interrupt-IPI hook, the processor control hook and the lock
+//! pause, which `i386/i386/mp_desc.c` used to define and
+//! `i386/i386/mp_desc.h` and `kern/lock.h` declare.
 //!
-//! Both routines stand alone: [`cpu_control`] is the machine-dependent
-//! `processor_control` hook, which has no implementation and reports
-//! [`KernError::Failure`], and [`simple_lock_pause`] is the spin a lock
-//! retry loop takes when it loses an out-of-order acquisition.  The
-//! rest of `mp_desc.c` (the per-CPU descriptor tables and the AP
-//! bring-up) stays C.
+//! All three routines stand alone: [`interrupt_processor`] translates
+//! a kernel CPU number to its APIC logical destination bit and hands
+//! it to the C `smp_pmap_update()`, which sends the TLB-shootdown IPI;
+//! [`cpu_control`] is the machine-dependent `processor_control` hook,
+//! which has no implementation and reports [`KernError::Failure`]; and
+//! [`simple_lock_pause`] is the spin a lock retry loop takes when it
+//! loses an out-of-order acquisition.  The rest of `mp_desc.c` (the
+//! per-CPU descriptor tables and the AP bring-up) stays C.
 
 use crate::glue;
 use crate::kern::types::KernError;
@@ -36,6 +38,10 @@ static PAUSE_COUNT: AtomicU32 = AtomicU32::new(0);
 ///
 /// The increment is the delay, not state anyone reads.
 static PAUSE_DUMMY: AtomicU32 = AtomicU32::new(0);
+
+/// `APIC_LOGICAL_CPU_GROUPS` in <i386/apic.h>: the logical destination
+/// register has only eight mask bits, so it can name eight CPU groups.
+const APIC_LOGICAL_CPU_GROUPS: u32 = 8;
 
 /// Wait a bit for a lock another CPU holds in the opposite order,
 /// which `kern/lock.h` declares and `i386/i386/mp_desc.c` used to
@@ -87,4 +93,28 @@ pub unsafe extern "C" fn cpu_control(
         );
     }
     c_int::from(KernError::Failure)
+}
+
+/// The logical destination bit `APIC_LOGICAL_ID(cpu)` in <i386/apic.h>
+/// computes, `1u << ((cpu) % APIC_LOGICAL_CPU_GROUPS)`.
+///
+/// The callers index machine slots by a small non-negative CPU number,
+/// so taking the modulus in the unsigned domain, as
+/// `src/arch/i386/ast_check.rs` does, cannot lose a bit and cannot
+/// shift by more than the register has.
+fn logical_id(cpu: c_int) -> u32 {
+    let group = (cpu as u32) % APIC_LOGICAL_CPU_GROUPS;
+    1u32 << group
+}
+
+/// Interrupt processor `cpu` to make it flush its pmap.  The body of
+/// `interrupt_processor()` in `i386/i386/mp_desc.c`.
+///
+/// The C passes `APIC_LOGICAL_ID(cpu)` to `smp_pmap_update()`; the
+/// translation is the macro's `1u << (cpu % 8)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn interrupt_processor(cpu: c_int) {
+    // SAFETY: `smp_pmap_update()` is the real C IPI routine, and
+    // `logical_id` is the APIC destination bit the C macro computes.
+    unsafe { glue::smp_pmap_update(logical_id(cpu)) };
 }

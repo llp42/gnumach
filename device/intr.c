@@ -12,6 +12,10 @@
  * FOR ANY DAMAGES WHATSOEVER RESULTING FROM THE USE OF THIS SOFTWARE.
  */
 
+/*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
+
 #include <device/intr.h>
 #include <device/device_types.h>
 #include <device/device_port.h>
@@ -21,30 +25,6 @@
 #include <machine/irq.h>
 #include <ipc/ipc_space.h>
 #include <device/irq_status.h>
-
-/*ARGSUSED*/
-io_return_t irqgetstat(
-  dev_t        dev,
-  dev_flavor_t flavor,
-  dev_status_t data,			/* pointer to OUT array */
-  mach_msg_type_number_t *count)	/* OUT */
-{
-  io_return_t result = D_SUCCESS;
-
-  switch (flavor)
-    {
-      case IRQGETPICMODE:
-        *data = pic_mode;
-        *count = 1;
-        break;
-      default:
-        result = D_INVALID_OPERATION;
-        break;
-    }
-
-  return (result);
-}
-
 
 def_simple_lock_irq_data(static, intr_lock)
 

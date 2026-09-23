@@ -18,6 +18,10 @@ You should have received a copy of the GNU General Public License
 along with the software; see the file COPYING.  If not, write to
 the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
+/*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
+
 /* kmsg provides a stream interface.  */
 
 #include <sys/types.h>
@@ -192,24 +196,6 @@ kmsg_read_done (io_req_t ior)
   ds_read_done (ior);
   
   return TRUE;
-}
-
-io_return_t
-kmsggetstat (dev_t dev, dev_flavor_t flavor, dev_status_t data, mach_msg_type_number_t *count)
-{
-  switch (flavor)
-    {
-    case DEV_GET_SIZE:
-      data[DEV_GET_SIZE_DEVICE_SIZE] = 0;
-      data[DEV_GET_SIZE_RECORD_SIZE] = 1;
-      *count = DEV_GET_SIZE_COUNT;
-      break;
-
-    default:
-      return D_INVALID_OPERATION;
-    }
-
-  return D_SUCCESS;
 }
 
 /* Write to Kernel Message Buffer */

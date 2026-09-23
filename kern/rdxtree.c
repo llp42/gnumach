@@ -26,6 +26,9 @@
  * Upstream site with license notes :
  * http://git.sceen.net/rbraun/librbraun.git/
  */
+/*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
 
 #include <kern/macros.h>
 #include <kern/slab.h>
@@ -659,17 +662,6 @@ rdxtree_lookup_common(const struct rdxtree *tree, rdxtree_key_t key,
         return NULL;
 
     return get_slot ? (void *)&prev->entries[index] : node;
-}
-
-void *
-rdxtree_replace_slot(void **slot, void *ptr)
-{
-    void *old;
-
-
-    old = *slot;
-    llsync_assign_ptr(*slot, ptr);
-    return old;
 }
 
 static void *

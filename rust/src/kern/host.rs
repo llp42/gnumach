@@ -4,89 +4,108 @@
 //   University.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! The kernel version reports of `kern/host.c`, mirroring
-//! <mach/host_info.h>.
+//! The processor-set cores of `kern/host.c`, mirroring <kern/host.h>.
 //!
-//! Both are MIG routines of <mach/mach_host.defs>, and both answer
-//! with the string `version.c` builds from the package name and
-//! version.  [`host_kernel_version`] is the deprecated spelling and
-//! exists on i386 only, as the `.defs` gates it.
+//! [`processor_set_priv()`] hands out the control set behind a name
+//! right, and [`processor_ports()`] lists a set's processors as name
+//! ports.
+//!
+//! The `extern "C"` entries MIG calls are in
+//! [`crate::ffi::mach_host`]; this module is the cores behind them.
 //!
 //! The rest of `kern/host.c` stays C: it reads `struct host`,
-//! `struct machine_info` and the NCPUS-sized load averages, none of
-//! which Rust mirrors yet.
+//! `struct machine_info` and the NCPUS-sized `machine_slot` and load
+//! averages, none of which Rust mirrors yet.
 
+use crate::arch::types::VmOffset;
 use crate::glue;
+use crate::kern::processor::{Processor, ProcessorSet};
+use crate::kern::queue::{queue_end, queue_first, queue_next};
 use crate::kern::types::KernError;
-use core::ffi::{CStr, c_char, c_int, c_void};
-use core::slice;
+use core::ffi::{c_uint, c_void};
+use core::ptr;
+use core::ptr::NonNull;
 
-/// `KERNEL_VERSION_MAX` of <mach/host_info.h>: the bytes a
-/// `kernel_version_t` holds.
-pub const KERNEL_VERSION_MAX: usize = 512;
-
-/// Fill `out` with `version`, truncating and zero-filling the rest
-/// exactly as the C `strncpy()` over a `kernel_version_t` did.
-fn copy_version(out: &mut [u8], version: &CStr) {
-    let bytes = version.to_bytes();
-    let copied = bytes.len().min(out.len());
-    let (head, tail) = out.split_at_mut(copied);
-    head.copy_from_slice(&bytes[..copied]);
-    tail.fill(0);
+/// `struct host` of <kern/host.h>, the host object MIG hands the
+/// host routines.
+#[repr(C)]
+pub struct Host {
+    pub host_self: *mut c_void,
+    pub host_priv_self: *mut c_void,
 }
 
-/// Writes the kernel version string into `out_version`.
-/// `host_get_kernel_version()` of kern/host.c.
+/// The body of `host_processor_set_priv()` in kern/host.c: a live host
+/// and a live name set give back the same set with one more reference.
+pub(crate) fn processor_set_priv(
+    host: Option<NonNull<Host>>,
+    name: Option<&mut ProcessorSet>,
+) -> Result<NonNull<ProcessorSet>, KernError> {
+    match (host, name) {
+        (Some(_), Some(set)) => {
+            set.reference();
+            Ok(NonNull::from(set))
+        }
+        _ => Err(KernError::InvalidArgument),
+    }
+}
+
+/// The body of `processor_set_processors()` in kern/host.c: allocate
+/// the array MIG sends back, walk the set's processor queue and convert
+/// each processor to its name port.
 ///
-/// Answers `KERN_INVALID_ARGUMENT` for a null host and
-/// `KERN_SUCCESS` otherwise, as the C did.
+/// The slots are `mach_port_t`, which on the kernel side is the
+/// pointer-sized `vm_offset_t`, so each holds one port address.
 ///
-/// # Safety
-///
-/// `host` must be null or point at a live `struct host`, and
-/// `out_version` must be valid for writes of [`KERNEL_VERSION_MAX`]
-/// bytes.  MIG's `_Xhost_get_kernel_version` passes the reply
-/// message's `kernel_version_t` field, which is exactly that.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn host_get_kernel_version(
-    host: *mut c_void,
-    out_version: *mut c_char,
-) -> c_int {
-    if host.is_null() {
-        return c_int::from(KernError::InvalidArgument);
+/// The C's `queue_iterate` walks to the head and writes one slot per
+/// processor; the count bounds the writes here, so a queue longer than
+/// the count cannot run past the allocation.
+pub(crate) fn processor_ports(
+    pset: &mut ProcessorSet,
+) -> Result<(NonNull<VmOffset>, c_uint), KernError> {
+    pset.lock.lock();
+
+    // The C read the `int` count into an `unsigned int`; the field is
+    // maintained as the number of processors, so it is small and never
+    // negative.
+    let count = pset.processor_count as c_uint;
+    // A `c_uint` count fits a `VmSize` on both supported targets, so
+    // the widening cannot lose a bit.
+    let count_slots = count as usize;
+    let size = count_slots * size_of::<VmOffset>();
+
+    // SAFETY: `kalloc_init()` ran during the boot this MIG entry
+    // follows, and the size is the C expression's.
+    let base = unsafe { glue::kalloc(size) };
+    // A zero count reaches `kalloc(0)`, which fails exactly as it did
+    // for the C routine.  The allocation is `count_slots` pointer-sized
+    // slots and nothing else can see it yet.
+    let Some(ports) =
+        NonNull::new(ptr::with_exposed_provenance_mut::<*mut c_void>(base))
+    else {
+        pset.lock.unlock();
+        return Err(KernError::ResourceShortage);
+    };
+    let list = ptr::addr_of_mut!(pset.processors);
+    // SAFETY: the set lock is held, so the queue links are stable and
+    // every entry is a live processor.
+    let mut entry = unsafe { queue_first(list) };
+    let mut i = 0;
+    while i < count_slots && unsafe { queue_end(list, entry) } == 0 {
+        let processor = entry.cast::<Processor>();
+        // SAFETY: `entry` is a live queue member, so `processor` is a
+        // live processor whose name port `ipc_processor_init()` built,
+        // and `i` is below `count`, inside the allocation.
+        unsafe {
+            ports
+                .add(i)
+                .write(glue::convert_processor_name_to_port(processor));
+        }
+        i += 1;
+        // SAFETY: `processor` is a live member of the queue.
+        entry =
+            unsafe { queue_next(ptr::addr_of_mut!((*processor).processors)) };
     }
 
-    // SAFETY: the caller promises `KERNEL_VERSION_MAX` writable bytes
-    // at `out_version`, and `version` below is a distinct object.
-    let out = unsafe {
-        slice::from_raw_parts_mut(out_version.cast::<u8>(), KERNEL_VERSION_MAX)
-    };
-    // SAFETY: `version` is the NUL-terminated string constant that
-    // version.c defines, so the walk to its terminator stays inside
-    // it.
-    let version = unsafe { CStr::from_ptr(&raw const glue::version) };
-
-    copy_version(out, version);
-
-    0
-}
-
-/// Writes the kernel version string into `out_version`.
-/// `host_kernel_version()` of kern/host.c.
-///
-/// The deprecated spelling of [`host_get_kernel_version`], which it
-/// forwards to unchanged.  <mach/mach_host.defs> declares the routine
-/// only for `__i386__`, so the x86_64 kernel does not define it.
-///
-/// # Safety
-///
-/// The same contract as [`host_get_kernel_version`].
-#[cfg(target_arch = "x86")]
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn host_kernel_version(
-    host: *mut c_void,
-    out_version: *mut c_char,
-) -> c_int {
-    // SAFETY: the caller's contract is the one this passes on.
-    unsafe { host_get_kernel_version(host, out_version) }
+    pset.lock.unlock();
+    Ok((ports.cast::<VmOffset>(), count))
 }

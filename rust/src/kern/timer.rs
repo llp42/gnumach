@@ -8,12 +8,13 @@
 //!
 //! [`Timer`] splits microseconds from seconds, and [`TimerSave`] holds
 //! a saved reading for the delta macros to subtract.  The init,
-//! normalize, read and delta routines are Rust; `init_timers`,
-//! `thread_read_times`, `db_timer_grab`, `nonblocking_timer_read` and
+//! normalize, read, delta and thread-time routines are Rust;
+//! `init_timers`, `db_timer_grab`, `nonblocking_timer_read` and
 //! `db_thread_read_times` stay C in `kern/timer.c`.  `struct thread`
 //! embeds two of each record, so their layouts are pinned here.
 
 use crate::glue::time_value::TimeValue64;
+use crate::kern::thread::Thread;
 use core::ffi::c_uint;
 use core::mem::offset_of;
 use core::sync::atomic::{Ordering, fence};
@@ -151,6 +152,12 @@ fn read(timer: &Timer) -> TimeValue64 {
     }
 }
 
+/// Read a thread's user and system times, as `thread_read_times()` of
+/// <kern/timer.c> did.
+fn read_times(thread: &Thread) -> (TimeValue64, TimeValue64) {
+    (read(&thread.user_timer), read(&thread.system_timer))
+}
+
 /// Initialize a single timer.  `timer_init()` in C.
 ///
 /// # Safety
@@ -207,6 +214,29 @@ pub unsafe extern "C" fn timer_read(timer: *mut Timer, tv: *mut TimeValue64) {
     let value = read(unsafe { &*timer });
     // SAFETY: the caller promises `tv` is valid for a write.
     unsafe { tv.write(value) };
+}
+
+/// Read the user and system times a thread has accumulated.
+/// `thread_read_times()` in C.
+///
+/// # Safety
+///
+/// `thread` must point at a live [`Thread`], and both output pointers
+/// must be valid for writes and must not overlap `thread`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn thread_read_times(
+    thread: *mut Thread,
+    user_time_p: *mut TimeValue64,
+    system_time_p: *mut TimeValue64,
+) {
+    // SAFETY: the caller promises a live thread.
+    let (user, system) = read_times(unsafe { &*thread });
+    // SAFETY: the caller promises both pointers are valid for writes,
+    // and neither overlaps the thread the reads just finished.
+    unsafe {
+        user_time_p.write(user);
+        system_time_p.write(system);
+    }
 }
 
 // `struct timer` is four `unsigned int`s and `struct timer_save` two,

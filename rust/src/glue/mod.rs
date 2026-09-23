@@ -18,11 +18,13 @@ pub mod time_value;
 
 use crate::arch::types::{VmOffset, VmSize};
 use crate::kern::lock::SimpleLock;
+use crate::kern::mach_clock::Timeout;
 use crate::kern::machine::MachineSlot;
 use crate::kern::processor::{Processor, ProcessorSet};
 use crate::kern::queue::QueueEntry;
+use crate::kern::sched::RunQueue;
 use crate::kern::sched_prim::NUMQUEUES;
-use crate::kern::thread::Thread;
+use crate::kern::thread::{Continuation, StackResume, Thread};
 use crate::vm::types::{Pmap, VmObject, VmPage, VmProt};
 use core::ffi::{c_char, c_int, c_long, c_short, c_uint, c_ulong, c_void};
 use core::mem::offset_of;
@@ -82,6 +84,10 @@ unsafe extern "C" {
     // <kern/printf.h>
     pub fn printf(fmt: *const c_char, ...) -> c_int;
 
+    // <device/cons.h>: the polled console character `safe_gets()`
+    // reads.  `device/cons.c` defines it.
+    pub fn cngetc() -> c_int;
+
     // <kern/mach_clock.h>
     pub fn timeout(
         fcn: Option<unsafe extern "C" fn(*mut c_void)>,
@@ -93,8 +99,43 @@ unsafe extern "C" {
     // `TimeValue64` mirror.
     pub static mut time: time_value::TimeValue64;
 
+    // <kern/mach_clock.c>: the difference between the boot-time clock
+    // and the real-time clock, which `clock_boottime_update()`
+    // maintains and `record_time_stamp()` adds back.  Rust reads it
+    // where the C `read_time_stamp()` did.
+    pub static mut clock_boottime_offset: time_value::TimeValue64;
+
+    // <kern/mach_clock.c>: the gradual-adjustment state, read and
+    // written under `splclock()` by the clock interrupt and
+    // `host_adjust_time64()`.  The two C `unsigned` globals are the
+    // `c_uint` pair.
+    pub static mut timedelta: c_int;
+    pub static mut tickdelta: c_int;
+    pub static mut tickadj: c_uint;
+    pub static mut bigadj: c_uint;
+
+    // <kern/mach_host.server.h>: the 64-bit wall-clock setter that
+    // `host_set_time()` forwards to; it stays C with the rest of the
+    // host clock entries.
+    pub fn host_set_time64(
+        host: *mut c_void,
+        new_time: time_value::TimeValue64,
+    ) -> c_int;
+
+    // <kern/mach_clock.c>: the page the user side reads the clock
+    // through, which `update_mapped_time()` writes.  Rust reads only
+    // the pointer, never the page it names; `timemmap()` in
+    // rust/src/arch/i386/model_dep.rs turns the address into a page
+    // frame, and the `mapped_time_value_t` mirror gives the pointer
+    // its type.
+    pub static mtime: *mut time_value::MappedTimeValue;
+
     // <kern/machine.c>
     pub fn cpu_shutdown();
+    // <kern/machine.h>: the action thread's body.  It drains the
+    // action queue in a loop and never returns, because its wait
+    // re-enters the routine itself.
+    pub fn action_thread_continue() -> !;
 
     // <i386/i386/model_dep.h>: halt every CPU, or reboot when `reboot`
     // is nonzero.  It is defined in i386/i386at/model_dep.c and marked
@@ -112,33 +153,58 @@ unsafe extern "C" {
     // The C half of the scheduler still owns these; the Rust port
     // calls them.
     pub fn update_priority(thread: *mut Thread);
-    pub fn stack_free(thread: *mut Thread);
-    // <kern/sched_prim.h>: allocate a kernel stack for a swapped-out
-    // thread and resume it through the given continuation.  The
-    // continuation is `thread_continue` below, a C symbol the swapin
-    // path passes by address.
-    pub fn stack_alloc(
+    // <kern/sched.h>: take `th` off its run queue and answer the queue
+    // it was on, or the C `RUN_QUEUE_NULL` when it was on none.
+    // `kern/sched_prim.c` still defines it; `set_pri()` calls it.
+    pub fn rem_runq(th: *mut Thread) -> *mut RunQueue;
+    // <kern/sched_prim.h>: the machine-dependent return to user mode
+    // after a kernel call; it never returns.
+    pub fn thread_exception_return() -> !;
+    // <i386/i386/pcb.h>: attach a stack to a thread, installing the
+    // continuation a swapped-in thread resumes through.  The stack
+    // allocation and the free list are Rust now, in
+    // rust/src/kern/thread.rs.
+    pub fn stack_attach(
         thread: *mut Thread,
-        resume: Option<unsafe extern "C" fn(*mut Thread)>,
-    ) -> c_int;
-    pub fn thread_continue(thread: *mut Thread);
+        stack: VmOffset,
+        continuation: StackResume,
+    );
+    // <kern/thread.h>: fold the usage a finalized stack recorded into
+    // the global maximum.  The `stack_init()` half is Rust now, in
+    // rust/src/kern/thread.rs; both do nothing unless
+    // `stack_check_usage` is set.
+    pub fn stack_finalize(stack: VmOffset);
 
-    // <kern/syscall_subr.h>: the priority-depression timeout, stored
-    // in `thread.depress_timer.fcn`.
-    pub fn thread_depress_timeout(thread: *mut c_void);
-
-    // <kern/thread.h>: the scheduling-policy setters the processor-set
-    // updates call on each member thread.  They stay C for now, and
-    // the port calls them exactly as kern/processor.c did.
-    pub fn thread_policy(
+    // <i386/i386/pcb.h>: write the syscall return register, and apply a
+    // `thread_state_t` array of `count` `natural_t` words to a thread's
+    // saved machine state.  `thread_set_self_state()` is their trap
+    // caller.
+    pub fn thread_set_syscall_return(thread: *mut Thread, retval: c_int);
+    pub fn thread_setstatus(
         thread: *mut Thread,
-        policy: c_int,
-        data: c_int,
+        flavor: c_int,
+        tstate: *mut c_uint,
+        count: c_uint,
     ) -> c_int;
-    pub fn thread_max_priority(
+    // <i386/i386/pcb.h>: read a thread's saved machine state into a
+    // `thread_state_t` array of `*count` `natural_t` words, narrowing
+    // the count to the state the flavor fills.  The Rust
+    // `thread_get_state()` calls it, as the setter above serves the
+    // Rust `thread_set_state()`.
+    pub fn thread_getstatus(
         thread: *mut Thread,
-        pset: *mut ProcessorSet,
-        max_priority: c_int,
+        flavor: c_int,
+        tstate: *mut c_uint,
+        count: *mut c_uint,
+    ) -> c_int;
+
+    // <i386/i386/locore.h>: copy `cn` bytes from a user address to a
+    // kernel one, returning nonzero when the copy faults.  The C
+    // `size_t` is `usize` on both targets.
+    pub fn copyin(
+        userbuf: *const c_void,
+        kernelbuf: *mut c_void,
+        cn: usize,
     ) -> c_int;
 
     // <kern/thread.h> and <kern/task.h>: the processor-set assignment
@@ -155,22 +221,75 @@ unsafe extern "C" {
         assign_threads: c_int,
     ) -> c_int;
 
-    // <kern/thread.h>: reserve the thread's current kernel stack, so
-    // `stack_alloc_try()` on it always succeeds.
-    pub fn stack_privilege(thread: *mut Thread);
+    // <kern/task.c>: the creation and teardown the task entries call,
+    // and the notification port `task_create_kernel()` reads when a
+    // task is created.  `struct task` is opaque here: it embeds an
+    // `ipc_space`, a `vm_map` and the emulation vector, so only its
+    // address is named.
+    pub fn task_create_kernel(
+        parent_task: *mut c_void,
+        inherit_memory: c_int,
+        child_task: *mut *mut c_void,
+    ) -> c_int;
+    pub fn task_terminate(task: *mut c_void) -> c_int;
+    pub fn task_deallocate(task: *mut c_void);
+    pub static mut new_task_notification: *mut c_void;
+
+    // <kern/thread.h>: halt the current thread, resuming it through
+    // `continuation` if it is released again.  The exception path
+    // passes `thread_exception_return`, whose `!` makes it a
+    // continuation that never comes back.
+    pub fn thread_halt_self(continuation: Continuation);
+
+    // <kern/thread.h>: the thread-lifecycle entries kern/thread.c still
+    // defines, which the Rust `thread_force_terminate()` and
+    // `thread_abort()` call.
+    pub fn thread_freeze(thread: *mut Thread);
+    pub fn thread_doassign(
+        thread: *mut Thread,
+        new_pset: *mut ProcessorSet,
+        release_freeze: c_int,
+    );
+    pub fn thread_halt(thread: *mut Thread, must_halt: c_int) -> c_int;
+    pub fn thread_deallocate(thread: *mut Thread);
+    // <kern/thread.h>: wait for a thread to reach the stopped state a
+    // `thread_hold()` arranged.  kern/thread.c defines it; the Rust
+    // `thread_get_state()` and `thread_set_state()` call it, and
+    // `must_halt` is the C boolean.
+    pub fn thread_dowait(thread: *mut Thread, must_halt: c_int) -> c_int;
+
+    // <kern/ipc_tt.h>: shut down a thread's IPC state; it stays C with
+    // the rest of kern/ipc_tt.c for now.
+    pub fn ipc_thread_terminate(thread: *mut Thread);
+
+    // <kern/eventcount.h>: break a thread out of an event-count wait;
+    // kern/eventcount.c still defines it.
+    pub fn evc_notify_abort(thread: *mut Thread);
 
     // <kern/mach_clock.h>: cancel a wait timeout, under the thread
     // lock.  The handle is opaque here; its layout lives in
     // rust/src/kern/mach_clock.rs, which is GPL-derived.
     pub fn reset_timeout(t: *mut c_void) -> c_int;
 
+    // <kern/mach_clock.h>: arm a private timer element to fire after
+    // `interval` ticks.  The caller holds the lock protecting `t`.
+    pub fn set_timeout(t: *mut Timeout, interval: c_uint);
+
     // <i386/i386/smp.h>: the remote-AST IPI that
-    // rust/src/arch/i386/ast_check.rs's `cause_ast_check()` sends.
+    // rust/src/arch/i386/ast_check.rs's `cause_ast_check()` sends, and
+    // the remote pmap-TLB flush IPI that
+    // rust/src/arch/i386/mp_desc.rs's `interrupt_processor()` sends.
     pub fn smp_remote_ast(logical_id: c_uint);
+    pub fn smp_pmap_update(logical_id: c_uint);
 
     // <kern/sched_prim.c>: `unsigned sched_tick`, the second counter
-    // priorities age against.
+    // priorities age against, and the private timer
+    // `recompute_priorities()` re-arms plus the scheduler thread it
+    // wakes.  `sched_init()` still writes the timer's function field,
+    // so the globals stay C.
     pub static mut sched_tick: c_uint;
+    pub static mut recompute_priorities_timer: Timeout;
+    pub static mut sched_thread_id: *mut Thread;
 
     // <kern/sched_prim.c>: the event hash table.  `wait_queue_init()`
     // stays C and builds these; the Rust port hashes exactly as
@@ -188,10 +307,29 @@ unsafe extern "C" {
     pub static mut reaper_lock: SimpleLock;
     pub static mut stack_lock_data: SimpleLock;
     pub static mut stack_usage_lock: SimpleLock;
+    // <kern/thread.c>: the free list of kernel stacks, its length and
+    // the patchable limit `stack_collect()` trims it to.  Reached only
+    // at splsched, under `stack_lock_data`; rust/src/kern/thread.rs
+    // moves the entries.
+    pub static mut stack_free_list: VmOffset;
+    pub static mut stack_free_count: c_uint;
+    pub static mut stack_free_limit: c_uint;
+    // <kern/thread.c>: nonzero when a fresh kernel stack is filled
+    // with the usage marker.  A debugger may set it, so the Rust
+    // `stack_init()` reads the mutable global.
+    pub static mut stack_check_usage: c_int;
     // <kern/sched_prim.h>: where a fresh thread starts execution.
     pub fn thread_bootstrap_return();
     // <i386/i386/pcb.h>
     pub fn pcb_module_init();
+    // <i386/i386/pcb.h>: the two halves of `load_context()`, which
+    // rust/src/arch/i386/pcb.rs now defines.  `switch_ktss` loads the
+    // thread's TSS and its per-thread GDT entries; `Load_context` is
+    // the assembly that switches stacks and resumes the thread, so it
+    // never returns.  `struct pcb` has no Rust mirror, so the pcb is
+    // passed as the opaque pointer `Thread.pcb` stores.
+    pub fn switch_ktss(pcb: *mut c_void);
+    pub fn Load_context(new: *mut Thread) -> !;
 
     // <kern/sched_prim.c>: the shim for `processor_set.sched_load`,
     // whose offset depends on the configure-time NCPUS.  It dies when
@@ -252,12 +390,6 @@ unsafe extern "C" {
     // has no Rust mirror, so only the address is named.
     pub static mut realhost: c_void;
 
-    // <version.c>: `const char version[]`, the package name and
-    // version the build stamps in.  The array has no size in C, so
-    // this names its first byte and the Rust side reads from there to
-    // the terminator.
-    pub static version: c_char;
-
     // <kern/machine.h>: the machine-dependent shutdown of a processor,
     // still C on both architectures.
     pub fn processor_shutdown(processor: *mut Processor) -> c_int;
@@ -268,7 +400,44 @@ unsafe extern "C" {
     pub fn device_read_alloc(ior: *mut c_void, size: usize) -> c_int;
     pub fn ds_read_done(ior: *mut c_void) -> c_int;
 
+    // <device/ds_routines.h>, <device/net_io.h> and <device/chario.h>:
+    // the device layer's initializers, which the Rust
+    // `device_service_create()` runs in the C order.  `kernel_thread`
+    // is <kern/thread.h>, and both start routines take no arguments and
+    // never return.  `ds_device_open` is the open handler that the Rust
+    // `ds_device_open_new` forwards to, and it stays C.
+    pub fn mach_device_init();
+    pub fn dev_lookup_init();
+    pub fn net_io_init();
+    pub fn device_pager_init();
+    pub fn chario_init();
+    pub fn io_done_thread();
+    pub fn net_thread();
+    pub fn kernel_thread(
+        task: *mut c_void,
+        name: *const c_char,
+        start: Option<unsafe extern "C" fn()>,
+        arg: *mut c_void,
+    ) -> *mut c_void;
+    pub fn ds_device_open(
+        open_port: *mut c_void,
+        reply_port: *mut c_void,
+        reply_port_type: c_uint,
+        mode: c_uint,
+        name: *const c_char,
+        devp: *mut *mut c_void,
+    ) -> c_int;
+
+    // <device/device_port.h> and <device/device_init.c>: the master
+    // device port, written once by rust/src/device/device_init.rs and
+    // read by the C open path.  <kern/task.h> and <ipc/ipc_space.h>:
+    // the kernel's task and IPC space, read by that same creation.
+    pub static mut master_device_port: *mut c_void;
+    pub static kernel_task: *mut c_void;
+    pub static ipc_space_kernel: *mut c_void;
+
     // <machine/spl.h>: asm functions, `SPLKD` is a macro over `spltty`.
+    pub fn spl0() -> c_int;
     pub fn splhi() -> c_int;
     pub fn splsched() -> c_int;
     pub fn spltty() -> c_int;
@@ -308,7 +477,6 @@ unsafe extern "C" {
         count: u32,
     ) -> c_int;
     pub fn tty_portdeath(tp: *mut c_void, port: *mut c_void) -> c_int;
-    pub fn tty_queue_completion(queue: *mut c_void);
 
     // <device/tty.h>: the line-discipline switch and the output
     // low-water marks, both built by device/chario.c's initializers
@@ -320,6 +488,15 @@ unsafe extern "C" {
     // <kern/mach_clock.h> and <i386/i386at/model_dep.c>
     pub static hz: c_int;
     pub static rebootflag: c_int;
+    // <kern/mach_clock.h>: the microseconds per tick, initialized from
+    // `MICROSECONDS_IN_ONE_SECOND / HZ` and never written afterwards;
+    // the Rust `thread_policy()` reads it.
+    pub static tick: c_int;
+
+    // <i386/i386/irq.h>: the APIC-or-PIC selection, read by
+    // rust/src/device/intr.rs.  `i386/i386at/ioapic.c` defines it in
+    // the APIC build and `i386/i386/pic.c` in the PIC build.
+    pub static pic_mode: c_int;
 
     // Shims for `mask_irq'/'unmask_irq' (static inline under APIC) and
     // for the NINTR-sized `ivect'/`iunit' arrays: see i386/i386/irq.c.
@@ -337,8 +514,28 @@ unsafe extern "C" {
     pub fn com_base_addr(unit: c_int) -> VmOffset;
     pub fn com_irq(unit: c_int) -> c_int;
 
+    // <i386/i386/apic.h>: the local-APIC page `apic_lapic_init()`
+    // publishes, the APIC-ID-to-kernel-ID table, and the mask
+    // `fix_apic_id_mask()` settles at boot.  `struct ApicLocalUnit` has
+    // no Rust mirror, so only the page's address is named here.
+    pub static mut lapic: *mut c_void;
+    pub static mut cpu_id_lut: [c_int; 256];
+    pub static mut apic_id_mask: u8;
+
+    // i386/i386at/acpi_parse_apic.c and <i386/i386/apic.h>: the mapped
+    // HPET register window, which ACPI sets up, and the period
+    // `hpet_init()` derives from it.
+    pub static mut hpet_addr: *mut u32;
+    pub static mut hpet_period_nsec: u32;
+
     // <i386at/biosmem.h>, used by the /dev/mem mmap hook.
     pub fn biosmem_addr_available(addr: VmOffset) -> c_int;
+
+    // <i386at/biosmem.h>: allocate contiguous physical pages during
+    // bootstrap, for the page tables and the early copies.  The C
+    // parameter is an `unsigned int` and the result an
+    // `unsigned long`, which the two `core::ffi` types mirror.
+    pub fn biosmem_bootalloc(nr_pages: c_uint) -> c_ulong;
 
     // <kern/slab.h>.  `kmem_cache_alloc` returns the object address as
     // the C code does; the caller turns it into a pointer.
@@ -361,6 +558,11 @@ unsafe extern "C" {
     // address is named; this declaration dies when kern/slab.c moves.
     pub static mut ifps_cache: c_void;
 
+    // <i386/i386/fpu.h>: load a thread's saved state into the FPU.
+    // `fp_load()` stays C with the rest of the FPU state handling, and
+    // `fpnoextflt()` in rust/src/arch/i386/fpu.rs calls it.
+    pub fn fp_load(thread: *mut Thread);
+
     // <i386/i386/machine_task.c>: the cache of I/O permission bitmaps
     // that rust/src/arch/i386/machine_task.rs's
     // `machine_task_module_init()` builds and that the rest of that C
@@ -379,6 +581,46 @@ unsafe extern "C" {
     pub fn ipc_port_copy_send(port: *mut c_void) -> *mut c_void;
     pub fn ipc_port_release_send(port: *mut c_void);
 
+    // <ipc/ipc_port.h>: the second release and the send-once
+    // notification `ipc_object_destroy` dispatches to, plus the port
+    // initializer the allocators call with the object the C side
+    // returns to Rust.  Ports and spaces stay opaque.
+    pub fn ipc_port_release_receive(port: *mut c_void);
+    pub fn ipc_port_init(port: *mut c_void, space: *mut c_void, name: c_uint);
+    // <ipc/ipc_notify.h>.
+    pub fn ipc_notify_send_once(port: *mut c_void);
+
+    // <kern/ipc_host.h>: the processor-to-name-port conversion behind
+    // `processor_set_processors()`.  The routine stays C with the rest
+    // of the file's conversions, which read `struct ipc_port` fields.
+    pub fn convert_processor_name_to_port(
+        processor: *mut Processor,
+    ) -> *mut c_void;
+
+    // <kern/ipc_kobject.h>: bind a special port to the kernel object it
+    // represents.  `ipc_kobject_t` is a `vm_offset_t`, so the object is
+    // passed as its address.
+    pub fn ipc_kobject_set(
+        port: *mut c_void,
+        kobject: VmOffset,
+        type_: c_uint,
+    );
+
+    // <ipc/ipc_port.h>: the special-port allocator and deallocator
+    // behind the `ipc_port_alloc_kernel()` and
+    // `ipc_port_dealloc_kernel()` macros, which cannot cross FFI.  The
+    // space is opaque here, as the port operations above spell it.
+    pub fn ipc_port_alloc_special(space: *mut c_void) -> *mut c_void;
+    pub fn ipc_port_dealloc_special(port: *mut c_void, space: *mut c_void);
+
+    // <ipc/ipc_space.h>: the reply space `ipc_init()` builds, which the
+    // `ipc_port_alloc_reply()`/`ipc_port_dealloc_reply()` macros name.
+    pub static ipc_space_reply: *mut c_void;
+
+    // <kern/ipc_tt.h>: allocate a reply port in the current task's
+    // space, or `MACH_PORT_NULL` when it fails.
+    pub fn mach_reply_port() -> c_uint;
+
     // <ipc/ipc_object.h>: the rights operations behind the three
     // mach_port server routines.  `ipc_object_copyin_type` is Rust now
     // and is called directly; these three stay C.
@@ -386,6 +628,27 @@ unsafe extern "C" {
         space: *mut c_void,
         old_name: c_uint,
         new_name: c_uint,
+    ) -> c_int;
+
+    // <ipc/ipc_object.h>: the object allocators behind `ipc_port_alloc`
+    // and `ipc_port_alloc_name`.  `otype` is the `ipc_object_type_t`
+    // the caller picks and `type_` the `mach_port_type_t` it wants the
+    // entry to carry; both are `unsigned int` in the C.
+    pub fn ipc_object_alloc(
+        space: *mut c_void,
+        otype: c_uint,
+        type_: c_uint,
+        urefs: c_uint,
+        namep: *mut c_uint,
+        objectp: *mut *mut c_void,
+    ) -> c_int;
+    pub fn ipc_object_alloc_name(
+        space: *mut c_void,
+        otype: c_uint,
+        type_: c_uint,
+        urefs: c_uint,
+        name: c_uint,
+        objectp: *mut *mut c_void,
     ) -> c_int;
     pub fn ipc_object_copyout_name(
         space: *mut c_void,
@@ -411,6 +674,22 @@ unsafe extern "C" {
         right: c_uint,
         objectp: *mut *mut c_void,
     ) -> c_int;
+
+    // <vm/vm_kern.h> and <ipc/ipc_init.c>: the IPC kernel submap the
+    // C allocation routines carve out of `kernel_map`, and the host
+    // bootstrap `ipc_init()` runs after it.  `ipc_kernel_map` and
+    // `kernel_map` are opaque addresses, and `kmem_submap` takes its
+    // bounds back through two out-parameters, exactly as the C does.
+    pub static mut ipc_kernel_map: *mut c_void;
+    pub static ipc_kernel_map_size: VmSize;
+    pub fn kmem_submap(
+        map: *mut c_void,
+        parent: *mut c_void,
+        minp: *mut VmOffset,
+        maxp: *mut VmOffset,
+        size: VmSize,
+    );
+    pub fn ipc_host_init();
 
     // <ipc/ipc_port.h>: the two notification registrations behind
     // `mach_port_request_notification()`.  Both consume the port lock
@@ -461,6 +740,17 @@ unsafe extern "C" {
     // <vm/pmap.h> and <i386/intel/pmap.h>.
     pub fn pmap_destroy(pmap: *mut Pmap);
     pub static kernel_pmap: *mut Pmap;
+    // <i386/intel/pmap.h>: the page-table-entry lookup the
+    // `kvtophys()` port in rust/src/arch/i386/phys.rs walks.  It
+    // returns null when the address has no pte, and the entry it
+    // points at is a `phys_addr_t`, which `VmOffset` mirrors.
+    pub fn pmap_pte(pmap: *mut Pmap, addr: VmOffset) -> *mut VmOffset;
+    // <vm/pmap.h>: the virtual-to-physical lookup the `/dev/time` mmap
+    // hook uses on the mapped time page.  The C's `phys_addr_t` is
+    // `unsigned long` in both configured builds, which `VmOffset`
+    // mirrors; the i386 `--enable-pae` configuration widens it to
+    // 64 bits and is a known gap.
+    pub fn pmap_extract(pmap: *mut Pmap, address: VmOffset) -> VmOffset;
 
     // <vm/vm_page.h>.  `VM_PAGE_WAIT` is a macro over `vm_page_wait`.
     pub fn vm_page_mem_size() -> VmSize;
@@ -478,19 +768,15 @@ unsafe extern "C" {
     pub fn vm_page_wire(page: *mut VmPage);
     pub fn vm_page_activate(page: *mut VmPage);
 
-    // Shims in vm/vm_map_glue.c: the thread privilege bump the map
-    // lock performs through `current_thread()`, and the machine-dependent
-    // `pmap_attribute` macro.  Both die when their owners move.
-    pub fn vm_map_glue_privilege_inc();
-    pub fn vm_map_glue_privilege_dec();
-    pub fn vm_map_glue_pmap_attribute(
-        pmap: *mut Pmap,
-        address: VmOffset,
-        size: VmSize,
-        attribute: c_uint,
-        value: *mut c_int,
-    ) -> c_int;
-    pub fn vm_map_glue_thread_wakeup(event: *mut c_void);
+    // <vm/vm_page.h>: the page queue lock and the real
+    // `vm_page_free`, which the C `VM_PAGE_FREE` macro wraps as
+    // lock, free, unlock.
+    pub static mut vm_page_queue_lock: SimpleLock;
+    pub fn vm_page_free(page: *mut VmPage);
+
+    // Shims in vm/vm_map_glue.c: the object and page fields the
+    // map's C edges still read.  They die when `struct vm_object`
+    // and `struct vm_page` move.
     pub fn vm_map_glue_object_lock(object: *mut VmObject);
     pub fn vm_map_glue_object_unlock(object: *mut VmObject);
     pub fn vm_map_glue_object_can_release(object: *mut VmObject) -> c_int;
@@ -518,7 +804,6 @@ unsafe extern "C" {
     pub fn vm_map_glue_page_is_error(page: *mut VmPage) -> c_int;
     pub fn vm_map_glue_page_is_precious(page: *mut VmPage) -> c_int;
     pub fn vm_map_glue_page_object(page: *mut VmPage) -> *mut VmObject;
-    pub fn vm_map_glue_page_free(page: *mut VmPage);
     pub fn vm_map_glue_page_steal(page: *mut VmPage);
     pub fn vm_map_glue_page_protect(page: *mut VmPage, protection: c_int);
     pub fn vm_map_glue_page_set_busy(page: *mut VmPage);
@@ -528,8 +813,6 @@ unsafe extern "C" {
     pub fn vm_map_glue_page_activate_if_idle(page: *mut VmPage);
     pub fn vm_map_glue_page_wire_count(page: *mut VmPage) -> c_int;
     pub fn vm_map_glue_page_offset(page: *mut VmPage) -> VmOffset;
-    pub fn vm_map_glue_page_queue_lock();
-    pub fn vm_map_glue_page_queue_unlock();
     pub fn vm_map_glue_pmap_enter(
         pmap: *mut Pmap,
         addr: VmOffset,
@@ -544,14 +827,22 @@ unsafe extern "C" {
     pub fn vm_map_glue_object_pager(object: *mut VmObject) -> *mut c_void;
     pub fn vm_map_glue_task_map(task: *mut c_void) -> *mut c_void;
     pub fn vm_map_glue_task_space(task: *mut c_void) -> *mut c_void;
-    pub fn vm_map_glue_memory_object_create_proxy(
-        space: *mut c_void,
+
+    // <vm/memory_object_proxy.c>: the `rpc_vm_*` arguments this
+    // interface takes are pointer-sized on every supported build, so
+    // the native `vm_offset_t`/`vm_size_t` types cross directly.
+    pub fn memory_object_create_proxy(
+        task: *mut c_void,
         max_protection: c_int,
-        object: *mut c_void,
-        offset: VmOffset,
-        start: VmOffset,
-        len: VmSize,
-        port: *mut *mut c_void,
+        object: *mut *mut c_void,
+        object_count: c_uint,
+        offset: *mut VmOffset,
+        offset_count: c_uint,
+        start: *mut VmOffset,
+        start_count: c_uint,
+        len: *mut VmSize,
+        len_count: c_uint,
+        proxy: *mut *mut c_void,
     ) -> c_int;
 
     // <vm/vm_page.h>.
@@ -672,16 +963,8 @@ unsafe extern "C" {
     pub fn vm_object_name(object: *mut VmObject) -> *mut c_void;
     pub fn vm_object_pager_create(object: *mut VmObject);
 
-    // <vm/pmap.h>: the physical-map operations of the fork.  `pmap_copy`
-    // is a macro here, so it comes through the vm_map_glue.c shim.
+    // <vm/pmap.h>: the physical-map operations of the fork.
     pub fn pmap_create(size: VmSize) -> *mut Pmap;
-    pub fn vm_map_glue_pmap_copy(
-        dst: *mut Pmap,
-        src: *mut Pmap,
-        dst_addr: VmOffset,
-        len: VmSize,
-        src_addr: VmOffset,
-    );
 
     // The VM bootstrap, which rust/src/vm/vm_init.rs calls in the
     // order the packages depend on.

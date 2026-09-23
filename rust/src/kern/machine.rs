@@ -1,14 +1,16 @@
-// SPDX-License-Identifier: CMU-Mach
-// Derived from include/mach/machine.h:
-//   Copyright (c) 1991,1990,1989,1988,1987 Carnegie Mellon University.
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Derived from kern/machine.h:
+//   Copyright (C) 2008 Free Software Foundation, Inc.
 // Derived from kern/machine.c:
 //   Copyright (c) 1991,1990,1989,1988,1987 Carnegie Mellon University.
 //   Copyright (c) 1993,1994 The University of Utah and the Computer
 //   Systems Laboratory (CSL).
+// Derived from include/mach/machine.h:
+//   Copyright (c) 1991,1990,1989,1988,1987 Carnegie Mellon University.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! `struct machine_slot` of `include/mach/machine.h`, and the
-//! `host_reboot` of `kern/machine.c`.
+//! `host_reboot` and `action_thread` of `kern/machine.c`.
 //!
 //! The C keeps `struct machine_slot machine_slot[NCPUS]`, and `NCPUS`
 //! is a configure-time constant Rust cannot name; the glue declares
@@ -17,7 +19,8 @@
 //!
 //! `reboot` is the body `host_reboot()` used to hold, and the
 //! `host_reboot` adapter below keeps the MIG prototype of
-//! <mach/mach_host.defs>.  The rest of `kern/machine.c` stays C.
+//! <mach/mach_host.defs>.  `action_thread()` is the boot-time thread
+//! that drains the action queue; the rest of `kern/machine.c` stays C.
 
 use crate::glue;
 use crate::kern::debug;
@@ -122,4 +125,24 @@ pub unsafe extern "C" fn host_reboot(
         Ok(()) => 0,
         Err(error) => c_int::from(error),
     }
+}
+
+/// Start the processor action thread.  `action_thread()` of
+/// kern/machine.c, declared in <kern/machine.h>.
+///
+/// The C marks the routine `noreturn`, and so does this: the thread it
+/// runs on blocks on the action queue and only resumes inside
+/// `action_thread_continue()` itself.
+///
+/// # Safety
+///
+/// `kern/startup.c` is the only caller; it starts this during boot with
+/// `kernel_thread()` and nothing locked.  The call never returns to its
+/// caller.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn action_thread() -> ! {
+    // SAFETY: `action_thread_continue()` drains the action queue in a
+    // loop whose wait re-enters the routine itself, so it does not
+    // return.
+    unsafe { glue::action_thread_continue() }
 }

@@ -19,6 +19,7 @@
 use super::*;
 use crate::arch::i386::io_req::{DevT, IoReq};
 use crate::arch::vm_param::PAGE_SHIFT;
+use crate::device::chario::tty_queue_completion;
 use crate::device::cirbuf::Cirbuf;
 use crate::device::r#return::{DeviceError, DeviceSuccess, IoResultExt};
 use crate::glue;
@@ -403,11 +404,11 @@ unsafe extern "C" fn kdstart(tp: *mut Tty) {
     };
     if tp.t_outq.count() <= lowat {
         // tt_write_wakeup(tp)
-        // SAFETY: the delayed write queue is the tty's.
+        // SAFETY: the delayed write queue is the tty's and stays at
+        // its address; `kdstart` runs at spltty with the tty lock
+        // held, so nothing else touches the queue.
         unsafe {
-            glue::tty_queue_completion(
-                core::ptr::addr_of_mut!(tp.t_delayed_write).cast(),
-            )
+            tty_queue_completion(core::ptr::addr_of_mut!(tp.t_delayed_write))
         };
     }
 }

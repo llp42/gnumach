@@ -23,6 +23,9 @@
  * any improvements or extensions that they make and grant Carnegie Mellon
  * the rights to redistribute these changes.
  */
+/*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
 
 #include <mach/boolean.h>
 #include <mach/kern_return.h>
@@ -187,49 +190,6 @@ exception_try_task(
 			retrieve_thread_self_fast(self),
 			retrieve_task_self_fast(task),
 			_exception, code, subcode);
-	/*NOTREACHED*/
-}
-
-/*
- *	Routine:	exception_no_server
- *	Purpose:
- *		The current thread took an exception,
- *		and no exception server took responsibility
- *		for the exception.  So good bye, charlie.
- *	Conditions:
- *		Nothing locked and no resources held.
- *		Called from an exception context, so
- *		thread_kdb_return is possible.
- *	Returns:
- *		Doesn't return.
- */
-
-void
-exception_no_server(void)
-{
-	ipc_thread_t self = current_thread();
-
-	/*
-	 *	If this thread is being terminated, cooperate.
-	 */
-
-	while (thread_should_halt(self))
-		thread_halt_self(thread_exception_return);
-
-
-#if 0
-	if (thread_suspend (self) == KERN_SUCCESS)
-	  thread_exception_return ();
-#endif
-
-
-	/*
-	 *	All else failed; terminate task.
-	 */
-
-	(void) task_terminate(self->task);
-	thread_halt_self(thread_exception_return);
-	panic("terminating the task didn't kill us");
 	/*NOTREACHED*/
 }
 

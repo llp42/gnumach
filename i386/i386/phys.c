@@ -162,18 +162,3 @@ copy_from_phys(
 	if (mapped)
 		pmap_put_mapwindow(src_map);
 }
-
-/*
- *	kvtophys(addr)
- *
- *	Convert a kernel virtual address to a physical address
- */
-phys_addr_t
-kvtophys(vm_offset_t addr)
-{
-	pt_entry_t *pte;
-
-	if ((pte = pmap_pte(kernel_pmap, addr)) == PT_ENTRY_NULL)
-		return 0;
-	return pte_to_pa(*pte) | (addr & INTEL_OFFMASK);
-}

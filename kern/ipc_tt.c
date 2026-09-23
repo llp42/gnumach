@@ -24,6 +24,9 @@
  * the rights to redistribute these changes.
  */
 /*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
+/*
  * File:	ipc_tt.c
  * Purpose:
  *	Task and thread related IPC functions.
@@ -232,46 +235,6 @@ ipc_thread_init(thread_t thread)
 
 	thread->ith_mig_reply = MACH_PORT_NULL;
 	thread->ith_rpc_reply = IP_NULL;
-}
-
-/*
- *	Routine:	ipc_thread_enable
- *	Purpose:
- *		Enable a thread for IPC access.
- *	Conditions:
- *		Nothing locked.
- */
-
-void
-ipc_thread_enable(thread_t thread)
-{
-	ipc_port_t kport;
-
-	simple_lock(&(thread)->ith_lock_data);
-	kport = thread->ith_self;
-	if (kport != IP_NULL)
-		ipc_kobject_set(kport, (ipc_kobject_t) thread, IKOT_THREAD);
-	simple_unlock(&(thread)->ith_lock_data);
-}
-
-/*
- *	Routine:	ipc_thread_disable
- *	Purpose:
- *		Disable IPC access to a thread.
- *	Conditions:
- *		Nothing locked.
- */
-
-void
-ipc_thread_disable(thread_t thread)
-{
-	ipc_port_t kport;
-
-	simple_lock(&(thread)->ith_lock_data);
-	kport = thread->ith_self;
-	if (kport != IP_NULL)
-		ipc_kobject_set(kport, IKO_NULL, IKOT_NONE);
-	simple_unlock(&(thread)->ith_lock_data);
 }
 
 /*

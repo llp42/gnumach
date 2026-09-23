@@ -16,8 +16,16 @@
 //! The wait buckets stay C (`wait_queue`, `wait_lock`) and are reached
 //! with raw pointers; `wait_queue_init()` still builds them.  The
 //! functions that stay in C (`thread_block()`, `thread_invoke()`,
-//! `thread_select()`, `update_priority()`, `set_pri()`, `rem_runq()`)
-//! are called through `glue`.
+//! `thread_select()`, `update_priority()`, `rem_runq()`) are called
+//! through `glue`.
+//!
+//! The scheduler's priority and run-queue half lives here too:
+//! [`thread_set_timeout()`], [`thread_bind()`], [`thread_continue()`],
+//! [`compute_priority()`], [`compute_my_priority()`],
+//! [`recompute_priorities()`], [`set_pri()`] and
+//! [`choose_pset_thread()`].  `thread_continue` is also passed by
+//! address on the stack-swap path, so its definition keeps the exact C
+//! name.
 
 use crate::arch::i386::ast_check::cause_ast_check;
 use crate::arch::i386::percpu::{
@@ -27,14 +35,19 @@ use crate::glue;
 use crate::kern::ast::{AST_BLOCK, ast_on};
 use crate::kern::lock::SimpleLock;
 use crate::kern::mach_clock::reset_timeout_check;
+use crate::kern::policy::{POLICY_FIXEDPRI, POLICY_TIMESHARE};
 use crate::kern::processor::{
-    PROCESSOR_DISPATCHING, PROCESSOR_IDLE, PROCESSOR_OFF_LINE, Processor,
+    PROCESSOR_DISPATCHING, PROCESSOR_IDLE, PROCESSOR_OFF_LINE,
+    PROCESSOR_RUNNING, Processor, ProcessorSet,
 };
 use crate::kern::queue::{
-    QueueEntry, enqueue_tail, queue_end, queue_first, queue_next,
+    QueueEntry, dequeue_head, enqueue_tail, queue_empty, queue_end,
+    queue_enter_head, queue_enter_tail, queue_first, queue_next,
     queue_remove_generic, remqueue,
 };
-use crate::kern::sched::{NRQS, RUN_QUEUE_NULL, RunQueue};
+use crate::kern::sched::{
+    NRQS, PRI_SHIFT, RUN_QUEUE_NULL, RunQueue, SCHED_SHIFT,
+};
 use crate::kern::smp::smp_get_numcpus;
 use crate::kern::thread::{
     TH_HALTED, TH_IDLE, TH_RUN, TH_SCHED_STATE, TH_SUSP, TH_SW_COMING_IN,
@@ -59,18 +72,18 @@ pub const THREAD_RESTART: c_int = 3;
 // The switch labels of the wait-state machines, named as the C writes
 // them.  They must be values, not or-patterns, so each one is folded
 // here; `state` is masked with `TH_SCHED_STATE` before the match.
-const TH_WAIT_UNINT: u32 = TH_WAIT | TH_UNINT;
-const TH_WAIT_SUSP: u32 = TH_WAIT | TH_SUSP;
-const TH_WAIT_SUSP_UNINT: u32 = TH_WAIT | TH_SUSP | TH_UNINT;
-const TH_RUN_WAIT: u32 = TH_RUN | TH_WAIT;
-const TH_RUN_WAIT_SUSP: u32 = TH_RUN | TH_WAIT | TH_SUSP;
-const TH_RUN_WAIT_UNINT: u32 = TH_RUN | TH_WAIT | TH_UNINT;
-const TH_RUN_WAIT_SUSP_UNINT: u32 = TH_RUN | TH_WAIT | TH_SUSP | TH_UNINT;
-const TH_RUN_UNINT: u32 = TH_RUN | TH_UNINT;
-const TH_RUN_SUSP: u32 = TH_RUN | TH_SUSP;
-const TH_RUN_SUSP_HALTED: u32 = TH_RUN | TH_SUSP | TH_HALTED;
-const TH_RUN_SUSP_UNINT: u32 = TH_RUN | TH_SUSP | TH_UNINT;
-const TH_RUN_IDLE: u32 = TH_RUN | TH_IDLE;
+pub const TH_WAIT_UNINT: u32 = TH_WAIT | TH_UNINT;
+pub const TH_WAIT_SUSP: u32 = TH_WAIT | TH_SUSP;
+pub const TH_WAIT_SUSP_UNINT: u32 = TH_WAIT | TH_SUSP | TH_UNINT;
+pub const TH_RUN_WAIT: u32 = TH_RUN | TH_WAIT;
+pub const TH_RUN_WAIT_SUSP: u32 = TH_RUN | TH_WAIT | TH_SUSP;
+pub const TH_RUN_WAIT_UNINT: u32 = TH_RUN | TH_WAIT | TH_UNINT;
+pub const TH_RUN_WAIT_SUSP_UNINT: u32 = TH_RUN | TH_WAIT | TH_SUSP | TH_UNINT;
+pub const TH_RUN_UNINT: u32 = TH_RUN | TH_UNINT;
+pub const TH_RUN_SUSP: u32 = TH_RUN | TH_SUSP;
+pub const TH_RUN_SUSP_HALTED: u32 = TH_RUN | TH_SUSP | TH_HALTED;
+pub const TH_RUN_SUSP_UNINT: u32 = TH_RUN | TH_SUSP | TH_UNINT;
+pub const TH_RUN_IDLE: u32 = TH_RUN | TH_IDLE;
 
 /// The `wait_hash()` macro of kern/sched_prim.c.
 ///
@@ -305,7 +318,8 @@ pub unsafe extern "C" fn thread_timeout_setup(thread: *mut Thread) {
         (*thread).timer.fcn = Some(thread_timeout);
         (*thread).timer.param = thread.cast::<c_void>();
         (*thread).timer.set = 0;
-        (*thread).depress_timer.fcn = Some(glue::thread_depress_timeout);
+        (*thread).depress_timer.fcn =
+            Some(crate::kern::syscall_subr::thread_depress_timeout);
         (*thread).depress_timer.param = thread.cast::<c_void>();
         (*thread).depress_timer.set = 0;
     }
@@ -602,7 +616,7 @@ pub unsafe extern "C" fn thread_dispatch(thread: *mut Thread) {
         // thread has a chance to run.
         if (*thread).swap_func.is_some() {
             (*thread).set_state((*thread).state() | TH_SWAPPED);
-            glue::stack_free(thread);
+            crate::kern::thread::stack_free(thread);
         }
 
         match (*thread).state() & !TH_SWAP_STATE {
@@ -645,4 +659,351 @@ pub unsafe extern "C" fn thread_setrun(
     may_preempt: c_int,
 ) {
     setrun(thread, may_preempt != 0);
+}
+
+/// The effective priority of `thread`, from its base priority plus a
+/// shift of its accumulated usage.  The `do_priority_computation()`
+/// macro of kern/sched_prim.c.
+///
+/// # Safety
+///
+/// `thread` must be a live thread whose lock the caller holds.
+unsafe fn priority_computation(thread: *mut Thread) -> c_int {
+    // SAFETY: the caller's contract; the lock protects the two fields.
+    let pri = unsafe {
+        // The shift leaves at most eight bits of `sched_usage`, so the
+        // cast to the signed priority is exact.
+        let usage = (*thread).sched_usage >> (PRI_SHIFT + SCHED_SHIFT);
+        // The C adds an `unsigned` to the `int` priority and stores
+        // the sum back into an `int`, so the result wraps.
+        (*thread).priority.wrapping_add(usage as c_int)
+    };
+    // The C clamps with `if (pri > NRQS - 1)`; a negative sum is left
+    // alone, exactly as the C leaves it.
+    if pri > NRQS as c_int - 1 {
+        NRQS as c_int - 1
+    } else {
+        pri
+    }
+}
+
+/// Compute and apply `thread`'s effective priority, or store it as the
+/// depressed priority when the thread is depressed.
+/// `compute_priority()` of kern/sched_prim.c.
+///
+/// # Safety
+///
+/// `thread` must be a live thread whose lock the caller holds.
+unsafe fn recompute_priority(thread: *mut Thread, resched: bool) {
+    // SAFETY: the caller's contract; the lock protects the policy, the
+    // priority fields and the run queue link.
+    unsafe {
+        if (*thread).policy == POLICY_TIMESHARE {
+            let pri = priority_computation(thread);
+            if (*thread).depress_priority < 0 {
+                set_priority(thread, pri, resched);
+            } else {
+                (*thread).depress_priority = pri;
+            }
+        } else {
+            set_priority(thread, (*thread).priority, resched);
+        }
+    }
+}
+
+/// Set `th`'s scheduled priority, re-enqueuing it on its run queue when
+/// it was on one.  `set_pri()` of kern/sched_prim.c.
+///
+/// # Safety
+///
+/// `th` must be a live thread whose lock the caller holds, and the
+/// caller must be at splsched.
+unsafe fn set_priority(th: *mut Thread, pri: c_int, resched: bool) {
+    // SAFETY: the caller's contract; `rem_runq()` takes the run-queue
+    // lock itself, and the enqueue path takes it again.
+    unsafe {
+        let rq = glue::rem_runq(th);
+        (*th).sched_pri = pri;
+        if rq != RUN_QUEUE_NULL {
+            if resched {
+                setrun(th, true);
+            } else {
+                enqueue_run_queue(rq, th);
+            }
+        }
+    }
+}
+
+/// Choose a thread for `myprocessor` from `pset`'s run queue, or idle
+/// the processor and answer its idle thread.  `choose_pset_thread()`
+/// of kern/sched_prim.c.
+///
+/// # Safety
+///
+/// The caller must be at splsched, must hold `pset`'s run-queue lock,
+/// and `myprocessor` must be the current processor with `pset` its
+/// processor set.  The routine releases the run-queue lock before it
+/// returns.
+unsafe fn pset_thread(
+    myprocessor: *mut Processor,
+    pset: *mut ProcessorSet,
+) -> *mut Thread {
+    // SAFETY: the caller's contract; the run-queue lock serializes
+    // every queue operation below, and the thread lock is not needed
+    // because the run-queue lock protects the `runq` link.
+    unsafe {
+        let runq = &raw mut (*pset).runq;
+        let mut i = (*runq).low;
+        if (*runq).count > 0 {
+            while i < NRQS as c_int {
+                let mut q = &raw mut (*runq).runq[i as usize];
+                if queue_empty(q) == 0 {
+                    let th = dequeue_head(q).cast::<Thread>();
+                    (*th).runq = RUN_QUEUE_NULL;
+                    (*runq).count = (*runq).count.wrapping_sub(1);
+                    // For POLICY_FIXEDPRI, `low` must be accurate,
+                    // so the scan advances to the next non-empty
+                    // queue now.
+                    if (*runq).count > 0
+                        && (*pset).policies & POLICY_FIXEDPRI != 0
+                    {
+                        while queue_empty(q) != 0 {
+                            i += 1;
+                            if i >= NRQS as c_int {
+                                // The count promised a queue above;
+                                // none is, so the run queue is
+                                // already corrupt.
+                                glue::Panic(
+                                    c"kern/sched_prim.c".as_ptr(),
+                                    line!() as c_int,
+                                    c"choose_pset_thread".as_ptr(),
+                                    c"choose_pset_thread".as_ptr(),
+                                )
+                            }
+                            q = &raw mut (*runq).runq[i as usize];
+                        }
+                    }
+                    (*runq).low = i;
+                    (*runq).lock.unlock();
+                    return th;
+                }
+                i += 1;
+            }
+            // The count was positive but every queue was empty.
+            glue::Panic(
+                c"kern/sched_prim.c".as_ptr(),
+                line!() as c_int,
+                c"choose_pset_thread".as_ptr(),
+                c"choose_pset_thread".as_ptr(),
+            )
+        }
+        (*runq).lock.unlock();
+    }
+
+    // Nothing is runnable, so idle the processor if it was running,
+    // and answer its idle thread.
+    // SAFETY: the caller's contract; `idle_lock` protects the idle
+    // queue and count, and the run-queue lock is already released.
+    unsafe {
+        (*pset).idle_lock.lock();
+        if (*myprocessor).state == PROCESSOR_RUNNING {
+            (*myprocessor).state = PROCESSOR_IDLE;
+            // Put the master at the tail and the others at the head,
+            // so the master is used last.
+            if myprocessor == glue::master_processor {
+                queue_enter_tail(
+                    &raw mut (*pset).idle_queue,
+                    myprocessor.cast::<c_void>(),
+                    offset_of!(Processor, processor_queue),
+                );
+            } else {
+                queue_enter_head(
+                    &raw mut (*pset).idle_queue,
+                    myprocessor.cast::<c_void>(),
+                    offset_of!(Processor, processor_queue),
+                );
+            }
+            (*pset).idle_count = (*pset).idle_count.wrapping_add(1);
+        }
+        (*pset).idle_lock.unlock();
+
+        (*myprocessor).idle_thread
+    }
+}
+
+/// Set a timeout for the current thread, if it is ready to wait.
+/// `thread_set_timeout()` of kern/sched_prim.c.
+///
+/// # Safety
+///
+/// Must be called between `assert_wait()` and `thread_block()` for the
+/// current thread, as the C documents.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn thread_set_timeout(t: c_int) {
+    let thread = current_thread();
+    let s = unsafe { glue::splsched() };
+    // SAFETY: `thread` is the current thread; its lock protects the
+    // state and the timer element, as in C.
+    unsafe {
+        (*thread).lock.lock();
+        if (*thread).state() & TH_WAIT != 0 {
+            // The C passes the `int` to an `unsigned` parameter, so a
+            // negative interval wraps; the cast is that conversion.
+            glue::set_timeout(&raw mut (*thread).timer, t as c_uint);
+        }
+        (*thread).lock.unlock();
+        glue::splx(s);
+    }
+}
+
+/// Force a thread to run on a processor, or unbind it when `processor`
+/// is null.  `thread_bind()` of kern/sched_prim.c.
+///
+/// # Safety
+///
+/// `thread` must be a live thread, and `processor` must be a live
+/// processor or the C `PROCESSOR_NULL`, which the caller spells as a
+/// null pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn thread_bind(
+    thread: *mut Thread,
+    processor: *mut Processor,
+) {
+    let s = unsafe { glue::splsched() };
+    // SAFETY: the caller's contract; the thread lock protects the
+    // binding.
+    unsafe {
+        (*thread).lock.lock();
+        (*thread).bound_processor = processor;
+        (*thread).lock.unlock();
+        glue::splx(s);
+    }
+}
+
+/// Called when the current thread is given a new stack: dispatch the
+/// old thread and enter the current thread's continuation.
+/// `thread_continue()` of kern/sched_prim.c.
+///
+/// # Safety
+///
+/// The caller runs this on the current thread, at splsched, after a
+/// stack swap; `old_thread` must be a live thread the context switch
+/// left to dispatch, or null when there is none.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn thread_continue(old_thread: *mut Thread) {
+    // SAFETY: the caller's contract; `swap_func` is set before the
+    // thread is resumed on the new stack.
+    let continuation = unsafe { (*current_thread()).swap_func };
+
+    if !old_thread.is_null() {
+        // SAFETY: the caller passes the thread the context switch
+        // left to dispatch, as `thread_dispatch()` requires.
+        unsafe { thread_dispatch(old_thread) };
+    }
+    // SAFETY: `spl0()` is the real asm routine of <machine/spl.h>.
+    unsafe { glue::spl0() };
+
+    // SAFETY: the C calls the continuation unconditionally; a null
+    // `swap_func` means the thread was resumed without one, which
+    // cannot happen, so the halt spells out what the C null call did.
+    unsafe {
+        match continuation {
+            Some(continuation) => continuation(),
+            None => glue::Panic(
+                c"kern/sched_prim.c".as_ptr(),
+                line!() as c_int,
+                c"thread_continue".as_ptr(),
+                c"thread_continue: null continuation".as_ptr(),
+            ),
+        }
+    }
+}
+
+/// Compute and apply the effective priority of a thread.
+/// `compute_priority()` of kern/sched_prim.c.
+///
+/// # Safety
+///
+/// `thread` must be a live thread whose lock the caller holds.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn compute_priority(
+    thread: *mut Thread,
+    resched: c_int,
+) {
+    // SAFETY: the caller's contract.
+    unsafe { recompute_priority(thread, resched != 0) };
+}
+
+/// Recompute the scheduled priority of the current thread (or one the
+/// scheduler is moving on or off a run queue), without a reschedule.
+/// `compute_my_priority()` of kern/sched_prim.c.
+///
+/// # Safety
+///
+/// The caller must hold the thread lock and know the thread is
+/// timesharing and not depressed, as the C documents.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn compute_my_priority(thread: *mut Thread) {
+    // SAFETY: the caller's contract.
+    unsafe { (*thread).sched_pri = priority_computation(thread) };
+}
+
+/// Age the priorities of all threads: advance the scheduler tick,
+/// re-arm this routine's timer and wake the scheduler thread.
+/// `recompute_priorities()` of kern/sched_prim.c.
+///
+/// # Safety
+///
+/// Called by the timeout machinery at splsoftclock, and once at boot;
+/// `param` is unused, as in C.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn recompute_priorities(_param: *mut c_void) {
+    // SAFETY: `sched_tick` and the private timer are the C globals;
+    // the clock lock inside `set_timeout()` serializes against the
+    // clock interrupt, exactly as the C call's did.
+    unsafe {
+        glue::sched_tick = glue::sched_tick.wrapping_add(1);
+        // `hz` is the positive tick rate written once at boot, and
+        // the C converts the `int` to the `unsigned` interval.
+        glue::set_timeout(
+            &raw mut glue::recompute_priorities_timer,
+            glue::hz as c_uint,
+        );
+        if !glue::sched_thread_id.is_null() {
+            // SAFETY: `clear_wait()` takes the thread and hash locks
+            // itself; the scheduler thread may be waiting.
+            clear_wait(glue::sched_thread_id, THREAD_AWAKENED, 0);
+        }
+    }
+}
+
+/// Set the priority of a thread, moving it between run queues when it
+/// is on one.  `set_pri()` of kern/sched_prim.c.
+///
+/// # Safety
+///
+/// `th` must be a live thread whose lock the caller holds, and the
+/// caller must be at splsched.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn set_pri(th: *mut Thread, pri: c_int, resched: c_int) {
+    // SAFETY: the caller's contract.
+    unsafe { set_priority(th, pri, resched != 0) };
+}
+
+/// Choose a thread from a processor set's run queue, or idle the
+/// processor and answer its idle thread.  `choose_pset_thread()` of
+/// kern/sched_prim.c.
+///
+/// # Safety
+///
+/// The caller must be at splsched and must hold `pset`'s run-queue
+/// lock; `myprocessor` must be the current processor and `pset` its
+/// processor set.  The routine releases the run-queue lock.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn choose_pset_thread(
+    myprocessor: *mut Processor,
+    pset: *mut ProcessorSet,
+) -> *mut Thread {
+    // SAFETY: the caller's contract.
+    unsafe { pset_thread(myprocessor, pset) }
 }

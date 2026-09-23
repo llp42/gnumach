@@ -94,22 +94,6 @@ void stack_attach(
 	STACK_IEL(stack)->saved_state = USER_REGS(thread);
 }
 
-/*
- *	stack_detach:
- *
- *	Detaches a kernel stack from a thread, returning the old stack.
- */
-
-vm_offset_t stack_detach(thread_t thread)
-{
-	vm_offset_t	stack;
-
-	stack = thread->kernel_stack;
-	thread->kernel_stack = 0;
-
-	return stack;
-}
-
 #define	curr_gdt(mycpu)		(mp_gdt[mycpu])
 #define	curr_ktss(mycpu)	(mp_ktss[mycpu])
 
@@ -270,16 +254,6 @@ void stack_handoff(
 }
 
 /*
- * Switch to the first thread on a CPU.
- */
-void load_context(thread_t new)
-{
-	switch_ktss(new->pcb);
-	Load_context(new);
-	/*NOTREACHED*/
-}
-
-/*
  * Switch to a new thread.
  * Save the old thread`s kernel state or continuation,
  * and return it.
@@ -377,17 +351,6 @@ void pcb_terminate(thread_t thread)
 	kmem_cache_free(&pcb_cache, (vm_offset_t) pcb);
 	thread->pcb = 0;
 }
-
-/*
- *	pcb_collect:
- *
- *	Attempt to free excess pcb memory.
- */
-
-void pcb_collect(__attribute__((unused)) const thread_t thread)
-{
-}
-
 
 /*
  *	thread_setstatus:

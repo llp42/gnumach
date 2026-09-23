@@ -27,6 +27,9 @@
  * the rights to redistribute these changes.
  */
 /*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
+/*
  *	File:	ipc/ipc_init.c
  *	Author:	Rich Draves
  *	Date:	1989
@@ -95,21 +98,4 @@ ipc_bootstrap(void)
 	ipc_table_init();
 	ipc_notify_init();
 	ipc_marequest_init();
-}
-
-/*
- *	Routine:	ipc_init
- *	Purpose:
- *		Final initialization of the IPC system.
- */
-
-void
-ipc_init(void)
-{
-	vm_offset_t min, max;
-
-	kmem_submap(ipc_kernel_map, kernel_map, &min, &max,
-		    ipc_kernel_map_size);
-
-	ipc_host_init();
 }
