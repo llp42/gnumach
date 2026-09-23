@@ -41,10 +41,8 @@ pub const NSPEEDS: usize = 18;
 /// the C layout; only the C side calls them.
 #[repr(C)]
 pub struct LdiscSwitch {
-    /// `l_read`: hand a read request to the discipline.
     pub l_read:
         Option<unsafe extern "C" fn(*mut c_void, *mut c_void) -> c_int>,
-    /// `l_write`: hand a write request to the discipline.
     pub l_write:
         Option<unsafe extern "C" fn(*mut c_void, *mut c_void) -> c_int>,
     /// `l_rint`: feed one received character to the discipline.
