@@ -27,6 +27,9 @@
  * the rights to redistribute these changes.
  */
 /*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
+/*
  */
 /*
  *	File:	ipc/mach_port.c
@@ -335,38 +338,6 @@ mach_port_type(
 		is_write_unlock(space);
 	/* space is unlocked */
 	return kr;
-}
-
-/*
- *	Routine:	mach_port_rename [kernel call]
- *	Purpose:
- *		Changes the name denoting a right,
- *		from oname to nname.
- *	Conditions:
- *		Nothing locked.
- *	Returns:
- *		KERN_SUCCESS		The right is renamed.
- *		KERN_INVALID_TASK	The space is null.
- *		KERN_INVALID_TASK	The space is dead.
- *		KERN_INVALID_NAME	The oname doesn't denote a right.
- *		KERN_INVALID_VALUE	The nname isn't a legal name.
- *		KERN_NAME_EXISTS	The nname already denotes a right.
- *		KERN_RESOURCE_SHORTAGE	Couldn't allocate memory.
- */
-
-kern_return_t
-mach_port_rename(
-	ipc_space_t		space,
-	mach_port_name_t	oname,
-	mach_port_name_t	nname)
-{
-	if (space == IS_NULL)
-		return KERN_INVALID_TASK;
-
-	if (!MACH_PORT_NAME_VALID(nname))
-		return KERN_INVALID_VALUE;
-
-	return ipc_object_rename(space, oname, nname);
 }
 
 /*
@@ -1173,87 +1144,6 @@ mach_port_request_notification(
 	}
 
 	return KERN_SUCCESS;
-}
-
-/*
- *	Routine:	mach_port_insert_right [kernel call]
- *	Purpose:
- *		Inserts a right into a space, as if the space
- *		voluntarily received the right in a message,
- *		except that the right gets the specified name.
- *	Conditions:
- *		Nothing locked.
- *	Returns:
- *		KERN_SUCCESS		Inserted the right.
- *		KERN_INVALID_TASK	The space is null.
- *		KERN_INVALID_TASK	The space is dead.
- *		KERN_INVALID_VALUE	The name isn't a legal name.
- *		KERN_NAME_EXISTS	The name already denotes a right.
- *		KERN_INVALID_VALUE	Message doesn't carry a port right.
- *		KERN_INVALID_CAPABILITY	Port is null or dead.
- *		KERN_UREFS_OVERFLOW	Urefs limit would be exceeded.
- *		KERN_RIGHT_EXISTS	Space has rights under another name.
- *		KERN_RESOURCE_SHORTAGE	Couldn't allocate memory.
- */
-
-kern_return_t
-mach_port_insert_right(
-	ipc_space_t		space,
-	mach_port_name_t	name,
-	ipc_port_t		poly,
-	mach_msg_type_name_t	polyPoly)
-{
-	if (space == IS_NULL)
-		return KERN_INVALID_TASK;
-
-	if (!MACH_PORT_NAME_VALID(name) ||
-	    !MACH_MSG_TYPE_PORT_ANY_RIGHT(polyPoly))
-		return KERN_INVALID_VALUE;
-
-	if (!IO_VALID((ipc_object_t)poly))
-		return KERN_INVALID_CAPABILITY;
-
-	return ipc_object_copyout_name(space, (ipc_object_t)poly,
-				       polyPoly, FALSE, name);
-}
-
-/*
- *	Routine:	mach_port_extract_right [kernel call]
- *	Purpose:
- *		Extracts a right from a space, as if the space
- *		voluntarily sent the right to the caller.
- *	Conditions:
- *		Nothing locked.
- *	Returns:
- *		KERN_SUCCESS		Extracted the right.
- *		KERN_INVALID_TASK	The space is null.
- *		KERN_INVALID_TASK	The space is dead.
- *		KERN_INVALID_VALUE	Requested type isn't a port right.
- *		KERN_INVALID_NAME	Name doesn't denote a right.
- *		KERN_INVALID_RIGHT	Name doesn't denote appropriate right.
- */
-
-kern_return_t
-mach_port_extract_right(
-	ipc_space_t		space,
-	mach_port_name_t	name,
-	mach_msg_type_name_t	msgt_name,
-	ipc_port_t		*poly,
-	mach_msg_type_name_t	*polyPoly)
-{
-	kern_return_t kr;
-
-	if (space == IS_NULL)
-		return KERN_INVALID_TASK;
-
-	if (!MACH_MSG_TYPE_PORT_ANY(msgt_name))
-		return KERN_INVALID_VALUE;
-
-	kr = ipc_object_copyin(space, name, msgt_name, (ipc_object_t *) poly);
-
-	if (kr == KERN_SUCCESS)
-		*polyPoly = ipc_object_copyin_type(msgt_name);
-	return kr;
 }
 
 /*

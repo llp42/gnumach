@@ -14,6 +14,7 @@ pub mod ipc_object;
 pub mod ipc_port;
 pub mod ipc_table;
 pub mod ipc_thread;
+pub mod mach_port;
 
 /// `ipc_port_t`: a send right to a kernel port, opaque to Rust so far.
 /// `None` is the C `IP_NULL`.

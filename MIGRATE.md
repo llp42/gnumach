@@ -1377,7 +1377,7 @@ points are boot-exercised on x86_64 and i386.
 | `ipc_mqueue.c` | 659 | message queues | 4 | `sched_prim`, `ipc_sched` |
 | `ipc_object.c` | 852 | generic object refcounts | 4 | slab, rights/notify; `ipc_object_copyin_type` is ported, the rest stays C |
 | `ipc_pset.c` | 309 | port sets | 4 | mqueue/right, space |
-| `mach_port.c` | 1437 | `mach_port_*` server routines | 4 | MIG-S, rights/space, vm |
+| `mach_port.c` | 1437 | `mach_port_*` server routines | 4 | MIG-S, rights/space, vm; `mach_port_rename`, `mach_port_insert_right` and `mach_port_extract_right` are ported, the rest stays C |
 | `ipc_kmsg.c` | 2600 | kernel message buffers (anchor) | 5 | map copyin/out, slab, locks |
 | `ipc_port.c` | 1172 | ports (anchor) | 5 | space/object locks, kobjects; `ipc_port_timestamp` and its two globals are ported, the rest stays C |
 | `ipc_right.c` | 1844 | rights translation (anchor) | 5 | entry/space/table/marequest |
@@ -1752,7 +1752,7 @@ No new C, no new mirror, no new constant, no design conversation.
 Tier 0 is worked to exhaustion before any infrastructure is proposed
 (`AGENTS.md`, "Take the free ports first").
 
-Sixteen functions.  Clusters first, because a whole file leaving C
+Thirteen functions.  Clusters first, because a whole file leaving C
 in one commit is worth more than the same functions leaving one at a
 time.
 
@@ -1768,8 +1768,7 @@ time.
 | Function | Why it is free |
 |---|---|
 | `kern/machine.c:115 host_reboot` | Calls `Debugger` and `halt_all_cpus`, both real.  `host` is only compared against `HOST_NULL`. |
-| `ipc/mach_port.c:358 mach_port_rename`, `:1200 mach_port_insert_right`, `:1237 mach_port_extract_right` | Scalar and pointer-equality validation, then one real call each (`ipc_object_rename`, `ipc_object_copyout_name`, `ipc_object_copyin`).  Signatures come from `include/mach/mach_port.defs`, so the generated server is unchanged. |
-| `ipc/mach_port.c:1116 mach_port_request_notification` | Its callees own every lock and unlock, so the function body touches no `ipc_port` field.  **Verify before porting** that no return path leaves the port locked in this frame. |
+| `ipc/mach_port.c:1087 mach_port_request_notification` | Its callees own every lock and unlock, so the function body touches no `ipc_port` field.  **Verify before porting** that no return path leaves the port locked in this frame. |
 
 ### 6.2 What the rejections teach
 
@@ -1840,7 +1839,7 @@ or Rust already.  Each phase exists to make the next one legal, and no
 phase contains a shim.  Where the old phasing said "add the shim", the
 replacement says which file to port instead.
 
-* **Phase 0 — Tier 0 (now).**  The sixteen free functions of
+* **Phase 0 — Tier 0 (now).**  The thirteen free functions of
   §6.1, worked to exhaustion.  Each needs nothing that does not exist
   today, so this phase can start and finish without a single decision
   from any later one.  Nothing below is begun while Tier 0 has
@@ -1989,6 +1988,7 @@ kernel may add host tests like the rbtree's; see §8.
 | `device/net_io.c` (`bpf_hash`; rest stays C) | `src/device/net_io.rs` | `pending` |
 | `ipc/ipc_object.c` (`ipc_object_copyin_type`; rest stays C) | `src/ipc/ipc_object.rs` | `pending` |
 | `ipc/ipc_port.c` (`ipc_port_timestamp` and its two globals; rest stays C) | `src/ipc/ipc_port.rs` | `pending` |
+| `ipc/mach_port.c` (`mach_port_rename`, `mach_port_insert_right`, `mach_port_extract_right`; rest stays C) | `src/ipc/mach_port.rs` | `pending` |
 
 Deleted dead code: `device/blkio.c` (unreachable block pager path) and
 the `#if 0` profiling facility (`profil.h`, `profilparam.h`,

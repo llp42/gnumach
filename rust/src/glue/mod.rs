@@ -306,6 +306,28 @@ unsafe extern "C" {
     pub fn ipc_port_copy_send(port: *mut c_void) -> *mut c_void;
     pub fn ipc_port_release_send(port: *mut c_void);
 
+    // <ipc/ipc_object.h>: the rights operations behind the three
+    // mach_port server routines.  `ipc_object_copyin_type` is Rust now
+    // and is called directly; these three stay C.
+    pub fn ipc_object_rename(
+        space: *mut c_void,
+        old_name: c_uint,
+        new_name: c_uint,
+    ) -> c_int;
+    pub fn ipc_object_copyout_name(
+        space: *mut c_void,
+        object: *mut c_void,
+        msgt_name: c_uint,
+        overflow: c_int,
+        name: c_uint,
+    ) -> c_int;
+    pub fn ipc_object_copyin(
+        space: *mut c_void,
+        name: c_uint,
+        msgt_name: c_uint,
+        objectp: *mut *mut c_void,
+    ) -> c_int;
+
     // The three caches of the map module and the submap placeholder,
     // which vm/vm_map_glue.c defines until kern/slab.c and
     // vm/vm_object.c move.
