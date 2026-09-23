@@ -253,17 +253,6 @@ fpu_module_init(void)
 	set_ts();
 }
 
-/*
- * Free a FPU save area.
- * Called only when thread terminating - no locking necessary.
- */
-void
-fp_free(struct i386_fpsave_state *fps)
-{
-ASSERT_IPL(SPL0);
-	kmem_cache_free(&ifps_cache, (vm_offset_t) fps);
-}
-
 /* The two following functions were stolen from Linux's i387.c */
 static inline unsigned short
 twd_i387_to_fxsr (unsigned short twd)

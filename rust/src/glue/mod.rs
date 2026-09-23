@@ -291,6 +291,12 @@ unsafe extern "C" {
         flags: c_int,
     );
 
+    // <i386/i386/fpu.c>: the FPU save-area cache that
+    // `fpu_module_init()` builds and `fp_free()` returns objects to.
+    // It is a `struct kmem_cache` with no Rust mirror, so only the
+    // address is named; this declaration dies when kern/slab.c moves.
+    pub static mut ifps_cache: c_void;
+
     // <kern/kalloc.h>: the page-list copyin's continuation argument
     // block, allocated for the continuation and freed after it runs.
     pub fn kalloc(size: VmSize) -> VmOffset;

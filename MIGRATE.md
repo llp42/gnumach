@@ -444,7 +444,7 @@ its entry below and the §9 table record what moved.
 * **Exports/data.** `need_ast[NCPUS]`, `ast_init`, `ast_taken`,
   `ast_check`; `need_ast` is read directly by `locore.S`
   (i386 `locore.S:359,573`; x86_64 `:504,731,1117`) and written by the
-  `ast_on/off/context` macros in C (`net_io.c:541`, `fpu.c:856`,
+  `ast_on/off/context` macros in C (`net_io.c:541`, `fpu.c:845`,
   `trap.c:484`, `task.c:741`, `ipc_sched.c:221`).
 * **Dependencies — why.** Scheduler (`csw_needed`, `thread_block`,
   `thread_halt_self`, `thread_exception_return`) because the AST handles
@@ -1421,7 +1421,7 @@ entry below keeps the detail §4.1 gives the `kern/` files.
 | `ds_routines.c` | 1859 | `device_*` server routines | 5 | MIG-S/U, spl, vm |
 | `net_io.c` | 2178 | network filter/IPC | 5 | spl, kmsg/mqueue, sched |
 
-### i386/i386/ (22 files, 5,709 LOC — arch-shared i686/x86_64)
+### i386/i386/ (22 files, 5,698 LOC — arch-shared i686/x86_64)
 
 | File | LOC | Role | Friction | Blockers |
 |---|---:|---|---:|---|
@@ -1438,7 +1438,7 @@ entry below keeps the detail §4.1 gives the `kern/` files.
 | `machine_task.c` | 80 | task iopb hooks | 3 | `kmem_cache_*`, lock |
 | `pic.c` | 270 | 8259 PIC | 3 | `cli` asm, spl |
 | `apic.c` | 501 | local APIC | 4 | lapic MMIO, kalloc, idt |
-| `fpu.c` | 859 | FPU save/restore | 4 | inline asm, trap, percpu |
+| `fpu.c` | 848 | FPU save/restore | 4 | `fp_free` ported, rest C; inline asm, trap, percpu |
 | `gdt.c` | 141 | per-CPU GDT | 4 | `ljmp` asm, percpu |
 | `mp_desc.c` | 329 | SMP per-CPU descriptors | 4 | `cpu_control`/`simple_lock_pause` ported, rest C; lapic/idt/gdt, pmap |
 | `percpu.c` | 31 | per-CPU base init (anchor) | 4 | `%gs` layout, apic |
@@ -1749,7 +1749,7 @@ No new C, no new mirror, no new constant, no design conversation.
 Tier 0 is worked to exhaustion before any infrastructure is proposed
 (`AGENTS.md`, "Take the free ports first").
 
-Twenty-four functions, thirty-five counting the stub batch.  Clusters
+Twenty-three functions, thirty-four counting the stub batch.  Clusters
 first, because a whole file leaving C in one commit is worth more than
 the same functions leaving one at a time.
 
@@ -1765,7 +1765,6 @@ the same functions leaving one at a time.
 | Function | Why it is free |
 |---|---|
 | `kern/machine.c:115 host_reboot` | Calls `Debugger` and `halt_all_cpus`, both real.  `host` is only compared against `HOST_NULL`. |
-| `i386/i386/fpu.c:261 fp_free` | One `kmem_cache_free`, already in `glue`.  Never dereferences its argument; `ifps_cache` is passed by address only.  `ASSERT_IPL` expands to nothing. |
 | `device/subrs.c:44 ether_sprintf`, `:76 sleep`, `:82 wakeup` | Byte formatting and two one-line wrappers over `assert_wait`/`thread_block`/`thread_wakeup_prim`, all reachable. |
 | `device/dev_name.c:105 name_equal` | Pure string comparison, calls nothing. |
 | `device/net_io.c:2010 bpf_hash` | Pure additive hash over a caller-supplied array. |
@@ -1844,7 +1843,7 @@ or Rust already.  Each phase exists to make the next one legal, and no
 phase contains a shim.  Where the old phasing said "add the shim", the
 replacement says which file to port instead.
 
-* **Phase 0 — Tier 0 (now).**  The twenty-four free functions of
+* **Phase 0 — Tier 0 (now).**  The twenty-three free functions of
   §6.1, worked to exhaustion.  Each needs nothing that does not exist
   today, so this phase can start and finish without a single decision
   from any later one.  Nothing below is begun while Tier 0 has
@@ -1987,6 +1986,7 @@ kernel may add host tests like the rbtree's; see §8.
 | `kern/thread_swap.c` | `src/kern/thread_swap.rs` | `pending` |
 | `i386/i386/ast_check.c` | `src/arch/i386/ast_check.rs` | `pending` |
 | `i386/i386/mp_desc.c` (`simple_lock_pause`, `cpu_control`; rest stays C) | `src/arch/i386/mp_desc.rs` | `pending` |
+| `i386/i386/fpu.c` (`fp_free`; rest stays C) | `src/arch/i386/fpu.rs` | `pending` |
 
 Deleted dead code: `device/blkio.c` (unreachable block pager path) and
 the `#if 0` profiling facility (`profil.h`, `profilparam.h`,
