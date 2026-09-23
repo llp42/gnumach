@@ -99,7 +99,6 @@ libkernel_a_SOURCES += \
 	kern/ipc_tt.h \
 	kern/kalloc.h \
 	kern/kern_types.h \
-	kern/kmutex.c \
 	kern/kmutex.h \
 	kern/list.h \
 	kern/lock.h \

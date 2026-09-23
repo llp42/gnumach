@@ -5,6 +5,7 @@
 
 pub mod ast;
 pub mod elf_load;
+pub mod kmutex;
 pub mod list;
 pub mod lock;
 pub mod mach_clock;
