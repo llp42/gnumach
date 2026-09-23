@@ -700,6 +700,10 @@ its entry below and the §9 table record what moved.
 #### `kern/processor.c` — 1007 lines — friction 4/5
 * **Role.** Processor and processor-set lifecycle, refcounts, info MIG
   calls, policy setters, task/thread port listing.
+* **Ported so far.** `processor_init` and `pset_init` are
+  `Processor::init`/`ProcessorSet::init` in `src/kern/processor.rs`.  The
+  NCPUS-sized pset tail (`machine_quantum` through `sched_load`) is the
+  `kern/processor_glue.c` shim.  The rest of the file stays C.
 * **Exports/data.** `pset_sys_bootstrap`, `pset_init`, `processor_init`,
   `pset_add/remove_processor`, `pset_add/remove_task`,
   `pset_add/remove_thread`, `thread_change_psets`,
@@ -1695,6 +1699,7 @@ rbtree's; see §8.
 | `kern/ast.h` (`ast_on`, `ast_off`, `ast_needed`) | `src/kern/ast.rs` | `6a6281be` |
 | `kern/thread.c` (`thread_init`) | `src/kern/thread.rs` | `pending` |
 | `kern/sched.h` (`thread_timer_delta`) | `src/kern/thread.rs`, `src/kern/timer.rs` | `pending` |
+| `kern/processor.c` (`processor_init`, `pset_init`) | `src/kern/processor.rs` | `pending` |
 
 Deleted dead code: `device/blkio.c` (unreachable block pager path) and
 the `#if 0` profiling facility (`profil.h`, `profilparam.h`,

@@ -115,6 +115,19 @@ unsafe extern "C" {
     // kern/processor.c moves.
     pub fn thread_glue_pset_sched_load(pset: *mut ProcessorSet) -> c_long;
 
+    // <kern/sched_prim.c>: `int min_quantum`, the maximum context
+    // switch rate, declared in <kern/sched.h>.  `pset_init` seeds the
+    // set's quantum fields from it.
+    pub static mut min_quantum: c_int;
+
+    // <kern/processor_glue.c>: the NCPUS-sized tail of a processor set,
+    // `machine_quantum` through `sched_load`.  It dies when NCPUS is
+    // visible to Rust and the tail can be mirrored.
+    pub fn processor_glue_pset_tail_init(
+        pset: *mut ProcessorSet,
+        quantum: c_int,
+    );
+
     // <device/ds_routines.h>, the request passed as an opaque handle:
     // `struct io_req` itself belongs to its driver.
     pub fn iodone(ior: *mut c_void);

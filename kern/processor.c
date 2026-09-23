@@ -24,6 +24,9 @@
  * the rights to redistribute these changes.
  */
 /*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
+/*
  *	processor.c: processor and processor_set manipulation routines.
  */
 
@@ -127,85 +130,6 @@ void pset_sys_init(void)
 	processor_set_create(&realhost, &slave_pset, &slave_pset);
 }
 #endif	/* MACH_HOST */
-
-/*
- *	Initialize the given processor_set structure.
- */
-
-void pset_init(
-	processor_set_t	pset)
-{
-	int	i;
-
-	simple_lock_init(&pset->runq.lock);
-	pset->runq.low = 0;
-	pset->runq.count = 0;
-	for (i = 0; i < NRQS; i++) {
-	    queue_init(&(pset->runq.runq[i]));
-	}
-	queue_init(&pset->idle_queue);
-	pset->idle_count = 0;
-	simple_lock_init(&pset->idle_lock);
-	queue_init(&pset->processors);
-	pset->processor_count = 0;
-	pset->empty = TRUE;
-	queue_init(&pset->tasks);
-	pset->task_count = 0;
-	queue_init(&pset->threads);
-	pset->thread_count = 0;
-	pset->ref_count = 1;
-	simple_lock_init(&pset->ref_lock);
-	queue_init(&pset->all_psets);
-	pset->active = FALSE;
-	simple_lock_init(&pset->lock);
-	pset->pset_self = IP_NULL;
-	pset->pset_name_self = IP_NULL;
-	pset->max_priority = BASEPRI_SYSTEM;
-	pset->policies = POLICY_TIMESHARE;
-	pset->set_quantum = min_quantum;
-	pset->quantum_adj_index = 0;
-	simple_lock_init_irq(&pset->quantum_adj_lock);
-
-	for (i = 0; i <= NCPUS; i++) {
-	    pset->machine_quantum[i] = min_quantum;
-	}
-	pset->mach_factor = 0;
-	pset->load_average = 0;
-	pset->sched_load = SCHED_SCALE;		/* i.e. 1 */
-}
-
-/*
- *	Initialize the given processor structure for the processor in
- *	the slot specified by slot_num.
- */
-
-void processor_init(
-	processor_t 	pr,
-	int		slot_num)
-{
-	int	i;
-
-	simple_lock_init(&pr->runq.lock);
-	pr->runq.low = 0;
-	pr->runq.count = 0;
-	for (i = 0; i < NRQS; i++) {
-	    queue_init(&(pr->runq.runq[i]));
-	}
-	queue_init(&pr->processor_queue);
-	pr->state = PROCESSOR_OFF_LINE;
-	pr->next_thread = THREAD_NULL;
-	pr->idle_thread = THREAD_NULL;
-	pr->quantum = 0;
-	pr->first_quantum = FALSE;
-	pr->last_quantum = 0;
-	pr->processor_set = PROCESSOR_SET_NULL;
-	pr->processor_set_next = PROCESSOR_SET_NULL;
-	queue_init(&pr->processors);
-	simple_lock_init(&pr->lock);
-	pr->processor_self = IP_NULL;
-	pr->processor_name_self = IP_NULL;
-	pr->slot_num = slot_num;
-}
 
 /*
  *	pset_remove_processor() removes a processor from a processor_set.

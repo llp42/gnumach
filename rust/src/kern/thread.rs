@@ -70,10 +70,10 @@ pub const TH_SW_COMING_IN: u32 = 0x0200;
 pub const TH_SWAP_STATE: u32 = TH_SWAPPED | TH_SW_COMING_IN;
 
 /// `BASEPRI_SYSTEM` in <kern/sched.h>: the priority of kernel threads.
-const BASEPRI_SYSTEM: c_int = 6;
+pub(crate) const BASEPRI_SYSTEM: c_int = 6;
 /// `POLICY_TIMESHARE` in <mach/policy.h>: the default scheduling
 /// policy.
-const POLICY_TIMESHARE: c_int = 1;
+pub(crate) const POLICY_TIMESHARE: c_int = 1;
 
 /// A `continuation_t` of <kern/sched_prim.h>, whose null value is
 /// `thread_no_continuation`.

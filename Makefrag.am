@@ -116,6 +116,7 @@ libkernel_a_SOURCES += \
 	kern/priority.c \
 	kern/priority.h \
 	kern/processor.c \
+	kern/processor_glue.c \
 	kern/processor.h \
 	kern/queue.h \
 	kern/rbtree.h \
