@@ -1720,12 +1720,12 @@ its functions pass.
 | # | Question | If the answer is "no" |
 |---|---|---|
 | 1 | Is every function it calls a real linker symbol, rather than a `#define` or a `static inline`? | Port the definer first, or pick another function.  A shim is not available (`AGENTS.md`, the no-glue law). |
-| 2 | Is every struct field it touches covered by a Rust mirror that exists **today**? | Mirror that struct first: §7 Phase 4. |
+| 2 | Is every struct field it touches covered by a Rust mirror that exists **today**?  `sizeof(struct X)` counts as a field: a size Rust cannot compute is the same dependency by another route. | Mirror that struct first: §7 Phase 4. |
 | 3 | Does it avoid every array sized by a configure-time constant (`NCPUS`, `NINTR`, `NCOM`, `NIPL`)? | Blocked on §7 Phase 3. |
 | 4 | Is it non-variadic, and free of `va_list`? | Blocked.  See the `kern/printf.c` entry in §4. |
 | 5 | Is its inline assembly, if any, expressible with `core::arch::asm!`? | Blocked on the arch layer. |
 
-Five exemptions are settled, and do not need re-deciding per port:
+These exemptions are settled, and are not re-decided per port:
 
 * **Locks pass question 1.**  `simple_lock`/`simple_unlock`/
   `simple_lock_try` expand to `mach_simple_lock`/`mach_simple_unlock`/
@@ -1745,27 +1745,98 @@ Five exemptions are settled, and do not need re-deciding per port:
 * **`inb`/`outb` pass question 5.**  They are statement-expression
   macros, but port I/O is one instruction and `asm!` emits it
   directly, as `percpu.rs` already does.
+* **A C global of unmirrored type passes question 2 when only its
+  address is used.**  Declare it in `glue` as an opaque `extern`
+  static and take `&raw mut`: that writes no C and needs no layout.
+  `rust/src/kern/sched_prim.rs` already does it with
+  `glue::wait_queue`.  Reading a *field* of one is a different thing
+  and still fails.
 
-The tiers below are just the number of "no" answers.
+Six exemptions, then, and the tiers below are just the number of "no"
+answers.
 
-### 6.1 Tier 0 — the free ports (empty)
+### 6.1 Tier 0 — the free ports
 
-**Zero "no" answers, and no entries: the free-port list is empty.**
-Every function in `i386/i386/pit.c`, `clkstart` and the four sleep and
-delay entries alike, is ported and §9 records it; its four globals are
-three private Rust constants and a local now.  No free
-port remains.  Tier 0 is worked to exhaustion before any
-infrastructure is proposed (`AGENTS.md`, "Take the free ports first"),
-and it has been.
+**Zero "no" answers: these need nothing that does not exist today.**
+No new C, no new mirror, no new constant, no design conversation.
+Tier 0 is worked to exhaustion before any infrastructure is proposed
+(`AGENTS.md`, "Take the free ports first").
 
-That is a snapshot, not a permanent state: every mirror and every
-constant that lands moves more functions here, so §6's five-question
-test re-derives the list after any Phase 3 or Phase 4 work instead of
-this heading being trusted.
+The first list, forty-eight functions found by sampling, was worked to
+zero.  `device/cirbuf.c`, `kern/thread_swap.c`, `i386/i386at/rtc.c`,
+`i386/i386/pit.c` and `i386/i386/ast_check.c` are gone from C
+entirely; the six `ipc/` routines, the `device/subrs.c` and
+`dev_name.c` entries and the `kern/timer.c` and `debug.c` ones left
+their files behind.  `ipc/ipc_thread_glue.c` and
+`i386/i386/pio_glue.c` went with them (§9, §10).
+
+**Tier 0 is not empty, and emptying it once did not end it.**  The
+second pass (§6.3) was mechanical rather than sampled, and it found
+forty more, all re-verified against the tree after those ports
+landed.  They are grouped by shape, least work first.
+
+**Constant-return stubs.**  Thirteen functions whose whole body is a
+`return` of a plain constant, or nothing at all.  Each is an exported
+symbol some caller or MIG table still needs, which is why it exists.
+
+| Function | Body |
+|---|---|
+| `kern/machine.c:309 processor_assign` | `return KERN_FAILURE;` |
+| `kern/task.c:1081 task_assign`, `:1097 task_assign_default` | the second forwards to the first |
+| `kern/thread.c:1832 thread_assign`, `:1847 thread_assign_default` | the same pair |
+| `kern/processor.c:291 processor_set_create`, `:299 processor_set_destroy` | the `#else` half of `MACH_HOST`, so the port is `#[cfg]`-selected from the same define |
+| `kern/mach_clock.c:702 timeopen`, `:706 timeclose` | `return 0;` and `return;` |
+| `kern/syscall_emulation.c:61 eml_init` | empty |
+| `ipc/ipc_target.c:36 ipc_target_terminate` | empty |
+| `kern/ipc_mig.c:267 mig_put_reply_port` | empty |
+| `i386/intel/pmap.c:2125 pmap_pageable` | empty, and already declared in `glue` |
+
+**Panic-only entry points.**  Nine functions whose body is one
+`panic`, which is `Panic` and already in `glue`.
+
+`device/dev_pager.c:453 device_pager_copy`, `:464
+device_pager_supply_completed`, `:476 device_pager_data_return`, `:489
+device_pager_change_completed`, `:592 device_pager_data_unlock`, `:603
+device_pager_lock_completed`; `kern/ipc_mig.c:97
+mach_msg_rpc_from_kernel`, `:254 mig_dealloc_reply_port`;
+`kern/debug.c:126 __stack_chk_fail`.
+
+The last one keeps its exact name: the compiler emits the call.
+
+**Pure computation.**  Five functions that call nothing.
+
+| Function | What it is |
+|---|---|
+| `kern/ipc_mig.c:291 mig_strncpy` | a bounded string copy returning the length |
+| `kern/boot_script.c:699 boot_script_error_string` | a `switch` returning literals |
+| `i386/i386/trap.c:106 trap_name` | a bounds-checked lookup in a file-static table, which moves with it |
+| `i386/i386/pcb.c:894 user_stack_low` | one subtraction from `VM_MAX_USER_ADDRESS` |
+| `kern/bootstrap.c:297 itoa` | decimal formatting into a caller buffer |
+
+**One reachable call.**  Thirteen functions whose single callee is
+already Rust, already in `glue`, or a real symbol.
+
+| Function | Callee |
+|---|---|
+| `kern/host.c:207 host_get_kernel_version`, `:223 host_kernel_version` | `strncpy`, plus the opaque `extern char version[]` by address |
+| `kern/syscall_sw.c:63 null_port`, `:69 kern_invalid` | `SoftDebugger`, Rust since `6dcb3aa2` |
+| `kern/syscall_subr.c:364 mach_print` | `printf` |
+| `kern/bootstrap.c:696 boot_script_malloc`, `:702 boot_script_free` | `kalloc`, `kfree` |
+| `i386/i386/smp.c:67 smp_remote_ast`, `:72 smp_pmap_update` | `smp_send_ipi`, real |
+| `i386/i386/machine_task.c:39 machine_task_module_init` | `kmem_cache_init`; the size is `IOPB_BYTES`, a plain constant, not a `sizeof` |
+| `i386/i386at/model_dep.c:225 db_halt_cpu`, `:230 db_reset_cpu` | `halt_all_cpus`, a real symbol in the same file (`model_dep.c:210`) |
+| `i386/intel/pmap.c:773 pmap_virtual_space` | two opaque globals by address |
+
+**Medium, and why.**  `i386/i386at/acpi_parse_apic.c:62
+acpi_checksum`, `:151 acpi_check_rsdp_align` and `:85
+acpi_check_signature` are pure, but `static`, so moving one leaves an
+`extern` declaration above its caller in a file that stays C.  That is
+the normal shape of a partial-file port rather than glue, but it is a
+judgement someone should make deliberately before doing three of them.
 
 ### 6.2 What the rejections teach
 
-Every candidate rejected in the survey failed on one of exactly three
+Every candidate rejected by either pass failed on one of exactly three
 things, and each is a concrete piece of work rather than a vague
 difficulty:
 
@@ -1795,15 +1866,34 @@ C ones:
 
 ### 6.3 How this list was produced, and when to redo it
 
-Four parallel surveys on 2026-09-23, one each over `kern/`, `ipc/`,
-`vm/` + `device/`, and `i386/` + `x86_64/` + `util/` + `chips/`, with
-every candidate then checked by hand against the C source, the header
-that declares each callee, and the Rust mirror it would need.
+Two passes, and the difference between them is the lesson.
+
+**First pass, sampling.**  Four parallel surveys on 2026-09-23, one
+each over `kern/`, `ipc/`, `vm/` + `device/` and `i386/` + `x86_64/` +
+`util/` + `chips/`, each asked for its best candidates.  Forty-eight
+functions, all correct, and all of them ported within the day.
+
+**Second pass, mechanical.**  Parse every function definition in the
+eight C directories, 1,338 of them, and score each one against the
+test instead of choosing which to look at.  Two buckets do most of the
+work: functions that call nothing at all, and functions whose every
+callee is in `glue`, is Rust, or is a settled exemption.  That found
+forty more that the sampling pass had simply not been pointed at,
+including four whole shapes it had missed: the `KERN_FAILURE` stubs,
+the `panic`-only entry points, the MIG support leaves in
+`kern/ipc_mig.c`, and the small change scattered through files whose
+overall friction rating is 5 (`bootstrap.c`, `thread.c`, `task.c`,
+`pmap.c`).
+
+**The rating on a file says nothing about its leaves.**  Sampling by
+file, which is what a friction column invites, is what hid those.
+Re-derive by function.
 
 **It is a snapshot.**  Every mirror that lands and every constant that
 becomes visible to Rust moves functions from the rejection classes
-into Tier 0, and the test in §6 is what re-derives the list.  Re-run
-it after any Phase 3 or Phase 4 work rather than trusting this table.
+into Tier 0.  Re-run the mechanical pass after any Phase 3 or Phase 4
+work rather than trusting this table; emptying Tier 0 once is not the
+end of it, as the second pass showed.
 
 Already ported from the earlier lists: `kern/rbtree.c`,
 `i386/i386at/kd_queue.c`, `i386/i386at/mem.c`, `i386/i386at/mbinfo.c`,
@@ -1927,6 +2017,13 @@ kernel may add host tests like the rbtree's; see §8.
   the surrounding code.  `rdxtree.h:49` has an `#if 0` block to check
   the same way.  `kern/boot_script.c`'s
   `boot_script_define_function` has no callers.
+* Macro-shadowed definitions, found by the §6.3 mechanical pass:
+  `i386/intel/pmap.c:1902 pmap_copy` and `:2068 pmap_kernel` are real
+  function definitions that no caller can reach, because
+  `i386/intel/pmap.h:447` defines `pmap_copy` as an empty macro and
+  `:443` defines `pmap_kernel()` as `(kernel_pmap)`.  Every caller
+  including the header gets the macro.  Delete the two functions
+  rather than porting them; they are not Tier 0 entries.
 * `i386/i386at/rtc.h` keeps `struct rtc_st`, the `load_rtc`/`save_rtc`
   macros and the `RTCRTIME`/`RTCSTIME` ioctl numbers with no C user
   left: they are the driver interface, retained until that interface is

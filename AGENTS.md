@@ -211,8 +211,14 @@ Where any older note there still names a shim as a step, the step is wrong.
 A **free port** is one that needs nothing which does not already exist:
 no new C, no new `#[repr(C)]` mirror, no configure-time constant brought
 into Rust, no design conversation. `MIGRATE.md` §6 is the five-question
-test that decides this mechanically. Its §6.1 free-port list is now
-empty, and the test re-derives it after any Phase 3 or Phase 4 work.
+test that decides this mechanically, and §6.1 is the current list.
+
+**An empty §6.1 does not mean there are no free ports left.** It was
+emptied once, and a mechanical re-derivation immediately found forty
+more the first pass had never been pointed at. Re-derive by function
+across the whole tree, the way §6.3 describes, before concluding the
+list is exhausted; a file's friction rating says nothing about its
+leaves.
 
 **Free ports are worked to exhaustion before any infrastructure is
 proposed.** They are the only kind of port that cannot be blocked, they
