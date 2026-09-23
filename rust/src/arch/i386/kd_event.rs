@@ -24,7 +24,9 @@ use super::io_req::{
     DEV_GET_SIZE_RECORD_SIZE, DevT, IoReq, KERN_SUCCESS, drain,
 };
 use crate::arch::i386::pio::Port;
-use crate::device::r#return::{DeviceError, IoResult, IoResultExt};
+use crate::device::r#return::{
+    DeviceError, DeviceSuccess, IoResult, IoResultExt,
+};
 use crate::glue;
 use crate::kern::queue::QueueEntry;
 use crate::utils::kd_queue::{KdEvent, KdEventQueue, Scancode};
@@ -210,7 +212,7 @@ pub unsafe extern "C" fn kbdopen(
     crate::arch::i386::kd::kdinit();
     unsafe { glue::splx(sp) };
     kbdinit();
-    Ok(false).as_io_return()
+    Ok(DeviceSuccess::Success).as_io_return()
 }
 
 /// Close the keyboard: back to Ascii mode, empty queue.  `kbdclose()`
@@ -247,7 +249,7 @@ pub unsafe extern "C" fn kbdgetstat(
             *data = KB_VANILLAKB;
             *count = 1;
         }
-        Ok(false).as_io_return()
+        Ok(DeviceSuccess::Success).as_io_return()
     } else if flavor == DEV_GET_SIZE {
         // SAFETY: the caller promises room for the two values.
         unsafe {
@@ -256,7 +258,7 @@ pub unsafe extern "C" fn kbdgetstat(
                 size_of::<KdEvent>() as c_int;
             *count = DEV_GET_SIZE_COUNT;
         }
-        Ok(false).as_io_return()
+        Ok(DeviceSuccess::Success).as_io_return()
     } else {
         Err(DeviceError::InvalidOperation).as_io_return()
     }
@@ -278,7 +280,7 @@ pub unsafe extern "C" fn kbdsetstat(
     if flavor == KDSKBDMODE {
         // SAFETY: one integer behind `data`, and kd owns the mode.
         crate::arch::i386::kd::set_kb_mode(unsafe { *data });
-        Ok(false).as_io_return()
+        Ok(DeviceSuccess::Success).as_io_return()
     } else if flavor == KDSETLEDS {
         if count != 1 {
             return Err(DeviceError::InvalidOperation).as_io_return();
@@ -287,7 +289,7 @@ pub unsafe extern "C" fn kbdsetstat(
         // truncates to the `u_char` the C passed.
         let val = unsafe { *data };
         crate::arch::i386::kd::keyboard::set_leds1(val as u8);
-        Ok(false).as_io_return()
+        Ok(DeviceSuccess::Success).as_io_return()
     } else if flavor == K_X_KDB_ENTER {
         // SAFETY: `data` holds `count` port commands.
         unsafe { x_kdb_enter_init(data.cast(), count) }.as_io_return()
@@ -334,12 +336,12 @@ pub unsafe extern "C" fn kbdread(_dev: DevT, ior: *mut IoReq) -> c_int {
         // SAFETY: the read queue is this state's, at SPLKD.
         unsafe { read_queue(s).push_back(entry) };
         unsafe { glue::splx(sp) };
-        return Ok(true).as_io_return();
+        return Ok(DeviceSuccess::IoQueued).as_io_return();
     }
     let count = drain(&mut s.queue, unsafe { &mut *ior });
     unsafe { glue::splx(sp) };
     unsafe { (*ior).set_residual((*ior).count() - count) };
-    Ok(false).as_io_return()
+    Ok(DeviceSuccess::Success).as_io_return()
 }
 
 /// Finish a read that was queued waiting for events.
@@ -408,7 +410,7 @@ unsafe fn x_kdb_enter_init(data: *mut c_uint, count: c_uint) -> IoResult {
         );
     }
     s.x_kdb_enter_len = count as usize;
-    Ok(false)
+    Ok(DeviceSuccess::Success)
 }
 
 /// Install the `x_kdb_exit` port commands.  `x_kdb_exit_init()` in C.
@@ -427,5 +429,5 @@ unsafe fn x_kdb_exit_init(data: *mut c_uint, count: c_uint) -> IoResult {
         );
     }
     s.x_kdb_exit_len = count as usize;
-    Ok(false)
+    Ok(DeviceSuccess::Success)
 }

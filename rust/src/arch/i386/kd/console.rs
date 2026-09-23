@@ -13,7 +13,7 @@
 use super::keymap::KEY_MAP;
 use super::*;
 use crate::arch::i386::pio::Port;
-use crate::device::r#return::{DeviceError, IoResult};
+use crate::device::r#return::{DeviceError, DeviceSuccess, IoResult};
 use crate::glue;
 use core::ffi::{c_int, c_uint};
 
@@ -176,11 +176,11 @@ pub(crate) fn maygetc() -> c_int {
 pub(crate) fn set_bell(val: c_int, _flags: c_int) -> IoResult {
     if val == KD_BELLON {
         super::kd_bellon();
-        Ok(false)
+        Ok(DeviceSuccess::Success)
     } else if val == KD_BELLOFF {
         // SAFETY: the timeout callback is the driver's.
         unsafe { super::kd_belloff(core::ptr::null_mut()) };
-        Ok(false)
+        Ok(DeviceSuccess::Success)
     } else {
         Err(DeviceError::InvalidOperation)
     }

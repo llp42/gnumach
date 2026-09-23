@@ -22,7 +22,7 @@
 
 use crate::arch::i386::io_req::{DevT, IoReq};
 use crate::arch::types::VmOffset;
-use crate::device::r#return::{DeviceError, IoResultExt};
+use crate::device::r#return::{DeviceError, DeviceSuccess, IoResultExt};
 use core::ffi::{c_char, c_int, c_uint, c_ushort, c_void};
 use core::slice;
 
@@ -31,7 +31,7 @@ use core::slice;
 /// The C ignores its argument and always succeeds.
 #[unsafe(no_mangle)]
 pub extern "C" fn nulldev_reset(_dev: DevT) -> c_int {
-    Ok(false).as_io_return()
+    Ok(DeviceSuccess::Success).as_io_return()
 }
 
 /// The default open slot of the device tables.  `nulldev_open()` in C.
@@ -44,7 +44,7 @@ pub extern "C" fn nulldev_open(
     _flags: c_int,
     _ior: *mut IoReq,
 ) -> c_int {
-    Ok(false).as_io_return()
+    Ok(DeviceSuccess::Success).as_io_return()
 }
 
 /// The default close slot of the device tables.  `nulldev_close()` in
@@ -60,7 +60,7 @@ pub extern "C" fn nulldev_close(_dev: DevT, _flags: c_int) {}
 /// read.
 #[unsafe(no_mangle)]
 pub extern "C" fn nulldev_read(_dev: DevT, _ior: *mut IoReq) -> c_int {
-    Ok(false).as_io_return()
+    Ok(DeviceSuccess::Success).as_io_return()
 }
 
 /// The default write slot of the device tables.  `nulldev_write()` in
@@ -70,7 +70,7 @@ pub extern "C" fn nulldev_read(_dev: DevT, _ior: *mut IoReq) -> c_int {
 /// read.
 #[unsafe(no_mangle)]
 pub extern "C" fn nulldev_write(_dev: DevT, _ior: *mut IoReq) -> c_int {
-    Ok(false).as_io_return()
+    Ok(DeviceSuccess::Success).as_io_return()
 }
 
 /// The status query slot of a device with no status.
@@ -109,7 +109,7 @@ pub extern "C" fn nulldev_setstat(
 /// The C ignores its arguments and always succeeds.
 #[unsafe(no_mangle)]
 pub extern "C" fn nulldev_portdeath(_dev: DevT, _port: VmOffset) -> c_int {
-    Ok(false).as_io_return()
+    Ok(DeviceSuccess::Success).as_io_return()
 }
 
 /// The asynchronous-input slot of a device with no filters.

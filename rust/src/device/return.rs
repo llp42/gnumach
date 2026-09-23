@@ -43,12 +43,27 @@ pub enum DeviceError {
     ReadOnly = 2509,
 }
 
+/// A completed device operation, as the `D_SUCCESS` and `D_IO_QUEUED`
+/// codes of <device/device_types.h>.
+///
+/// The C spelled both of these as the same `io_return_t` integer, in
+/// the same domain as `kern_return_t`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeviceSuccess {
+    /// `D_SUCCESS`: the operation completed, and the caller owns the
+    /// result.
+    Success,
+    /// `D_IO_QUEUED`: the request is queued and the driver completes
+    /// it, so the caller must not.
+    IoQueued,
+}
+
 /// The result of a device operation, the Rust form of `io_return_t`.
 ///
-/// `Ok(false)` is `D_SUCCESS`.  `Ok(true)` is `D_IO_QUEUED`: the
-/// request is queued and the driver completes it, so the caller must
-/// not.  `Err` carries the [`DeviceError`] the C returned as a code.
-pub type IoResult = Result<bool, DeviceError>;
+/// [`DeviceSuccess::Success`] is `D_SUCCESS`.
+/// [`DeviceSuccess::IoQueued`] is `D_IO_QUEUED`.  `Err` carries the
+/// [`DeviceError`] the C returned as a code.
+pub type IoResult = Result<DeviceSuccess, DeviceError>;
 
 /// The C-shaped edge of [`IoResult`]: the two conversions between the
 /// `io_return_t` an `extern "C"` device entry returns and the result
@@ -70,16 +85,16 @@ pub trait IoResultExt {
 impl IoResultExt for IoResult {
     fn as_io_return(&self) -> c_int {
         match self {
-            Ok(false) => 0,
-            Ok(true) => -1,
+            Ok(DeviceSuccess::Success) => 0,
+            Ok(DeviceSuccess::IoQueued) => -1,
             Err(e) => *e as i32,
         }
     }
 
     fn from_io_return(code: c_int) -> Option<Self> {
         match code {
-            0 => Some(Ok(false)),
-            -1 => Some(Ok(true)),
+            0 => Some(Ok(DeviceSuccess::Success)),
+            -1 => Some(Ok(DeviceSuccess::IoQueued)),
             2500 => Some(Err(DeviceError::IoError)),
             2501 => Some(Err(DeviceError::WouldBlock)),
             2502 => Some(Err(DeviceError::NoSuchDevice)),

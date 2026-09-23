@@ -25,7 +25,7 @@ use super::io_req::{
     DEV_GET_SIZE_RECORD_SIZE, DevT, IoReq, KERN_SUCCESS, drain,
 };
 use crate::arch::i386::pio::Port;
-use crate::device::r#return::{DeviceError, IoResultExt};
+use crate::device::r#return::{DeviceError, DeviceSuccess, IoResultExt};
 use crate::device::subrs;
 use crate::glue;
 use crate::kern::queue::QueueEntry;
@@ -634,7 +634,7 @@ pub unsafe extern "C" fn mouseopen(
         _ => {}
     }
     s.mousebufindex = 0;
-    Ok(false).as_io_return()
+    Ok(DeviceSuccess::Success).as_io_return()
 }
 
 /// Close the mouse.  `mouseclose()` in C.
@@ -698,12 +698,12 @@ pub unsafe extern "C" fn mouseread(_dev: DevT, ior: *mut IoReq) -> c_int {
         // SAFETY: the read queue is this state's, at SPLKD.
         unsafe { read_queue(s).push_back(entry) };
         unsafe { glue::splx(sp) };
-        return Ok(true).as_io_return();
+        return Ok(DeviceSuccess::IoQueued).as_io_return();
     }
     let count = drain(&mut s.queue, unsafe { &mut *ior });
     unsafe { glue::splx(sp) };
     unsafe { (*ior).set_residual((*ior).count() - count) };
-    Ok(false).as_io_return()
+    Ok(DeviceSuccess::Success).as_io_return()
 }
 
 /// Finish a read that was queued waiting for events.
@@ -749,7 +749,7 @@ pub unsafe extern "C" fn mousegetstat(
                 size_of::<KdEvent>() as c_int;
             *count = DEV_GET_SIZE_COUNT;
         }
-        Ok(false).as_io_return()
+        Ok(DeviceSuccess::Success).as_io_return()
     } else {
         Err(DeviceError::InvalidOperation).as_io_return()
     }

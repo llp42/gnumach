@@ -19,7 +19,7 @@ use super::*;
 use crate::arch::i386::io_req::{DevT, IoReq};
 use crate::arch::vm_param::PAGE_SHIFT;
 use crate::device::cirbuf::Cirbuf;
-use crate::device::r#return::{DeviceError, IoResultExt};
+use crate::device::r#return::{DeviceError, DeviceSuccess, IoResultExt};
 use crate::glue;
 use crate::kern::lock::SimpleLock;
 use crate::kern::queue::QueueEntry;
@@ -291,13 +291,13 @@ pub unsafe extern "C" fn kdgetstat(
             *data = super::kd().state_bits();
             *count = 1;
         }
-        Ok(false).as_io_return()
+        Ok(DeviceSuccess::Success).as_io_return()
     } else if flavor == KDGKBENT {
         // SAFETY: the caller passes a `struct kbentry`.
         let kb = unsafe { &mut *data.cast::<super::KbEntry>() };
         super::keyboard::entry_get(kb);
         unsafe { *count = 1 };
-        Ok(false).as_io_return()
+        Ok(DeviceSuccess::Success).as_io_return()
     } else {
         // SAFETY: the tty layer handles its own flavors.
         unsafe { glue::tty_get_status(ptr(tty()), flavor, data, count) }
@@ -323,7 +323,7 @@ pub unsafe extern "C" fn kdsetstat(
         // SAFETY: the caller passes a `struct kbentry`.
         let kb = unsafe { &*data.cast::<super::KbEntry>() };
         super::keyboard::entry_set(kb);
-        Ok(false).as_io_return()
+        Ok(DeviceSuccess::Success).as_io_return()
     } else if flavor == KDSETBELL {
         if count < 1 {
             return Err(DeviceError::InvalidOperation).as_io_return();

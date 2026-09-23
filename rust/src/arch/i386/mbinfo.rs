@@ -10,7 +10,7 @@
 //! `mbinforead()`, one copy of the raw block, no parsing.
 
 use crate::arch::i386::io_req::{DevT, IoReq, KERN_SUCCESS};
-use crate::device::r#return::{DeviceError, IoResultExt};
+use crate::device::r#return::{DeviceError, DeviceSuccess, IoResultExt};
 use crate::glue;
 use crate::utils::cell::SyncCell;
 use core::cell::UnsafeCell;
@@ -111,5 +111,5 @@ pub unsafe extern "C" fn mbinforead(_dev: DevT, ior: *mut IoReq) -> c_int {
         )
     };
     ior.set_residual(0);
-    Ok(false).as_io_return()
+    Ok(DeviceSuccess::Success).as_io_return()
 }
