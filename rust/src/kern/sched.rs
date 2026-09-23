@@ -24,6 +24,10 @@ pub(crate) const PRI_SHIFT: u32 = 17;
 /// `sched_usage`.
 pub(crate) const SCHED_SHIFT: u32 = 7;
 
+/// `SCHED_SCALE` in <kern/sched.h>: the fixed-point unit of `sched_load` and
+/// `sched_usage`.
+pub(crate) const SCHED_SCALE: c_int = 128;
+
 /// `RUN_QUEUE_NULL` in <kern/sched.h>: not on any run queue.
 pub const RUN_QUEUE_NULL: *mut RunQueue = core::ptr::null_mut();
 

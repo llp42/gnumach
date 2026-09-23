@@ -17,7 +17,7 @@ use crate::kern::sched_prim::NUMQUEUES;
 use crate::kern::thread::{Continuation, StackResume, Thread};
 use crate::vm::types::{Pmap, VmObject, VmPage, VmProt};
 use crate::vm::vm_map::{VmMap, VmMapEntry};
-use core::ffi::{c_char, c_int, c_long, c_short, c_uint, c_ulong, c_void};
+use core::ffi::{c_char, c_int, c_short, c_uint, c_ulong, c_void};
 use core::mem::offset_of;
 
 /// `NSPEEDS` of <device/tty_status.h>: how many baud-rate slots `ttlowat[]`
@@ -193,22 +193,7 @@ unsafe extern "C" {
     pub fn switch_ktss(pcb: *mut c_void);
     pub fn Load_context(new: *mut Thread) -> !;
 
-    pub fn thread_glue_pset_sched_load(pset: *mut ProcessorSet) -> c_long;
-
     pub static mut min_quantum: c_int;
-
-    pub fn processor_glue_pset_tail_init(
-        pset: *mut ProcessorSet,
-        quantum: c_int,
-    );
-
-    pub fn processor_glue_pset_machine_quantum(
-        pset: *mut ProcessorSet,
-    ) -> *mut c_int;
-
-    pub fn processor_glue_pset_mach_factor(pset: *mut ProcessorSet) -> c_long;
-    pub fn processor_glue_pset_load_average(pset: *mut ProcessorSet)
-    -> c_long;
 
     pub static mut all_psets: QueueEntry;
     pub static mut all_psets_lock: SimpleLock;

@@ -375,10 +375,9 @@ impl Thread {
             let user = (*thread).user_timer_save.delta(&(*thread).user_timer);
             system.wrapping_add(user)
         };
-        // SAFETY: as above; `processor_set` is the thread's own set.
-        let load = unsafe {
-            glue::thread_glue_pset_sched_load((*thread).processor_set)
-        };
+        // SAFETY: as above; `processor_set` is the thread's own set, whose
+        // `sched_load` the caller's lock covers.
+        let load = unsafe { (*(*thread).processor_set).sched_load };
         // The C multiplies an `unsigned` by a `long` and stores the product
         // into an `unsigned`, so only the low 32 bits survive; the truncating
         // cast is exact for that.

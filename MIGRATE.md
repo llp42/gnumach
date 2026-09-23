@@ -91,8 +91,7 @@ file, or `—` when the rest is ready too.
 | `machine.c` | 630 | 4 | 0 | `machine_info` and NCPUS loops |
 | `printf.c` | 592 | 5 | 0 | C-variadic definitions; blocked (see §8) |
 | `priority.c` | 196 | 4 | 0 | pset tail and `struct slock_irq` |
-| `processor.c` | 497 | 4 | 0 | NCPUS loops and the pset tail (`processor_glue.c`) |
-| `processor_glue.c` | 73 | — | 0 | the pset tail; deletes with NCPUS (§10) |
+| `processor.c` | 497 | 4 | 0 | NCPUS loops |
 | `rdxtree.c` | 791 | 3 | 0 | static node helpers |
 | `sched_prim.c` | 1238 | 5 | 0 | static `thread_select`/`do_runq_scan`; continuations |
 | `slab.c` | 1280 | 5 | 0 | `struct kmem_cache` and `struct vm_page` mirrors |
@@ -248,14 +247,14 @@ final.
 
 ### 6.2 Blocked with one unlock
 
-**NCPUS/NINTR/NCOM (25).**  `init_timers`, `ast_init`, `host_processors`,
-`pset_sys_init`, `chario_init`, `pmap_virtual_space`,
-`interrupt_stack_alloc`, `picdisable`, the four `i386/i386/irq.c`
-accessors, the eight `i386/i386at/com.c` entries, the four
-`processor_glue.c` shims and `thread_glue_pset_sched_load`.  Bringing the
-configure constants into Rust with layout asserts (`--cfg` or a generated
-module from `config.h`) frees all of them and deletes
-`processor_glue.c` whole.
+**NCPUS/NINTR/NCOM (20).**  The configure constants are in
+`rust/src/config.rs`, the `processor_set` tail they sized is mirrored, and
+the four `processor_glue.c` shims plus `thread_glue_pset_sched_load` are
+deleted (§9, §10).  The other 20 this unlock frees are still C:
+`init_timers`, `ast_init`, `host_processors`, `pset_sys_init`,
+`chario_init`, `pmap_virtual_space`, `interrupt_stack_alloc`,
+`picdisable`, the four `i386/i386/irq.c` accessors and the eight
+`i386/i386at/com.c` entries.
 
 **Mirror gaps.**
 `host_ipc_marequest_info` and `host_virtual_physical_table_info` need a
@@ -321,9 +320,9 @@ classes.  A derivation is a snapshot of one afternoon's tree.
   `vm_resident.c`; (f) the `kern/thread.c`/`sched_prim.c` scheduler
   batch; (g) the `model_dep.c` clock and console leaves.
 
-* **Phase B — unlock work.**  Bring `NCPUS`/`NINTR`/`NCOM` into Rust
-  (frees the 25 and deletes `processor_glue.c`), then mirror
-  `hash_info_bucket_t` and `struct vm_page`, then `struct pmap`.
+* **Phase B — unlock work.**  The constants are in `rust/src/config.rs`;
+  the 20 functions they freed are next, then mirror `hash_info_bucket_t`
+  and `struct vm_page`, then `struct pmap`.
 
 * **Phase C — the coupled files.**  `eventcount`, `priority`, `gsync`,
   `ipc_tt`, `ipc_host`, `host`, `processor`, `machine`, `mach_clock` once
@@ -437,6 +436,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `vm/vm_kern.c` (`projected_buffer_collect`, `projected_buffer_in_range`, `kmem_alloc_wired_flags`, `kmem_alloc_wired`, `kmem_map_aligned_table`, `kmem_alloc_pageable`, `kmem_free`, `kmem_submap`, `kmem_init`, `kmem_io_map_deallocate`) | `src/vm/vm_kern.rs`, `src/vm/vm_kern_ffi.rs` | pending |
 | `vm/vm_user.c` (`vm_allocate`, `vm_deallocate`, `vm_inherit`, `vm_protect`, `vm_machine_attribute`, `vm_read`, `vm_write`, `vm_copy`, `vm_object_sync`, `vm_msync`, `vm_get_size_limit`) | `src/vm/vm_user.rs`, `src/vm/vm_user_ffi.rs` | pending |
 | `vm/vm_fault.c` (`vm_fault_wire`), `vm/vm_page.c` (`vm_page_seg_name`), `vm/vm_resident.c` (`pmap_steal_memory`, `vm_page_rename`, `vm_page_alloc_flags`, `vm_page_alloc`) | `src/vm/vm_fault.rs`, `vm_fault_ffi.rs`, `vm_page.rs`, `vm_page_ffi.rs`, `vm_resident.rs`, `vm_resident_ffi.rs` | pending |
+| `kern/processor_glue.c` (4 shims), `kern/sched_prim.c` (`thread_glue_pset_sched_load`) | `src/config.rs` (`NCPUS`, `NCOM`, `NINTR`), `src/kern/processor.rs`, `src/kern/thread.rs` | pending |
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `i386/i386at/kd_glue.c`
@@ -453,12 +453,12 @@ and nothing may be added.  Each row says what deletes it.
 | `vm/vm_map_glue.c` — object and page field shims | `vm_object` and `vm_page` bit probes | Phase B: the `vm_page` mirror and the `vm_object` story |
 | `vm/vm_map_glue.c` — task field shims | `vm_map_glue_task_map`, `_task_space` | when `struct task` gets a mirror |
 | `vm/vm_external_glue.c` | three `kmem_cache` storage symbols | Phase B/C: when `kern/slab.c` moves |
-| `kern/processor_glue.c` (4 shims) | the NCPUS-sized `processor_set` tail | Phase B: NCPUS visible to Rust, tail mirrored |
-| `kern/sched_prim.c` — `thread_glue_pset_sched_load` | the same tail, read from the scheduler | Phase B, with the row above |
 | `i386/i386/irq.c` — `irq_mask`, `irq_unmask`, `irq_{set,get}_{handler,unit}` | `mask_irq`/`unmask_irq` static inlines and the NINTR-sized `ivect`/`iunit` | Phase B: `NINTR`, plus a Rust `mask_irq` |
 | `i386/i386at/com.c` — `com_base_addr`, `com_irq` | `cominfo` is NCOM-sized | Phase B (`NCOM`) or porting `com.c` |
 
-`i386/i386at/kd_glue.c` is deleted; nothing joined the list since.
+`i386/i386at/kd_glue.c`, `kern/processor_glue.c` and the
+`thread_glue_pset_sched_load` shim in `kern/sched_prim.c` are deleted;
+nothing joined the list since.
 
 `--enable-user32` is out of scope for the Rust half: the build targets
 the i686 and x86_64 configurations the ABI pack gates.  The removed

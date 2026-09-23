@@ -185,14 +185,12 @@ a per-CPU accessor), not a shim to add quietly.
 
 ### The glue already in the tree
 
-Three `*_glue.c` files predate this rule, and three ordinary C files carry
-shim functions too. All of it is debt, not precedent:
+Two `*_glue.c` files predate this rule, and two ordinary C files carry shim
+functions too. All of it is debt, not precedent:
 
 ```
 vm/vm_map_glue.c            vm/vm_external_glue.c
-kern/processor_glue.c
 
-kern/sched_prim.c           thread_glue_pset_sched_load
 i386/i386/irq.c             irq_mask, irq_unmask, irq_{set,get}_{handler,unit}
 i386/i386at/com.c           com_base_addr, com_irq
 ```

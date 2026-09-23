@@ -24,6 +24,9 @@
  * the rights to redistribute these changes.
  */
 /*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
+/*
  *	File:	sched_prim.c
  *	Author:	Avadis Tevanian, Jr.
  *	Date:	1986
@@ -567,20 +570,6 @@ shift_data_t	wait_shift[32] = {
 	    + ((th)->sched_usage >> (PRI_SHIFT + SCHED_SHIFT));		\
 	if ((pri) > NRQS - 1) (pri) = NRQS - 1;				\
 	MACRO_END
-
-/*
- *	The one shim the Rust timer port needs: `processor_set.sched_load`
- *	sits after `machine_quantum[NCPUS+1]`, whose size is a configure
- *	constant Rust cannot see.  Delete this when kern/processor.c moves
- *	and the pset tail can be mirrored.
- */
-long thread_glue_pset_sched_load(processor_set_t pset);
-
-long thread_glue_pset_sched_load(
-	processor_set_t	pset)
-{
-	return pset->sched_load;
-}
 
 /*
  *	update_priority

@@ -11,6 +11,7 @@
 //! `kern/processor.c` used to define.
 
 use crate::arch::i386::mp_desc::cpu_control;
+use crate::config::NCPUS;
 use crate::glue;
 use crate::kern::lock::SimpleLock;
 use crate::kern::policy::{POLICY_TIMESHARE, invalid_policy};
@@ -24,7 +25,9 @@ use crate::kern::queue::{
     QueueEntry, queue_end, queue_enter_tail, queue_first, queue_init,
     queue_next, queue_remove_generic,
 };
-use crate::kern::sched::{BASEPRI_SYSTEM, NRQS, RunQueue, invalid_pri};
+use crate::kern::sched::{
+    BASEPRI_SYSTEM, NRQS, RunQueue, SCHED_SCALE, invalid_pri,
+};
 use crate::kern::thread::Thread;
 use crate::kern::types::KernError;
 use core::ffi::{c_int, c_long, c_uint, c_void};
@@ -69,8 +72,7 @@ pub struct Processor {
     pub ast_check_data: c_int,
 }
 
-/// `struct processor_set` of <kern/processor.h>, mirrored through
-/// `quantum_adj_lock`.
+/// `struct processor_set` of <kern/processor.h>.
 #[repr(C)]
 pub struct ProcessorSet {
     pub runq: RunQueue,
@@ -105,6 +107,10 @@ pub struct ProcessorSet {
     /// `quantum_adj_lock`: protects `quantum_adj_index`; the C `struct
     /// slock_irq` wraps one `struct slock`, so it is a [`SimpleLock`] here.
     pub quantum_adj_lock: SimpleLock,
+    pub machine_quantum: [c_int; NCPUS + 1],
+    pub mach_factor: c_long,
+    pub load_average: c_long,
+    pub sched_load: c_long,
 }
 
 #[cfg(target_pointer_width = "64")]
@@ -156,7 +162,13 @@ const _: () = {
     assert!(offset_of!(ProcessorSet, set_quantum) == 1208);
     assert!(offset_of!(ProcessorSet, quantum_adj_index) == 1212);
     assert!(offset_of!(ProcessorSet, quantum_adj_lock) == 1216);
+    assert!(offset_of!(ProcessorSet, machine_quantum) == 1220);
+    assert!(offset_of!(ProcessorSet, mach_factor) == 1232);
+    assert!(offset_of!(ProcessorSet, load_average) == 1240);
+    assert!(offset_of!(ProcessorSet, sched_load) == 1248);
 };
+#[cfg(target_pointer_width = "64")]
+const _: () = assert!(size_of::<ProcessorSet>() == 1256);
 #[cfg(target_pointer_width = "32")]
 const _: () = {
     assert!(offset_of!(ProcessorSet, idle_queue) == 532);
@@ -181,7 +193,13 @@ const _: () = {
     assert!(offset_of!(ProcessorSet, set_quantum) == 628);
     assert!(offset_of!(ProcessorSet, quantum_adj_index) == 632);
     assert!(offset_of!(ProcessorSet, quantum_adj_lock) == 636);
+    assert!(offset_of!(ProcessorSet, machine_quantum) == 640);
+    assert!(offset_of!(ProcessorSet, mach_factor) == 652);
+    assert!(offset_of!(ProcessorSet, load_average) == 656);
+    assert!(offset_of!(ProcessorSet, sched_load) == 660);
 };
+#[cfg(target_pointer_width = "32")]
+const _: () = assert!(size_of::<ProcessorSet>() == 664);
 
 /// The data a [`ProcessorSet::info()`] call reports, one variant per accepted
 /// flavor.
@@ -383,7 +401,12 @@ impl ProcessorSet {
             (*pset).set_quantum = min_quantum;
             (*pset).quantum_adj_index = 0;
             init_lock(&raw mut (*pset).quantum_adj_lock);
-            glue::processor_glue_pset_tail_init(pset, min_quantum);
+            for quantum in (*pset).machine_quantum.iter_mut() {
+                *quantum = min_quantum;
+            }
+            (*pset).mach_factor = 0;
+            (*pset).load_average = 0;
+            (*pset).sched_load = c_long::from(SCHED_SCALE);
         }
     }
 
@@ -520,35 +543,30 @@ impl ProcessorSet {
         // SAFETY: `min_quantum` is the live C global <kern/sched.h> declares
         // and kern/sched_prim.c sets.
         let min_quantum = unsafe { glue::min_quantum };
-        // SAFETY: `self` is a live set, and the shim only forms the address of
-        // its `machine_quantum` tail.
-        let machine_quantum = unsafe {
-            glue::processor_glue_pset_machine_quantum(ptr::from_mut(self))
-        };
 
         for i in 1..=ncpus {
-            // The C indexed with an `int`; the deliberate cast cannot wrap
-            // because `1 <= i <= ncpus <= NCPUS`.
-            let slot = unsafe { machine_quantum.add(i as usize) };
             let quantum =
                 min_quantum.wrapping_mul(ncpus).wrapping_add(i / 2) / i;
-            // SAFETY: `slot` is one of the tail's `NCPUS+1` entries.
-            unsafe { slot.write(quantum) };
+            // The C indexed with an `int`; the cast cannot wrap because
+            // `1 <= i <= ncpus`, and a set holds at most `NCPUS` processors.
+            let Some(slot) = self.machine_quantum.get_mut(i as usize) else {
+                break;
+            };
+            *slot = quantum;
         }
 
-        // SAFETY: the tail has at least two entries, so index one is in
-        // bounds; the doubled value wraps as the C's does.
-        unsafe {
-            let first = machine_quantum.add(1).read();
-            machine_quantum.write(first.wrapping_mul(2));
+        // The tail has at least two entries, so index one exists; the
+        // doubled value wraps as the C's does.
+        if let [first, second, ..] = &mut self.machine_quantum[..] {
+            *first = second.wrapping_mul(2);
         }
 
         let i = core::cmp::min(runq_count, ncpus);
-        // The C indexed with an `int`; the deliberate cast cannot wrap because
+        // The C indexed with an `int`; the cast cannot wrap because
         // `0 <= i <= ncpus <= NCPUS`.
-        let slot = unsafe { machine_quantum.add(i as usize) };
-        // SAFETY: `slot` is one of the tail's `NCPUS+1` entries.
-        self.set_quantum = unsafe { slot.read() };
+        if let Some(slot) = self.machine_quantum.get(i as usize) {
+            self.set_quantum = *slot;
+        }
     }
 
     /// `pset_add_processor()` of kern/processor.c.
@@ -726,23 +744,12 @@ impl ProcessorSet {
                 }
 
                 self.lock.lock();
-                // SAFETY: the shims only read the `load_average` and
-                // `mach_factor` fields of the live set, whose offset the Rust
-                // mirror cannot name because it depends on the configure-time
-                // NCPUS; the set lock is held, as the C held it.
-                let pset = ptr::from_ref(self).cast_mut();
-                let (load_average, mach_factor) = unsafe {
-                    (
-                        glue::processor_glue_pset_load_average(pset),
-                        glue::processor_glue_pset_mach_factor(pset),
-                    )
-                };
                 let info = ProcessorSetBasicInfo {
                     processor_count: self.processor_count,
                     task_count: self.task_count,
                     thread_count: self.thread_count,
-                    load_average: narrow_long(load_average),
-                    mach_factor: narrow_long(mach_factor),
+                    load_average: narrow_long(self.load_average),
+                    mach_factor: narrow_long(self.mach_factor),
                 };
                 self.lock.unlock();
 
