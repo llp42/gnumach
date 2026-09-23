@@ -4,6 +4,8 @@
 //! Kernel facilities; mirrors `kern/`.
 
 pub mod ast;
+pub mod boot_script;
+pub mod bootstrap;
 pub mod debug;
 pub mod elf_load;
 pub mod host;

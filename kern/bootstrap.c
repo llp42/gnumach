@@ -26,6 +26,7 @@
  * any improvements or extensions that they make and grant Carnegie Mellon
  * the rights to redistribute these changes.
  */
+/* Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com> */
 /*
  * Bootstrap the various built-in servers.
  */
@@ -691,18 +692,6 @@ static void user_bootstrap(void)
 }
 
 
-
-void *
-boot_script_malloc (unsigned int size)
-{
-  return (void *) kalloc (size);
-}
-
-void
-boot_script_free (void *ptr, unsigned int size)
-{
-  kfree ((vm_offset_t)ptr, size);
-}
 
 int
 boot_script_task_create (struct cmd *cmd)

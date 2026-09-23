@@ -23,6 +23,7 @@
  * any improvements or extensions that they make and grant Carnegie Mellon
  * the rights to redistribute these changes.
  */
+/* Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com> */
 /*
  *	Author: David B. Golub, Carnegie Mellon University
  *	Date: 	3/89
@@ -450,50 +451,6 @@ kern_return_t	device_pager_data_request(
 	return (KERN_SUCCESS);
 }
 
-kern_return_t device_pager_copy(
-	const ipc_port_t	pager,
-	const ipc_port_t	pager_request,
-	vm_offset_t		offset,
-	vm_size_t		length,
-	const ipc_port_t	new_pager)
-{
-	panic("(device_pager)copy: called");
-}
-
-kern_return_t
-device_pager_supply_completed(
-	const ipc_port_t pager,
-	const ipc_port_t pager_request,
-	vm_offset_t offset,
-	vm_size_t length,
-	kern_return_t result,
-	vm_offset_t error_offset)
-{
-	panic("(device_pager)supply_completed: called");
-}
-
-kern_return_t
-device_pager_data_return(
-	const ipc_port_t	pager,
-	const ipc_port_t	pager_request,
-	vm_offset_t		offset,
-	pointer_t		addr,
-	mach_msg_type_number_t	data_cnt,
-	boolean_t		dirty,
-	boolean_t		kernel_copy)
-{
-	panic("(device_pager)data_return: called");
-}
-
-kern_return_t
-device_pager_change_completed(
-	const ipc_port_t pager,
-	boolean_t may_cache,
-	memory_object_copy_strategy_t copy_strategy)
-{
-	panic("(device_pager)change_completed: called");
-}
-
 /*
  *	The mapping function takes a byte offset, but returns
  *	a machine-dependent page frame number.  We convert
@@ -587,27 +544,6 @@ kern_return_t device_pager_terminate(
 	dev_pager_deallocate(ds);
 
 	return (KERN_SUCCESS);
-}
-
-kern_return_t device_pager_data_unlock(
-	const ipc_port_t memory_object,
-	const ipc_port_t memory_control_port,
-	vm_offset_t offset,
-	vm_size_t length,
-	vm_prot_t desired_access)
-{
-	panic("(device_pager)data_unlock: called");
-	return (KERN_FAILURE);
-}
-
-kern_return_t device_pager_lock_completed(
-	const ipc_port_t	memory_object,
-	const ipc_port_t	pager_request_port,
-	vm_offset_t		offset,
-	vm_size_t		length)
-{
-	panic("(device_pager)lock_completed: called");
-	return (KERN_FAILURE);
 }
 
 void device_pager_init(void)

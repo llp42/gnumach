@@ -2,6 +2,8 @@
 
 /* Written by Shantanu Goel (goel@cs.columbia.edu).  */
 
+/* Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com> */
+
 #include <mach/mach_types.h>
 #include <string.h>
 #include <kern/printf.h>
@@ -691,38 +693,4 @@ boot_script_define_function (const char *name, int ret_type,
       sym->run_on_exec = ret_type == VAL_NONE;
     }
   return sym ? 0 : 1;
-}
-
-
-/* Return a string describing ERR.  */
-char *
-boot_script_error_string (int err)
-{
-  switch (err)
-    {
-    case BOOT_SCRIPT_NOMEM:
-      return "no memory";
-
-    case BOOT_SCRIPT_SYNTAX_ERROR:
-      return "syntax error";
-
-    case BOOT_SCRIPT_INVALID_ASG:
-      return "invalid variable in assignment";
-
-    case BOOT_SCRIPT_MACH_ERROR:
-      return "mach error";
-
-    case BOOT_SCRIPT_UNDEF_SYM:
-      return "undefined symbol";
-
-    case BOOT_SCRIPT_EXEC_ERROR:
-      return "exec error";
-
-    case BOOT_SCRIPT_INVALID_SYM:
-      return "invalid variable in expression";
-
-    case BOOT_SCRIPT_BAD_TYPE:
-      return "invalid value type";
-    }
-  return 0;
 }

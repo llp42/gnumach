@@ -7,13 +7,14 @@
 //! define for `kern/debug.h`.
 //!
 //! [`SoftDebugger`] prints the message and continues, [`Debugger`]
-//! panics because there is no debugger to enter, and [`panic_init`]
-//! initializes [`PANIC_LOCK`]: the `struct slock_irq` the C `Panic()`
-//! still takes with `simple_lock_irq()`.
+//! panics because there is no debugger to enter, [`__stack_chk_fail`]
+//! is the stack protector's halt, and [`panic_init`] initializes
+//! [`PANIC_LOCK`]: the `struct slock_irq` the C `Panic()` still takes
+//! with `simple_lock_irq()`.
 //!
-//! `Panic`, `log`, `do_cnputc`, `panicstr`, `paniccpu`,
-//! `__stack_chk_guard` and `__stack_chk_fail` stay C in
-//! `kern/debug.c`; `Panic` and `log` are variadic, so they cannot move.
+//! `Panic`, `log`, `do_cnputc`, `panicstr`, `paniccpu` and
+//! `__stack_chk_guard` stay C in `kern/debug.c`; `Panic` and `log` are
+//! variadic, so they cannot move.
 
 use crate::glue;
 use crate::kern::lock::SimpleLock;
@@ -66,6 +67,29 @@ pub unsafe extern "C" fn Debugger(_message: *const c_char) {
             line!() as c_int,
             c"Debugger".as_ptr(),
             c"Debugger invoked, but there isn't one!".as_ptr(),
+        )
+    }
+}
+
+/// Halt because a stack canary did not survive a function body.
+/// `__stack_chk_fail()` in C.
+///
+/// The name is the compiler's, not ours: GCC emits the call from the
+/// epilogue of every `-fstack-protector` function in the C half, so it
+/// can neither be renamed nor be given arguments.  Nothing calls it
+/// from Rust; this crate is built without a stack protector, so the
+/// halt below cannot re-enter itself.
+#[unsafe(no_mangle)]
+pub extern "C" fn __stack_chk_fail() -> ! {
+    // SAFETY: `Panic` does not return; the file, function and message
+    // are the C `panic()` macro's.
+    unsafe {
+        glue::Panic(
+            c"kern/debug.c".as_ptr(),
+            // The line is this Rust file's, as in `Debugger` above.
+            line!() as c_int,
+            c"__stack_chk_fail".as_ptr(),
+            c"stack smashing detected".as_ptr(),
         )
     }
 }
