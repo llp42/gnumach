@@ -87,7 +87,6 @@ libkernel_a_SOURCES += \
 	i386/i386/irq.c \
 	i386/i386/irq.h \
 	i386/i386/msr.h \
-	i386/i386/pit.c \
 	i386/i386/pit.h
 
 if enable_apic

@@ -41,7 +41,7 @@ routine at a time. The target is a Rust kernel, not a kernel with Rust in it.
 The build is GNU Autotools plus a hand-written `rustc` invocation — no Cargo,
 no lock file, no network. The Rust half compiles to `libmach-rs.a`, which is
 linked between two passes over `libkernel.a`, so Rust may call C and C may
-call Rust. As of 2026-09-23 the Rust half is 85 files and about 30,500 lines.
+call Rust. As of 2026-09-23 the Rust half is 86 files and about 30,800 lines.
 
 ### The idea
 
@@ -119,6 +119,7 @@ link error, not a fallback.
 | `kern/thread_swap.c` | `src/kern/thread_swap.rs` |
 | `i386/i386/ast_check.c` | `src/arch/i386/ast_check.rs` |
 | `i386/i386at/rtc.c` | `src/arch/i386/rtc.rs` |
+| `i386/i386/pit.c` | `src/arch/i386/pit.rs` |
 
 Also deleted as dead: `device/blkio.c` and the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`).
@@ -210,8 +211,8 @@ Where any older note there still names a shim as a step, the step is wrong.
 A **free port** is one that needs nothing which does not already exist:
 no new C, no new `#[repr(C)]` mirror, no configure-time constant brought
 into Rust, no design conversation. `MIGRATE.md` §6 is the five-question
-test that decides this mechanically, and §6.1 is the current list of
-four such functions.
+test that decides this mechanically. Its §6.1 free-port list is now
+empty, and the test re-derives it after any Phase 3 or Phase 4 work.
 
 **Free ports are worked to exhaustion before any infrastructure is
 proposed.** They are the only kind of port that cannot be blocked, they

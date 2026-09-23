@@ -1431,7 +1431,7 @@ entry below keeps the detail §4.1 gives the `kern/` files.
 | `ast_check.c` | 52 | AST IPI dispatch | 2 | ported; see §9 |
 | `hardclock.c` | 69 | tick | 2 | `clock_interrupt`, trap return |
 | `irq.c` | 95 | IRQ ack/enable | 2 | ioapic EOI, spl |
-| `pit.c` | 144 | 8254 timer | 2 | `splon/sploff`, hz |
+| `pit.c` | 144 | 8254 timer | 2 | ported; see §9 |
 | `db_interface.c` | 103 | debug-register access | 3 | `%dbN` asm, percpu |
 | `debug_i386.c` | 178 | trace/print debug | 3 | trap frames, console |
 | `idt.c` | 80 | IDT construction | 3 | gate tables, gdt |
@@ -1734,7 +1734,7 @@ Five exemptions are settled, and do not need re-deciding per port:
   write over the mirrored `SimpleLock`, and `simple_lock_irq` is
   `splhigh()` plus `mach_simple_lock`, both real.
 * **`spl*` passes question 1.**  Every one is a real asm function
-  (`i386/i386/spl.h:35-65`), not a macro.
+  (`i386/i386/spl.h:35-69`), not a macro.
 * **`current_thread()`, `cpu_number()` and `percpu_get` pass.**  They
   are macros, but `rust/src/arch/i386/percpu.rs` is the Rust
   equivalent, so Rust never invokes the macro.
@@ -1748,21 +1748,20 @@ Five exemptions are settled, and do not need re-deciding per port:
 
 The tiers below are just the number of "no" answers.
 
-### 6.1 Tier 0 — the free ports
+### 6.1 Tier 0 — the free ports (empty)
 
-**Zero "no" answers: these need nothing that does not exist today.**
-No new C, no new mirror, no new constant, no design conversation.
-Tier 0 is worked to exhaustion before any infrastructure is proposed
-(`AGENTS.md`, "Take the free ports first").
+**Zero "no" answers, and no entries: the free-port list is empty.**
+Every function in `i386/i386/pit.c`, `clkstart` and the four sleep and
+delay entries alike, is ported and §9 records it; its four globals are
+three private Rust constants and a local now.  No free
+port remains.  Tier 0 is worked to exhaustion before any
+infrastructure is proposed (`AGENTS.md`, "Take the free ports first"),
+and it has been.
 
-Four functions.  Clusters first, because a whole file leaving C in one
-commit is worth more than the same functions leaving one at a time.
-
-**Whole-file clusters**
-
-| File | Functions | Why it is free |
-|---|---:|---|
-| `i386/i386/pit.c` | 4 — `pit_prepare_sleep:69`, `pit_sleep:89`, `pit_udelay:105`, `pit_mdelay:117` | Port I/O and plain constants only; the two `*delay` entries call their siblings in the same file. |
+That is a snapshot, not a permanent state: every mirror and every
+constant that lands moves more functions here, so §6's five-question
+test re-derives the list after any Phase 3 or Phase 4 work instead of
+this heading being trusted.
 
 ### 6.2 What the rejections teach
 
@@ -1833,11 +1832,11 @@ or Rust already.  Each phase exists to make the next one legal, and no
 phase contains a shim.  Where the old phasing said "add the shim", the
 replacement says which file to port instead.
 
-* **Phase 0 — Tier 0 (now).**  The four free functions of
-  §6.1, worked to exhaustion.  Each needs nothing that does not exist
-  today, so this phase can start and finish without a single decision
-  from any later one.  Nothing below is begun while Tier 0 has
-  entries left.
+* **Phase 0 — Tier 0 (done).**  The whole of `i386/i386/pit.c` was the
+  last free file: `clkstart` and the four sleep and delay functions are
+  ported, §6.1 is empty and §9 records it.  Each function needed
+  nothing that did not exist today, so the phase finished without a
+  single decision from any later one.
 
 * **Phase 1 — per-CPU.**  Finish the accessor in `src/arch/<arch>/`
   (`src/arch/i386/percpu.rs` is the start).  `percpu_get`,
@@ -1989,6 +1988,7 @@ kernel may add host tests like the rbtree's; see §8.
 | `ipc/ipc_port.c` (`ipc_port_timestamp` and its two globals; rest stays C) | `src/ipc/ipc_port.rs` | `pending` |
 | `ipc/mach_port.c` (`mach_port_rename`, `mach_port_insert_right`, `mach_port_extract_right`, `mach_port_request_notification`; rest stays C) | `src/ipc/mach_port.rs` | `pending` |
 | `i386/i386at/rtc.c` | `src/arch/i386/rtc.rs` | `pending` |
+| `i386/i386/pit.c` (the whole file, `clkstart` and its four globals included) | `src/arch/i386/pit.rs` | `pending` |
 
 Deleted dead code: `device/blkio.c` (unreachable block pager path) and
 the `#if 0` profiling facility (`profil.h`, `profilparam.h`,

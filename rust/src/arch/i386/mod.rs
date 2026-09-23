@@ -15,4 +15,5 @@ pub mod mem;
 pub mod mp_desc;
 pub mod percpu;
 pub mod pio;
+pub mod pit;
 pub mod rtc;

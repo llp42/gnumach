@@ -22,6 +22,7 @@ MACH_RS_SRCS = \
 	rust/src/arch/i386/mp_desc.rs \
 	rust/src/arch/i386/percpu.rs \
 	rust/src/arch/i386/pio.rs \
+	rust/src/arch/i386/pit.rs \
 	rust/src/arch/i386/rtc.rs \
 	rust/src/arch/types.rs \
 	rust/src/arch/vm_param.rs \

@@ -24,7 +24,7 @@ use crate::kern::queue::QueueEntry;
 use crate::kern::sched_prim::NUMQUEUES;
 use crate::kern::thread::Thread;
 use crate::vm::types::{Pmap, VmObject, VmPage, VmProt};
-use core::ffi::{c_char, c_int, c_long, c_short, c_uint, c_void};
+use core::ffi::{c_char, c_int, c_long, c_short, c_uint, c_ulong, c_void};
 
 // The raw pointers below are to `#[repr(C)]` mirrors.  `QueueEntry`
 // ends in the zero-sized `PhantomPinned` marker, which the FFI lint
@@ -216,6 +216,12 @@ unsafe extern "C" {
     pub fn splsoftclock() -> c_int;
     pub fn splclock() -> c_int;
     pub fn splx(level: c_int) -> c_int;
+    // <i386/i386/spl.h>: the flags pair, defined per arch in
+    // i386/i386/spl.S or x86_64/spl.S.  `sploff()` disables interrupts
+    // and returns the flags word, and `splon()` restores the word it
+    // returned.
+    pub fn sploff() -> c_ulong;
+    pub fn splon(n: c_ulong);
 
     // <i386at/com.h>
     pub fn comgetc(unit: c_int) -> c_int;
