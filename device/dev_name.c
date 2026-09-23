@@ -24,6 +24,9 @@
  * the rights to redistribute these changes.
  */
 /*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
+/*
  *	Author: David B. Golub, Carnegie Mellon University
  *	Date: 	8/89
  */
@@ -33,85 +36,6 @@
 #include <device/device_types.h>
 #include <device/dev_hdr.h>
 #include <device/conf.h>
-
-
-
-/*
- * Routines placed in empty entries in the device tables
- */
-int nulldev_reset(dev_t dev)
-{
-	return (D_SUCCESS);
-}
-
-int nulldev_open(dev_t dev, int flags, io_req_t ior)
-{
-	return (D_SUCCESS);
-}
-
-void nulldev_close(dev_t dev, int flags)
-{
-}
-
-int nulldev_read(dev_t dev, io_req_t ior)
-{
-	return (D_SUCCESS);
-}
-
-int nulldev_write(dev_t dev, io_req_t ior)
-{
-	return (D_SUCCESS);
-}
-
-io_return_t nulldev_getstat(dev_t dev, dev_flavor_t flavor, dev_status_t data, mach_msg_type_number_t *count)
-{
-	return (D_INVALID_OPERATION);
-}
-
-io_return_t nulldev_setstat(dev_t dev, dev_flavor_t flavor, dev_status_t data, mach_msg_type_number_t count)
-{
-	return (D_INVALID_OPERATION);
-}
-
-int nulldev_portdeath(dev_t dev, mach_port_t port)
-{
-	return (D_SUCCESS);
-}
-
-int nodev_async_in(dev_t dev, const ipc_port_t port, int x, filter_t* filter, unsigned int j)
-{
-	return (D_INVALID_OPERATION);
-}
-
-int nodev_info(dev_t dev, int a, int* b)
-{
-	return (D_INVALID_OPERATION);
-}
-
-vm_offset_t
-nomap(dev_t dev, vm_offset_t off, int prot)
-{
-	return -1;
-}
-
-/*
- * Name comparison routine.
- * Compares first 'len' characters of 'src'
- * with 'target', which is zero-terminated.
- * Returns TRUE if strings are equal:
- *   src and target are equal in first 'len' characters
- *   next character of target is 0 (end of string).
- */
-boolean_t __attribute__ ((pure))
-name_equal(const char 	*src,
-	int		len,
-	const char 	*target)
-{
-	while (--len >= 0)
-	    if (*src++ != *target++)
-		return FALSE;
-	return *target == 0;
-}
 
 /*
  * device name lookup
