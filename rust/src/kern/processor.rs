@@ -24,13 +24,18 @@
 //! `processor_init()` and `pset_init()` used to hold;
 //! [`Processor::start()`], [`Processor::exit()`],
 //! [`Processor::control()`], [`Processor::get_assignment()`],
-//! [`ProcessorSet::reference()`] and [`ProcessorSet::deallocate()`] are
-//! also ported from the same file.  The adapters below keep the symbols
-//! the C half calls.
+//! [`ProcessorSet::reference()`], [`ProcessorSet::deallocate()`],
+//! [`ProcessorSet::add_thread()`], [`ProcessorSet::remove_thread()`],
+//! [`Thread::change_psets()`] and the three processor-set policy
+//! setters are also ported from the same file.  The adapters below
+//! keep the symbols the C half calls.
 
 use crate::glue;
 use crate::kern::lock::SimpleLock;
-use crate::kern::queue::{QueueEntry, queue_init, queue_remove_generic};
+use crate::kern::queue::{
+    QueueEntry, queue_end, queue_enter_tail, queue_first, queue_init,
+    queue_next, queue_remove_generic,
+};
 use crate::kern::thread::{BASEPRI_SYSTEM, POLICY_TIMESHARE, Thread};
 use crate::kern::types::KernError;
 use core::ffi::{c_int, c_uint, c_void};
@@ -40,6 +45,9 @@ use core::slice;
 
 /// `NRQS` in <kern/sched.h>: one run queue per priority.
 pub const NRQS: usize = 65;
+
+/// `POLICY_LAST` in <mach/policy.h>: the highest defined policy.
+const POLICY_LAST: c_int = 2;
 
 /// `RUN_QUEUE_NULL` in <kern/sched.h>: not on any run queue.
 pub const RUN_QUEUE_NULL: *mut RunQueue = core::ptr::null_mut();
@@ -311,6 +319,21 @@ fn kern_error(code: c_int) -> Result<(), KernError> {
     }
 }
 
+/// Whether `policy` names no policy a processor set could hold; the C
+/// `invalid_policy()` of <mach/policy.h>.
+fn invalid_policy(policy: c_int) -> bool {
+    policy <= 0 || policy > POLICY_LAST
+}
+
+/// Whether `priority` is outside the `NRQS` run queues; the C
+/// `invalid_pri()` of <kern/sched.h>.
+fn invalid_pri(priority: c_int) -> bool {
+    match usize::try_from(priority) {
+        Ok(priority) => priority >= NRQS,
+        Err(_) => true,
+    }
+}
+
 impl Processor {
     /// Initialize the processor for the slot `slot_num`.  The body of
     /// `processor_init()` in kern/processor.c.
@@ -546,6 +569,218 @@ impl ProcessorSet {
             )
         };
     }
+
+    /// Add `thread` to the set.  `pset_add_thread()` of
+    /// kern/processor.c.
+    ///
+    /// # Safety
+    ///
+    /// The caller must hold the set's lock and the thread's lock, as
+    /// the C requires, and `thread` must be live and not linked into a
+    /// processor set's thread list.
+    pub unsafe fn add_thread(&mut self, thread: *mut Thread) {
+        // SAFETY: the caller promises a live, unlinked thread, and the
+        // queue's links are its `pset_threads` field.
+        unsafe {
+            queue_enter_tail(
+                &raw mut self.threads,
+                thread.cast::<c_void>(),
+                offset_of!(Thread, pset_threads),
+            );
+            (*thread).processor_set = ptr::from_mut(self);
+            self.thread_count = self.thread_count.wrapping_add(1);
+        }
+    }
+
+    /// Remove `thread` from the set.  `pset_remove_thread()` of
+    /// kern/processor.c.
+    ///
+    /// The set's reference to the thread is not dropped here; the C
+    /// requires the caller to `pset_deallocate()` it.
+    ///
+    /// # Safety
+    ///
+    /// The caller must hold the set's lock and the thread's lock, as
+    /// the C requires, and `thread` must be live and linked into this
+    /// set's thread list.
+    pub unsafe fn remove_thread(&mut self, thread: *mut Thread) {
+        // SAFETY: the caller promises a live thread linked into this
+        // set, and the queue's links are its `pset_threads` field.
+        unsafe {
+            queue_remove_generic(
+                &raw mut self.threads,
+                thread.cast::<c_void>(),
+                offset_of!(Thread, pset_threads),
+            );
+            (*thread).processor_set = ptr::null_mut();
+            self.thread_count = self.thread_count.wrapping_sub(1);
+        }
+    }
+
+    /// Allow `policy` on the set.  `processor_set_policy_enable()` of
+    /// kern/processor.c.
+    ///
+    /// A `policy` outside the defined range reports
+    /// [`KernError::InvalidArgument`].
+    pub fn policy_enable(&mut self, policy: c_int) -> Result<(), KernError> {
+        if invalid_policy(policy) {
+            return Err(KernError::InvalidArgument);
+        }
+
+        self.lock.lock();
+        self.policies |= policy;
+        self.lock.unlock();
+
+        Ok(())
+    }
+
+    /// Forbid `policy` on the set, sending every thread that uses it
+    /// back to timesharing when `change_threads` is set.
+    /// `processor_set_policy_disable()` of kern/processor.c.
+    ///
+    /// Timesharing cannot be forbidden, and a `policy` outside the
+    /// defined range reports [`KernError::InvalidArgument`].
+    pub fn policy_disable(
+        &mut self,
+        policy: c_int,
+        change_threads: c_int,
+    ) -> Result<(), KernError> {
+        if policy == POLICY_TIMESHARE || invalid_policy(policy) {
+            return Err(KernError::InvalidArgument);
+        }
+
+        self.lock.lock();
+
+        // Disable the policy if it is enabled, then handle
+        // `change_threads`, as the C does.
+        if (self.policies & policy) != 0 {
+            self.policies &= !policy;
+
+            if change_threads != 0 {
+                // The C walks `threads` under the set lock, with
+                // `queue_first()` and `queue_next()` of <kern/queue.h>.
+                let list = &raw mut self.threads;
+                // SAFETY: the set lock is held, so every link is a
+                // live thread whose chain stays put during the walk.
+                let mut thread = unsafe { queue_first(list) }.cast::<Thread>();
+                // SAFETY: as above; the head ends the walk.
+                while unsafe { queue_end(list, thread.cast::<QueueEntry>()) }
+                    == 0
+                {
+                    // SAFETY: `thread` is a live member of the list.
+                    if unsafe { (*thread).policy == policy } {
+                        // SAFETY: the C routine takes the thread lock
+                        // itself, and timesharing is a policy this set
+                        // can switch a thread to.  The C ignores the
+                        // result.
+                        unsafe {
+                            glue::thread_policy(thread, POLICY_TIMESHARE, 0);
+                        }
+                    }
+                    // SAFETY: `thread_policy()` does not unlink
+                    // `thread`.
+                    let next =
+                        unsafe { queue_next(&raw mut (*thread).pset_threads) };
+                    thread = next.cast::<Thread>();
+                }
+            }
+        }
+
+        self.lock.unlock();
+
+        Ok(())
+    }
+
+    /// Set the set's maximum priority to `max_priority`, lowering the
+    /// maximum of every thread above it when `change_threads` is set.
+    /// `processor_set_max_priority()` of kern/processor.c.
+    ///
+    /// A priority outside the run queues reports
+    /// [`KernError::InvalidArgument`].
+    pub fn max_priority(
+        &mut self,
+        max_priority: c_int,
+        change_threads: c_int,
+    ) -> Result<(), KernError> {
+        if invalid_pri(max_priority) {
+            return Err(KernError::InvalidArgument);
+        }
+
+        self.lock.lock();
+        self.max_priority = max_priority;
+
+        if change_threads != 0 {
+            // The walk touches the set through this raw pointer alone,
+            // so no reference reborrow can invalidate the list head.
+            let pset = ptr::from_mut(self);
+            // SAFETY: the set lock is held, so every link is a live
+            // thread whose chain stays put during the walk; `pset` is
+            // this set, which `thread_max_priority()` only compares.
+            unsafe {
+                let list = ptr::addr_of_mut!((*pset).threads);
+                let mut thread = queue_first(list).cast::<Thread>();
+                while queue_end(list, thread.cast::<QueueEntry>()) == 0 {
+                    // SAFETY: `thread` is a live member of the list.
+                    if (*thread).max_priority < max_priority {
+                        // SAFETY: the C routine takes the thread lock
+                        // itself.  The C ignores the result.
+                        glue::thread_max_priority(thread, pset, max_priority);
+                    }
+                    // SAFETY: `thread_max_priority()` does not unlink
+                    // `thread`.
+                    thread = queue_next(&raw mut (*thread).pset_threads)
+                        .cast::<Thread>();
+                }
+            }
+        }
+
+        self.lock.unlock();
+
+        Ok(())
+    }
+}
+
+impl Thread {
+    /// Move `thread` from `old_pset`'s thread list to `new_pset`'s.
+    /// `thread_change_psets()` of kern/processor.c.
+    ///
+    /// Unlike the paired remove and add, the C does not null
+    /// `thread->processor_set` between the two lists; only the final
+    /// assignment happens here.
+    ///
+    /// # Safety
+    ///
+    /// The caller must hold the locks of both sets and of the thread,
+    /// as the C requires, and `thread` must be live and linked into
+    /// `old_pset`'s thread list.  The old set's reference is not
+    /// dropped here; the C requires the caller to `pset_deallocate()`
+    /// it.
+    pub unsafe fn change_psets(
+        thread: *mut Thread,
+        old_pset: *mut ProcessorSet,
+        new_pset: *mut ProcessorSet,
+    ) {
+        // SAFETY: the caller promises live sets and a thread linked
+        // into the old one; the queue's links are the thread's
+        // `pset_threads` field.
+        unsafe {
+            queue_remove_generic(
+                &raw mut (*old_pset).threads,
+                thread.cast::<c_void>(),
+                offset_of!(Thread, pset_threads),
+            );
+            (*old_pset).thread_count =
+                (*old_pset).thread_count.wrapping_sub(1);
+            queue_enter_tail(
+                &raw mut (*new_pset).threads,
+                thread.cast::<c_void>(),
+                offset_of!(Thread, pset_threads),
+            );
+            (*thread).processor_set = new_pset;
+            (*new_pset).thread_count =
+                (*new_pset).thread_count.wrapping_add(1);
+        }
+    }
 }
 
 /// Initialize the processor in slot `slot_num`.  `processor_init()` of
@@ -702,4 +937,126 @@ pub unsafe extern "C" fn pset_deallocate(pset: *mut ProcessorSet) {
 
     // SAFETY: the caller's contract.
     unsafe { (*pset.as_ptr()).deallocate() };
+}
+
+/// Add a thread to the processor set.  `pset_add_thread()` of
+/// kern/processor.c.
+///
+/// # Safety
+///
+/// `pset` must point at a live `struct processor_set` and `thread` at
+/// a live thread that is not linked into a set; the caller must hold
+/// both locks, as the C requires.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pset_add_thread(
+    pset: *mut ProcessorSet,
+    thread: *mut Thread,
+) {
+    // SAFETY: the caller's contract.
+    unsafe { (*pset).add_thread(thread) };
+}
+
+/// Remove a thread from the processor set.  `pset_remove_thread()` of
+/// kern/processor.c.
+///
+/// # Safety
+///
+/// `pset` must point at a live `struct processor_set` and `thread` at
+/// a live thread linked into it; the caller must hold both locks, as
+/// the C requires.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pset_remove_thread(
+    pset: *mut ProcessorSet,
+    thread: *mut Thread,
+) {
+    // SAFETY: the caller's contract.
+    unsafe { (*pset).remove_thread(thread) };
+}
+
+/// Move a thread between processor sets.  `thread_change_psets()` of
+/// kern/processor.c.
+///
+/// # Safety
+///
+/// `thread` must point at a live thread linked into the live set
+/// `old_pset`, and `new_pset` at a live set; the caller must hold the
+/// locks of both sets and of the thread, as the C requires.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn thread_change_psets(
+    thread: *mut Thread,
+    old_pset: *mut ProcessorSet,
+    new_pset: *mut ProcessorSet,
+) {
+    // SAFETY: the caller's contract.
+    unsafe { Thread::change_psets(thread, old_pset, new_pset) };
+}
+
+/// Set the maximum priority of a processor set.
+/// `processor_set_max_priority()` of kern/processor.c.
+///
+/// # Safety
+///
+/// `pset` must be null or point at a live `struct processor_set`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn processor_set_max_priority(
+    pset: *mut ProcessorSet,
+    max_priority: c_int,
+    change_threads: c_int,
+) -> c_int {
+    let Some(pset) = ptr::NonNull::new(pset) else {
+        return c_int::from(KernError::InvalidArgument);
+    };
+
+    // SAFETY: the caller promises a live set.
+    match unsafe {
+        (*pset.as_ptr()).max_priority(max_priority, change_threads)
+    } {
+        Ok(()) => 0,
+        Err(error) => c_int::from(error),
+    }
+}
+
+/// Enable a scheduling policy on a processor set.
+/// `processor_set_policy_enable()` of kern/processor.c.
+///
+/// # Safety
+///
+/// `pset` must be null or point at a live `struct processor_set`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn processor_set_policy_enable(
+    pset: *mut ProcessorSet,
+    policy: c_int,
+) -> c_int {
+    let Some(pset) = ptr::NonNull::new(pset) else {
+        return c_int::from(KernError::InvalidArgument);
+    };
+
+    // SAFETY: the caller promises a live set.
+    match unsafe { (*pset.as_ptr()).policy_enable(policy) } {
+        Ok(()) => 0,
+        Err(error) => c_int::from(error),
+    }
+}
+
+/// Disable a scheduling policy on a processor set.
+/// `processor_set_policy_disable()` of kern/processor.c.
+///
+/// # Safety
+///
+/// `pset` must be null or point at a live `struct processor_set`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn processor_set_policy_disable(
+    pset: *mut ProcessorSet,
+    policy: c_int,
+    change_threads: c_int,
+) -> c_int {
+    let Some(pset) = ptr::NonNull::new(pset) else {
+        return c_int::from(KernError::InvalidArgument);
+    };
+
+    // SAFETY: the caller promises a live set.
+    match unsafe { (*pset.as_ptr()).policy_disable(policy, change_threads) } {
+        Ok(()) => 0,
+        Err(error) => c_int::from(error),
+    }
 }

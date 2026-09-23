@@ -70,6 +70,20 @@ unsafe extern "C" {
     // in `thread.depress_timer.fcn`.
     pub fn thread_depress_timeout(thread: *mut c_void);
 
+    // <kern/thread.h>: the scheduling-policy setters the processor-set
+    // updates call on each member thread.  They stay C for now, and
+    // the port calls them exactly as kern/processor.c did.
+    pub fn thread_policy(
+        thread: *mut Thread,
+        policy: c_int,
+        data: c_int,
+    ) -> c_int;
+    pub fn thread_max_priority(
+        thread: *mut Thread,
+        pset: *mut ProcessorSet,
+        max_priority: c_int,
+    ) -> c_int;
+
     // <kern/mach_clock.h>: the wait timeout, set under the thread
     // lock.  The handle is opaque here; its layout lives in
     // rust/src/kern/mach_clock.rs, which is GPL-derived.

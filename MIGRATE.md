@@ -701,8 +701,11 @@ its entry below and the §9 table record what moved.
 * **Role.** Processor and processor-set lifecycle, refcounts, info MIG
   calls, policy setters, task/thread port listing.
 * **Ported so far.** `processor_init`, `pset_init`, `processor_start`,
-  `processor_exit`, `processor_control`, `processor_get_assignment` and
-  the `MACH_HOST` branch of `pset_reference`/`pset_deallocate` are in
+  `processor_exit`, `processor_control`, `processor_get_assignment`,
+  `pset_add_thread`/`pset_remove_thread`/`thread_change_psets`,
+  `processor_set_max_priority` and
+  `processor_set_policy_enable`/`processor_set_policy_disable`, plus the
+  `MACH_HOST` branch of `pset_reference`/`pset_deallocate`, are in
   `src/kern/processor.rs`.  The NCPUS-sized pset tail
   (`machine_quantum` through `sched_load`) is the `kern/processor_glue.c`
   shim.  The rest of the file stays C.
@@ -1701,7 +1704,7 @@ rbtree's; see §8.
 | `kern/ast.h` (`ast_on`, `ast_off`, `ast_needed`) | `src/kern/ast.rs` | `6a6281be` |
 | `kern/thread.c` (`thread_init`) | `src/kern/thread.rs` | `pending` |
 | `kern/sched.h` (`thread_timer_delta`) | `src/kern/thread.rs`, `src/kern/timer.rs` | `pending` |
-| `kern/processor.c` (`processor_init`, `pset_init`, `processor_start/exit/control`, `processor_get_assignment`, `pset_reference`, `pset_deallocate`) | `src/kern/processor.rs` | `pending` |
+| `kern/processor.c` (`processor_init`, `pset_init`, `processor_start/exit/control`, `processor_get_assignment`, `pset_reference`, `pset_deallocate`, `pset_add/remove_thread`, `thread_change_psets`, `processor_set_max_priority`, `processor_set_policy_enable/disable`) | `src/kern/processor.rs` | `pending` |
 
 Deleted dead code: `device/blkio.c` (unreachable block pager path) and
 the `#if 0` profiling facility (`profil.h`, `profilparam.h`,
