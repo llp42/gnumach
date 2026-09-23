@@ -128,6 +128,28 @@ unsafe extern "C" {
         quantum: c_int,
     );
 
+    // <kern/processor.c>: the global processor-set list, its count and
+    // its lock, which the C half goes on using.  `queue_head_t` is the
+    // `QueueEntry` mirror.
+    pub static mut all_psets: QueueEntry;
+    pub static mut all_psets_lock: SimpleLock;
+    pub static mut all_psets_count: c_int;
+
+    // <kern/processor.c>: address-only.  The full `struct
+    // processor_set` is longer than the Rust mirror and `struct
+    // kmem_cache` has no mirror, so only the addresses are named.
+    pub static mut default_pset: c_void;
+    pub static mut pset_cache: c_void;
+
+    // <kern/machine.h>: the machine-dependent shutdown of a processor,
+    // still C on both architectures.
+    pub fn processor_shutdown(processor: *mut Processor) -> c_int;
+
+    // <i386/i386/mp_desc.c>: the machine-dependent processor control
+    // hook.
+    pub fn cpu_control(cpu: c_int, info: *const c_int, count: c_uint)
+    -> c_int;
+
     // <device/ds_routines.h>, the request passed as an opaque handle:
     // `struct io_req` itself belongs to its driver.
     pub fn iodone(ior: *mut c_void);

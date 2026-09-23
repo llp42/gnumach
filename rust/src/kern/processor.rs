@@ -21,16 +21,22 @@
 //! on the configure-time NCPUS.
 //!
 //! [`Processor::init()`] and [`ProcessorSet::init()`] are the bodies
-//! `processor_init()` and `pset_init()` used to hold, and the adapters
-//! below keep the symbols the C bootstrap calls.
+//! `processor_init()` and `pset_init()` used to hold;
+//! [`Processor::start()`], [`Processor::exit()`],
+//! [`Processor::control()`], [`Processor::get_assignment()`],
+//! [`ProcessorSet::reference()`] and [`ProcessorSet::deallocate()`] are
+//! also ported from the same file.  The adapters below keep the symbols
+//! the C half calls.
 
 use crate::glue;
 use crate::kern::lock::SimpleLock;
-use crate::kern::queue::{QueueEntry, queue_init};
+use crate::kern::queue::{QueueEntry, queue_init, queue_remove_generic};
 use crate::kern::thread::{BASEPRI_SYSTEM, POLICY_TIMESHARE, Thread};
-use core::ffi::{c_int, c_void};
+use crate::kern::types::KernError;
+use core::ffi::{c_int, c_uint, c_void};
 use core::mem::offset_of;
 use core::ptr;
+use core::slice;
 
 /// `NRQS` in <kern/sched.h>: one run queue per priority.
 pub const NRQS: usize = 65;
@@ -293,6 +299,18 @@ unsafe fn init_runq(runq: *mut RunQueue) {
     }
 }
 
+/// The [`KernError`] a C `kern_return_t` stands for.
+///
+/// A `kern_return_t` is an `int`, and every code this module receives
+/// fits a byte; one that does not cannot name a defined error and
+/// becomes [`KernError::Failure`].
+fn kern_error(code: c_int) -> Result<(), KernError> {
+    match u8::try_from(code) {
+        Ok(code) => KernError::from_u8(code),
+        Err(_) => Err(KernError::Failure),
+    }
+}
+
 impl Processor {
     /// Initialize the processor for the slot `slot_num`.  The body of
     /// `processor_init()` in kern/processor.c.
@@ -327,6 +345,55 @@ impl Processor {
             (*pr).processor_name_self = ptr::null_mut();
             (*pr).slot_num = slot_num;
         }
+    }
+
+    /// Start the processor.  `processor_start()` of kern/processor.c.
+    ///
+    /// The C body can only report failure; the adapter's null check
+    /// covers the other return.
+    pub fn start(&mut self) -> Result<(), KernError> {
+        Err(KernError::Failure)
+    }
+
+    /// Queue the processor for shutdown.  `processor_exit()` of
+    /// kern/processor.c.
+    pub fn exit(&mut self) -> Result<(), KernError> {
+        // SAFETY: `self` is a live processor, and the C routine takes
+        // the machine lock it needs itself.
+        kern_error(unsafe { glue::processor_shutdown(self) })
+    }
+
+    /// Pass a control request to the machine-dependent hook.
+    /// `processor_control()` of kern/processor.c.
+    pub fn control(&mut self, info: &[c_int]) -> Result<(), KernError> {
+        // The C count is a `natural_t`; a slice longer than one cannot
+        // have come from the C boundary, but the conversion is still
+        // checked.
+        let Ok(count) = c_uint::try_from(info.len()) else {
+            return Err(KernError::InvalidArgument);
+        };
+
+        // SAFETY: the C hook receives the slice's pointer and length,
+        // and the hook only reads it.
+        kern_error(unsafe {
+            glue::cpu_control(self.slot_num, info.as_ptr(), count)
+        })
+    }
+
+    /// Return the set the processor belongs to, taking a reference on
+    /// it.  `processor_get_assignment()` of kern/processor.c.
+    pub fn get_assignment(&self) -> Result<*mut ProcessorSet, KernError> {
+        if self.state == PROCESSOR_SHUTDOWN || self.state == PROCESSOR_OFF_LINE
+        {
+            return Err(KernError::Failure);
+        }
+
+        let pset = self.processor_set;
+        // SAFETY: a processor that is neither off-line nor shutting
+        // down has a live set assigned, which the C dereferences here;
+        // the set's lock serializes the count.
+        unsafe { (*pset).reference() };
+        Ok(pset)
     }
 }
 
@@ -379,6 +446,106 @@ impl ProcessorSet {
             glue::processor_glue_pset_tail_init(pset, min_quantum);
         }
     }
+
+    /// Add one reference to the processor set.  `pset_reference()` of
+    /// kern/processor.c.
+    pub fn reference(&mut self) {
+        self.ref_lock.lock();
+        // The C's `pset->ref_count++`; the arithmetic wraps as C's
+        // does when it overflows.
+        self.ref_count = self.ref_count.wrapping_add(1);
+        self.ref_lock.unlock();
+    }
+
+    /// Remove one reference to the processor set, destroying it when
+    /// the last reference goes.  `pset_deallocate()` of
+    /// kern/processor.c.
+    ///
+    /// Only the `MACH_HOST` branch is ported: `MACH_HOST` is 1 in both
+    /// configured kernels, so the C's `!MACH_HOST` panic is not
+    /// compiled there.
+    pub fn deallocate(&mut self) {
+        self.ref_lock.lock();
+        self.ref_count = self.ref_count.wrapping_sub(1);
+        if self.ref_count > 0 {
+            self.ref_lock.unlock();
+            return;
+        }
+
+        // The count is zero, but `all_psets` holds an implicit
+        // reference and may make new ones, and its lock dominates the
+        // set lock.  Restore one reference, drop the lock and take
+        // both in the C's order.
+        self.ref_count = 1;
+        self.ref_lock.unlock();
+
+        // SAFETY: the lock is the C global for the list, and the C
+        // order is `all_psets_lock` before the set's `ref_lock`.
+        let all_psets_lock = ptr::addr_of_mut!(glue::all_psets_lock);
+        unsafe {
+            (*all_psets_lock).lock();
+        }
+        self.ref_lock.lock();
+        self.ref_count = self.ref_count.wrapping_sub(1);
+        if self.ref_count > 0 {
+            // Someone took a reference while the lock was dropped.
+            self.ref_lock.unlock();
+            // SAFETY: the lock taken just above.
+            unsafe {
+                (*all_psets_lock).unlock();
+            }
+            return;
+        }
+
+        // The set is destroyable.  The C's paranoia checks, with its
+        // message.
+        let is_default = ptr::from_mut(self).cast::<c_void>()
+            == ptr::addr_of_mut!(glue::default_pset);
+        if is_default
+            || self.thread_count > 0
+            || self.task_count > 0
+            || self.processor_count > 0
+        {
+            // SAFETY: `Panic` does not return; the message and the
+            // function tag are the C `panic()` call's.
+            unsafe {
+                glue::Panic(
+                    c"kern/processor.c".as_ptr(),
+                    line!() as c_int,
+                    c"pset_deallocate".as_ptr(),
+                    c"pset_deallocate: destroy default or active pset"
+                        .as_ptr(),
+                )
+            }
+        }
+
+        // SAFETY: the set is linked into `all_psets` and both locks
+        // are held; the removal keeps the list consistent.
+        unsafe {
+            queue_remove_generic(
+                ptr::addr_of_mut!(glue::all_psets),
+                ptr::from_mut(self).cast::<c_void>(),
+                offset_of!(ProcessorSet, all_psets),
+            );
+            glue::all_psets_count -= 1;
+        }
+
+        self.ref_lock.unlock();
+        // SAFETY: the lock taken above.
+        unsafe {
+            (*all_psets_lock).unlock();
+        }
+
+        // SAFETY: the set came from `pset_cache` and nothing
+        // references it any more; `.addr()` is the address the
+        // allocator handed out.
+        unsafe {
+            glue::kmem_cache_free(
+                ptr::addr_of_mut!(glue::pset_cache),
+                ptr::from_mut(self).addr(),
+            )
+        };
+    }
 }
 
 /// Initialize the processor in slot `slot_num`.  `processor_init()` of
@@ -406,4 +573,133 @@ pub unsafe extern "C" fn processor_init(pr: *mut Processor, slot_num: c_int) {
 pub unsafe extern "C" fn pset_init(pset: *mut ProcessorSet) {
     // SAFETY: the caller's contract.
     unsafe { ProcessorSet::init(pset) };
+}
+
+/// Start a processor.  `processor_start()` of kern/processor.c.
+///
+/// # Safety
+///
+/// `pr` must be null or point at a live `struct processor`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn processor_start(pr: *mut Processor) -> c_int {
+    let Some(pr) = ptr::NonNull::new(pr) else {
+        return c_int::from(KernError::InvalidArgument);
+    };
+
+    // SAFETY: the caller promises a live processor.
+    match unsafe { (*pr.as_ptr()).start() } {
+        Ok(()) => 0,
+        Err(error) => c_int::from(error),
+    }
+}
+
+/// Queue a processor for shutdown.  `processor_exit()` of
+/// kern/processor.c.
+///
+/// # Safety
+///
+/// `pr` must be null or point at a live `struct processor`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn processor_exit(pr: *mut Processor) -> c_int {
+    let Some(pr) = ptr::NonNull::new(pr) else {
+        return c_int::from(KernError::InvalidArgument);
+    };
+
+    // SAFETY: the caller promises a live processor.
+    match unsafe { (*pr.as_ptr()).exit() } {
+        Ok(()) => 0,
+        Err(error) => c_int::from(error),
+    }
+}
+
+/// Pass a control request to a processor.  `processor_control()` of
+/// kern/processor.c.
+///
+/// # Safety
+///
+/// `pr` must be null or point at a live `struct processor`, and `info`
+/// must be readable for `count` integers.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn processor_control(
+    pr: *mut Processor,
+    info: *mut c_int,
+    count: c_uint,
+) -> c_int {
+    let Some(pr) = ptr::NonNull::new(pr) else {
+        return c_int::from(KernError::InvalidArgument);
+    };
+
+    // A zero count gets the empty slice, so a null `info` is never
+    // formed into one, which `from_raw_parts` requires.
+    let info: &[c_int] = if count == 0 {
+        &[]
+    } else {
+        // SAFETY: the caller promises `count` readable integers.  A
+        // `natural_t` widens to `usize` on both supported widths.
+        unsafe { slice::from_raw_parts(info, count as usize) }
+    };
+
+    // SAFETY: the caller promises a live processor.
+    match unsafe { (*pr.as_ptr()).control(info) } {
+        Ok(()) => 0,
+        Err(error) => c_int::from(error),
+    }
+}
+
+/// Read the set a processor belongs to, taking a reference on it.
+/// `processor_get_assignment()` of kern/processor.c.
+///
+/// # Safety
+///
+/// `pr` must be null or point at a live `struct processor`, and `pset`
+/// must be a valid out-parameter.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn processor_get_assignment(
+    pr: *mut Processor,
+    pset: *mut *mut ProcessorSet,
+) -> c_int {
+    let Some(pr) = ptr::NonNull::new(pr) else {
+        return c_int::from(KernError::InvalidArgument);
+    };
+
+    // SAFETY: the caller promises a live processor.
+    match unsafe { (*pr.as_ptr()).get_assignment() } {
+        Ok(assignment) => {
+            // SAFETY: the caller passed the out-parameter the C
+            // signature requires.
+            unsafe { *pset = assignment };
+            0
+        }
+        Err(error) => c_int::from(error),
+    }
+}
+
+/// Add one reference to the processor set.  `pset_reference()` of
+/// kern/processor.c.
+///
+/// # Safety
+///
+/// `pset` must point at a live `struct processor_set`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pset_reference(pset: *mut ProcessorSet) {
+    // SAFETY: the caller promises a live set.
+    unsafe { (*pset).reference() };
+}
+
+/// Remove one reference to the processor set, destroying it when the
+/// last reference goes.  `pset_deallocate()` of kern/processor.c.
+///
+/// # Safety
+///
+/// `pset` must be null or point at a live `struct processor_set` that
+/// the caller holds a reference to.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pset_deallocate(pset: *mut ProcessorSet) {
+    let Some(pset) = ptr::NonNull::new(pset) else {
+        // The C returns early on a null set.
+        return;
+    };
+
+    // SAFETY: the caller's contract.
+    unsafe { (*pset.as_ptr()).deallocate() };
 }

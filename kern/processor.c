@@ -257,87 +257,6 @@ void thread_change_psets(
 	new_pset->thread_count++;
 }
 
-/*
- *	pset_deallocate:
- *
- *	Remove one reference to the processor set.  Destroy processor_set
- *	if this was the last reference.
- */
-void pset_deallocate(
-	processor_set_t	pset)
-{
-	if (pset == PROCESSOR_SET_NULL)
-		return;
-
-	simple_lock(&(pset)->ref_lock);
-	if (--pset->ref_count > 0) {
-		simple_unlock(&(pset)->ref_lock);
-		return;
-	}
-#if	!MACH_HOST
-	panic("pset_deallocate: default_pset destroyed");
-#endif	/* !MACH_HOST */
-
-#if	MACH_HOST
-	/*
-	 *	Reference count is zero, however the all_psets list
-	 *	holds an implicit reference and may make new ones.
-	 *	Its lock also dominates the pset lock.  To check for this,
-	 *	temporarily restore one reference, and then lock the
-	 *	other structures in the right order.
-	 */
-	pset->ref_count = 1;
-	simple_unlock(&(pset)->ref_lock);
-
-	simple_lock(&all_psets_lock);
-	simple_lock(&(pset)->ref_lock);
-	if (--pset->ref_count > 0) {
-		/*
-		 *	Made an extra reference.
-		 */
-		simple_unlock(&(pset)->ref_lock);
-		simple_unlock(&all_psets_lock);
-		return;
-	}
-
-	/*
-	 *	Ok to destroy pset.  Make a few paranoia checks.
-	 */
-
-	if ((pset == &default_pset) || (pset->thread_count > 0) ||
-	    (pset->task_count > 0) || pset->processor_count > 0) {
-		panic("pset_deallocate: destroy default or active pset");
-	}
-	/*
-	 *	Remove from all_psets queue.
-	 */
-	queue_remove_generic(&all_psets, pset,
-	    __builtin_offsetof(typeof(*pset), all_psets));
-	all_psets_count--;
-
-	simple_unlock(&(pset)->ref_lock);
-	simple_unlock(&all_psets_lock);
-
-	/*
-	 *	That's it, free data structure.
-	 */
-	kmem_cache_free(&pset_cache, (vm_offset_t)pset);
-#endif	/* MACH_HOST */
-}
-
-/*
- *	pset_reference:
- *
- *	Add one reference to the processor set.
- */
-void pset_reference(
-	processor_set_t	pset)
-{
-	simple_lock(&(pset)->ref_lock);
-	pset->ref_count++;
-	simple_unlock(&(pset)->ref_lock);
-}
-
 kern_return_t
 processor_info(
 	processor_t		processor,
@@ -375,35 +294,6 @@ processor_info(
 	*count = PROCESSOR_BASIC_INFO_COUNT;
 	*host = &realhost;
 	return KERN_SUCCESS;
-}
-
-kern_return_t processor_start(
-	processor_t	processor)
-{
-    	if (processor == PROCESSOR_NULL)
-		return KERN_INVALID_ARGUMENT;
-	return KERN_FAILURE;
-}
-
-kern_return_t processor_exit(
-	processor_t	processor)
-{
-	if (processor == PROCESSOR_NULL)
-		return KERN_INVALID_ARGUMENT;
-
-	return processor_shutdown(processor);
-}
-
-kern_return_t
-processor_control(
-	processor_t	processor,
-	processor_info_t info,
-	natural_t	 count)
-{
-	if (processor == PROCESSOR_NULL)
-		return KERN_INVALID_ARGUMENT;
-
-	return cpu_control(processor->slot_num, (int *)info, count);
 }
 
 /*
@@ -568,24 +458,6 @@ kern_return_t processor_set_destroy(
 }
 
 #endif	/* MACH_HOST */
-
-kern_return_t
-processor_get_assignment(
-	processor_t	processor,
-	processor_set_t	*pset)
-{
-    	int state;
-	if (processor == PROCESSOR_NULL)
-		return KERN_INVALID_ARGUMENT;
-
-	state = processor->state;
-	if (state == PROCESSOR_SHUTDOWN || state == PROCESSOR_OFF_LINE)
-		return KERN_FAILURE;
-
-	*pset = processor->processor_set;
-	pset_reference(*pset);
-	return KERN_SUCCESS;
-}
 
 kern_return_t
 processor_set_info(
