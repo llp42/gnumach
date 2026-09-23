@@ -27,6 +27,9 @@
  * the rights to redistribute these changes.
  */
 /*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
+/*
  *	File:	ipc/ipc_port.c
  *	Author:	Rich Draves
  *	Date:	1989
@@ -55,27 +58,6 @@
 
 
 def_simple_lock_data(, ipc_port_multiple_lock_data)
-
-def_simple_lock_data(, ipc_port_timestamp_lock_data)
-ipc_port_timestamp_t ipc_port_timestamp_data;
-
-/*
- *	Routine:	ipc_port_timestamp
- *	Purpose:
- *		Retrieve a timestamp value.
- */
-
-ipc_port_timestamp_t
-ipc_port_timestamp(void)
-{
-	ipc_port_timestamp_t timestamp;
-
-	simple_lock(&ipc_port_timestamp_lock_data);
-	timestamp = ipc_port_timestamp_data++;
-	simple_unlock(&ipc_port_timestamp_lock_data);
-
-	return timestamp;
-}
 
 /*
  *	Routine:	ipc_port_dnrequest
