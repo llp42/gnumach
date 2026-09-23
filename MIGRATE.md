@@ -702,6 +702,7 @@ its entry below and the §9 table record what moved.
   calls, policy setters, task/thread port listing.
 * **Ported so far.** `processor_init`, `pset_init`, `processor_start`,
   `processor_exit`, `processor_control`, `processor_get_assignment`,
+  `pset_add_processor`/`pset_remove_processor`/`quantum_set`,
   `pset_add_thread`/`pset_remove_thread`/`thread_change_psets`,
   `processor_set_max_priority` and
   `processor_set_policy_enable`/`processor_set_policy_disable`, plus the

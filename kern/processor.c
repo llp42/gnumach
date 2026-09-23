@@ -132,45 +132,6 @@ void pset_sys_init(void)
 #endif	/* MACH_HOST */
 
 /*
- *	pset_remove_processor() removes a processor from a processor_set.
- *	It can only be called on the current processor.  Caller must
- *	hold lock on current processor and processor set.
- */
-
-void pset_remove_processor(
-	processor_set_t	pset,
-	processor_t	processor)
-{
-	if (pset != processor->processor_set)
-		panic("pset_remove_processor: wrong pset");
-
-	queue_remove_generic(&pset->processors, processor,
-	    __builtin_offsetof(typeof(*processor), processors));
-	processor->processor_set = PROCESSOR_SET_NULL;
-	pset->processor_count--;
-	quantum_set(pset);
-}
-
-/*
- *	pset_add_processor() adds a  processor to a processor_set.
- *	It can only be called on the current processor.  Caller must
- *	hold lock on curent processor and on pset.  No reference counting on
- *	processors.  Processor reference to pset is implicit.
- */
-
-void pset_add_processor(
-	processor_set_t	pset,
-	processor_t	processor)
-{
-	queue_enter_tail(&pset->processors, processor,
-	    __builtin_offsetof(typeof(*processor), processors));
-	processor->processor_set = pset;
-	pset->processor_count++;
-	pset->empty = FALSE;
-	quantum_set(pset);
-}
-
-/*
  *	pset_remove_task() removes a task from a processor_set.
  *	Caller must hold locks on pset and task.  Pset reference count
  *	is not decremented; caller must explicitly pset_deallocate.
@@ -242,31 +203,6 @@ processor_info(
 	*count = PROCESSOR_BASIC_INFO_COUNT;
 	*host = &realhost;
 	return KERN_SUCCESS;
-}
-
-/*
- *	Precalculate the appropriate system quanta based on load.  The
- *	index into machine_quantum is the number of threads on the
- *	processor set queue.  It is limited to the number of processors in
- *	the set.
- */
-
-void quantum_set(
-	processor_set_t	pset)
-{
-	int	i, ncpus;
-
-	ncpus = pset->processor_count;
-
-	for ( i=1 ; i <= ncpus ; i++) {
-		pset->machine_quantum[i] =
-			((min_quantum * ncpus) + (i/2)) / i ;
-	}
-	pset->machine_quantum[0] = 2 * pset->machine_quantum[1];
-
-	i = ((pset->runq.count > pset->processor_count) ?
-		pset->processor_count : pset->runq.count);
-	pset->set_quantum = pset->machine_quantum[i];
 }
 
 #if	MACH_HOST

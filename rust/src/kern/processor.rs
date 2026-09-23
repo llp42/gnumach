@@ -25,6 +25,8 @@
 //! [`Processor::start()`], [`Processor::exit()`],
 //! [`Processor::control()`], [`Processor::get_assignment()`],
 //! [`ProcessorSet::reference()`], [`ProcessorSet::deallocate()`],
+//! [`ProcessorSet::add_processor()`],
+//! [`ProcessorSet::remove_processor()`], [`ProcessorSet::quantum_set()`],
 //! [`ProcessorSet::add_thread()`], [`ProcessorSet::remove_thread()`],
 //! [`Thread::change_psets()`] and the three processor-set policy
 //! setters are also ported from the same file.  The adapters below
@@ -617,6 +619,117 @@ impl ProcessorSet {
         }
     }
 
+    /// Precalculate the set's quanta from its load.  `quantum_set()` of
+    /// kern/processor.c.
+    ///
+    /// The index into `machine_quantum` is the number of threads on
+    /// the set's run queue, limited to the number of processors in
+    /// the set.
+    pub fn quantum_set(&mut self) {
+        let ncpus = self.processor_count;
+        let runq_count = self.runq.count;
+
+        // SAFETY: `min_quantum` is the live C global <kern/sched.h>
+        // declares and kern/sched_prim.c sets.
+        let min_quantum = unsafe { glue::min_quantum };
+        // SAFETY: `self` is a live set, and the shim only forms the
+        // address of its `machine_quantum` tail.
+        let machine_quantum = unsafe {
+            glue::processor_glue_pset_machine_quantum(ptr::from_mut(self))
+        };
+
+        for i in 1..=ncpus {
+            // The C indexed with an `int`; the deliberate cast cannot
+            // wrap because `1 <= i <= ncpus <= NCPUS`.
+            let slot = unsafe { machine_quantum.add(i as usize) };
+            // The C's `(min_quantum * ncpus) + i / 2` can overflow an
+            // `int`; it wraps as the C compiled for this target does.
+            let quantum =
+                min_quantum.wrapping_mul(ncpus).wrapping_add(i / 2) / i;
+            // SAFETY: `slot` is one of the tail's `NCPUS+1` entries.
+            unsafe { slot.write(quantum) };
+        }
+
+        // SAFETY: the tail has at least two entries, so index one is
+        // in bounds; the doubled value wraps as the C's does.
+        unsafe {
+            let first = machine_quantum.add(1).read();
+            machine_quantum.write(first.wrapping_mul(2));
+        }
+
+        // The C's ternary: the run-queue count, limited to the
+        // processor count.
+        let i = core::cmp::min(runq_count, ncpus);
+        // The C indexed with an `int`; the deliberate cast cannot wrap
+        // because `0 <= i <= ncpus <= NCPUS`.
+        let slot = unsafe { machine_quantum.add(i as usize) };
+        // SAFETY: `slot` is one of the tail's `NCPUS+1` entries.
+        self.set_quantum = unsafe { slot.read() };
+    }
+
+    /// Add `processor` to the set.  `pset_add_processor()` of
+    /// kern/processor.c.
+    ///
+    /// # Safety
+    ///
+    /// The caller must hold the set's lock and the processor's lock,
+    /// as the C requires, and `processor` must be live and not linked
+    /// into any set's processor list.
+    pub unsafe fn add_processor(&mut self, processor: *mut Processor) {
+        // SAFETY: the caller promises a live, unlinked processor, and
+        // the queue's links are its `processors` field.
+        unsafe {
+            queue_enter_tail(
+                &raw mut self.processors,
+                processor.cast::<c_void>(),
+                offset_of!(Processor, processors),
+            );
+            (*processor).processor_set = ptr::from_mut(self);
+            self.processor_count = self.processor_count.wrapping_add(1);
+            self.empty = 0;
+        }
+        self.quantum_set();
+    }
+
+    /// Remove `processor` from the set.  `pset_remove_processor()` of
+    /// kern/processor.c.
+    ///
+    /// # Safety
+    ///
+    /// The caller must hold the set's lock and the processor's lock,
+    /// as the C requires, and `processor` must be live and linked into
+    /// this set's processor list.
+    ///
+    /// # Panics
+    ///
+    /// Panics through [`glue::Panic`] when `processor` does not belong
+    /// to this set, as the C `panic()` did.
+    pub unsafe fn remove_processor(&mut self, processor: *mut Processor) {
+        // SAFETY: the caller promises a live processor linked into
+        // this set, and the check below is the C's own guard against a
+        // wrong one.
+        unsafe {
+            if ptr::from_mut(self) != (*processor).processor_set {
+                // SAFETY: `Panic` does not return; the message and the
+                // function tag are the C `panic()` call's.
+                glue::Panic(
+                    c"kern/processor.c".as_ptr(),
+                    line!() as c_int,
+                    c"pset_remove_processor".as_ptr(),
+                    c"pset_remove_processor: wrong pset".as_ptr(),
+                )
+            }
+            queue_remove_generic(
+                &raw mut self.processors,
+                processor.cast::<c_void>(),
+                offset_of!(Processor, processors),
+            );
+            (*processor).processor_set = ptr::null_mut();
+            self.processor_count = self.processor_count.wrapping_sub(1);
+        }
+        self.quantum_set();
+    }
+
     /// Allow `policy` on the set.  `processor_set_policy_enable()` of
     /// kern/processor.c.
     ///
@@ -971,6 +1084,52 @@ pub unsafe extern "C" fn pset_remove_thread(
 ) {
     // SAFETY: the caller's contract.
     unsafe { (*pset).remove_thread(thread) };
+}
+
+/// Precalculate a processor set's quanta.  `quantum_set()` of
+/// kern/processor.c.
+///
+/// # Safety
+///
+/// `pset` must point at a live `struct processor_set`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quantum_set(pset: *mut ProcessorSet) {
+    // SAFETY: the caller promises a live set.
+    unsafe { (*pset).quantum_set() };
+}
+
+/// Add a processor to a processor set.  `pset_add_processor()` of
+/// kern/processor.c.
+///
+/// # Safety
+///
+/// `pset` must point at a live `struct processor_set` and `processor`
+/// at a live processor that is not linked into a set; the caller must
+/// hold both locks, as the C requires.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pset_add_processor(
+    pset: *mut ProcessorSet,
+    processor: *mut Processor,
+) {
+    // SAFETY: the caller's contract.
+    unsafe { (*pset).add_processor(processor) };
+}
+
+/// Remove a processor from a processor set.  `pset_remove_processor()`
+/// of kern/processor.c.
+///
+/// # Safety
+///
+/// `pset` must point at a live `struct processor_set` and `processor`
+/// at a live processor linked into it; the caller must hold both
+/// locks, as the C requires.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pset_remove_processor(
+    pset: *mut ProcessorSet,
+    processor: *mut Processor,
+) {
+    // SAFETY: the caller's contract.
+    unsafe { (*pset).remove_processor(processor) };
 }
 
 /// Move a thread between processor sets.  `thread_change_psets()` of

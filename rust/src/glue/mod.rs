@@ -142,6 +142,13 @@ unsafe extern "C" {
         quantum: c_int,
     );
 
+    // <kern/processor_glue.c>: the same tail's head, `machine_quantum`,
+    // which `quantum_set()` indexes.  It dies when NCPUS is visible to
+    // Rust and the tail can be mirrored.
+    pub fn processor_glue_pset_machine_quantum(
+        pset: *mut ProcessorSet,
+    ) -> *mut c_int;
+
     // <kern/processor.c>: the global processor-set list, its count and
     // its lock, which the C half goes on using.  `queue_head_t` is the
     // `QueueEntry` mirror.
