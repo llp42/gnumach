@@ -10,6 +10,8 @@
 
 use crate::arch::types::VmOffset;
 use crate::glue;
+use crate::vm::vm_kern_ffi::kmem_submap;
+use crate::vm::vm_map::VmMap;
 
 /// `ipc_init()` in C.
 fn init() {
@@ -20,9 +22,9 @@ fn init() {
     // path has already built, `ipc_kernel_map_size` is the constant size of
     // the submap, and the two out-pointers are this function's live locals.
     unsafe {
-        glue::kmem_submap(
-            glue::ipc_kernel_map,
-            glue::kernel_map,
+        kmem_submap(
+            glue::ipc_kernel_map.cast::<VmMap>(),
+            glue::kernel_map.cast::<VmMap>(),
             &mut min,
             &mut max,
             glue::ipc_kernel_map_size,

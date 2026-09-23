@@ -136,7 +136,7 @@ file, or `—` when the rest is ready too.
 | `vm_debug.c` | 541 | 0 | `hash_info_bucket_t` mirror |
 | `vm_external_glue.c` | 21 | 0 | three `kmem_cache` symbols; deletes with `slab.c` |
 | `vm_fault.c` | 2060 | 1 | `vm_object`/`vm_page`/task fields |
-| `vm_kern.c` | 1112 | 10 | `vm_object` fields for the rest |
+| `vm_kern.c` | 812 | 0 | `vm_object` fields for the rest |
 | `vm_map_glue.c` | 341 | 0 | the object/page/task field shims; they need mirrors |
 | `vm_object.c` | 2887 | 0 | `struct vm_object` has no field mirror |
 | `vm_page.c` | 2214 | 1 | `struct vm_page` has no field mirror |
@@ -238,28 +238,18 @@ These exemptions are settled and are not re-decided per port:
   `&raw mut`.  Reading a *field* of one is a different thing and still
   fails.
 
-### 6.1 Free ports today (Tier 0) — 27 functions
+### 6.1 Free ports today (Tier 0) — 17 functions
 
 Zero "no" answers: needs nothing that does not exist today.  Port these
 before proposing any mirror, constant or allocator.  Each entry's "needs"
 is the glue declarations and Rust-side helpers the port adds; none
 requires C.
 
-#### `vm/` (27)
+#### `vm/` (17)
 
 | Function | Needs |
 |---|---|
 | `vm/vm_fault.c:1423 vm_fault_wire` | glue `vm_fault`, `vm_fault_wire_fast`; `VmMap.pmap`, `VmMapEntry.links` |
-| `vm/vm_kern.c:307 projected_buffer_collect` | glue `projected_buffer_deallocate`; entry-list fields |
-| `vm/vm_kern.c:333 projected_buffer_in_range` | calls Rust `vm_map_lookup_entry`; entry fields |
-| `vm/vm_kern.c:525 kmem_alloc_wired_flags` | glue `kmem_valloc`, `kmem_alloc_pages` |
-| `vm/vm_kern.c:557 kmem_alloc_wired` | forwards with `VM_PAGE_HIGHMEM` |
-| `vm/vm_kern.c:667 kmem_map_aligned_table` | glue `kmem_alloc_wired`, `pmap_map_bd` |
-| `vm/vm_kern.c:700 kmem_alloc_pageable` | Rust `vm_map_enter`; `VmMap.hdr`/`name` |
-| `vm/vm_kern.c:732 kmem_free` | Rust `vm_map_remove`; `Panic` |
-| `vm/vm_kern.c:866 kmem_submap` | Rust `vm_map_setup`/`enter`/`submap`; `vm_object_reference`, `pmap_reference` |
-| `vm/vm_kern.c:909 kmem_init` | Rust `vm_map_setup`/`enter`; `kernel_pmap` |
-| `vm/vm_kern.c:1047 kmem_io_map_deallocate` | `pmap_remove`; `VmMap.pmap` |
 | `vm/vm_page.c:1721 vm_page_seg_name` | four literals; no fields |
 | `vm/vm_resident.c:225 pmap_steal_memory` | glue `pmap_virtual_space`, `vm_page_bootalloc`, `pmap_enter` |
 | `vm/vm_resident.c:587 vm_page_rename` | `vm_page_remove`/`insert`; the page-queue lock |
@@ -465,6 +455,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `kern/thread.c` (`thread_get_state`, `thread_set_state`, `thread_priority`, `thread_set_own_priority`, `thread_max_priority`, `thread_policy`, `thread_wire`, `stack_init`, `thread_stats`, `thread_set_name`, `thread_get_name`) | `src/kern/thread.rs` | pending |
 | `i386/i386/fpu.c` (`fpnoextflt`) | `src/arch/i386/fpu.rs` | pending |
 | `i386/i386/mp_desc.c` (`interrupt_processor`) | `src/arch/i386/mp_desc.rs` | pending |
+| `vm/vm_kern.c` (`projected_buffer_collect`, `projected_buffer_in_range`, `kmem_alloc_wired_flags`, `kmem_alloc_wired`, `kmem_map_aligned_table`, `kmem_alloc_pageable`, `kmem_free`, `kmem_submap`, `kmem_init`, `kmem_io_map_deallocate`) | `src/vm/vm_kern.rs`, `src/vm/vm_kern_ffi.rs` | pending |
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `i386/i386at/kd_glue.c`

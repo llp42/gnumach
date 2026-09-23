@@ -27,6 +27,9 @@
  * the rights to redistribute these changes.
  */
 /*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
+/*
  *	File:	vm/vm_kern.c
  *	Author:	Avadis Tevanian, Jr., Michael Wayne Young
  *	Date:	1985
@@ -298,61 +301,6 @@ projected_buffer_deallocate(
 
 
 /*
- *	projected_buffer_collect
- *
- *	Unmap all projected buffers from task's address space.
- */
-
-kern_return_t
-projected_buffer_collect(vm_map_t map)
-{
-        vm_map_entry_t entry, next;
-
-        if (map == VM_MAP_NULL || map == kernel_map)
-	  return(KERN_INVALID_ARGUMENT);
-
-	for (entry = vm_map_first_entry(map);
-	     entry != vm_map_to_entry(map);
-	     entry = next) {
-	  next = entry->vme_next;
-	  if (entry->projected_on != 0)
-	    projected_buffer_deallocate(map, entry->vme_start, entry->vme_end);
-	}
-	return(KERN_SUCCESS);
-}
-
-
-/*
- *	projected_buffer_in_range
- *
- *	Verifies whether a projected buffer exists in the address range 
- *      given.
- */
-
-boolean_t
-projected_buffer_in_range(
-       vm_map_t 	map,
-       vm_offset_t 	start, 
-	vm_offset_t	end)
-{
-        vm_map_entry_t entry;
-
-        if (map == VM_MAP_NULL || map == kernel_map)
-	  return(FALSE);
-
-	/*Find first entry*/
-	if (!vm_map_lookup_entry(map, start, &entry))
-	  entry = entry->vme_next;
-
-	while (entry != vm_map_to_entry(map) && entry->projected_on == 0 &&
-	       entry->vme_start <= end) {
-	  entry = entry->vme_next;
-	}
-	return(entry != vm_map_to_entry(map) && entry->vme_start <= end);
-}
-
-
-/*
  *	kmem_alloc:
  *
  *	Allocate wired-down memory in the kernel's address map
@@ -512,57 +460,6 @@ retry:
 }
 
 /*
- *	kmem_alloc_wired:
- *
- *	Allocate wired-down memory in the kernel's address map
- *	or a submap.  The memory is not zero-filled.
- *
- *	The memory is allocated in the kernel_object.
- *	It may not be copied with vm_map_copy.
- */
-
-kern_return_t
-kmem_alloc_wired_flags(
-	vm_map_t 	map,
-	vm_offset_t 	*addrp,
-	vm_size_t 	size,
-	unsigned	flags)
-{
-	vm_offset_t offset;
-	vm_offset_t addr;
-	kern_return_t kr;
-
-	kr = kmem_valloc(map, &addr, size);
-	if (kr != KERN_SUCCESS)
-		return kr;
-
-	offset = addr - VM_MIN_KERNEL_ADDRESS;
-
-	/*
-	 *	Allocate wired-down memory in the kernel_object,
-	 *	for this entry, and enter it in the kernel pmap.
-	 */
-	kmem_alloc_pages(kernel_object, offset,
-			 addr, addr + size,
-			 VM_PROT_DEFAULT,
-			 flags);
-
-	/*
-	 *	Return the memory, not zeroed.
-	 */
-	*addrp = addr;
-	return KERN_SUCCESS;
-}
-kern_return_t
-kmem_alloc_wired(
-	vm_map_t 	map,
-	vm_offset_t 	*addrp,
-	vm_size_t 	size)
-{
-	return kmem_alloc_wired_flags(map, addrp, size, VM_PAGE_HIGHMEM);
-}
-
-/*
  *	kmem_alloc_aligned:
  *
  *	Like kmem_alloc_wired, except that the memory is aligned.
@@ -649,96 +546,6 @@ retry:
 	 */
 	*addrp = addr;
 	return KERN_SUCCESS;
-}
-
-/*
- * kmem_map_aligned_table: map a table or structure in a virtual memory page
- * Align the table initial address with the page initial address.
- *
- * Parameters:
- * phys_address: physical address, the start address of the table.
- * size: size of the table.
- * mode: access mode. VM_PROT_READ for read, VM_PROT_WRITE for write.
- *
- * Returns a reference to the virtual address if success, NULL if failure.
- */
-
-void*
-kmem_map_aligned_table(
-	phys_addr_t	phys_address,
-	vm_size_t	size,
-	int		mode)
-{
-	vm_offset_t virt_addr;
-	kern_return_t ret;
-	vm_offset_t into_page = phys_address % PAGE_SIZE;
-	phys_addr_t nearest_page = phys_address - into_page;
-
-	size += into_page;
-
-	ret = kmem_alloc_wired(kernel_map, &virt_addr,
-				round_page(size));
-
-	if (ret != KERN_SUCCESS)
-		return NULL;
-
-	(void) pmap_map_bd(virt_addr, nearest_page,
-				nearest_page + round_page(size), mode);
-
-	/* XXX remember mapping somewhere so we can free it? */
-
-	return (void *) (virt_addr + into_page);
-}
-
-/*
- *	kmem_alloc_pageable:
- *
- *	Allocate pageable memory in the kernel's address map.
- */
-
-kern_return_t
-kmem_alloc_pageable(
-	vm_map_t 	map,
-	vm_offset_t 	*addrp,
-	vm_size_t 	size)
-{
-	vm_offset_t addr;
-	kern_return_t kr;
-
-	addr = vm_map_min(map);
-	kr = vm_map_enter(map, &addr, round_page(size),
-			  (vm_offset_t) 0, TRUE,
-			  VM_OBJECT_NULL, (vm_offset_t) 0, FALSE,
-			  VM_PROT_DEFAULT, VM_PROT_ALL, VM_INHERIT_DEFAULT);
-	if (kr != KERN_SUCCESS) {
-		printf_once("no more room for kmem_alloc_pageable in %p (%s)\n",
-			    map, map->name);
-		return kr;
-	}
-
-	*addrp = addr;
-	return KERN_SUCCESS;
-}
-
-/*
- *	kmem_free:
- *
- *	Release a region of kernel virtual memory allocated
- *	with kmem_alloc, kmem_alloc_wired, or kmem_alloc_pageable,
- *	and return the physical pages associated with that region.
- */
-
-void
-kmem_free(
-	vm_map_t 	map,
-	vm_offset_t 	addr,
-	vm_size_t 	size)
-{
-	kern_return_t kr;
-
-	kr = vm_map_remove(map, trunc_page(addr), round_page(addr + size));
-	if (kr != KERN_SUCCESS)
-		panic("kmem_free");
 }
 
 /*
@@ -848,88 +655,6 @@ kmem_remap_pages(
 }
 
 /*
- *	kmem_submap:
- *
- *	Initializes a map to manage a subrange
- *	of the kernel virtual address space.
- *
- *	Arguments are as follows:
- *
- *	map		Map to initialize
- *	parent		Map to take range from
- *	size		Size of range to find
- *	min, max	Returned endpoints of map
- *	pageable	Can the region be paged
- */
-
-void
-kmem_submap(
-	vm_map_t 	map, 
-	vm_map_t 	parent,
-	vm_offset_t 	*min, 
-	vm_offset_t 	*max,
-	vm_size_t 	size)
-{
-	vm_offset_t addr;
-	kern_return_t kr;
-
-	size = round_page(size);
-
-	/*
-	 *	Need reference on submap object because it is internal
-	 *	to the vm_system.  vm_object_enter will never be called
-	 *	on it (usual source of reference for vm_map_enter).
-	 */
-	vm_object_reference(vm_submap_object);
-
-	addr = vm_map_min(parent);
-	kr = vm_map_enter(parent, &addr, size,
-			  (vm_offset_t) 0, TRUE,
-			  vm_submap_object, (vm_offset_t) 0, FALSE,
-			  VM_PROT_DEFAULT, VM_PROT_ALL, VM_INHERIT_DEFAULT);
-	if (kr != KERN_SUCCESS)
-		panic("kmem_submap");
-
-	pmap_reference(vm_map_pmap(parent));
-	vm_map_setup(map, vm_map_pmap(parent), addr, addr + size);
-	kr = vm_map_submap(parent, addr, addr + size, map);
-	if (kr != KERN_SUCCESS)
-		panic("kmem_submap");
-
-	*min = addr;
-	*max = addr + size;
-}
-
-/*
- *	kmem_init:
- *
- *	Initialize the kernel's virtual memory map, taking
- *	into account all memory allocated up to this time.
- */
-void kmem_init(
-	vm_offset_t	start,
-	vm_offset_t	end)
-{
-	vm_map_setup(kernel_map, pmap_kernel(), VM_MIN_KERNEL_ADDRESS, end);
-
-	/*
-	 *	Reserve virtual memory allocated up to this time.
-	 */
-	if (start != VM_MIN_KERNEL_ADDRESS) {
-		kern_return_t rc;
-		vm_offset_t addr = VM_MIN_KERNEL_ADDRESS;
-		rc = vm_map_enter(kernel_map,
-				  &addr, start - VM_MIN_KERNEL_ADDRESS,
-				  (vm_offset_t) 0, TRUE,
-				  VM_OBJECT_NULL, (vm_offset_t) 0, FALSE,
-				  VM_PROT_DEFAULT, VM_PROT_ALL,
-				  VM_INHERIT_DEFAULT);
-		if (rc)
-			panic("vm_map_enter failed (%d)\n", rc);
-	}
-}
-
-/*
  *	New and improved IO wiring support.
  */
 
@@ -1033,28 +758,6 @@ kmem_io_map_copyout(
 	}
 
 	return(ret);
-}
-
-/*
- *	kmem_io_map_deallocate:
- *
- *	Get rid of the mapping established by kmem_io_map_copyout.
- *	Assumes that addr and size have been rounded to page boundaries.
- *	(e.g., the alloc_addr and alloc_size returned by kmem_io_map_copyout)
- */
-
-void
-kmem_io_map_deallocate(
-	vm_map_t	map,
-	vm_offset_t	addr,
-	vm_size_t	size)
-{
-	/*
-	 *	Remove the mappings.  The pmap_remove is needed.
-	 */
-	
-	pmap_remove(vm_map_pmap(map), addr, addr + size);
-	vm_map_remove(map, addr, addr + size);
 }
 
 /*

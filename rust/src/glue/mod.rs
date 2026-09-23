@@ -16,6 +16,7 @@ use crate::kern::sched::RunQueue;
 use crate::kern::sched_prim::NUMQUEUES;
 use crate::kern::thread::{Continuation, StackResume, Thread};
 use crate::vm::types::{Pmap, VmObject, VmPage, VmProt};
+use crate::vm::vm_map::VmMap;
 use core::ffi::{c_char, c_int, c_long, c_short, c_uint, c_ulong, c_void};
 use core::mem::offset_of;
 
@@ -411,13 +412,6 @@ unsafe extern "C" {
 
     pub static mut ipc_kernel_map: *mut c_void;
     pub static ipc_kernel_map_size: VmSize;
-    pub fn kmem_submap(
-        map: *mut c_void,
-        parent: *mut c_void,
-        minp: *mut VmOffset,
-        maxp: *mut VmOffset,
-        size: VmSize,
-    );
     pub fn ipc_host_init();
 
     pub fn ipc_port_pdrequest(
@@ -449,12 +443,36 @@ unsafe extern "C" {
     pub static mut vm_object_small_existence_map_cache: c_void;
     pub static mut vm_object_large_existence_map_cache: c_void;
 
-    pub fn projected_buffer_collect(map: *mut c_void) -> c_int;
+    pub fn projected_buffer_deallocate(
+        map: *mut VmMap,
+        start: VmOffset,
+        end: VmOffset,
+    ) -> c_int;
+    pub fn kmem_valloc(
+        map: *mut VmMap,
+        addrp: *mut VmOffset,
+        size: VmSize,
+    ) -> c_int;
+    pub fn kmem_alloc_pages(
+        object: *mut VmObject,
+        offset: VmOffset,
+        start: VmOffset,
+        end: VmOffset,
+        protection: VmProt,
+        flags: c_uint,
+    );
 
     pub fn pmap_destroy(pmap: *mut Pmap);
+    pub fn pmap_reference(pmap: *mut Pmap);
     pub static kernel_pmap: *mut Pmap;
     pub fn pmap_pte(pmap: *mut Pmap, addr: VmOffset) -> *mut VmOffset;
     pub fn pmap_extract(pmap: *mut Pmap, address: VmOffset) -> VmOffset;
+    pub fn pmap_map_bd(
+        virt: VmOffset,
+        start: VmOffset,
+        end: VmOffset,
+        prot: VmProt,
+    ) -> VmOffset;
 
     pub fn vm_page_mem_size() -> VmSize;
     pub fn vm_page_grab(flags: c_uint) -> *mut VmPage;
@@ -649,8 +667,6 @@ unsafe extern "C" {
 
     pub fn vm_object_bootstrap();
     pub fn vm_object_init();
-
-    pub fn kmem_init(start: VmOffset, end: VmOffset);
 
     pub fn pmap_init();
 

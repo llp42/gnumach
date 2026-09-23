@@ -16,33 +16,32 @@ use crate::glue::{
     kernel_map, kernel_object, kernel_pmap, kernel_virtual_end,
     kernel_virtual_start, kfree, kmem_cache_alloc, kmem_cache_free,
     kmem_cache_init, memory_object_create_proxy, pmap_create, pmap_destroy,
-    pmap_protect, pmap_remove, printf, projected_buffer_collect, thread_block,
-    vm_fault_copy, vm_fault_page, vm_fault_unwire, vm_fault_wire,
-    vm_map_cache, vm_map_copy_cache, vm_map_entry_cache,
-    vm_map_glue_object_can_coalesce, vm_map_glue_object_can_release,
-    vm_map_glue_object_extend_size, vm_map_glue_object_is_pristine_submap,
-    vm_map_glue_object_is_shadowed, vm_map_glue_object_is_temporary,
-    vm_map_glue_object_lock, vm_map_glue_object_make_shared,
-    vm_map_glue_object_needs_shadow, vm_map_glue_object_pager,
-    vm_map_glue_object_paging_begin, vm_map_glue_object_paging_end,
-    vm_map_glue_object_unlock, vm_map_glue_object_use_shared_copy,
-    vm_map_glue_page_activate_if_idle, vm_map_glue_page_clear_busy,
-    vm_map_glue_page_is_absent, vm_map_glue_page_is_busy,
-    vm_map_glue_page_is_error, vm_map_glue_page_is_fictitious,
-    vm_map_glue_page_is_precious, vm_map_glue_page_is_tabled,
-    vm_map_glue_page_object, vm_map_glue_page_offset,
-    vm_map_glue_page_protect, vm_map_glue_page_set_busy,
-    vm_map_glue_page_set_dirty, vm_map_glue_page_steal,
-    vm_map_glue_page_wakeup_done, vm_map_glue_page_wire_count,
-    vm_map_glue_pmap_enter, vm_object_allocate, vm_object_coalesce,
-    vm_object_collapse, vm_object_copy_slowly, vm_object_copy_strategically,
-    vm_object_copy_temporary, vm_object_deallocate, vm_object_name,
-    vm_object_page_remove, vm_object_pager_create, vm_object_pmap_protect,
-    vm_object_pmap_remove, vm_object_reference, vm_object_shadow,
-    vm_page_activate, vm_page_copy, vm_page_free, vm_page_grab,
-    vm_page_lookup, vm_page_mem_size, vm_page_more_fictitious,
-    vm_page_queue_lock, vm_page_replace, vm_page_wait, vm_page_wire,
-    vm_submap_object,
+    pmap_protect, pmap_remove, printf, thread_block, vm_fault_copy,
+    vm_fault_page, vm_fault_unwire, vm_fault_wire, vm_map_cache,
+    vm_map_copy_cache, vm_map_entry_cache, vm_map_glue_object_can_coalesce,
+    vm_map_glue_object_can_release, vm_map_glue_object_extend_size,
+    vm_map_glue_object_is_pristine_submap, vm_map_glue_object_is_shadowed,
+    vm_map_glue_object_is_temporary, vm_map_glue_object_lock,
+    vm_map_glue_object_make_shared, vm_map_glue_object_needs_shadow,
+    vm_map_glue_object_pager, vm_map_glue_object_paging_begin,
+    vm_map_glue_object_paging_end, vm_map_glue_object_unlock,
+    vm_map_glue_object_use_shared_copy, vm_map_glue_page_activate_if_idle,
+    vm_map_glue_page_clear_busy, vm_map_glue_page_is_absent,
+    vm_map_glue_page_is_busy, vm_map_glue_page_is_error,
+    vm_map_glue_page_is_fictitious, vm_map_glue_page_is_precious,
+    vm_map_glue_page_is_tabled, vm_map_glue_page_object,
+    vm_map_glue_page_offset, vm_map_glue_page_protect,
+    vm_map_glue_page_set_busy, vm_map_glue_page_set_dirty,
+    vm_map_glue_page_steal, vm_map_glue_page_wakeup_done,
+    vm_map_glue_page_wire_count, vm_map_glue_pmap_enter, vm_object_allocate,
+    vm_object_coalesce, vm_object_collapse, vm_object_copy_slowly,
+    vm_object_copy_strategically, vm_object_copy_temporary,
+    vm_object_deallocate, vm_object_name, vm_object_page_remove,
+    vm_object_pager_create, vm_object_pmap_protect, vm_object_pmap_remove,
+    vm_object_reference, vm_object_shadow, vm_page_activate, vm_page_copy,
+    vm_page_free, vm_page_grab, vm_page_lookup, vm_page_mem_size,
+    vm_page_more_fictitious, vm_page_queue_lock, vm_page_replace,
+    vm_page_wait, vm_page_wire, vm_submap_object,
 };
 use crate::ipc::{IpcPort, IpcSpace};
 use crate::kern::list::{List, entry as list_entry};
@@ -55,6 +54,7 @@ use crate::vm::error::{
 use crate::vm::types::{
     PAGE_MASK, PAGE_SIZE, Pmap, VmInherit, VmObject, VmPage, VmProt,
 };
+use crate::vm::vm_kern::projected_buffer_collect;
 use crate::vm::vm_map_ffi::is_discard_cont;
 use core::cell::UnsafeCell;
 use core::ffi::{c_char, c_int, c_uint, c_void};
@@ -391,12 +391,12 @@ impl VmMap {
 }
 
 /// Round `x` up to a page boundary; `round_page()` in C.
-const fn round_page(x: VmOffset) -> VmOffset {
+pub(crate) const fn round_page(x: VmOffset) -> VmOffset {
     x.wrapping_add(PAGE_MASK) & !PAGE_MASK
 }
 
 /// Round `x` down to a page boundary; `trunc_page()` in C.
-const fn trunc_page(x: VmOffset) -> VmOffset {
+pub(crate) const fn trunc_page(x: VmOffset) -> VmOffset {
     x & !PAGE_MASK
 }
 
@@ -589,8 +589,9 @@ impl VmMap {
         let max = this.hdr.links.end;
         let pmap = this.pmap;
 
-        // SAFETY: the map is exclusively owned by this deallocation.
-        unsafe { projected_buffer_collect(map.as_ptr().cast()) };
+        // The map is exclusively owned here, as the projected-buffer walk
+        // requires.
+        let _ = projected_buffer_collect(map);
         // SAFETY: as above; the map is unlocked, as the C contract of
         // vm_map_delete requires when the refcount is zero.
         let _ = unsafe { (*map.as_ptr()).delete(min, max) };

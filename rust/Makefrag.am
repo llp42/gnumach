@@ -118,6 +118,8 @@ MACH_RS_SRCS = \
 	rust/src/vm/types.rs \
 	rust/src/vm/vm_external.rs \
 	rust/src/vm/vm_init.rs \
+	rust/src/vm/vm_kern.rs \
+	rust/src/vm/vm_kern_ffi.rs \
 	rust/src/vm/vm_map.rs \
 	rust/src/vm/vm_map_ffi.rs
 
