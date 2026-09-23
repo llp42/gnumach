@@ -23,6 +23,7 @@ MACH_RS_SRCS = \
 	rust/src/glue/mig.rs \
 	rust/src/glue/mod.rs \
 	rust/src/glue/time_value.rs \
+	rust/src/ipc/ipc_table.rs \
 	rust/src/ipc/ipc_thread.rs \
 	rust/src/ipc/mod.rs \
 	rust/src/kern/ast.rs \

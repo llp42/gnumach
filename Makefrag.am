@@ -46,7 +46,6 @@ libkernel_a_SOURCES += \
 	ipc/ipc_right.h \
 	ipc/ipc_space.c \
 	ipc/ipc_space.h \
-	ipc/ipc_table.c \
 	ipc/ipc_table.h \
 	ipc/ipc_target.c \
 	ipc/ipc_target.h \
