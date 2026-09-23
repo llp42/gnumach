@@ -41,14 +41,14 @@ routine at a time. The target is a Rust kernel, not a kernel with Rust in it.
 The build is GNU Autotools plus a hand-written `rustc` invocation — no Cargo,
 no lock file, no network. The Rust half compiles to `libmach-rs.a`, which is
 linked between two passes over `libkernel.a`, so Rust may call C and C may
-call Rust. As of 2026-09-21 the Rust half is 39 files and about 17,300 lines.
+call Rust. As of 2026-09-23 the Rust half is 69 files and about 27,700 lines.
 
 ### The idea
 
 Getting there is incremental by construction, so at any moment the tree is
 **mixed and noisy** — C files beside Rust modules, Rust modules wrapped in
-`extern "C"` adapters, small C shims that exist only to let the two halves
-meet. That noise is expected and temporary. It is the cost of keeping the
+`extern "C"` adapters, symbols whose definition has crossed while their
+callers have not. That noise is expected and temporary. It is the cost of keeping the
 kernel booting and the test suite green at every commit, and it is not a
 defect to tidy away by making the Rust look like the C.
 
@@ -59,14 +59,11 @@ Two rules hold the shape of it:
   raw pointers and the same `int` error codes has bought nothing. Write the
   module as Rust would be written, and let the C-shaped signature live in a
   thin adapter at the edge of it.
-- **Where C has not moved yet, write a C shim to keep compatibility.** The
-  unported side keeps calling the symbol it always called, with the signature
-  it always had. If a macro, a lock, or a `struct` accessor cannot cross FFI,
-  add a small C shim function next to its C file (`ipc/ipc_thread_glue.c` is
-  the pattern) rather than dragging the C idiom inside the Rust module.
-
-A shim is scaffolding. When its last C caller moves, the shim goes in the same
-commit.
+- **Never write C to make a port fit.** The unported side keeps calling the
+  symbol it always called, with the signature it always had, because Rust
+  exports that exact symbol. If a macro, a lock, or a `struct` accessor
+  cannot cross FFI, the answer is a different port order, never a shim. See
+  "The no-glue law" below; it overrides anything else in this file.
 
 ### Where the noise is allowed to live
 
@@ -116,6 +113,8 @@ link error, not a fallback.
 | `vm/vm_map.c` | `src/vm/vm_map.rs`, `src/vm/vm_map_ffi.rs` |
 | `kern/lock.c` | `src/kern/lock.rs` |
 | `i386/i386/lock.h` (simple lock, bit ops) | `src/kern/lock.rs`, `src/arch/i386/atomic_bits.rs` |
+| `kern/kmutex.c` | `src/kern/kmutex.rs` |
+| `ipc/ipc_table.c` | `src/ipc/ipc_table.rs` |
 
 Also deleted as dead: `device/blkio.c` and the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`).
@@ -130,6 +129,79 @@ to land one patch.
 **When you update this section, update `MIGRATE.md` §9 in the same commit.**
 This table drifted badly once already.
 <!-- agents-md:end id=overview -->
+
+<!-- agents-md:begin id=noglue -->
+## The no-glue law — this one is not negotiable
+
+**The C half is never extended. The only bridge between the two halves is
+`extern "C"` written in Rust.**
+
+What that permits, exactly:
+
+- Rust exports the symbol C already calls:
+  `#[unsafe(no_mangle)] pub unsafe extern "C" fn vm_map_enter(...)`. The C
+  caller keeps the prototype it already had, in the header it already had,
+  and no C file is edited to make the call work.
+- Rust declares the C functions it calls, in an `unsafe extern "C"` block in
+  `rust/src/glue/`. Declaring a C symbol that already exists writes no C, so
+  it is not glue.
+
+What it forbids, with no exception and no "minimal" version:
+
+- A new `*_glue.c` file.
+- A new function in an existing `*_glue.c`, or a new Rust caller of one.
+- Any C function, wrapper, accessor, macro-expander or bitfield getter
+  written so that a Rust module can reach something. One line is still a C
+  function.
+- A new prototype, macro or `static inline` added to a C header for Rust's
+  benefit.
+
+### If a port needs glue, the port is out of order
+
+Glue is not a cost to pay. It is the signal that the sequence is wrong, and
+the fix is always the sequence:
+
+- **Port the definer first.** `simple_lock`, `spl*`, `percpu_get`,
+  `current_thread()` and `thread_wakeup*` are macros or assembly, so Rust
+  cannot call them and no shim may be written for them. Whatever owns each
+  one moves to Rust first and exports a real symbol; only then may its users
+  move.
+- **Move the whole unit.** If a port would need a C accessor for a field,
+  the owner of that field moves in the same step, or the port waits.
+- **Leave the file for later.** This is the normal answer and it costs
+  nothing. A file that cannot move without glue is simply not next.
+
+**Choosing that order is the planner's whole job.** A plan whose steps
+include "add a small shim" is not a plan, it is a deferred problem: reorder
+it until every step is one C definition deleted and one Rust definition
+arriving in its place. If no glue-free ordering exists, say so and stop —
+what is missing is a design conversation (an allocator, an RAII lock layer,
+a per-CPU accessor), not a shim to add quietly.
+
+### The glue already in the tree
+
+Six `*_glue.c` files predate this rule, and three ordinary C files carry
+shim functions too. All of it is debt, not precedent:
+
+```
+i386/i386/pio_glue.c        i386/i386at/kd_glue.c
+ipc/ipc_thread_glue.c       kern/processor_glue.c
+vm/vm_external_glue.c       vm/vm_map_glue.c
+
+kern/sched_prim.c           thread_glue_pset_sched_load
+i386/i386/irq.c             irq_mask, irq_unmask, irq_{set,get}_{handler,unit}
+i386/i386at/com.c           com_base_addr, com_irq
+```
+
+They may shrink and they may be deleted. They may never grow, and a seventh
+file is never created. Deleting the last caller of one deletes it in the
+same commit. `MIGRATE.md` §10 catalogues every piece and names what deletes
+it; two of them are deletable today.
+
+`MIGRATE.md` was written before this rule and names shims as steps in many
+places. Where it does, the step is wrong: that file's ordering is what has
+to change, not this rule.
+<!-- agents-md:end id=noglue -->
 
 <!-- agents-md:begin id=commands -->
 ## Commands
@@ -264,12 +336,12 @@ the C file it came out of.
 - `rust/src/arch/<arch>/` — code written twice, for i686 and x86_64.
 - `rust/src/glue/` — the C functions Rust calls, declared with the C
   signature exactly, inside an `unsafe extern "C"` block. A C *macro* cannot
-  come through here: it needs a shim written in C, so that the C compiler
-  still expands it with this build's configuration.
+  come through here, and no shim may be written for it: whatever defines the
+  macro is ported first, so that there is a real symbol to declare.
 - `rust/src/panic.rs` — `#[panic_handler]`, routed into the kernel's `Panic()`.
 
-A C shim written for an unported caller lives beside its C file instead, named
-`*_glue.c` (`ipc/ipc_thread_glue.c`), with a comment saying what will delete it.
+The six `*_glue.c` files in the C tree are pre-rule debt, listed under "The
+no-glue law". Nothing adds to them and nothing joins them.
 
 The C half is unchanged Mach: `kern/`, `ipc/`, `vm/`, `device/`, `i386/`,
 `x86_64/`, `chips/`, `util/`, with `include/` for the public interfaces.
@@ -380,7 +452,7 @@ rediscovering them per port:
   unused: nothing tests for it.
 - **C strings.** `core::ffi::CStr` and `c"..."` literals, not a hand-rolled
   NUL walk. `core::fmt` exists but drags in machinery; printing goes through
-  the `printf` shim.
+  the kernel's own `printf`, declared in `glue`.
 
 ### Edition 2024
 
@@ -950,12 +1022,13 @@ uniform and survives a visibility change.
 
 ### 37. Never leave a bare `TODO`
 
-Say what will resolve it and, where one exists, name the tracked item. A shim
-comment saying which C caller deletes it is the same rule.
+Say what will resolve it and, where one exists, name the tracked item. The
+same rule covers a comment on pre-rule glue: name the C caller whose move
+deletes it.
 
 ```rust
-// TODO: Remove this shim when ipc_thread.c's last caller moves.  <- RIGHT
-// TODO: fix this                                                 <- WRONG
+// TODO: Drop this declaration when ipc_thread.c's last caller moves. <- RIGHT
+// TODO: fix this                                                     <- WRONG
 ```
 
 ### 38. The first line of a doc comment is one sentence saying what it does
@@ -1172,8 +1245,9 @@ bypass it; both are a deliberate statement that you ran the suite another way.
    `extern "C"`, and a `# Safety` section saying what the caller has to
    guarantee.
 4. Delete the C definition in the same commit. Two definitions of one symbol
-   is a link error, not a fallback. Where an unported caller needs a macro or
-   an accessor, add a minimal `*_glue.c` beside it.
+   is a link error, not a fallback. If the step cannot be taken without
+   writing C, it is the wrong step: pick a different one, by the no-glue
+   law.
 5. The test programs are the frozen binaries in `abi-test/`, so they need no
    copy here; a port must keep the behaviour their ABI pins.
 6. Record the move in `MIGRATE.md` §9, and in the overview table above.
@@ -1185,8 +1259,8 @@ bypass it; both are a deliberate statement that you ran the suite another way.
    or allowlist was loosened to get green. Coverage is the same or better.
 2. The C definition of every symbol the Rust now defines is deleted in the
    same commit.
-3. Any C shim added is minimal, named `*_glue.c` beside its C file, and says
-   what will delete it.
+3. No C was written. No new `*_glue.c`, no new function in an existing one,
+   no accessor or prototype added to a C header for Rust's benefit.
 4. Every new `.rs` file is in `MACH_RS_SRCS`.
 5. The rules hold for the new module, not only the parts clippy can check.
 6. New code is edition 2024 idiom: `unsafe extern "C"` blocks,
@@ -1316,11 +1390,12 @@ Things that break the build, silently or confusingly, if forgotten.
   routines rather than `libmach-rs.a`, which is built for the kernel's
   target. Moving a routine they also contain changes only the kernel side;
   the pack is the ABI those binaries pin.
-- **A C macro cannot be declared in `glue/`.** `spl*`, `simple_lock`,
-  `percpu_get`, `current_thread()` and `thread_wakeup*` are macros or assembly;
-  the first Rust customer of each gets a one-line C shim beside the header
-  that defines it, so the C compiler still expands it with this build's
-  configuration.
+- **A C macro cannot be declared in `glue/`, and may not be shimmed.**
+  `spl*`, `simple_lock`, `percpu_get`, `current_thread()` and
+  `thread_wakeup*` are macros or assembly. Under the no-glue law that makes
+  them an ordering constraint, not a shim: their definer is ported first and
+  exports a real symbol, and until it has, every routine that needs one of
+  them is blocked and stays C.
 - **Rust cannot express C bitfields.** Expose the raw word and mask through
   typed accessors while the C macros keep reading the same word.
   `src/kern/lock.rs`'s `LockData` documents the packing order in its doc
@@ -1362,7 +1437,8 @@ The most important section. Keep it current.
   `// SAFETY:` comment on every `unsafe` block and a `# Safety` section on
   every exported `unsafe extern "C" fn`; record the move in `MIGRATE.md`;
   carry the correct SPDX header (BSD-2-Clause on new code and public
-  interfaces, the source's license on a translation).
+  interfaces, the source's license on a translation); pick a port order in
+  which no glue is needed, and stop rather than write C when none exists.
 
 - ⚠️ **Ask first**: adding an allocator (`GlobalAlloc` over `kalloc`) or
   anything that allocates; changing a `#[repr(C)]` layout, a MIG signature, an
@@ -1377,7 +1453,9 @@ The most important section. Keep it current.
   `#[allow]` or `-A` to silence a lint that is telling the truth; drop
   `-D warnings`, `#![no_builtins]`, `-C lto=fat`, or a `const` layout
   assertion; commit `mise.local.toml` or quote its contents; use `static mut`;
-  leave two definitions of one symbol in the tree; edit `build-64/`,
+  write any new C — a `*_glue.c`, a function in an existing one, a shim, an
+  accessor or a header prototype for Rust's benefit — where the answer is a
+  different port order; leave two definitions of one symbol in the tree; edit `build-64/`,
   `build-32/`, `configure`, `Makefile.in`, or any other generated file by hand;
   force-push a shared branch.
 <!-- agents-md:end id=boundaries -->
@@ -1390,6 +1468,9 @@ The most important section. Keep it current.
   practices. Rules that assume `std`, an allocator, async, serde or crates.io
   publishing were dropped; the survivors are listed above with kernel-shaped
   examples. See "Deliberately not adopted" for the ones rejected on purpose.
+- `## The no-glue law` is project-specific and has no counterpart in the
+  external agents-md template. It must survive a regeneration; check it is
+  still there afterwards.
 - The `## Commands` and `## Testing` text was rewritten on 2026-09 for the
   frozen ABI pack in `abi-test/`; the external agents-md template still
   describes `make check` and the deleted `tests/` tree, so it needs the same

@@ -12,6 +12,14 @@ The port contract itself is in `AGENTS.md`; this file is the map,
 not the rules.  Read the map top to bottom if you are choosing work,
 or jump to `kern/<file>.c` for a specific file.
 
+**`AGENTS.md`'s no-glue law governs this file.**  No port may write C,
+so the order below is not a preference, it is the constraint.  Where a
+file needs a macro, a lock or a field accessor that only C can reach,
+the file that *defines* that thing is the next port and the dependent
+file waits.  Every "Blockers" line below names a port to do first, not
+a shim to write.  The glue already in the tree is pre-rule debt; §10
+catalogues it and says what deletes each piece.
+
 The user test tree (`tests/`) was removed in 2026-09: the correctness
 gate is now the frozen binary pack in `abi-test/`, run against the
 freshly built kernel by `mise run test`.  The per-file "Tests." notes
@@ -36,7 +44,9 @@ and `*.user.c`.
    (`Makefile.am:149-152`), so Rust may call C and C may call Rust.
    `gnumach-undef-bad` rejects any symbol not covered by the allowlist.
 3. No Cargo, no build script, no network.  `core` only, **no `alloc`**.
-   Memory comes from the caller or from kernel allocators through shims.
+   Memory comes from the caller, or from the kernel allocators
+   (`kalloc`, `kmem_cache_*`) declared in `glue` as the real C symbols
+   they are.
 4. clippy `-D warnings`, `rustfmt --check` at 79 columns and
    `--enable-queue-debug` are build gates (`rust/Makefrag.am:96-107`).
 5. `mise run test` builds both kernels and runs the frozen ABI pack in
@@ -44,8 +54,13 @@ and `*.user.c`.
    is self-contained, so there is no in-tree user-test source to keep
    in sync.
 6. `rust/src/` mirrors the C tree: `src/utils/`, `src/kern/`,
-   `src/arch/<arch>/`, with C-call shims in `src/glue/` and — for
-   macros, which cannot cross FFI — small C shim functions.
+   `src/arch/<arch>/`, with the C functions Rust calls declared
+   verbatim in `src/glue/`.  That declaration writes no C and is the
+   whole permitted bridge inward.
+7. **No new C.**  A C *macro* cannot be declared in `glue` and may not
+   be wrapped in a shim, so the file that defines it is ported first.
+   A port that cannot be done without writing C is not next; another
+   one is.
 
 ## 1. Friction scale
 
@@ -66,12 +81,18 @@ Rust story.  This is the "why" behind every blocker in §4.
 | Layer | C machinery | Rust must first provide | Blocks |
 |---|---|---|---|
 | **L0 pure** | string ops (already Rust), byte order (Rust), atoi (Rust), parser tables | nothing | — |
-| **L1 types** | `struct thread`, `task`, `processor`, `processor_set`, `ipc_port`, `vm_map` read/written field-by-field, sometimes by asm (`i386asm.sym`) | `#[repr(C)]` mirror + offset/size `const` asserts, or C accessor shims; decision on who owns the layout | everything in `kern/` |
-| **L2 locks/IRQ/percpu** | `simple_lock`/`_simple_lock` (thin macros over the Rust entry points), `spl*` (`spl.S`, per-CPU `curr_ipl`), `simple_lock_irq`, `percpu_get`/`current_thread()` (`%gs`), `__sync_synchronize`, `cpu_pause` | A `SpinLock` type `repr(transparent)` over `natural_t` so C macros keep working; an `IrqGuard` over `splx`; a per-CPU accessor in `src/arch/`; C shims for the lock/percpu/spl macros (first real shim customers) | `kmutex.c`, `eventcount.c`, `priority.c`, `timer.c`, scheduler/IPC/VM files |
-| **L3 memory** | `kalloc`/`kfree`, `kmem_cache_*` (slab), `kmem_alloc_wired`, `vm_page_*` | the same C API behind thin shims; optionally later a `GlobalAlloc` over `kalloc` (an explicit design decision, not a quiet add) | `slab.c` itself, `rdxtree.c`, `syscall_emulation.c`, `processor.c`, `task.c` |
-| **L4 runnable** | `thread_block`, `thread_wakeup`, `assert_wait`, `thread_setrun`, continuations (`extern "C" fn()` passed across `switch_context`), `set_timeout` | Rust `Thread`/`Task` mirror with locked accessors, a continuation type, and sleep/wake shims while `sched_prim.c` stays C | `ipc_sched.c`, `eventcount.c`, `syscall_subr.c`, `thread_swap.c`, `task.c` |
-| **L5 IPC/VM** | `ipc_port`/`ipc_space`/`ipc_kmsg`/`vm_map` with `simple_lock` embedded and refcounts by convention; `copyin`/`copyout`; MIG wire formats | Rust `Port`/`Space`/`Kmsg`/`VmMap` types or opaque handles with C accessors; a safe copyin/copyout wrapper for slices | `exception.c`, `ipc_kobject.c`, `ipc_tt.c`, `ipc_mig.c`, `vm/*`, `device/*` |
-| **L6 arch/MIG** | `switch_context`/`call_continuation`/`stack_handoff`, `pmap`, trap entry in `locore.S`, `mach_trap_table`, MIG-generated `_X*` unmarshallers | `src/arch/<arch>/` with `core::arch::asm!` or shims; `#[repr(C)]` trap/exec frames; acceptance that MIG and trap dispatch stay C | scheduler, exception, syscall, boot files |
+| **L1 types** | `struct thread`, `task`, `processor`, `processor_set`, `ipc_port`, `vm_map` read/written field-by-field, sometimes by asm (`i386asm.sym`) | `#[repr(C)]` mirror + offset/size `const` asserts, and a decision on who owns the layout. Not a C accessor: a field Rust cannot name means the layout is not mirrored yet, and mirroring it is the work | everything in `kern/` |
+| **L2 locks/IRQ/percpu** | `simple_lock`/`_simple_lock` (thin macros over the Rust entry points), `spl*` (`spl.S`, per-CPU `curr_ipl`), `simple_lock_irq`, `percpu_get`/`current_thread()` (`%gs`), `__sync_synchronize`, `cpu_pause` | A `SpinLock` type `repr(transparent)` over `natural_t` so C macros keep working; an `IrqGuard` over `splx` (the `spl*` entry points are real asm functions, so `glue` declares them); a per-CPU accessor in `src/arch/` — `percpu_get` and `current_thread()` are macros, so the accessor is Rust's own and its arrival is what unblocks the layer | `kmutex.c`, `eventcount.c`, `priority.c`, `timer.c`, scheduler/IPC/VM files |
+| **L3 memory** | `kalloc`/`kfree`, `kmem_cache_*` (slab), `kmem_alloc_wired`, `vm_page_*` | nothing new: they are real symbols `glue` declares and Rust calls directly. Optionally later a `GlobalAlloc` over `kalloc` (an explicit design decision, not a quiet add) | `slab.c` itself, `rdxtree.c`, `syscall_emulation.c`, `processor.c`, `task.c` |
+| **L4 runnable** | `thread_block`, `thread_wakeup`, `assert_wait`, `thread_setrun`, continuations (`extern "C" fn()` passed across `switch_context`), `set_timeout` | Rust `Thread`/`Task` mirror with locked accessors and a continuation type. The wait/wake primitives are Rust already (`src/kern/sched_prim.rs`), so `thread_wakeup*`'s macro wrapper is bypassed by calling `thread_wakeup_prim` directly, not shimmed | `ipc_sched.c`, `eventcount.c`, `syscall_subr.c`, `thread_swap.c`, `task.c` |
+| **L5 IPC/VM** | `ipc_port`/`ipc_space`/`ipc_kmsg`/`vm_map` with `simple_lock` embedded and refcounts by convention; `copyin`/`copyout`; MIG wire formats | Rust `Port`/`Space`/`Kmsg`/`VmMap` mirrors asserted against the C layout, or opaque handles whose owner moves in the same step; a safe copyin/copyout wrapper for slices | `exception.c`, `ipc_kobject.c`, `ipc_tt.c`, `ipc_mig.c`, `vm/*`, `device/*` |
+| **L6 arch/MIG** | `switch_context`/`call_continuation`/`stack_handoff`, `pmap`, trap entry in `locore.S`, `mach_trap_table`, MIG-generated `_X*` unmarshallers | `src/arch/<arch>/` with `core::arch::asm!`; `#[repr(C)]` trap/exec frames; acceptance that MIG and trap dispatch stay C | scheduler, exception, syscall, boot files |
+
+The layers are an ordering, not a menu.  Under the no-glue law a file
+in layer N is unportable until layer N-1 has a Rust definition, and
+"unportable" is a fine answer: pick another file.  The layer that is
+holding the most files is the one worth porting next, which is why §7
+spends its early phases on L2 rather than on whatever looks small.
 
 ### The two hard ABI walls
 
@@ -105,11 +126,20 @@ Distilled from the ports so far and `AGENTS.md`:
   touches, never a parallel definition with a comment.  `QueueEntry`
   asserts size, alignment and both offsets (`queue.rs:44-51`);
   `elf_load.rs` mirrors `exec_info_t` and `vm_prot_t` the same way.
-* **C shims for macros.**  `spl*`, `simple_lock`, `percpu_get`,
-  `current_thread()`, `thread_wakeup*`, `__builtin_offsetof` queue ops
-  are macros or asm and cannot be declared in `glue`; the first Rust
-  customer of each gets a one-line C shim beside the header that defines
-  it.  `glue` declares `Panic` and the C functions the ports call
+* **Macros are an ordering constraint, never a shim.**  A C macro
+  cannot be declared in `glue`, and under the no-glue law it cannot be
+  wrapped either, so whatever defines it is ported first.  The five
+  that come up constantly, and their current state:
+
+  | Macro | Owner | State |
+  |---|---|---|
+  | `simple_lock`, `simple_unlock`, `simple_lock_irq` | `kern/lock.h` | partly Rust (`src/kern/lock.rs`, `src/arch/i386/atomic_bits.rs`; `i386/i386/lock.h` is gone); finishing it is Phase 2 |
+  | `spl*` | `i386/i386/spl.S` | **not a macro** — real asm functions, declared in `glue` already |
+  | `percpu_get`, `current_thread()`, `cpu_number()` | `i386/i386/percpu.h`, `i386/i386/cpu_number.h`, `kern/thread.h` | Rust accessor started in `src/arch/i386/percpu.rs`; Phase 1 |
+  | `thread_wakeup*` | `kern/sched_prim.h` | wrapper over `thread_wakeup_prim`, which is Rust — call it directly |
+  | queue ops | `kern/queue.h` | Rust since `5fcbebe5`; the macros are gone |
+
+  `glue` declares `Panic` and the plain C functions the ports call
   (`rust/src/glue/mod.rs:30`).
 * **At atomics, be explicit.**  `__sync_synchronize` becomes
   `fence(SeqCst)`; the `xchg` interlock becomes
@@ -132,12 +162,15 @@ Distilled from the ports so far and `AGENTS.md`:
   and link their own copies of `kern/printf.c`, `util/atoi.c` and the
   string routines, so a port in this tree no longer needs a test copy.
 
-What Rust still lacks (as of the rbtree port): an allocator over
-`kalloc`/`kmem_cache`, an RAII lock/IRQ layer, per-CPU access, a struct
-binding strategy beyond hand-written mirrors (no bindgen by design), a
-`printf`/`log` glue, and a shared `src/arch/<arch>/` platform module
-(drivers have opened `src/arch/i386/`, but there is no spl or per-CPU
-layer yet).  §4's blockers name which missing piece each file needs.
+What Rust still lacks, and therefore what the next ports are: an RAII
+lock/IRQ layer over the finished `src/kern/lock.rs`, a complete per-CPU
+accessor in `src/arch/`, the configure-time constants (`NCPUS`,
+`NINTR`, `NCOM`) that C arrays are sized by, and a struct binding
+strategy beyond hand-written mirrors (no bindgen by design).  An
+allocator over `kalloc`/`kmem_cache` is a design conversation, not a
+prerequisite: `kalloc` is a real symbol Rust can already call.  §4's
+blockers name which missing piece each file needs, and each is a port
+to do, not a shim to write.
 
 ## 4. `kern/` — file-by-file map
 
@@ -174,7 +207,7 @@ from §2.
 | `syscall_subr.c` | 367 | 14 | L4+L6 | **4** | `src/kern/syscall_subr.rs` |
 | `machine.c` | 651 | 35 | L4+L6 | **4** | `src/kern/machine.rs` |
 | `processor.c` | 1007 | 36 | L1+L4+L5 | **4** | `src/kern/processor.rs` |
-| `printf.c` | 656 | 3 | L2 | **5** | `src/kern/printf.rs` + C shims |
+| `printf.c` | 656 | 3 | L2 | **5** | blocked: see the entry |
 | `bootstrap.c` | 770 | 47 | L3+L6 | **5** | `src/kern/bootstrap.rs` |
 | `startup.c` | 290 | 57 | L6 | **5** | `src/kern/startup.rs` |
 | `slab.c` | 1280 | 25 | L3+L4+L5 | **5** | `src/kern/slab.rs` |
@@ -262,8 +295,9 @@ its entry below and the §9 table record what moved.
   fields must stay C-visible.  `TIMER_DELTA` moved to
   `src/kern/timer.rs` as `TimerSave::delta`, which calls `timer_delta()`
   for its coherency slow path.
-* **Blockers.** A per-CPU accessor: either `src/arch/` asm or a C shim
-  for `cpu_number()`; the `struct timer` mirror.
+* **Blockers.** The per-CPU accessor in `src/arch/`, finished:
+  `cpu_number()` is a macro, so there is nothing to shim and Phase 1
+  is the prerequisite.  Plus the `struct timer` mirror.
 * **Boundary / notes.** `#[no_mangle] static mut` arrays with the same
   size/alignment; write order in `timer_normalize` (check first, high
   last) and `fence(SeqCst)` must match — a safe `Timer` API can exist
@@ -305,22 +339,35 @@ its entry below and the §9 table record what moved.
 * **Boundary / notes.** Keep the three globals as `#[no_mangle]`
   statics until `host.c`/`processor.c` move, so there is one writer.
 
-#### `kern/kmutex.c` — 75 lines — friction 3/5
+#### `kern/kmutex.c` — 75 lines — ported
 * **Role.** Three-state sleepable mutex (unowned/locked/contended) with
   a lock-free fast path.
+* **Rust home.** `src/kern/kmutex.rs`.  `KMutex` keeps the C layout
+  (`AtomicU32` state at 0, `SimpleLock` interlock at 4; size, alignment
+  and both offsets asserted), and the three states are a private
+  `repr(u32)` `State` enum.  `try_lock` is the C
+  `atomic_cas_acq(AVAIL, LOCKED)`; `lock` adds the interlock, the
+  `swap(CONTENDED)` recheck and the `thread_sleep` on the mutex's own
+  address; `unlock` is the `atomic_cas_rel(LOCKED, AVAIL)` fast path
+  before taking the interlock and `thread_wakeup_prim`.  The
+  `interruptible` argument crosses as a `c_int` and becomes a `bool`
+  inside the adapter.  Every `unsafe` block carries its own `// SAFETY:`
+  note.
 * **Exports.** `kmutex_init`, `kmutex_lock`, `kmutex_trylock`,
-  `kmutex_unlock`; only caller is `gsync.c`.
-* **Dependencies — why.** `atomic_cas_acq`/`atomic_swap_acq`/
-  `atomic_cas_rel` (GCC `__atomic_*`, `kern/atomic.h:24-52`) implement
-  the state machine; `thread_sleep` and `thread_wakeup_one` implement
-  contention (`kmutex.c:50,69`).  `struct kmutex` is embedded in
-  gsync's 512 hash buckets, so its layout is shared.
-* **Blockers.** `SimpleLock` type and sleep/wake shims.
-* **Boundary / notes.** Ideal early L2/L4 file: the fast path is one
-  `compare_exchange(Acquire, Relaxed)`/`swap(Acquire)` pair; keep the
-  `repr(C)` struct and the `state` offset.  No owner tracking exists in
-  C; do not add one silently (gsync depends on lock ordering at the
-  call site).
+  `kmutex_unlock`; only caller is `gsync.c`, which never touches `state`
+  or `lock` directly, so `kern/kmutex.h` keeps the record and the
+  constants for the 512 hash buckets that embed it.
+* **Boundary / notes.** The C `atomic_*` macros become
+  `compare_exchange`/`swap` with the same orderings; the plain
+  `state = KMUTEX_AVAIL` under the interlock is a `Relaxed` store,
+  since the interlock carries the ordering.  No owner tracking exists
+  in C and none was added — gsync depends on lock ordering at the call
+  site.  A null mutex, which C would fault on, reports
+  `KERN_INVALID_ARGUMENT` from the integer-returning entries and is
+  ignored by the two void ones.
+* **Tests.** Qemu only: `test-gsync` drives the mutex through
+  `gsync_wait`/`gsync_wake`; `kmutex_init` runs at boot from
+  `gsync_setup` (`kern/startup.c:141`).
 
 #### `kern/boot_script.c` — 728 lines — friction 2/5
 * **Role.** Parser/executor for the Multiboot `$0`/`${var}`/`$(func)`
@@ -355,9 +402,10 @@ its entry below and the §9 table record what moved.
   `kmem_cache rdxtree_node_cache` (`rdxtree.c:118`).  The `llsync_*`
   macros are plain assignments here; safe only because callers hold the
   IPC space lock — do not present it as lock-free.
-* **Blockers.** Slab itself or a minimal shim for the node cache (its
-  `rbtree` dependency is ported).  The inline header API stays C,
-  calling the Rust `_common` symbols.
+* **Blockers.** None that need new C: `kmem_cache_alloc`/`_free` are
+  real symbols `glue` can declare, and the `rbtree` dependency is
+  ported.  Porting `kern/slab.c` first is cleaner but is not required.
+  The inline header API stays C, calling the Rust `_common` symbols.
 * **Boundary / notes.** `struct rdxtree_node` is private, so a Rust
   `Node` enum (`Stored(NonNull<u8>)` / child) can be native.  Gotchas:
   low-bit node tagging, `void ***slotp` return, allocate/shrink root
@@ -477,8 +525,9 @@ its entry below and the §9 table record what moved.
   processor sets; `convert_*` from `ipc_host.c` to hand out ports;
   `kalloc`/`kfree` for the arrays MIG copyouts consume; `tick`/
   `min_quantum`/`avenrun` for the info flavors.
-* **Blockers.** L1 pset/processor mirrors, the arch machine table
-  accessor, a `kalloc` shim; MIG signatures frozen.
+* **Blockers.** L1 pset/processor mirrors and the arch machine table
+  accessor; MIG signatures frozen.  `kalloc` is a real symbol and needs
+  no shim.
 * **Boundary / notes.** Start with `host_get_kernel_version` and
   `host_info` (bounded copies into caller arrays).  The `MACH_HOST`
   branches must be `#[cfg]`-selected from the same configure define.
@@ -495,14 +544,15 @@ its entry below and the §9 table record what moved.
   `simple_lock` on task and vector; `vm_map_copyin/copyout` because an
   out-of-line `emulation_vector_t` travels as a `vm_map_copy_t`
   (`syscall_emulation.c:308-314`); `task->lock`/`eml_dispatch`.
-* **Blockers.** L3 allocator shim and the L6 ABI: `struct
+* **Blockers.** The L6 ABI: `struct
   eml_dispatch` offsets are baked into `i386asm.sym:69-73` and read by
   `i386/locore.S:680-689`, `x86_64/locore.S:841-850`.  Do not move the
   struct to Rust without regenerating matching offsets.
 * **Boundary / notes.** `#[repr(C)]` struct with trailing
   `disp_vector[1]`; keep the `count_to_size` power-of-two allocation and
-  the lock-protected allocate/race protocol (`:168-270`) exactly.  A
-  good later file once the allocator is shimmed.
+  the lock-protected allocate/race protocol (`:168-270`) exactly.
+  `kalloc` is callable from Rust today, so the L3 side is not what
+  holds this file up.
 
 #### `kern/priority.c` — 196 lines — friction 4/5
 * **Role.** Per-tick quantum accounting and lazy priority update for the
@@ -709,8 +759,10 @@ its entry below and the §9 table record what moved.
   `processor_set_policy_enable`/`processor_set_policy_disable`, plus the
   `MACH_HOST` branch of `pset_reference`/`pset_deallocate`, are in
   `src/kern/processor.rs`.  The NCPUS-sized pset tail
-  (`machine_quantum` through `sched_load`) is the `kern/processor_glue.c`
-  shim.  The rest of the file stays C.
+  (`machine_quantum` through `sched_load`) is still reached through
+  `kern/processor_glue.c`, which is pre-rule debt (§10): bringing
+  `NCPUS` into Rust lets the `ProcessorSet` mirror carry the tail and
+  deletes the file.  The rest of `processor.c` stays C.
 * **Exports/data.** `pset_sys_bootstrap`, `pset_init`, `processor_init`,
   `pset_add/remove_processor`, `pset_add/remove_task`,
   `pset_add/remove_thread`, `thread_change_psets`,
@@ -728,8 +780,8 @@ its entry below and the §9 table record what moved.
 * **Blockers.** L1 pset/processor/runq layout, L2 locks, L5 port
   conversions.  No asm in the file.
 * **Boundary / notes.** `processor_set_tasks/threads` build raw arrays
-  with `kalloc` and convert in place — keep allocation as shims, no
-  slices.  Refcount restoration in `pset_deallocate` (`:342-402`) is
+  with `kalloc` and convert in place — call `kalloc` through `glue` and
+  keep the raw arrays, no slices.  Refcount restoration in `pset_deallocate` (`:342-402`) is
   lock-order sensitive.  `master_cpu` is written once and read widely.
 
 #### `kern/printf.c` — 656 lines — friction 5/5
@@ -741,12 +793,25 @@ its entry below and the §9 table record what moved.
   three output sinks through function pointers.  ~223 call sites; the
   frozen test modules in `abi-test/` link their own copy, so a port in
   this tree touches only the kernel side.
-* **Blockers.** `va_list` cannot be implemented in stable Rust.
-  The engine can.
-* **Boundary / notes.** Split engine from ABI: a `core`-only formatter
-  over `&mut dyn FnMut(char)` in `src/kern/printf.rs`, and keep the
-  variadic entry points (`printf`, `_doprnt`, `Panic`) as C shims that
-  call it.  Preserve `%b` (`:257-314`) and the truncation flag exactly.
+* **Blockers.** Defining a C-variadic function needs the unstable
+  `c_variadic` feature; on the pinned rustc 1.98.1 it is still
+  `error[E0658]`.  So `printf`, `vprintf`, `_doprnt`, `sprintf` and
+  `Panic` have no Rust definition available at all.
+* **Verdict under the no-glue law: blocked, not partially portable.**
+  The old plan here was to port the engine and keep the variadic entry
+  points as C shims calling it.  That is exactly the glue the law
+  forbids, and it would also leave two formatting implementations in
+  the tree.  The file moves whole or not at all, and moving it whole
+  needs one of two decisions, both "ask first" in `AGENTS.md`:
+  enabling `c_variadic` (the build already sets `RUSTC_BOOTSTRAP=1`,
+  so the knob exists), or changing the ~223 call sites off the
+  variadic ABI.  Until one is taken, `printf.c` stays C in full and no
+  part of it is ported.
+* **Boundary / notes.** When it does move: a `core`-only formatter over
+  `&mut dyn FnMut(char)` in `src/kern/printf.rs` under the variadic
+  entry points, preserving `%b` (`:257-314`) and the truncation flag
+  exactly.  Rust-side printing keeps going through the `printf` symbol
+  declared in `glue` in the meantime.
 
 #### `kern/bootstrap.c` — 770 lines — friction 5/5
 * **Role.** Builds the first user task/thread from Multiboot modules;
@@ -759,8 +824,8 @@ its entry below and the §9 table record what moved.
   creates and starts the user task; IPC to hand it host/device ports;
   boot-script parser; the Rust `exec_load` via C callbacks;
   `alloca` for the argument/stack staging.
-* **Blockers.** Almost everything: L3 shim (it leaks but allocates),
-  L6 user-stack/`set_user_regs`/`thread_bootstrap_return` asm, dual
+* **Blockers.** Almost everything: L6
+  user-stack/`set_user_regs`/`thread_bootstrap_return` asm, dual
   Multiboot layouts, and `alloca` has no Rust equivalent — replace with
   a fixed-size buffer or a `kmem_alloc` staging area explicitly.
 * **Boundary / notes.** Port `boot_read`/`read_exec` as safe Rust over a
@@ -800,14 +865,15 @@ its entry below and the §9 table record what moved.
   pages and the bufctl/buftag live at computed offsets *inside* the
   buffers (`slab.c:298,310`); `kmem_alloc_wired` for bootstrap;
   `rbtree.rs`; simple locks; `elapsed_ticks`/`hz` for GC.
-* **Blockers.** L3 VM page shims, a lock wrapper.
+* **Blockers.** `vm_page_*` must be callable, which it is (real
+  symbols), and the lock wrapper of Phase 2.
   Metadata is pointer arithmetic in caller memory — needs raw pointers
   and deliberate bounds, not slices.
 * **Boundary / notes.** `cache->lock` must be dropped before
   `kmem_slab_create` and emptiness revalidated (`:411,734-736`);
-  `cache->ctor` callbacks stay C.  This is the file that unlocks `kalloc`
-  for everyone; port it after the page shims but before the larger
-  consumers.
+  `cache->ctor` callbacks stay C.  This is the file that puts the
+  allocator in Rust; port it after `vm_page`'s layout is mirrored and
+  before the larger consumers.
 
 #### `kern/thread.c` — 2593 lines — friction 5/5
 * **Role.** Thread object lifecycle (create/suspend/resume/halt/terminate/
@@ -863,7 +929,7 @@ its entry below and the §9 table record what moved.
   pset because it is a pset member (`pset_tasks` link); allocator for
   the slab and the temp arrays; EML; arch `machine_task_*`.
 * **Blockers.** L1 `Task`/`TaskIpc`/`machine_task` layout (embedded arch
-  `iopb_lock`, `i386/i386/task.h:30-41`), L2 locks/percpu, L3 shims,
+  `iopb_lock`, `i386/i386/task.h:30-41`), L2 locks/percpu,
   L4 thread wait, L5 space/map handles.  MIG pins twelve signatures;
   `task_priority`/`task_get_assignment`/`task_set_essential` have no
   prototype in `task.h`.
@@ -873,7 +939,9 @@ its entry below and the §9 table record what moved.
   (`:313`), lock two tasks in address order (`:331-338`), never block
   with `task->lock`/`pset->lock` held, and reinsert the self thread last
   (`:440-448`).  Reference transfers (e.g. `convert_thread_to_port`
-  takes a ref) are conventions, not types — keep them in shims.  First
+  takes a ref) are conventions, not types — carry them in the Rust
+  adapter's contract, documented, since there is no C to put them in.
+  First
   slices: `task_ras_control`, `task_set_name`, `task_set_essential`,
   `task_get_assignment`, `task_priority`.
 
@@ -1207,11 +1275,15 @@ Rust; M7-pre then deletes the exported adapters no C caller named
 (`vm_map_delete`, `vm_map_pmap_enter`, `vm_map_coalesce_entry` and
 `vm_map_copyout_page_list`).  What remains in
 `vm_map_glue.c` beside the
-storage is every shim the narrative above names: the
+storage is every shim the narrative above names — all of it pre-rule
+debt now, catalogued in §10 and closed by Phases 1, 4 and 5 rather
+than by anything new: the
 `current_thread()` privilege pair and the `pmap_attribute`/`pmap_copy`
 /`thread_wakeup` macro shims, the `struct vm_object` and
 `struct vm_page` probes, the `struct task` field accessors, and the
-proxy cast.  Each dies with its owner, as its comment says.
+proxy cast.  Each dies with its owner, as its comment says, and no
+more may be added: a routine still in C here moves when its struct
+mirror does, not when a shim is written for it.
 
 M7-pre is a cleanup pass over the finished port.  The body of
 `vm_map_copy_discard_cont` moves out of the FFI edge and behind
@@ -1238,7 +1310,7 @@ record where the C would fault, the header allocation included, so the
 kernel gets no new panic.  `vm_object.c` and `memory_object.c` already
 test for `VM_EXTERNAL_NULL` and accept the record.  The three
 slab caches stay in `vm/vm_external_glue.c` until kern/slab.c
-moves, and the dead `existence_count` `#if 0` block went with the
+moves (§10), and the dead `existence_count` `#if 0` block went with the
 port.  Coverage is unchanged: only `vm_external_module_initialize` is
 reached at boot; create/destroy and the state pair are
 external-paging paths the suite does not set up.
@@ -1258,7 +1330,7 @@ points are boot-exercised on x86_64 and i386.
 |---|---:|---|---:|---|
 | `ipc_target.c` | 40 | target-port set init/term | 1 | one call: `ipc_mqueue_init` |
 | `ipc_thread.c` | 103 | thread linkage helpers | 1 | its own header macros |
-| `ipc_table.c` | 134 | space table sizing/alloc | 2 | `kalloc/kfree` only |
+| `ipc_table.c` | 134 | space table sizing/alloc | 2 | ported; see §9 |
 | `ipc_entry.c` | 187 | entry allocation | 3 | slab, rdxtree C inlines |
 | `ipc_init.c` | 115 | IPC bootstrap | 3 | slab, host/port init ordering |
 | `ipc_notify.c` | 448 | port-death notifications | 3 | kmsg/mqueue, ports |
@@ -1275,8 +1347,8 @@ points are boot-exercised on x86_64 and i386.
 | `ipc_right.c` | 1844 | rights translation (anchor) | 5 | entry/space/table/marequest |
 | `mach_msg.c` | 1648 | `mach_msg_trap` (anchor) | 5 | copyin/out, locore/pcb, sched |
 
-`ipc_thread.c` is ported; §9 records it.  The entry below keeps the
-detail §4.1 gives the `kern/` files.
+`ipc_table.c` and `ipc_thread.c` are ported; §9 records them.  The
+entry below keeps the detail §4.1 gives the `kern/` files.
 
 #### `ipc/ipc_thread.c` — 103 lines — ported
 * **Role.** The LIFO stack of threads waiting on a message queue or
@@ -1286,9 +1358,12 @@ detail §4.1 gives the `kern/` files.
   `init`/`first`/`enqueue`/`dequeue`/`rmqueue`/`rmqueue_first`, and
   `ThreadRef` for a thread and its links.  The queue is Rust-native and
   the C side is seven adapters.
-* **Bridges.** `struct thread` is still C, so the module asks the new
-  `ipc/ipc_thread_glue.c` for a view of the `ith_next`/`ith_prev` pair
-  (asserted adjacent in C); `glue` declares the shim.
+* **Bridges.** At port time `struct thread` was still C, so the module
+  asks `ipc/ipc_thread_glue.c` for a view of the `ith_next`/`ith_prev`
+  pair (asserted adjacent in C).  That is no longer needed: the
+  scheduler port's `struct thread` mirror carries both fields
+  (`rust/src/kern/thread.rs:264`), so this glue is deletable today
+  (§10).
 * **Header.** `ipc_thread.h` keeps the struct and the prototypes only:
   every macro became a function, the dead `ipc_thread_queue_empty()`
   is gone, and the 18 former-macro call sites use the functions.
@@ -1416,7 +1491,8 @@ detail §4.1 gives the `kern/` files.
   `assert_wait`, `thread_block`, `iodone`, `device_read_alloc`,
   `ds_read_done`, `comgetc`, `kd_sendcmd`, `kd_cmdreg_write`,
   `kd_mouse_drain`, `kdintr`.  The macros and config-shaped data got C
-  shims instead: `pio_inb`/`pio_outb` in a new `i386/i386/pio_glue.c`
+  shims instead — pre-rule debt now, and §10 says what deletes each:
+  `pio_inb`/`pio_outb` in a new `i386/i386/pio_glue.c`
   over the `inb`/`outb` statement expressions; `irq_mask`/`irq_unmask`
   and `ivect`/`iunit` accessors added to `i386/i386/irq.c` (`mask_irq`
   is inline under APIC and the arrays are `NINTR`-sized); and
@@ -1598,16 +1674,18 @@ generated `.server.h`; the unmarshalling, `TypeCheck` and
 ## 6. Least-friction candidates, in order
 
 Ported from this list so far: `kern/rbtree.c`, `i386/i386at/kd_queue.c`,
-`i386/i386at/mem.c`, `i386/i386at/mbinfo.c`, `ipc/ipc_thread.c` and
-`util/atoi.c` (see §9).
+`i386/i386at/mem.c`, `i386/i386at/mbinfo.c`, `ipc/ipc_thread.c`,
+`util/atoi.c`, `kern/kmutex.c` and `ipc/ipc_table.c` (see §9).
 
-Tier 1 — no new infrastructure:
+Tier 1 — no new infrastructure, and nothing that would need C:
 
-1. `ipc/ipc_target.c` — one call to `ipc_mqueue_init` (shim or defer).
+1. `ipc/ipc_target.c` — one call to `ipc_mqueue_init`, which is a real
+   symbol `glue` can declare.
 2. `i386/i386/ast_check.c`, `i386/i386/hardclock.c` — tiny, asm-free.
 3. `kern/boot_script.c` — isolated, allocation callbacks only.
 
-Tier 2 — after the first shims (percpu, locks, `struct` mirrors):
+Tier 2 — after percpu, locks and the `struct` mirrors have been
+*ported* (Phases 1, 2 and 4; none of them is a shim):
 
 5. `kern/timer.c` — needs `cpu_number` accessor only.
 6. `kern/kmutex.c`, `kern/mach_factor.c`, `kern/thread_swap.c` — need
@@ -1628,33 +1706,84 @@ Tier 4 — the anchors (`thread`, `task`, `sched_prim`, `ipc_mig`,
 
 ## 7. Recommended phasing
 
-* **Phase 0 (now).** Tier-1 files.  No new infrastructure; each port
-  establishes only its own module.  Add the first C shim when a Tier-1
-  file needs a macro (none should).
-* **Phase 1 — the Rust platform.**  In one coherent push, add
-  `src/arch/<arch>/` with per-CPU access and spl guards; a
-  `SpinLock`/`IrqLock` `repr(transparent)` over the C `lock_data` word;
-  `glue` declarations for `thread_sleep`/`thread_wakeup`,
-  `kalloc`/`kmem_cache`, and `copyin`/`copyout`; and the `#[repr(C)]`
-  mirror pattern with compile-time asserts for the first shared struct.
-* **Phase 2 — infrastructure.**  `rbtree` (ported), `timer`,
-  `kmutex`, then `slab`/`kalloc` shims, then `rdxtree` → `lock.c` →
-  `eventcount.c`.
-* **Phase 3 — scheduler surface.**  `mach_factor`, `thread_swap`,
-  `priority`, `syscall_sw`, then the pure priority computation inside
-  `sched_prim.c`, then `ipc_sched.c`'s `thread_go`/`will_wait`, then
-  `ast.c`.  Keep `switch_context`, `call_continuation` and
-  `stack_handoff` C.
-* **Phase 4 — objects.**  `ipc_tt`/`ipc_host`/`host` conversions →
-  `processor`/`machine` → `task` → `thread` (the state machines last).
-* **Phase 5 — IPC/VM/arch anchors.**  `ipc_kmsg`, `ipc_port`,
-  `mach_msg`, `vm_page`, then `pmap`, `trap`, `pcb`,
-  `startup`/`bootstrap`, then `printf`'s engine and the drivers.
+The no-glue law fixes the shape of this list: a file moves only when
+everything it needs from C is either a real symbol `glue` can declare
+or Rust already.  Each phase exists to make the next one legal, and no
+phase contains a shim.  Where the old phasing said "add the shim", the
+replacement says which file to port instead.
 
-Exit criterion for every step is unchanged: both qemu architectures
-green, `rustfmt`/`clippy` clean, no new undefined symbols.  A module
-that needs nothing from the kernel may add host tests like the
-rbtree's; see §8.
+* **Phase 0 — leaves (now).**  The Tier-1 files of §6.  Each port
+  establishes only its own module and needs nothing new.
+
+* **Phase 1 — per-CPU.**  Finish the accessor in `src/arch/<arch>/`
+  (`src/arch/i386/percpu.rs` is the start).  `percpu_get`,
+  `current_thread()` and `cpu_number()` are `%gs` macros, so there is
+  nothing to declare and nothing that may be shimmed: the Rust
+  accessor *is* the unblocking work.  `spl*` needs nothing — real asm
+  functions, in `glue` already — so the `IrqGuard` over them is a
+  Rust-side type written whenever it is wanted.
+  *Unblocks:* `timer.c`, `priority.c`, `ast.c`, and the per-CPU half
+  of everything later.
+
+* **Phase 2 — locks.**  Finish `kern/lock.h` (`i386/i386/lock.h` is
+  already gone):
+  `src/kern/lock.rs` and `src/arch/i386/atomic_bits.rs` already own
+  the simple lock and the bit ops, and what remains is the read/write
+  `struct lock` and the `simple_lock_irq` pair.  Every remaining lock
+  macro must become a real symbol before any later file can take a
+  lock from Rust, because a lock shim is not available as a fallback.
+  Then `kern/kmutex.c` (its sleep/wake dependencies are Rust already),
+  then `kern/eventcount.c`.
+  *Unblocks:* every file whose only C need was a lock — the largest
+  single group in §4.
+
+* **Phase 3 — the configure-time constants.**  `NCPUS`, `NINTR`,
+  `NCOM` and friends size C arrays and shift struct tails, and Rust
+  cannot name them today.  That single gap is what created
+  `kern/processor_glue.c`, the `ivect`/`iunit` accessors in
+  `i386/i386/irq.c` and `com_base_addr`/`com_irq` in
+  `i386/i386at/com.c` (§10).  Generate them into Rust from the same
+  `config.h` the C half uses, with layout asserts.
+  *Unblocks:* the `ProcessorSet` tail, the mouse driver's remaining C,
+  and every NCPUS-indexed array.
+
+* **Phase 4 — the shared structs.**  Mirror and assert the layouts C
+  and Rust both touch: `struct thread`'s `ith_next`/`ith_prev`,
+  `struct vm_object` and `struct vm_page`'s flag bits, `struct task`'s
+  fields, `struct timer`.  Each mirror lands with the deletion of the
+  accessors it replaces, in the same commit.
+  *Unblocks:* `ipc_thread_glue.c` and almost all of `vm_map_glue.c`
+  go away here; `thread.c` and `task.c` become portable at all.
+
+* **Phase 5 — memory.**  `kalloc`, `kfree` and `kmem_cache_*` are real
+  symbols Rust already calls, so this phase is about moving the
+  allocator itself, not reaching it: `kern/slab.c` after `vm_page`'s
+  mirror (Phase 4), then `kern/rdxtree.c`, then the slab caches still
+  parked in `vm/vm_external_glue.c` and `vm/vm_map_glue.c`.  A
+  `GlobalAlloc` over `kalloc` remains a separate design decision.
+
+* **Phase 6 — scheduler surface.**  `mach_factor`, `thread_swap`,
+  `priority`, `syscall_sw`, then the rest of `sched_prim.c`, then
+  `ipc_sched.c`'s `thread_go`/`will_wait`, then `ast.c`.  Keep
+  `switch_context`, `call_continuation` and `stack_handoff` C.
+
+* **Phase 7 — objects.**  `ipc_tt`/`ipc_host`/`host` conversions →
+  `processor`/`machine` → `task` → `thread` (the state machines last).
+
+* **Phase 8 — IPC/VM/arch anchors.**  `ipc_kmsg`, `ipc_port`,
+  `mach_msg`, `vm_object`, `vm_page`, then `pmap`, `trap`, `pcb`,
+  `startup`/`bootstrap`, then the drivers.
+
+**Not in any phase: `kern/printf.c`.**  It needs a C-variadic
+definition, which the pinned toolchain rejects, and the old plan to
+keep its entry points as C shims is exactly what the law forbids.  It
+is blocked pending a toolchain or call-site decision; see its §4
+entry.
+
+Exit criterion for every step is unchanged, plus one: both qemu
+architectures green, `rustfmt`/`clippy` clean, no new undefined
+symbols, **and no new C**.  A module that needs nothing from the
+kernel may add host tests like the rbtree's; see §8.
 
 ## 8. Deletions and test-side copies
 
@@ -1704,6 +1833,8 @@ rbtree's; see §8.
 | `i386/i386/lock.h` (simple lock) | `src/kern/lock.rs` | `102c4926` |
 | `kern/sched_prim.c` (wait/wake, `thread_dispatch`, `thread_setrun`) | `src/kern/sched_prim.rs` + `src/kern/thread.rs`, `src/kern/timer.rs`, `src/kern/processor.rs`, `src/arch/i386/percpu.rs` | `c4498541` |
 | `kern/ast.h` (`ast_on`, `ast_off`, `ast_needed`) | `src/kern/ast.rs` | `6a6281be` |
+| `kern/kmutex.c` | `src/kern/kmutex.rs` | `d4fe54dc` |
+| `ipc/ipc_table.c` | `src/ipc/ipc_table.rs` | `bd582ec6` |
 | `kern/thread.c` (`thread_init`) | `src/kern/thread.rs` | `pending` |
 | `kern/sched.h` (`thread_timer_delta`) | `src/kern/thread.rs`, `src/kern/timer.rs` | `pending` |
 | `kern/processor.c` (`processor_init`, `pset_init`, `processor_start/exit/control`, `processor_get_assignment`, `processor_info`, `processor_set_info`, `pset_reference`, `pset_deallocate`, `pset_add/remove_thread`, `thread_change_psets`, `processor_set_max_priority`, `processor_set_policy_enable/disable`) | `src/kern/processor.rs` | `pending` |
@@ -1711,3 +1842,26 @@ rbtree's; see §8.
 Deleted dead code: `device/blkio.c` (unreachable block pager path) and
 the `#if 0` profiling facility (`profil.h`, `profilparam.h`,
 `mpqueue`).
+
+## 10. The glue debt
+
+Every piece of C in this tree that exists only so Rust can reach
+something.  All of it predates `AGENTS.md`'s no-glue law, none of it
+is a precedent, and nothing may be added to it.  Each row says what
+deletes it.
+
+| Glue | What it provides | Deleted by |
+|---|---|---|
+| `vm/vm_map_glue.c` (476 lines, 42 functions) | `current_thread()->vm_privilege`; the `pmap_attribute`, `pmap_copy` and `thread_wakeup` macros; `struct vm_object` and `struct vm_page` bit probes; `struct task` field accessors; the memory-object proxy cast; the three `kmem_cache` storage symbols | Phase 1 (percpu, for `current_thread()`), Phase 4 (the `vm_object`/`vm_page`/`task` mirrors — most of the file), Phase 5 (the caches, when `slab.c` moves) |
+| `vm/vm_external_glue.c` | Three `kmem_cache` symbols as storage, not as shims | Phase 5: `kern/slab.c` |
+| `kern/processor_glue.c` | The NCPUS-sized `struct processor_set` tail (`machine_quantum` … `sched_load`) and its two load accessors | Phase 3: `NCPUS` visible to Rust, so the `ProcessorSet` mirror carries the tail |
+| `kern/sched_prim.c:716` — `thread_glue_pset_sched_load` | The same pset tail, read from the scheduler | Phase 3, with the row above |
+| `i386/i386/irq.c` — `irq_mask`, `irq_unmask`, `irq_{set,get}_handler`, `irq_{set,get}_unit` | `ivect`/`iunit` are `NINTR`-sized arrays and `mask_irq` is `static inline` under APIC | Phase 3 (`NINTR`), plus a Rust `mask_irq` equivalent |
+| `i386/i386at/com.c` — `com_base_addr`, `com_irq` | `cominfo` is an `NCOM`-sized array | Phase 3 (`NCOM`), or porting `com.c` |
+| `i386/i386at/kd_glue.c` | `struct tty`'s lock macros, the line-discipline switch, `ttlowat[]` | Phase 2 (locks) for the first four; the `tty`/`ldisc` port for the rest |
+| `ipc/ipc_thread_glue.c` | A view of the `ith_next`/`ith_prev` pair in `struct thread` | **Deletable today.** The `struct thread` mirror landed with the scheduler port and carries both fields (`rust/src/kern/thread.rs:264`), so `src/ipc/ipc_thread.rs` can read them directly |
+| `i386/i386/pio_glue.c` | `inb`/`outb`/`inw`/`outw`/`inl`/`outl`, which are statement-expression macros in `i386/pio.h` | **Deletable today.** Port I/O is one instruction; `core::arch::asm!` is already used in `src/arch/i386/percpu.rs`, so a Rust `Port` type replaces the file with no new infrastructure |
+
+The two "deletable today" rows are the cheapest glue-debt work in the
+tree and need nothing from any phase.  Do them before adding more
+ports on top of the same C.
