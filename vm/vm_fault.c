@@ -1416,42 +1416,6 @@ kern_return_t vm_fault(
 }
 
 /*
- *	vm_fault_wire:
- *
- *	Wire down a range of virtual addresses in a map.
- */
-void vm_fault_wire(
-	vm_map_t	map,
-	vm_map_entry_t	entry)
-{
-
-	vm_offset_t	va;
-	pmap_t		pmap;
-	vm_offset_t	end_addr = entry->vme_end;
-
-	pmap = vm_map_pmap(map);
-
-	/*
-	 *	Inform the physical mapping system that the
-	 *	range of addresses may not fault, so that
-	 *	page tables and such can be locked down as well.
-	 */
-
-	pmap_pageable(pmap, entry->vme_start, end_addr, FALSE);
-
-	/*
-	 *	We simulate a fault to get the page and enter it
-	 *	in the physical map.
-	 */
-
-	for (va = entry->vme_start; va < end_addr; va += PAGE_SIZE) {
-		if (vm_fault_wire_fast(map, va, entry) != KERN_SUCCESS)
-			(void) vm_fault(map, va, VM_PROT_NONE, TRUE,
-					FALSE, vm_fault_no_continuation);
-	}
-}
-
-/*
  *	vm_fault_unwire:
  *
  *	Unwire a range of virtual addresses in a map.

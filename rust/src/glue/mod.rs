@@ -16,7 +16,7 @@ use crate::kern::sched::RunQueue;
 use crate::kern::sched_prim::NUMQUEUES;
 use crate::kern::thread::{Continuation, StackResume, Thread};
 use crate::vm::types::{Pmap, VmObject, VmPage, VmProt};
-use crate::vm::vm_map::VmMap;
+use crate::vm::vm_map::{VmMap, VmMapEntry};
 use core::ffi::{c_char, c_int, c_long, c_short, c_uint, c_ulong, c_void};
 use core::mem::offset_of;
 
@@ -473,9 +473,26 @@ unsafe extern "C" {
         end: VmOffset,
         prot: VmProt,
     ) -> VmOffset;
+    pub fn pmap_virtual_space(startp: *mut VmOffset, endp: *mut VmOffset);
+    pub fn pmap_enter(
+        pmap: *mut Pmap,
+        va: VmOffset,
+        pa: VmOffset,
+        protection: VmProt,
+        wired: c_int,
+    );
 
     pub fn vm_page_mem_size() -> VmSize;
+    pub fn vm_page_bootalloc(size: VmSize) -> VmOffset;
     pub fn vm_page_grab(flags: c_uint) -> *mut VmPage;
+    pub fn vm_page_insert(
+        page: *mut VmPage,
+        object: *mut VmObject,
+        offset: VmOffset,
+    );
+    pub fn vm_page_remove(page: *mut VmPage);
+    pub static mut virtual_space_start: VmOffset;
+    pub static mut virtual_space_end: VmOffset;
     pub fn vm_page_copy(src: *mut VmPage, dst: *mut VmPage);
     pub fn vm_page_wait(continuation: Option<unsafe extern "C" fn()>);
     pub fn vm_page_more_fictitious();
@@ -601,7 +618,19 @@ unsafe extern "C" {
         prot: c_int,
     );
     pub fn vm_fault_unwire(map: *mut c_void, entry: *mut c_void);
-    pub fn vm_fault_wire(map: *mut c_void, entry: *mut c_void);
+    pub fn vm_fault(
+        map: *mut VmMap,
+        va: VmOffset,
+        protection: VmProt,
+        change_wiring: c_int,
+        resume: c_int,
+        continuation: Option<unsafe extern "C" fn(c_int)>,
+    ) -> c_int;
+    pub fn vm_fault_wire_fast(
+        map: *mut VmMap,
+        va: VmOffset,
+        entry: *mut VmMapEntry,
+    ) -> c_int;
 
     pub fn vm_fault_page(
         first_object: *mut VmObject,

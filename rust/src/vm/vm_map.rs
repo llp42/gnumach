@@ -17,8 +17,8 @@ use crate::glue::{
     kernel_virtual_start, kfree, kmem_cache_alloc, kmem_cache_free,
     kmem_cache_init, memory_object_create_proxy, pmap_create, pmap_destroy,
     pmap_protect, pmap_remove, printf, thread_block, vm_fault_copy,
-    vm_fault_page, vm_fault_unwire, vm_fault_wire, vm_map_cache,
-    vm_map_copy_cache, vm_map_entry_cache, vm_map_glue_object_can_coalesce,
+    vm_fault_page, vm_fault_unwire, vm_map_cache, vm_map_copy_cache,
+    vm_map_entry_cache, vm_map_glue_object_can_coalesce,
     vm_map_glue_object_can_release, vm_map_glue_object_extend_size,
     vm_map_glue_object_is_pristine_submap, vm_map_glue_object_is_shadowed,
     vm_map_glue_object_is_temporary, vm_map_glue_object_lock,
@@ -54,6 +54,7 @@ use crate::vm::error::{
 use crate::vm::types::{
     PAGE_MASK, PAGE_SIZE, Pmap, VmInherit, VmObject, VmPage, VmProt,
 };
+use crate::vm::vm_fault;
 use crate::vm::vm_kern::projected_buffer_collect;
 use crate::vm::vm_map_ffi::is_discard_cont;
 use core::cell::UnsafeCell;
@@ -3068,14 +3069,9 @@ impl VmMap {
             && unsafe { (*entry.as_ptr()).links.end } <= end
         {
             if unsafe { (*entry.as_ptr()).wired_count } == 1 {
-                // SAFETY: the map may be read-locked; the C code assumes the
-                // faults always succeed.
-                unsafe {
-                    vm_fault_wire(
-                        ptr::from_mut(self).cast::<c_void>(),
-                        entry.as_ptr().cast::<c_void>(),
-                    )
-                };
+                // SAFETY: the map may be read-locked and `entry` is one of its
+                // live entries; the C code assumes the faults always succeed.
+                unsafe { vm_fault::wire(self, entry) };
             }
             entry =
                 unsafe { (*entry.as_ptr()).links.next }.unwrap_or(sentinel);

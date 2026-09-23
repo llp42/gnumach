@@ -65,8 +65,8 @@
 
 /*
  *	These variables record the values returned by vm_page_bootstrap,
- *	for debugging purposes.  The implementation of pmap_steal_memory
- *	here also uses them internally.
+ *	for debugging purposes.  The Rust pmap_steal_memory also uses them
+ *	internally.
  */
 
 vm_offset_t virtual_space_start;
@@ -215,69 +215,6 @@ void vm_page_bootstrap(
 	*startp = virtual_space_start;
 	*endp = virtual_space_end;
 }
-
-#ifndef	MACHINE_PAGES
-/*
- *	We implement pmap_steal_memory with the help
- *	of two simpler functions, pmap_virtual_space and vm_page_bootalloc.
- */
-
-vm_offset_t pmap_steal_memory(
-	vm_size_t size)
-{
-	vm_offset_t addr, vaddr;
-	phys_addr_t paddr;
-
-	size = round_page(size);
-
-	/*
-	 *	If this is the first call to pmap_steal_memory,
-	 *	we have to initialize ourself.
-	 */
-
-	if (virtual_space_start == virtual_space_end) {
-		pmap_virtual_space(&virtual_space_start, &virtual_space_end);
-
-		/*
-		 *	The initial values must be aligned properly, and
-		 *	we don't trust the pmap module to do it right.
-		 */
-
-		virtual_space_start = round_page(virtual_space_start);
-		virtual_space_end = trunc_page(virtual_space_end);
-	}
-
-	/*
-	 *	Allocate virtual memory for this request.
-	 */
-
-	addr = virtual_space_start;
-	vm_offset_t new_start = virtual_space_start + size;
-	if (new_start < virtual_space_start)
-		panic("not enough kernel virtual space for %dMB virtual allocation!\n", size >> 20);
-	virtual_space_start = new_start;
-
-	/*
-	 *	Allocate and map physical pages to back new virtual pages.
-	 */
-
-	for (vaddr = round_page(addr);
-	     vaddr < addr + size;
-	     vaddr += PAGE_SIZE) {
-		paddr = vm_page_bootalloc(PAGE_SIZE);
-
-		/*
-		 *	XXX Logically, these mappings should be wired,
-		 *	but some pmap modules barf if they are.
-		 */
-
-		pmap_enter(kernel_pmap, vaddr, paddr,
-			   VM_PROT_READ|VM_PROT_WRITE, FALSE);
-	}
-
-	return addr;
-}
-#endif	/* MACHINE_PAGES */
 
 /*
  *	Routine:	vm_page_module_init
@@ -574,31 +511,6 @@ vm_page_t vm_page_lookup(
 	}
 	simple_unlock(&bucket->lock);
 	return mem;
-}
-
-/*
- *	vm_page_rename:
- *
- *	Move the given memory entry from its
- *	current object to the specified target object/offset.
- *
- *	The object must be locked.
- */
-void vm_page_rename(
-	vm_page_t	mem,
-	vm_object_t	new_object,
-	vm_offset_t	new_offset)
-{
-	/*
-	 *	Changes to mem->object require the page lock because
-	 *	the pageout daemon uses that lock to get the object.
-	 */
-
-
-	simple_lock(&vm_page_queue_lock);
-    	vm_page_remove(mem);
-	vm_page_insert(mem, new_object, new_offset);
-	simple_unlock(&vm_page_queue_lock);
 }
 
 static void vm_page_init_template(vm_page_t m)
@@ -915,41 +827,6 @@ void vm_page_free_contig(vm_page_t mem, vm_size_t size)
 	vm_page_free_pa(mem, order);
 
 	simple_unlock(&vm_page_queue_free_lock);
-}
-
-/*
- *	vm_page_alloc:
- *
- *	Allocate and return a memory cell associated
- *	with this VM object/offset pair.
- *
- *	Object must be locked.
- */
-
-vm_page_t vm_page_alloc_flags(
-	vm_object_t	object,
-	vm_offset_t	offset,
-	unsigned	flags)
-{
-	vm_page_t	mem;
-
-
-	mem = vm_page_grab(flags);
-	if (mem == VM_PAGE_NULL)
-		return VM_PAGE_NULL;
-
-	simple_lock(&vm_page_queue_lock);
-	vm_page_insert(mem, object, offset);
-	simple_unlock(&vm_page_queue_lock);
-
-	return mem;
-}
-
-vm_page_t vm_page_alloc(
-	vm_object_t	object,
-	vm_offset_t	offset)
-{
-	return vm_page_alloc_flags(object, offset, VM_PAGE_HIGHMEM);
 }
 
 /*

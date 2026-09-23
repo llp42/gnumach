@@ -1717,22 +1717,6 @@ vm_page_free_pa(struct vm_page *page, unsigned int order)
     vm_page_seg_free(&vm_page_segs[page->seg_index], page, order);
 }
 
-const char *
-vm_page_seg_name(unsigned int seg_index)
-{
-    /* Don't use a switch statement since segments can be aliased */
-    if (seg_index == VM_PAGE_SEG_HIGHMEM)
-        return "HIGHMEM";
-    else if (seg_index == VM_PAGE_SEG_DIRECTMAP)
-        return "DIRECTMAP";
-    else if (seg_index == VM_PAGE_SEG_DMA32)
-        return "DMA32";
-    else if (seg_index == VM_PAGE_SEG_DMA)
-        return "DMA";
-    else
-        panic("vm_page: invalid segment index");
-}
-
 void
 vm_page_info_all(void)
 {

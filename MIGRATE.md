@@ -135,13 +135,13 @@ file, or `—` when the rest is ready too.
 | `memory_object_proxy.c` | 227 | 0 | cache statics |
 | `vm_debug.c` | 541 | 0 | `hash_info_bucket_t` mirror |
 | `vm_external_glue.c` | 21 | 0 | three `kmem_cache` symbols; deletes with `slab.c` |
-| `vm_fault.c` | 2060 | 1 | `vm_object`/`vm_page`/task fields |
+| `vm_fault.c` | 2024 | 0 | `vm_object`/`vm_page`/task fields |
 | `vm_kern.c` | 812 | 0 | `vm_object` fields for the rest |
 | `vm_map_glue.c` | 341 | 0 | the object/page/task field shims; they need mirrors |
 | `vm_object.c` | 2887 | 0 | `struct vm_object` has no field mirror |
-| `vm_page.c` | 2214 | 1 | `struct vm_page` has no field mirror |
+| `vm_page.c` | 2198 | 0 | `struct vm_page` has no field mirror |
 | `vm_pageout.c` | 505 | 0 | `vm_object`/`vm_page` fields |
-| `vm_resident.c` | 1071 | 4 | `struct vm_page` mirror |
+| `vm_resident.c` | 948 | 0 | `struct vm_page` mirror |
 | `vm_user.c` | 602 | 0 | `vm_object`/`vm_page` fields for the rest |
 
 ### `device/` (11 files, 7,057 LOC)
@@ -238,23 +238,13 @@ These exemptions are settled and are not re-decided per port:
   `&raw mut`.  Reading a *field* of one is a different thing and still
   fails.
 
-### 6.1 Free ports today (Tier 0) — 6 functions
+### 6.1 Free ports today (Tier 0) — empty
 
-Zero "no" answers: needs nothing that does not exist today.  Port these
-before proposing any mirror, constant or allocator.  Each entry's "needs"
-is the glue declarations and Rust-side helpers the port adds; none
-requires C.
-
-#### `vm/` (6)
-
-| Function | Needs |
-|---|---|
-| `vm/vm_fault.c:1423 vm_fault_wire` | glue `vm_fault`, `vm_fault_wire_fast`; `VmMap.pmap`, `VmMapEntry.links` |
-| `vm/vm_page.c:1721 vm_page_seg_name` | four literals; no fields |
-| `vm/vm_resident.c:225 pmap_steal_memory` | glue `pmap_virtual_space`, `vm_page_bootalloc`, `pmap_enter` |
-| `vm/vm_resident.c:587 vm_page_rename` | `vm_page_remove`/`insert`; the page-queue lock |
-| `vm/vm_resident.c:929 vm_page_alloc_flags` | `vm_page_grab`/`insert`; the page-queue lock |
-| `vm/vm_resident.c:948 vm_page_alloc` | forwards to `vm_page_alloc_flags` |
+The last six entries moved in one pass (see §9).  An empty list is not a
+finished file or a finished tree: §6.3's re-derivation is what refills
+it, and the previous mechanical pass found forty entries the list had
+never been pointed at.  Re-derive before reading a file's "Free: 0" as
+final.
 
 ### 6.2 Blocked with one unlock
 
@@ -446,6 +436,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `i386/i386/mp_desc.c` (`interrupt_processor`) | `src/arch/i386/mp_desc.rs` | pending |
 | `vm/vm_kern.c` (`projected_buffer_collect`, `projected_buffer_in_range`, `kmem_alloc_wired_flags`, `kmem_alloc_wired`, `kmem_map_aligned_table`, `kmem_alloc_pageable`, `kmem_free`, `kmem_submap`, `kmem_init`, `kmem_io_map_deallocate`) | `src/vm/vm_kern.rs`, `src/vm/vm_kern_ffi.rs` | pending |
 | `vm/vm_user.c` (`vm_allocate`, `vm_deallocate`, `vm_inherit`, `vm_protect`, `vm_machine_attribute`, `vm_read`, `vm_write`, `vm_copy`, `vm_object_sync`, `vm_msync`, `vm_get_size_limit`) | `src/vm/vm_user.rs`, `src/vm/vm_user_ffi.rs` | pending |
+| `vm/vm_fault.c` (`vm_fault_wire`), `vm/vm_page.c` (`vm_page_seg_name`), `vm/vm_resident.c` (`pmap_steal_memory`, `vm_page_rename`, `vm_page_alloc_flags`, `vm_page_alloc`) | `src/vm/vm_fault.rs`, `vm_fault_ffi.rs`, `vm_page.rs`, `vm_page_ffi.rs`, `vm_resident.rs`, `vm_resident_ffi.rs` | pending |
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `i386/i386at/kd_glue.c`
