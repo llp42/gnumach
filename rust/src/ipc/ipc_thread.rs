@@ -10,16 +10,16 @@
 //! An `IpcThreadQueue` is a LIFO stack of threads, not a FIFO queue:
 //! `enqueue()` pushes at the front, so a thread that just ran is reused
 //! early, which helps locality of reference (the C header's note).  The
-//! links live in `struct thread` as `ith_next`/`ith_prev`, reached
-//! through one C shim (`ipc/ipc_thread_glue.c`) that hands back a view
-//! of the pair; the queue itself is Rust.
+//! links live in `struct thread` as `ith_next`/`ith_prev`, read from
+//! the [`Thread`] mirror in [`crate::kern::thread`]; the queue itself
+//! is Rust.
 //!
 //! A queue has no lock of its own: the caller holds the message-queue
 //! or port lock that protects it.
 
-use crate::glue;
+use crate::kern::thread::Thread;
 use core::ffi::c_void;
-use core::mem::size_of;
+use core::mem::{offset_of, size_of};
 use core::ptr::{self, NonNull};
 
 /// `ipc_thread_t`: a reference to a thread, opaque to this module.
@@ -34,21 +34,25 @@ pub struct IpcThreadQueue {
 }
 
 /// The `ith_next`/`ith_prev` pair inside `struct thread`, as one record.
-/// `ipc_thread_glue_links()` returns its address.
+/// `ThreadRef::links()` returns its address.
 #[repr(C)]
 struct ThreadLinks {
     next: Option<ThreadRef>,
     prev: Option<ThreadRef>,
 }
 
-// The C header defines `struct ipc_thread_queue` and embeds it; the
-// link view is a prefix of `struct thread` at the offset the shim
-// returns.
+// The C header defines `struct ipc_thread_queue` and embeds it, so the
+// mirror must be one pointer; `ThreadLinks` is the mirror's adjacent
+// `ith_next`/`ith_prev` pair.
 const _: () = assert!(size_of::<IpcThreadQueue>() == size_of::<*mut c_void>());
 const _: () =
     assert!(size_of::<IpcThreadQueue>() == size_of::<Option<ThreadRef>>());
 const _: () =
     assert!(size_of::<ThreadLinks>() == 2 * size_of::<*mut c_void>());
+const _: () = assert!(
+    offset_of!(Thread, ith_prev)
+        == offset_of!(Thread, ith_next) + size_of::<*mut Thread>()
+);
 
 impl ThreadRef {
     /// View a raw thread the caller promises is valid.
@@ -72,13 +76,12 @@ impl ThreadRef {
     ///
     /// The thread must be valid.
     unsafe fn links(self) -> NonNull<ThreadLinks> {
-        // SAFETY: the caller promises a valid thread, so the shim's
-        // view of its ith_next/ith_prev pair is non-null.
+        // SAFETY: the caller promises a valid thread, so the mirror's
+        // ith_next/ith_prev pair is live and adjacent.
         unsafe {
-            NonNull::new_unchecked(
-                glue::ipc_thread_glue_links(self.as_ptr())
-                    .cast::<ThreadLinks>(),
-            )
+            let thread = self.as_ptr().cast::<Thread>();
+            let links = core::ptr::addr_of_mut!((*thread).ith_next);
+            NonNull::new_unchecked(links.cast::<ThreadLinks>())
         }
     }
 

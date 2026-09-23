@@ -1362,12 +1362,9 @@ entry below keeps the detail §4.1 gives the `kern/` files.
   `init`/`first`/`enqueue`/`dequeue`/`rmqueue`/`rmqueue_first`, and
   `ThreadRef` for a thread and its links.  The queue is Rust-native and
   the C side is seven adapters.
-* **Bridges.** At port time `struct thread` was still C, so the module
-  asks `ipc/ipc_thread_glue.c` for a view of the `ith_next`/`ith_prev`
-  pair (asserted adjacent in C).  That is no longer needed: the
-  scheduler port's `struct thread` mirror carries both fields
-  (`rust/src/kern/thread.rs:264`), so this glue is deletable today
-  (§10).
+* **Bridges.** The module reads the `ith_next`/`ith_prev` pair from
+  the `Thread` mirror (`rust/src/kern/thread.rs:264`); the former
+  `ipc/ipc_thread_glue.c` view is gone.
 * **Header.** `ipc_thread.h` keeps the struct and the prototypes only:
   every macro became a function, the dead `ipc_thread_queue_empty()`
   is gone, and the 18 former-macro call sites use the functions.
@@ -1873,8 +1870,8 @@ replacement says which file to port instead.
   `struct vm_object` and `struct vm_page`'s flag bits, `struct task`'s
   fields, `struct timer`.  Each mirror lands with the deletion of the
   accessors it replaces, in the same commit.
-  *Unblocks:* `ipc_thread_glue.c` and almost all of `vm_map_glue.c`
-  go away here; `thread.c` and `task.c` become portable at all.
+  *Unblocks:* almost all of `vm_map_glue.c` goes away here; `thread.c`
+  and `task.c` become portable at all.
 
 * **Phase 5 — memory.**  `kalloc`, `kfree` and `kmem_cache_*` are real
   symbols Rust already calls, so this phase is about moving the
@@ -1980,8 +1977,3 @@ deletes it.
 | `i386/i386/irq.c` — `irq_mask`, `irq_unmask`, `irq_{set,get}_handler`, `irq_{set,get}_unit` | `ivect`/`iunit` are `NINTR`-sized arrays and `mask_irq` is `static inline` under APIC | Phase 3 (`NINTR`), plus a Rust `mask_irq` equivalent |
 | `i386/i386at/com.c` — `com_base_addr`, `com_irq` | `cominfo` is an `NCOM`-sized array | Phase 3 (`NCOM`), or porting `com.c` |
 | `i386/i386at/kd_glue.c` | `struct tty`'s lock macros, the line-discipline switch, `ttlowat[]` | Phase 2 (locks) for the first four; the `tty`/`ldisc` port for the rest |
-| `ipc/ipc_thread_glue.c` | A view of the `ith_next`/`ith_prev` pair in `struct thread` | **Deletable today.** The `struct thread` mirror landed with the scheduler port and carries both fields (`rust/src/kern/thread.rs:264`), so `src/ipc/ipc_thread.rs` can read them directly |
-
-The one "deletable today" row is the cheapest glue-debt work in the
-tree and needs nothing from any phase.  Do it before adding more
-ports on top of the same C.

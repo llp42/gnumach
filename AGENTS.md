@@ -180,23 +180,22 @@ a per-CPU accessor), not a shim to add quietly.
 
 ### The glue already in the tree
 
-Five `*_glue.c` files predate this rule, and three ordinary C files carry
+Four `*_glue.c` files predate this rule, and three ordinary C files carry
 shim functions too. All of it is debt, not precedent:
 
 ```
-i386/i386at/kd_glue.c       ipc/ipc_thread_glue.c
+i386/i386at/kd_glue.c       vm/vm_map_glue.c
 kern/processor_glue.c       vm/vm_external_glue.c
-vm/vm_map_glue.c
 
 kern/sched_prim.c           thread_glue_pset_sched_load
 i386/i386/irq.c             irq_mask, irq_unmask, irq_{set,get}_{handler,unit}
 i386/i386at/com.c           com_base_addr, com_irq
 ```
 
-They may shrink and they may be deleted. They may never grow, and a sixth
+They may shrink and they may be deleted. They may never grow, and a fifth
 file is never created. Deleting the last caller of one deletes it in the
 same commit. `MIGRATE.md` §10 catalogues every piece and names what deletes
-it; one of them is deletable today.
+it; none is deletable without a phase.
 
 `MIGRATE.md`'s ordering was rewritten around this rule: §6 is the test
 that decides whether a function can move, §7 the phases, §10 the debt.
@@ -362,7 +361,7 @@ the C file it came out of.
   macro is ported first, so that there is a real symbol to declare.
 - `rust/src/panic.rs` — `#[panic_handler]`, routed into the kernel's `Panic()`.
 
-The five `*_glue.c` files in the C tree are pre-rule debt, listed under "The
+The four `*_glue.c` files in the C tree are pre-rule debt, listed under "The
 no-glue law". Nothing adds to them and nothing joins them.
 
 The C half is unchanged Mach: `kern/`, `ipc/`, `vm/`, `device/`, `i386/`,

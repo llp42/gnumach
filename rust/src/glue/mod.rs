@@ -276,10 +276,6 @@ unsafe extern "C" {
     // <i386at/biosmem.h>, used by the /dev/mem mmap hook.
     pub fn biosmem_addr_available(addr: VmOffset) -> c_int;
 
-    // <ipc/ipc_thread_glue.c>: the ith_next/ith_prev pair of a thread,
-    // as one `struct ipc_thread_links *`.
-    pub fn ipc_thread_glue_links(thread: *mut c_void) -> *mut c_void;
-
     // <kern/slab.h>.  `kmem_cache_alloc` returns the object address as
     // the C code does; the caller turns it into a pointer.
     // `kmem_cache_init` builds a cache in caller storage, which the map
