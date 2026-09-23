@@ -62,7 +62,6 @@ libkernel_a_SOURCES += \
 	x86_64/kdasm.S \
 	i386/i386at/mbinfo.h \
 	i386/i386at/mem.h \
-	i386/i386at/rtc.c \
 	i386/i386at/rtc.h
 endif
 

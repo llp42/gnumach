@@ -49,6 +49,10 @@ unsafe extern "C" {
         param: *mut c_void,
         interval: c_int,
     ) -> *mut c_void;
+    // <kern/mach_clock.h>: the wall-clock time, which `kern/mach_clock.c`
+    // defines and `inittodr()` sets at boot.  `time_value64_t` is the
+    // `TimeValue64` mirror.
+    pub static mut time: time_value::TimeValue64;
 
     // <kern/machine.c>
     pub fn cpu_shutdown();
@@ -210,6 +214,7 @@ unsafe extern "C" {
     pub fn splsched() -> c_int;
     pub fn spltty() -> c_int;
     pub fn splsoftclock() -> c_int;
+    pub fn splclock() -> c_int;
     pub fn splx(level: c_int) -> c_int;
 
     // <i386at/com.h>

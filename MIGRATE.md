@@ -1460,7 +1460,7 @@ entry below keeps the detail §4.1 gives the `kern/` files.
 | `cons_conf.c` | 48 | console table | 2 | `constab` entries |
 | `autoconf.c` | 127 | bus probe/attach | 2 | bus tables, spl |
 | `conf.c` | 144 | driver switch tables | 3 | kd/com/mem wiring |
-| `rtc.c` | 242 | CMOS clock | 3 | spl, mach_clock |
+| `rtc.c` | 242 | CMOS clock | 3 | ported; see §9 |
 | `biosmem.c` | 1027 | boot memory/direct map | 3 | multiboot, VM boot |
 | `acpi_parse_apic.c` | 651 | ACPI MADT parser | 3 | acpi tables, kernel VM |
 | `int_init.c` | 78 | IDT gate fill | 3 | asm stubs |
@@ -1469,8 +1469,8 @@ entry below keeps the detail §4.1 gives the `kern/` files.
 | `com.c` | 893 | 8250 serial | 4 | tty, spl |
 | `model_dep.c` | 545 | machine init/bootstrap (anchor) | 5 | asm, pmap, percpu |
 
-`kd_queue.c`, `kd_event.c`, `kd_mouse.c`, `kd.c`, `mem.c` and
-`mbinfo.c` are ported; §9 records them.  The entries below keep the
+`kd_queue.c`, `kd_event.c`, `kd_mouse.c`, `kd.c`, `mem.c`, `mbinfo.c`
+and `rtc.c` are ported; §9 records them.  The entries below keep the
 detail §4.1 gives the `kern/` files.
 
 #### `i386/i386at/mbinfo.c` — 49 lines — ported
@@ -1755,15 +1755,13 @@ No new C, no new mirror, no new constant, no design conversation.
 Tier 0 is worked to exhaustion before any infrastructure is proposed
 (`AGENTS.md`, "Take the free ports first").
 
-Eleven functions.  Clusters first, because a whole file leaving C
-in one commit is worth more than the same functions leaving one at a
-time.
+Four functions.  Clusters first, because a whole file leaving C in one
+commit is worth more than the same functions leaving one at a time.
 
 **Whole-file clusters**
 
 | File | Functions | Why it is free |
 |---|---:|---|
-| `i386/i386at/rtc.c` | 7 — `rtcinit:62`, `rtcget:72`, `rtcput:89`, `hexdectodec:111`, `yeartoday:134`, `dectohexdec:140`, `readtodc:146` | The three arithmetic helpers call nothing at all.  The rest is port I/O plus `printf` and `splclock`/`splx`, all real.  `struct rtc_st` is used only inside `rtc.c`/`rtc.h`, so it moves with the file rather than needing a mirror. |
 | `i386/i386/pit.c` | 4 — `pit_prepare_sleep:69`, `pit_sleep:89`, `pit_udelay:105`, `pit_mdelay:117` | Port I/O and plain constants only; the two `*delay` entries call their siblings in the same file. |
 
 ### 6.2 What the rejections teach
@@ -1835,7 +1833,7 @@ or Rust already.  Each phase exists to make the next one legal, and no
 phase contains a shim.  Where the old phasing said "add the shim", the
 replacement says which file to port instead.
 
-* **Phase 0 — Tier 0 (now).**  The eleven free functions of
+* **Phase 0 — Tier 0 (now).**  The four free functions of
   §6.1, worked to exhaustion.  Each needs nothing that does not exist
   today, so this phase can start and finish without a single decision
   from any later one.  Nothing below is begun while Tier 0 has
@@ -1930,6 +1928,10 @@ kernel may add host tests like the rbtree's; see §8.
   the surrounding code.  `rdxtree.h:49` has an `#if 0` block to check
   the same way.  `kern/boot_script.c`'s
   `boot_script_define_function` has no callers.
+* `i386/i386at/rtc.h` keeps `struct rtc_st`, the `load_rtc`/`save_rtc`
+  macros and the `RTCRTIME`/`RTCSTIME` ioctl numbers with no C user
+  left: they are the driver interface, retained until that interface is
+  retired, and only the two prototypes feed `model_dep.c` now.
 * Host-side Rust tests: `rust/src/kern/rbtree.rs` is free of kernel
   calls and `crate::` imports, so it carries `#[cfg(test)]` tests, but
   the host runner went away with the old suite and nothing compiles
@@ -1986,6 +1988,7 @@ kernel may add host tests like the rbtree's; see §8.
 | `ipc/ipc_object.c` (`ipc_object_copyin_type`; rest stays C) | `src/ipc/ipc_object.rs` | `pending` |
 | `ipc/ipc_port.c` (`ipc_port_timestamp` and its two globals; rest stays C) | `src/ipc/ipc_port.rs` | `pending` |
 | `ipc/mach_port.c` (`mach_port_rename`, `mach_port_insert_right`, `mach_port_extract_right`, `mach_port_request_notification`; rest stays C) | `src/ipc/mach_port.rs` | `pending` |
+| `i386/i386at/rtc.c` | `src/arch/i386/rtc.rs` | `pending` |
 
 Deleted dead code: `device/blkio.c` (unreachable block pager path) and
 the `#if 0` profiling facility (`profil.h`, `profilparam.h`,
