@@ -5,29 +5,20 @@
 //   Systems Laboratory (CSL).
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! The final IPC initialization, which `ipc/ipc_init.c` used to define
-//! and `ipc/ipc_init.h` declares.
-//!
-//! [`ipc_init()`] carves the IPC kernel submap out of `kernel_map` and
-//! brings up the host ports.  The earlier half of the file,
-//! `ipc_bootstrap()`, and the `ipc_kernel_map` globals stay C: the rest
-//! of the IPC layer reads them directly.
+//! The final IPC initialization, which `ipc/ipc_init.c` used to define and
+//! `ipc/ipc_init.h` declares.
 
 use crate::arch::types::VmOffset;
 use crate::glue;
 
-/// Final initialization of the IPC system.  `ipc_init()` in C.
+/// `ipc_init()` in C.
 fn init() {
-    // `kmem_submap` writes both back; the C passed uninitialized
-    // locals.
     let mut min: VmOffset = 0;
     let mut max: VmOffset = 0;
 
-    // SAFETY: `ipc_kernel_map` and `kernel_map` are the live maps the
-    // boot path has already built, `ipc_kernel_map_size` is the
-    // constant size of the submap, and the two out-pointers are this
-    // function's live locals.  `kmem_submap` halts instead of
-    // returning on failure.
+    // SAFETY: `ipc_kernel_map` and `kernel_map` are the live maps the boot
+    // path has already built, `ipc_kernel_map_size` is the constant size of
+    // the submap, and the two out-pointers are this function's live locals.
     unsafe {
         glue::kmem_submap(
             glue::ipc_kernel_map,
@@ -38,16 +29,12 @@ fn init() {
         );
     }
 
-    // SAFETY: `ipc_host_init` takes no arguments and only builds the
-    // host's special ports; the boot caller runs this once.
+    // SAFETY: `ipc_host_init` takes no arguments and only builds the host's
+    // special ports; the boot caller runs this once.
     unsafe { glue::ipc_host_init() };
 }
 
-//
-// The C edge: the one adapter `ipc/ipc_init.h` declares.
-//
-
-/// Final initialization of the IPC system.  `ipc_init()` in C.
+/// `ipc_init()` in C.
 ///
 /// # Safety
 ///

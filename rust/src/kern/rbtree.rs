@@ -5,28 +5,6 @@
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! Red-black tree, which `kern/rbtree.c` used to define.
-//!
-//! The tree is intrusive: `RbtreeNode` is layout-identical to `struct
-//! rbtree_node` of <kern/rbtree_i.h> and lives inside the caller's
-//! structures.  The generic lookups and inserts stay macros in
-//! <kern/rbtree.h>, where the comparison function is known at the call
-//! site; the functions here are the non-generic half those macros call.
-//! They keep the C signatures exactly, so `kern/slab.c` keeps using
-//! the same header.
-//!
-//! The parent member packs the color in its low bit
-//! (`rbtree_i.h:38-47,60-74`), so `RbtreeNode` must be 4-byte aligned;
-//! the layout constants below fail the build if the mirror drifts.
-//!
-//! The core is Rust-native: a copyable `NodeRef` handle and methods on
-//! `Rbtree` carry the algorithms, and the nine `extern "C"` functions
-//! are thin adapters for `kern/slab.c`.  `NodeRef`
-//! moves by value and never borrows node storage, because the tree's
-//! links alias the same nodes; the raw pointers appear only at the
-//! adapters and a few helpers.
-//!
-//! This module must stay free of `crate::` imports: `tests/test-rbtree-rs`
-//! compiles it for the host with `rustc --test`.
 
 use core::ffi::c_int;
 use core::mem::{align_of, offset_of, size_of};
@@ -44,8 +22,7 @@ const RIGHT: usize = RBTREE_RIGHT as usize;
 const COLOR_MASK: usize = 0x1;
 const PARENT_MASK: usize = !0x3;
 
-/// The two colors of a red-black node.  The value never leaves this
-/// module: C only ever sees the low bit of `parent`.
+/// The two colors of a red-black node.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Color {
     Red,
@@ -66,8 +43,7 @@ impl Color {
     }
 }
 
-/// A child side.  The C boundary passes it as `c_int` 0/1; internally
-/// the typed side keeps the rotations and walks free of index math.
+/// A child side.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Side {
     Left,
@@ -105,8 +81,8 @@ impl Side {
 const SLOT_INDEX_MASK: usize = 0x1;
 const SLOT_PARENT_MASK: usize = !SLOT_INDEX_MASK;
 
-/// `struct rbtree_node`: a parent address with the color in its low
-/// bit, and the two children.
+/// `struct rbtree_node`: a parent address with the color in its low bit, and
+/// the two children.
 #[repr(C)]
 pub struct RbtreeNode {
     parent: usize,
@@ -119,8 +95,6 @@ pub struct Rbtree {
     root: Option<NonNull<RbtreeNode>>,
 }
 
-// The C header defines both structures and embeds them; these asserts
-// pin the mirror to the same layout.
 const _: () = assert!(size_of::<RbtreeNode>() == 3 * size_of::<usize>());
 const _: () = assert!(align_of::<RbtreeNode>() == align_of::<usize>());
 const _: () = assert!(align_of::<RbtreeNode>() >= 4);
@@ -129,8 +103,8 @@ const _: () = assert!(size_of::<Rbtree>() == size_of::<*mut RbtreeNode>());
 const _: () = assert!(align_of::<Rbtree>() == align_of::<*mut RbtreeNode>());
 
 impl RbtreeNode {
-    /// Node storage with null links, before `init()` or
-    /// `rbtree_node_init()` makes it an unlinked tree node.
+    /// Node storage with null links, before `init()` or `rbtree_node_init()`
+    /// makes it an unlinked tree node.
     const fn unlinked() -> Self {
         Self {
             parent: 0,
@@ -138,7 +112,6 @@ impl RbtreeNode {
         }
     }
 
-    /// Make this node unlinked: parent itself, red, null children.
     /// `rbtree_node_init()` uses this.
     fn init(&mut self) {
         *self = Self::unlinked();
@@ -152,15 +125,13 @@ impl Rbtree {
         Self { root: None }
     }
 
-    /// Reset the tree to empty.  `rbtree_init()` in C.
+    /// `rbtree_init()` in C.
     pub(crate) fn init(&mut self) {
         self.root = None;
     }
 
     /// Walk to the node whose comparison is zero, or the nearest in
-    /// `direction` when none is.  The C `rbtree_lookup_nearest()`
-    /// macro, with the comparison moved into `cmp`: it receives each
-    /// visited node and returns the ordering of the key against it.
+    /// `direction` when none is.
     pub(crate) fn lookup_nearest<F>(
         &self,
         cmp: F,
@@ -180,8 +151,8 @@ impl Rbtree {
             }
             prev = cur;
             index = rbtree_d2i(diff);
-            // SAFETY: the caller promises a valid tree, so a visited
-            // node's children are valid nodes or null.
+            // SAFETY: the caller promises a valid tree, so a visited node's
+            // children are valid nodes or null.
             cur = unsafe {
                 (*node.as_ptr()).children[Side::from_int(index).index()]
             };
@@ -192,10 +163,8 @@ impl Rbtree {
         found.map(|node| node.0)
     }
 
-    /// Walk to the node whose comparison is zero and the insertion
-    /// point for it.  The C `rbtree_lookup_slot()` macro, with `cmp`
-    /// returning the ordering of the key against each visited node.
-    /// The slot packs the point for `insert_at()`.
+    /// Walk to the node whose comparison is zero and the insertion point for
+    /// it.
     pub(crate) fn lookup_slot<F>(
         &self,
         cmp: F,
@@ -214,8 +183,8 @@ impl Rbtree {
             }
             prev = cur;
             index = rbtree_d2i(diff);
-            // SAFETY: the caller promises a valid tree, so a visited
-            // node's children are valid nodes or null.
+            // SAFETY: the caller promises a valid tree, so a visited node's
+            // children are valid nodes or null.
             cur = unsafe {
                 (*node.as_ptr()).children[Side::from_int(index).index()]
             };
@@ -225,7 +194,6 @@ impl Rbtree {
         (cur, rbtree_slot(parent, index))
     }
 
-    /// Insert `node` at a slot from `lookup_slot()`.
     /// `rbtree_insert_slot()` in C.
     ///
     /// # Safety
@@ -239,8 +207,8 @@ impl Rbtree {
     ) {
         let parent = ptr::with_exposed_provenance_mut(slot & SLOT_PARENT_MASK);
         let index = (slot & SLOT_INDEX_MASK) as c_int;
-        // SAFETY: the caller promises an unlinked node and a slot of
-        // this tree.
+        // SAFETY: the caller promises an unlinked node and a slot of this
+        // tree.
         unsafe {
             self.insert(
                 NonNull::new(parent).map(NodeRef),
@@ -250,14 +218,12 @@ impl Rbtree {
         };
     }
 
-    /// Insert `node`, locating the point with `cmp`.  The C
-    /// `rbtree_insert()` macro, with `cmp` receiving each visited node
-    /// and ordering the inserted node against it.
+    /// Insert `node`, locating the point with `cmp`.
     ///
     /// # Safety
     ///
-    /// `node` must be unlinked caller storage and must not compare
-    /// equal to any node already in the tree.
+    /// `node` must be unlinked caller storage and must not compare equal to
+    /// any node already in the tree.
     pub(crate) unsafe fn insert_by<F>(
         &mut self,
         node: NonNull<RbtreeNode>,
@@ -279,8 +245,8 @@ impl Rbtree {
             };
         }
 
-        // SAFETY: the caller promises an unlinked node and an
-        // insertion point found in this tree.
+        // SAFETY: the caller promises an unlinked node and an insertion point
+        // found in this tree.
         unsafe {
             self.insert(
                 prev.map(NodeRef),
@@ -290,7 +256,7 @@ impl Rbtree {
         };
     }
 
-    /// Remove a node.  `rbtree_remove()` in C.
+    /// `rbtree_remove()` in C.
     ///
     /// # Safety
     ///
@@ -300,7 +266,6 @@ impl Rbtree {
         unsafe { self.remove(NodeRef::new(node.as_ptr())) };
     }
 
-    /// The first or last node of the tree, if any.
     /// `rbtree_firstlast()` in C, with the direction as
     /// `RBTREE_LEFT`/`RBTREE_RIGHT`.
     pub(crate) fn firstlast_node(
@@ -324,8 +289,8 @@ impl Rbtree {
     ///
     /// # Safety
     ///
-    /// `node` must be unlinked caller storage, and `parent`/`side` must
-    /// be an insertion point in this tree.
+    /// `node` must be unlinked caller storage, and `parent`/`side` must be an
+    /// insertion point in this tree.
     unsafe fn insert(
         &mut self,
         parent: Option<NodeRef>,
@@ -360,7 +325,6 @@ impl Rbtree {
                 break;
             }
 
-            // A red node always has a parent in a valid tree.
             // SAFETY: as above.
             let grand_parent = unsafe { p.parent() }
                 .expect("rbtree: red node without a grandparent");
@@ -370,7 +334,6 @@ impl Rbtree {
             // SAFETY: as above.
             let uncle = unsafe { grand_parent.child(other) };
 
-            // Uncle is red: flip colors and repeat at the grandparent.
             if let Some(uncle) = uncle {
                 // SAFETY: as above.
                 if unsafe { uncle.is_red() } {
@@ -387,8 +350,6 @@ impl Rbtree {
                 }
             }
 
-            // Node is the opposite child of its parent: rotate at the
-            // parent and blacken the node, which takes its place.
             // SAFETY: as above.
             let final_parent = if unsafe { p.child(other) } == Some(node) {
                 // SAFETY: as above.
@@ -398,8 +359,6 @@ impl Rbtree {
                 p
             };
 
-            // Node is the near child: recolor, rotate at the
-            // grandparent, and leave.
             // SAFETY: as above.
             unsafe {
                 final_parent.set_color(Color::Black);
@@ -411,9 +370,6 @@ impl Rbtree {
     }
 
     /// Remove `node`, then restore the red-black rules.
-    ///
-    /// After completion the node is stale: its links are not cleared,
-    /// as the C comment in <kern/rbtree.h> says.
     ///
     /// # Safety
     ///
@@ -428,7 +384,6 @@ impl Rbtree {
             unsafe { (node.child(Side::Left), node.child(Side::Right)) };
 
         match (left, right) {
-            // Node has at most one child.
             (None, right) => {
                 child = right;
                 // SAFETY: as above.
@@ -471,7 +426,6 @@ impl Rbtree {
                     }
                 }
             }
-            // Two children: replace the node with its successor.
             (Some(_), Some(right)) => {
                 let mut successor = right;
                 let mut successor_parent = node;
@@ -496,8 +450,6 @@ impl Rbtree {
                         ),
                     }
 
-                    // Copy the whole parent word to keep the original
-                    // color.
                     successor.copy_parent_from(node);
                     successor.set_child(Side::Left, node.child(Side::Left));
                     if let Some(l) = successor.child(Side::Left) {
@@ -526,7 +478,6 @@ impl Rbtree {
             }
         }
 
-        // Update the colors; a null child counts as a black leaf.
         if color == Color::Red {
             return;
         }
@@ -552,8 +503,6 @@ impl Rbtree {
             let mut brother = unsafe { p.child(other) }
                 .expect("rbtree: black node without a brother");
 
-            // Brother is red: recolor and rotate at the parent so that
-            // the brother becomes black.
             // SAFETY: as above.
             if unsafe { brother.is_red() } {
                 // SAFETY: as above.
@@ -572,8 +521,6 @@ impl Rbtree {
             // SAFETY: as above.
             let brother_other = unsafe { brother.child(other) };
 
-            // Brother has no red child: recolor and repeat at the
-            // parent.
             // SAFETY: as above.
             let side_black =
                 brother_side.is_none_or(|n| unsafe { n.is_black() });
@@ -589,8 +536,6 @@ impl Rbtree {
                 continue;
             }
 
-            // Brother's far child is black: recolor and rotate at the
-            // brother.
             if other_black {
                 let brother_side = brother_side
                     .expect("rbtree: black node without a red child");
@@ -605,8 +550,6 @@ impl Rbtree {
                     .expect("rbtree: black node without a brother");
             }
 
-            // Exchange the parent and brother colors, blacken the
-            // brother's far child, rotate at the parent, and leave.
             // SAFETY: as above.
             unsafe {
                 brother.set_color(p.color());
@@ -643,8 +586,8 @@ impl Rbtree {
     ///
     /// # Safety
     ///
-    /// `node` must be linked in this tree, and its child on the
-    /// opposite side must exist.
+    /// `node` must be linked in this tree, and its child on the opposite side
+    /// must exist.
     unsafe fn rotate(&mut self, node: NodeRef, side: Side) {
         let other = side.opposite();
         // SAFETY: the caller promises a linked node.
@@ -675,8 +618,7 @@ impl Rbtree {
         }
     }
 
-    /// The node next to, or previous to, `node`.  Private: C reaches
-    /// `rbtree_nearest()` instead.
+    /// The node next to, or previous to, `node`.
     ///
     /// # Safety
     ///
@@ -716,11 +658,6 @@ impl Rbtree {
 }
 
 /// A non-null, valid tree node.
-///
-/// Copyable by design: the tree's links alias nodes, so the core moves
-/// these handles by value and never creates a Rust reference to node
-/// storage.  Every dereference lives in these methods, each with its
-/// own safety argument.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct NodeRef(NonNull<RbtreeNode>);
 
@@ -840,14 +777,12 @@ impl NodeRef {
         }
     }
 
-    /// The side `child` is on.  A null child counts as the left one
-    /// when the left link is null; `rbtree_index()` in C works the same
-    /// way, and the remove path depends on it.
+    /// The side `child` is on.
     ///
     /// # Safety
     ///
-    /// The node must be valid, and `child` one of its children (or
-    /// null where one child is null).
+    /// The node must be valid, and `child` one of its children (or null where
+    /// one child is null).
     unsafe fn child_index(self, child: Option<NodeRef>) -> Side {
         // SAFETY: the caller promises a valid node.
         if unsafe { (*self.as_ptr()).children[LEFT] } == child.map(|n| n.0) {
@@ -858,8 +793,8 @@ impl NodeRef {
     }
 }
 
-/// The nearest node to a failed lookup, given the last node visited,
-/// the side taken there, and the direction wanted.
+/// The nearest node to a failed lookup, given the last node visited, the side
+/// taken there, and the direction wanted.
 ///
 /// # Safety
 ///
@@ -879,7 +814,7 @@ unsafe fn nearest(
     }
 }
 
-/// Initialize a tree.  `rbtree_init()` in C.
+/// `rbtree_init()` in C.
 ///
 /// # Safety
 ///
@@ -890,7 +825,6 @@ pub unsafe extern "C" fn rbtree_init(tree: *mut Rbtree) {
     unsafe { *tree = Rbtree::new() };
 }
 
-/// Initialize a node, which is in no tree while its parent is itself.
 /// `rbtree_node_init()` in C.
 ///
 /// # Safety
@@ -902,34 +836,27 @@ pub unsafe extern "C" fn rbtree_node_init(node: *mut RbtreeNode) {
     unsafe { (*node).init() };
 }
 
-/// Convert a comparison result into a child index (0 or 1).
 /// `rbtree_d2i()` in C.
-///
-/// The C lookup macros call this once per level; it is a boundary
-/// function so the Rust owns the convention.
 #[unsafe(no_mangle)]
 pub extern "C" fn rbtree_d2i(diff: c_int) -> c_int {
     let side = if diff <= 0 { Side::Left } else { Side::Right };
     side.index() as c_int
 }
 
-/// Translate an insertion point into a slot.  `rbtree_slot()` in C.
-///
-/// `parent` may be null, which is the empty tree's slot 0.  `index` is
-/// the child side the C macro found, 0 or 1.
+/// `rbtree_slot()` in C.
 #[unsafe(no_mangle)]
 pub extern "C" fn rbtree_slot(parent: *mut RbtreeNode, index: c_int) -> usize {
-    // Expose the address so `insert_at()` can rebuild a pointer from
-    // the packed slot; C sees only the integer either way.
+    // Expose the address so `insert_at()` can rebuild a pointer from the
+    // packed slot; C sees only the integer either way.
     parent.expose_provenance() | index as usize
 }
 
-/// Insert at an insertion point.  `rbtree_insert_slot()` in C.
+/// `rbtree_insert_slot()` in C.
 ///
 /// # Safety
 ///
-/// `tree` must be valid, `node` must be unlinked caller storage, and
-/// `slot` must come from `rbtree_slot()` on this tree.
+/// `tree` must be valid, `node` must be unlinked caller storage, and `slot`
+/// must come from `rbtree_slot()` on this tree.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rbtree_insert_slot(
     tree: *mut Rbtree,
@@ -938,8 +865,8 @@ pub unsafe extern "C" fn rbtree_insert_slot(
 ) {
     let parent = ptr::with_exposed_provenance_mut(slot & SLOT_PARENT_MASK);
     let index = (slot & SLOT_INDEX_MASK) as c_int;
-    // SAFETY: the caller promises a valid tree, an unlinked node and a
-    // slot that names a point in it.
+    // SAFETY: the caller promises a valid tree, an unlinked node and a slot
+    // that names a point in it.
     unsafe {
         (*tree).insert(
             NonNull::new(parent).map(NodeRef),
@@ -949,10 +876,7 @@ pub unsafe extern "C" fn rbtree_insert_slot(
     };
 }
 
-/// Insert a node and rebalance.  `rbtree_insert_rebalance()` in C.
-///
-/// The caller's `rbtree_insert()` macro has already found the insertion
-/// point; `index` is ignored when `parent` is null.
+/// `rbtree_insert_rebalance()` in C.
 ///
 /// # Safety
 ///
@@ -964,8 +888,8 @@ pub unsafe extern "C" fn rbtree_insert_rebalance(
     index: c_int,
     node: *mut RbtreeNode,
 ) {
-    // SAFETY: the caller's macro passes a valid tree, the found parent
-    // (or null) and caller-owned unlinked node storage.
+    // SAFETY: the caller's macro passes a valid tree, the found parent (or
+    // null) and caller-owned unlinked node storage.
     unsafe {
         (*tree).insert(
             NonNull::new(parent).map(NodeRef),
@@ -975,7 +899,7 @@ pub unsafe extern "C" fn rbtree_insert_rebalance(
     };
 }
 
-/// Remove a node from a tree.  `rbtree_remove()` in C.
+/// `rbtree_remove()` in C.
 ///
 /// # Safety
 ///
@@ -989,11 +913,7 @@ pub unsafe extern "C" fn rbtree_remove(
     unsafe { (*tree).remove(NodeRef::new(node)) };
 }
 
-/// The nearest node to a failed lookup.  `rbtree_nearest()` in C.
-///
-/// `parent` is the last node visited, `index` the direction taken
-/// there, and `direction` either `RBTREE_LEFT` (previous) or
-/// `RBTREE_RIGHT` (next).
+/// `rbtree_nearest()` in C.
 ///
 /// # Safety
 ///
@@ -1011,7 +931,7 @@ pub unsafe extern "C" fn rbtree_nearest(
     found.map_or(ptr::null_mut(), NodeRef::as_ptr)
 }
 
-/// The first or last node of a tree.  `rbtree_firstlast()` in C.
+/// `rbtree_firstlast()` in C.
 ///
 /// # Safety
 ///
@@ -1026,18 +946,15 @@ pub unsafe extern "C" fn rbtree_firstlast(
     found.map_or(ptr::null_mut(), NodeRef::as_ptr)
 }
 
-/// Host unit tests; `tests/test-rbtree-rs` compiles this file with
-/// `rustc --test` and runs them.  They exercise the C macro protocols
-/// (insert, lookup_slot/insert_slot, lookup_nearest) the way
-/// `kern/slab.c` uses them, and check the red-black
-/// rules after every mutation.
+/// Host unit tests; `tests/test-rbtree-rs` compiles this file with `rustc
+/// --test` and runs them.
 #[cfg(test)]
 mod tests {
     use super::*;
     use core::mem::offset_of;
 
-    /// A keyed entry: the node comes first, so a node pointer can be
-    /// mapped back to its key.
+    /// A keyed entry: the node comes first, so a node pointer can be mapped
+    /// back to its key.
     #[repr(C)]
     struct Entry {
         node: RbtreeNode,
@@ -1110,8 +1027,8 @@ mod tests {
         unsafe { rbtree_insert_rebalance(tree, prev, index, node) };
     }
 
-    /// The C `rbtree_lookup_slot()` macro: the node and an insertion
-    /// point packed as `parent | index`.
+    /// The C `rbtree_lookup_slot()` macro: the node and an insertion point
+    /// packed as `parent | index`.
     ///
     /// # Safety
     ///
@@ -1211,8 +1128,8 @@ mod tests {
         ptr::null_mut()
     }
 
-    /// The keys in order, with an independent traversal so a broken
-    /// link or walk cannot agree with itself.
+    /// The keys in order, with an independent traversal so a broken link or
+    /// walk cannot agree with itself.
     ///
     /// # Safety
     ///
@@ -1243,8 +1160,7 @@ mod tests {
         }
     }
 
-    /// Verify the red-black rules and parent links; returns the black
-    /// height.
+    /// Verify the red-black rules and parent links; returns the black height.
     ///
     /// # Safety
     ///
@@ -1320,8 +1236,8 @@ mod tests {
         }
     }
 
-    /// A Fisher-Yates shuffle of `keys`, so the mutation order is
-    /// random but reproducible.
+    /// A Fisher-Yates shuffle of `keys`, so the mutation order is random but
+    /// reproducible.
     fn shuffled(keys: &[u32], rng: &mut Rng) -> Vec<u32> {
         let mut v = keys.to_vec();
         for i in (1..v.len()).rev() {
@@ -1368,7 +1284,6 @@ mod tests {
         assert!(tree.root.is_none());
         assert!(unsafe { keys_in_order(&mut tree) }.is_empty());
 
-        // A tree that was reset accepts fresh nodes.
         let fresh = entries(&[4]);
         // SAFETY: `fresh` is stable and unlinked.
         unsafe {
@@ -1395,7 +1310,6 @@ mod tests {
 
             rbtree_remove(&mut tree, node);
             assert!(tree.root.is_none());
-            // The removed node is stale, not relinked to itself.
             assert_eq!(NodeRef::new(node).parent(), None);
             assert_eq!(check(&mut tree), 1);
         }
@@ -1408,7 +1322,6 @@ mod tests {
 
         // SAFETY: one entry, inserted once.
         unsafe {
-            // A fresh node is red; the root turns black on insertion.
             let node = NodeRef::new(node_of(&v[0]));
             assert_eq!(node.color(), Color::Red);
             insert(&mut tree, &v[0]);
@@ -1476,7 +1389,6 @@ mod tests {
             assert_eq!(unsafe { keys_in_order(&mut tree) }, model);
         }
 
-        // The nearest node, on both sides of every key.
         for probe in 0..count + 2 {
             let expected = match model.binary_search(&probe) {
                 Ok(_) => (Some(probe), Some(probe)),
@@ -1507,8 +1419,6 @@ mod tests {
             assert_eq!(prev, expected.0, "previous of {probe}");
             assert_eq!(next, expected.1, "next of {probe}");
 
-            // The Rust-native method walks the same tree with the same
-            // protocol as `rbtree_lookup_nearest()`.
             let cmp = |node: NonNull<RbtreeNode>| {
                 // SAFETY: the method only visits linked nodes.
                 probe as c_int - unsafe { key_of(node.as_ptr()) } as c_int
@@ -1523,7 +1433,6 @@ mod tests {
             assert_eq!(method_next, expected.1, "native next of {probe}");
         }
 
-        // Remove in another random order, checking after every step.
         for &key in &shuffled(&keys, &mut rng) {
             // SAFETY: the tree still holds every entry.
             let node = unsafe { find(&mut tree, key) };
@@ -1584,7 +1493,6 @@ mod tests {
             }
         }
 
-        // The root first, then every shape of two-children node.
         for &key in &[8u32, 4, 12, 2, 6, 10, 14, 1, 3, 5, 7, 9, 11, 13, 15] {
             // SAFETY: the tree still holds every entry.
             let node = unsafe { find(&mut tree, key) };
@@ -1629,7 +1537,6 @@ mod tests {
             assert_eq!(unsafe { keys_in_order(&mut tree) }, model);
         }
 
-        // A present key stops the native walk at its node.
         for &key in &keys {
             let cmp = |node: NonNull<RbtreeNode>| {
                 // SAFETY: the tree only visits linked nodes.
@@ -1642,8 +1549,6 @@ mod tests {
             );
         }
 
-        // `insert_by` places fresh ascending keys, `remove_node`
-        // empties the tree again.
         let more = entries(&[100, 200, 300]);
         // SAFETY: the entries are stable and absent from the tree.
         unsafe {

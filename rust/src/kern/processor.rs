@@ -7,30 +7,8 @@
 //   Copyright (c) 1993-1988 Carnegie Mellon University
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! Processors and processor sets, which `kern/processor.h` declares
-//! and `kern/processor.c` used to define.
-//!
-//! `Processor` is a complete mirror: a per-CPU `struct percpu` embeds
-//! one `struct processor`, so the offset of `active_thread` inside the
-//! per-CPU block depends on this layout being exact.  `ProcessorSet`
-//! is mirrored through `quantum_adj_lock`; its NCPUS-sized tail
-//! (`machine_quantum` through `sched_load`) is set by the
-//! `kern/processor_glue.c` shim, because its offset depends on the
-//! configure-time NCPUS.  The run queue itself is
-//! [`crate::kern::sched`]'s.
-//!
-//! [`Processor::init()`] and [`ProcessorSet::init()`] are the bodies
-//! `processor_init()` and `pset_init()` used to hold;
-//! [`Processor::start()`], [`Processor::exit()`],
-//! [`Processor::control()`], [`Processor::get_assignment()`],
-//! [`ProcessorSet::reference()`], [`ProcessorSet::deallocate()`],
-//! [`ProcessorSet::add_processor()`],
-//! [`ProcessorSet::remove_processor()`], [`ProcessorSet::quantum_set()`],
-//! [`ProcessorSet::add_thread()`], [`ProcessorSet::remove_thread()`],
-//! [`Thread::change_psets()`], [`Processor::info()`],
-//! [`ProcessorSet::info()`] and the three processor-set policy
-//! setters are also ported from the same file.  The adapters below
-//! keep the symbols the C half calls.
+//! Processors and processor sets, which `kern/processor.h` declares and
+//! `kern/processor.c` used to define.
 
 use crate::arch::i386::mp_desc::cpu_control;
 use crate::glue;
@@ -93,10 +71,6 @@ pub struct Processor {
 
 /// `struct processor_set` of <kern/processor.h>, mirrored through
 /// `quantum_adj_lock`.
-///
-/// The record continues in C: the NCPUS-sized `machine_quantum` and
-/// the three load fields that follow it are set by the
-/// `kern/processor_glue.c` shim, whose offset this side cannot name.
 #[repr(C)]
 pub struct ProcessorSet {
     pub runq: RunQueue,
@@ -128,15 +102,11 @@ pub struct ProcessorSet {
     pub policies: c_int,
     pub set_quantum: c_int,
     pub quantum_adj_index: c_int,
-    /// `quantum_adj_lock`: protects `quantum_adj_index`; the C
-    /// `struct slock_irq` wraps one `struct slock`, so it is a
-    /// [`SimpleLock`] here.
+    /// `quantum_adj_lock`: protects `quantum_adj_index`; the C `struct
+    /// slock_irq` wraps one `struct slock`, so it is a [`SimpleLock`] here.
     pub quantum_adj_lock: SimpleLock,
 }
 
-// `struct processor`: the run queue, the queue link, the state and
-// pointers, the second queue link, the lock, the ports and the slot;
-// 1176 and 600 bytes.
 #[cfg(target_pointer_width = "64")]
 const _: () = assert!(size_of::<Processor>() == 1176);
 #[cfg(target_pointer_width = "32")]
@@ -161,9 +131,6 @@ const _: () = assert!(offset_of!(Processor, ast_check_data) == 1172);
 #[cfg(target_pointer_width = "32")]
 const _: () = assert!(offset_of!(Processor, ast_check_data) == 596);
 
-// `struct processor_set` is mirrored through `quantum_adj_lock`; these
-// are the C compiler's offsets for that prefix, which the
-// configure-time NCPUS does not move.
 const _: () = assert!(offset_of!(ProcessorSet, runq) == 0);
 #[cfg(target_pointer_width = "64")]
 const _: () = {
@@ -216,8 +183,8 @@ const _: () = {
     assert!(offset_of!(ProcessorSet, quantum_adj_lock) == 636);
 };
 
-/// The data a [`ProcessorSet::info()`] call reports, one variant per
-/// accepted flavor.
+/// The data a [`ProcessorSet::info()`] call reports, one variant per accepted
+/// flavor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProcessorSetInfo {
     /// The `PROCESSOR_SET_BASIC_INFO` record.
@@ -226,26 +193,25 @@ pub enum ProcessorSetInfo {
     Sched(ProcessorSetSchedInfo),
 }
 
-/// Put an unlocked simple lock in `storage`, as the C
-/// `simple_lock_init()` did.  The write happens before any reference
-/// is formed, so the storage may still be uninitialized on entry.
+/// Put an unlocked simple lock in `storage`, as the C `simple_lock_init()`
+/// did.
 ///
 /// # Safety
 ///
-/// `storage` must point at writable [`SimpleLock`] storage that no
-/// other thread can see yet.
+/// `storage` must point at writable [`SimpleLock`] storage that no other
+/// thread can see yet.
 unsafe fn init_lock(storage: *mut SimpleLock) {
     // SAFETY: the caller promises writable, unshared storage.
     unsafe { storage.write(SimpleLock::new()) };
 }
 
-/// Self-link the `NRQS` run-queue heads of `runq`, as the C
-/// `queue_init()` loop did.
+/// Self-link the `NRQS` run-queue heads of `runq`, as the C `queue_init()`
+/// loop did.
 ///
 /// # Safety
 ///
-/// `runq` must point at writable storage for a [`RunQueue`] that no
-/// other thread can see yet.
+/// `runq` must point at writable storage for a [`RunQueue`] that no other
+/// thread can see yet.
 unsafe fn init_runq(runq: *mut RunQueue) {
     // SAFETY: the caller promises writable, unshared storage.
     unsafe {
@@ -253,18 +219,12 @@ unsafe fn init_runq(runq: *mut RunQueue) {
         (*runq).low = 0;
         (*runq).count = 0;
         for i in 0..NRQS {
-            // `addr_of_mut!` names the element without forming a
-            // reference over storage that is not initialized yet.
             queue_init(ptr::addr_of_mut!((*runq).runq[i]));
         }
     }
 }
 
 /// The [`KernError`] a C `kern_return_t` stands for.
-///
-/// A `kern_return_t` is an `int`, and every code this module receives
-/// fits a byte; one that does not cannot name a defined error and
-/// becomes [`KernError::Failure`].
 fn kern_error(code: c_int) -> Result<(), KernError> {
     match u8::try_from(code) {
         Ok(code) => KernError::from_u8(code),
@@ -272,32 +232,23 @@ fn kern_error(code: c_int) -> Result<(), KernError> {
     }
 }
 
-/// Narrow the C `long` a processor-set field holds to the `integer_t`
-/// a record member holds.
-///
-/// The C assigned the two `long` fields to `integer_t` members, which
-/// truncates on the LP64 kernel and passes the value through on i386.
+/// Narrow the C `long` a processor-set field holds to the `integer_t` a record
+/// member holds.
 fn narrow_long(value: c_long) -> c_int {
     value as c_int
 }
 
 impl Processor {
-    /// Initialize the processor for the slot `slot_num`.  The body of
-    /// `processor_init()` in kern/processor.c.
-    ///
-    /// `ast_check_data` is left alone, as the C leaves it:
-    /// `init_ast_check()` fills it in later.
+    /// Initialize the processor for the slot `slot_num`.
     ///
     /// # Safety
     ///
-    /// `pr` must point at writable storage for a [`Processor`] that no
-    /// other thread can see yet; `pset_sys_bootstrap()` is the only
-    /// caller.
+    /// `pr` must point at writable storage for a [`Processor`] that no other
+    /// thread can see yet; `pset_sys_bootstrap()` is the only caller.
     pub unsafe fn init(pr: *mut Self, slot_num: c_int) {
-        // SAFETY: the caller promises writable, unshared storage; the
-        // writes below cover the fields the C routine set, and the
-        // run-queue heads are self-linked so the scheduler can walk
-        // them.
+        // SAFETY: the caller promises writable, unshared storage; the writes
+        // below cover the fields the C routine set, and the run-queue heads
+        // are self-linked so the scheduler can walk them.
         unsafe {
             init_runq(&raw mut (*pr).runq);
             queue_init(&raw mut (*pr).processor_queue);
@@ -317,39 +268,30 @@ impl Processor {
         }
     }
 
-    /// Start the processor.  `processor_start()` of kern/processor.c.
-    ///
-    /// The C body can only report failure; the adapter's null check
-    /// covers the other return.
+    /// `processor_start()` of kern/processor.c.
     pub fn start(&mut self) -> Result<(), KernError> {
         Err(KernError::Failure)
     }
 
-    /// Queue the processor for shutdown.  `processor_exit()` of
-    /// kern/processor.c.
+    /// `processor_exit()` of kern/processor.c.
     pub fn exit(&mut self) -> Result<(), KernError> {
-        // SAFETY: `self` is a live processor, and the C routine takes
-        // the machine lock it needs itself.
+        // SAFETY: `self` is a live processor, and the C routine takes the
+        // machine lock it needs itself.
         kern_error(unsafe { glue::processor_shutdown(self) })
     }
 
-    /// Pass a control request to the machine-dependent hook.
     /// `processor_control()` of kern/processor.c.
     pub fn control(&mut self, info: &[c_int]) -> Result<(), KernError> {
-        // The C count is a `natural_t`; a slice longer than one cannot
-        // have come from the C boundary, but the conversion is still
-        // checked.
         let Ok(count) = c_uint::try_from(info.len()) else {
             return Err(KernError::InvalidArgument);
         };
 
-        // SAFETY: the slice's pointer and length agree, so `info` is
-        // valid for `count` reads; the hook only prints the pointer.
+        // SAFETY: the slice's pointer and length agree, so `info` is valid for
+        // `count` reads; the hook only prints the pointer.
         kern_error(unsafe { cpu_control(self.slot_num, info.as_ptr(), count) })
     }
 
-    /// Return the set the processor belongs to, taking a reference on
-    /// it.  `processor_get_assignment()` of kern/processor.c.
+    /// `processor_get_assignment()` of kern/processor.c.
     pub fn get_assignment(&self) -> Result<*mut ProcessorSet, KernError> {
         if self.state == PROCESSOR_SHUTDOWN || self.state == PROCESSOR_OFF_LINE
         {
@@ -357,20 +299,14 @@ impl Processor {
         }
 
         let pset = self.processor_set;
-        // SAFETY: a processor that is neither off-line nor shutting
-        // down has a live set assigned, which the C dereferences here;
-        // the set's lock serializes the count.
+        // SAFETY: a processor that is neither off-line nor shutting down has a
+        // live set assigned, which the C dereferences here; the set's lock
+        // serializes the count.
         unsafe { (*pset).reference() };
         Ok(pset)
     }
 
-    /// Report the processor's basic information.
     /// `processor_info()` of kern/processor.c.
-    ///
-    /// `count` is the caller's buffer capacity in integers; the
-    /// `PROCESSOR_BASIC_INFO` flavor needs
-    /// [`PROCESSOR_BASIC_INFO_COUNT`] of them and a shorter one
-    /// reports [`KernError::Failure`].
     pub fn info(
         &self,
         flavor: c_int,
@@ -382,18 +318,16 @@ impl Processor {
         }
 
         let slot_num = self.slot_num;
-        // The slot is the one `processor_init()` recorded from the
-        // machine's own count, so it names an entry of the C table and
-        // is not negative; widening it to pointer width cannot wrap.
+        // The slot is the one `processor_init()` recorded from the machine's
+        // own count, so it names an entry of the C table and is not negative;
+        // widening it to pointer width cannot wrap.
         let slot = slot_num as usize;
-        // SAFETY: `slot` indexes the `NCPUS`-element `machine_slot`
-        // table, whose entries the arch probe filled in; every field
-        // read below is a plain integer.
+        // SAFETY: `slot` indexes the `NCPUS`-element `machine_slot` table,
+        // whose entries the arch probe filled in; every field read below is a
+        // plain integer.
         let machine =
             unsafe { &*ptr::addr_of_mut!(glue::machine_slot).add(slot) };
 
-        // The C treats shutdown and off-line as the two non-running
-        // states and everything else as running.
         let state = self.state;
         let running =
             state != PROCESSOR_SHUTDOWN && state != PROCESSOR_OFF_LINE;
@@ -412,21 +346,13 @@ impl Processor {
 }
 
 impl ProcessorSet {
-    /// Initialize the processor set.  The body of `pset_init()` in
-    /// kern/processor.c.
-    ///
-    /// `ref_count` starts at one, `empty` at true and `active` at
-    /// false; `max_priority` starts at [`BASEPRI_SYSTEM`] so that
-    /// privileged tasks can raise it later.  The NCPUS-sized tail is
-    /// set by the glue shim, which receives `min_quantum` for the
-    /// `machine_quantum` entries.
+    /// Initialize the processor set.
     ///
     /// # Safety
     ///
-    /// `pset` must point at writable storage for a full `struct
-    /// processor_set` that no other thread can see yet;
-    /// `pset_sys_bootstrap()` and `processor_set_create()` are the
-    /// callers.
+    /// `pset` must point at writable storage for a full `struct processor_set`
+    /// that no other thread can see yet; `pset_sys_bootstrap()` and
+    /// `processor_set_create()` are the callers.
     pub unsafe fn init(pset: *mut Self) {
         // SAFETY: the caller promises writable, unshared storage.
         unsafe {
@@ -451,8 +377,8 @@ impl ProcessorSet {
             (*pset).max_priority = BASEPRI_SYSTEM;
             (*pset).policies = POLICY_TIMESHARE;
             // SAFETY: `min_quantum` is the live C global <kern/sched.h>
-            // declares and kern/sched_prim.c sets; `pset_sys_bootstrap`
-            // runs after it is set.
+            // declares and kern/sched_prim.c sets; `pset_sys_bootstrap` runs
+            // after it is set.
             let min_quantum = glue::min_quantum;
             (*pset).set_quantum = min_quantum;
             (*pset).quantum_adj_index = 0;
@@ -461,23 +387,14 @@ impl ProcessorSet {
         }
     }
 
-    /// Add one reference to the processor set.  `pset_reference()` of
-    /// kern/processor.c.
+    /// `pset_reference()` of kern/processor.c.
     pub fn reference(&mut self) {
         self.ref_lock.lock();
-        // The C's `pset->ref_count++`; the arithmetic wraps as C's
-        // does when it overflows.
         self.ref_count = self.ref_count.wrapping_add(1);
         self.ref_lock.unlock();
     }
 
-    /// Remove one reference to the processor set, destroying it when
-    /// the last reference goes.  `pset_deallocate()` of
-    /// kern/processor.c.
-    ///
-    /// Only the `MACH_HOST` branch is ported: `MACH_HOST` is 1 in both
-    /// configured kernels, so the C's `!MACH_HOST` panic is not
-    /// compiled there.
+    /// `pset_deallocate()` of kern/processor.c.
     pub fn deallocate(&mut self) {
         self.ref_lock.lock();
         self.ref_count = self.ref_count.wrapping_sub(1);
@@ -486,15 +403,11 @@ impl ProcessorSet {
             return;
         }
 
-        // The count is zero, but `all_psets` holds an implicit
-        // reference and may make new ones, and its lock dominates the
-        // set lock.  Restore one reference, drop the lock and take
-        // both in the C's order.
         self.ref_count = 1;
         self.ref_lock.unlock();
 
-        // SAFETY: the lock is the C global for the list, and the C
-        // order is `all_psets_lock` before the set's `ref_lock`.
+        // SAFETY: the lock is the C global for the list, and the C order is
+        // `all_psets_lock` before the set's `ref_lock`.
         let all_psets_lock = ptr::addr_of_mut!(glue::all_psets_lock);
         unsafe {
             (*all_psets_lock).lock();
@@ -502,7 +415,6 @@ impl ProcessorSet {
         self.ref_lock.lock();
         self.ref_count = self.ref_count.wrapping_sub(1);
         if self.ref_count > 0 {
-            // Someone took a reference while the lock was dropped.
             self.ref_lock.unlock();
             // SAFETY: the lock taken just above.
             unsafe {
@@ -511,7 +423,6 @@ impl ProcessorSet {
             return;
         }
 
-        // The C's paranoia checks, with its message.
         let is_default = ptr::from_mut(self).cast::<c_void>()
             == ptr::addr_of_mut!(glue::default_pset);
         if is_default
@@ -519,8 +430,8 @@ impl ProcessorSet {
             || self.task_count > 0
             || self.processor_count > 0
         {
-            // SAFETY: `Panic` does not return; the message and the
-            // function tag are the C `panic()` call's.
+            // SAFETY: `Panic` does not return; the message and the function
+            // tag are the C `panic()` call's.
             unsafe {
                 glue::Panic(
                     c"kern/processor.c".as_ptr(),
@@ -532,8 +443,8 @@ impl ProcessorSet {
             }
         }
 
-        // SAFETY: the set is linked into `all_psets` and both locks
-        // are held; the removal keeps the list consistent.
+        // SAFETY: the set is linked into `all_psets` and both locks are held;
+        // the removal keeps the list consistent.
         unsafe {
             queue_remove_generic(
                 ptr::addr_of_mut!(glue::all_psets),
@@ -549,9 +460,8 @@ impl ProcessorSet {
             (*all_psets_lock).unlock();
         }
 
-        // SAFETY: the set came from `pset_cache` and nothing
-        // references it any more; `.addr()` is the address the
-        // allocator handed out.
+        // SAFETY: the set came from `pset_cache` and nothing references it any
+        // more; `.addr()` is the address the allocator handed out.
         unsafe {
             glue::kmem_cache_free(
                 ptr::addr_of_mut!(glue::pset_cache),
@@ -560,17 +470,16 @@ impl ProcessorSet {
         };
     }
 
-    /// Add `thread` to the set.  `pset_add_thread()` of
-    /// kern/processor.c.
+    /// `pset_add_thread()` of kern/processor.c.
     ///
     /// # Safety
     ///
-    /// The caller must hold the set's lock and the thread's lock, as
-    /// the C requires, and `thread` must be live and not linked into a
-    /// processor set's thread list.
+    /// The caller must hold the set's lock and the thread's lock, as the C
+    /// requires, and `thread` must be live and not linked into a processor
+    /// set's thread list.
     pub unsafe fn add_thread(&mut self, thread: *mut Thread) {
-        // SAFETY: the caller promises a live, unlinked thread, and the
-        // queue's links are its `pset_threads` field.
+        // SAFETY: the caller promises a live, unlinked thread, and the queue's
+        // links are its `pset_threads` field.
         unsafe {
             queue_enter_tail(
                 &raw mut self.threads,
@@ -582,20 +491,16 @@ impl ProcessorSet {
         }
     }
 
-    /// Remove `thread` from the set.  `pset_remove_thread()` of
-    /// kern/processor.c.
-    ///
-    /// The set's reference to the thread is not dropped here; the C
-    /// requires the caller to `pset_deallocate()` it.
+    /// `pset_remove_thread()` of kern/processor.c.
     ///
     /// # Safety
     ///
-    /// The caller must hold the set's lock and the thread's lock, as
-    /// the C requires, and `thread` must be live and linked into this
-    /// set's thread list.
+    /// The caller must hold the set's lock and the thread's lock, as the C
+    /// requires, and `thread` must be live and linked into this set's thread
+    /// list.
     pub unsafe fn remove_thread(&mut self, thread: *mut Thread) {
-        // SAFETY: the caller promises a live thread linked into this
-        // set, and the queue's links are its `pset_threads` field.
+        // SAFETY: the caller promises a live thread linked into this set, and
+        // the queue's links are its `pset_threads` field.
         unsafe {
             queue_remove_generic(
                 &raw mut self.threads,
@@ -607,65 +512,55 @@ impl ProcessorSet {
         }
     }
 
-    /// Precalculate the set's quanta from its load.  `quantum_set()` of
-    /// kern/processor.c.
-    ///
-    /// The index into `machine_quantum` is the number of threads on
-    /// the set's run queue, limited to the number of processors in
-    /// the set.
+    /// `quantum_set()` of kern/processor.c.
     pub fn quantum_set(&mut self) {
         let ncpus = self.processor_count;
         let runq_count = self.runq.count;
 
-        // SAFETY: `min_quantum` is the live C global <kern/sched.h>
-        // declares and kern/sched_prim.c sets.
+        // SAFETY: `min_quantum` is the live C global <kern/sched.h> declares
+        // and kern/sched_prim.c sets.
         let min_quantum = unsafe { glue::min_quantum };
-        // SAFETY: `self` is a live set, and the shim only forms the
-        // address of its `machine_quantum` tail.
+        // SAFETY: `self` is a live set, and the shim only forms the address of
+        // its `machine_quantum` tail.
         let machine_quantum = unsafe {
             glue::processor_glue_pset_machine_quantum(ptr::from_mut(self))
         };
 
         for i in 1..=ncpus {
-            // The C indexed with an `int`; the deliberate cast cannot
-            // wrap because `1 <= i <= ncpus <= NCPUS`.
+            // The C indexed with an `int`; the deliberate cast cannot wrap
+            // because `1 <= i <= ncpus <= NCPUS`.
             let slot = unsafe { machine_quantum.add(i as usize) };
-            // The C's `(min_quantum * ncpus) + i / 2` can overflow an
-            // `int`; it wraps as the C compiled for this target does.
             let quantum =
                 min_quantum.wrapping_mul(ncpus).wrapping_add(i / 2) / i;
             // SAFETY: `slot` is one of the tail's `NCPUS+1` entries.
             unsafe { slot.write(quantum) };
         }
 
-        // SAFETY: the tail has at least two entries, so index one is
-        // in bounds; the doubled value wraps as the C's does.
+        // SAFETY: the tail has at least two entries, so index one is in
+        // bounds; the doubled value wraps as the C's does.
         unsafe {
             let first = machine_quantum.add(1).read();
             machine_quantum.write(first.wrapping_mul(2));
         }
 
-        // The C's ternary: the run-queue count, limited to the
-        // processor count.
         let i = core::cmp::min(runq_count, ncpus);
-        // The C indexed with an `int`; the deliberate cast cannot wrap
-        // because `0 <= i <= ncpus <= NCPUS`.
+        // The C indexed with an `int`; the deliberate cast cannot wrap because
+        // `0 <= i <= ncpus <= NCPUS`.
         let slot = unsafe { machine_quantum.add(i as usize) };
         // SAFETY: `slot` is one of the tail's `NCPUS+1` entries.
         self.set_quantum = unsafe { slot.read() };
     }
 
-    /// Add `processor` to the set.  `pset_add_processor()` of
-    /// kern/processor.c.
+    /// `pset_add_processor()` of kern/processor.c.
     ///
     /// # Safety
     ///
-    /// The caller must hold the set's lock and the processor's lock,
-    /// as the C requires, and `processor` must be live and not linked
-    /// into any set's processor list.
+    /// The caller must hold the set's lock and the processor's lock, as the C
+    /// requires, and `processor` must be live and not linked into any set's
+    /// processor list.
     pub unsafe fn add_processor(&mut self, processor: *mut Processor) {
-        // SAFETY: the caller promises a live, unlinked processor, and
-        // the queue's links are its `processors` field.
+        // SAFETY: the caller promises a live, unlinked processor, and the
+        // queue's links are its `processors` field.
         unsafe {
             queue_enter_tail(
                 &raw mut self.processors,
@@ -679,23 +574,21 @@ impl ProcessorSet {
         self.quantum_set();
     }
 
-    /// Remove `processor` from the set.  `pset_remove_processor()` of
-    /// kern/processor.c.
+    /// `pset_remove_processor()` of kern/processor.c.
     ///
     /// # Safety
     ///
-    /// The caller must hold the set's lock and the processor's lock,
-    /// as the C requires, and `processor` must be live and linked into
-    /// this set's processor list.
+    /// The caller must hold the set's lock and the processor's lock, as the C
+    /// requires, and `processor` must be live and linked into this set's
+    /// processor list.
     ///
     /// # Panics
     ///
-    /// Panics through [`glue::Panic`] when `processor` does not belong
-    /// to this set, as the C `panic()` did.
+    /// Panics through [`glue::Panic`] when `processor` does not belong to this
+    /// set, as the C `panic()` did.
     pub unsafe fn remove_processor(&mut self, processor: *mut Processor) {
-        // SAFETY: the caller promises a live processor linked into
-        // this set, and the check below is the C's own guard against a
-        // wrong one.
+        // SAFETY: the caller promises a live processor linked into this set,
+        // and the check below is the C's own guard against a wrong one.
         unsafe {
             if ptr::from_mut(self) != (*processor).processor_set {
                 // SAFETY: `Panic` does not return; the message and the
@@ -718,11 +611,7 @@ impl ProcessorSet {
         self.quantum_set();
     }
 
-    /// Allow `policy` on the set.  `processor_set_policy_enable()` of
-    /// kern/processor.c.
-    ///
-    /// A `policy` outside the defined range reports
-    /// [`KernError::InvalidArgument`].
+    /// `processor_set_policy_enable()` of kern/processor.c.
     pub fn policy_enable(&mut self, policy: c_int) -> Result<(), KernError> {
         if invalid_policy(policy) {
             return Err(KernError::InvalidArgument);
@@ -735,12 +624,7 @@ impl ProcessorSet {
         Ok(())
     }
 
-    /// Forbid `policy` on the set, sending every thread that uses it
-    /// back to timesharing when `change_threads` is set.
     /// `processor_set_policy_disable()` of kern/processor.c.
-    ///
-    /// Timesharing cannot be forbidden, and a `policy` outside the
-    /// defined range reports [`KernError::InvalidArgument`].
     pub fn policy_disable(
         &mut self,
         policy: c_int,
@@ -752,17 +636,13 @@ impl ProcessorSet {
 
         self.lock.lock();
 
-        // Disable the policy if it is enabled, then handle
-        // `change_threads`, as the C does.
         if (self.policies & policy) != 0 {
             self.policies &= !policy;
 
             if change_threads != 0 {
-                // The C walks `threads` under the set lock, with
-                // `queue_first()` and `queue_next()` of <kern/queue.h>.
                 let list = &raw mut self.threads;
-                // SAFETY: the set lock is held, so every link is a
-                // live thread whose chain stays put during the walk.
+                // SAFETY: the set lock is held, so every link is a live thread
+                // whose chain stays put during the walk.
                 let mut thread = unsafe { queue_first(list) }.cast::<Thread>();
                 // SAFETY: as above; the head ends the walk.
                 while unsafe { queue_end(list, thread.cast::<QueueEntry>()) }
@@ -770,17 +650,15 @@ impl ProcessorSet {
                 {
                     // SAFETY: `thread` is a live member of the list.
                     if unsafe { (*thread).policy == policy } {
-                        // SAFETY: the Rust `Thread::policy()` takes the
-                        // thread lock itself, and timesharing is a
-                        // policy this set can switch a thread to.  The
-                        // C ignores the result.
+                        // SAFETY: the Rust `Thread::policy()` takes the thread
+                        // lock itself, and timesharing is a policy this set
+                        // can switch a thread to.
                         unsafe {
                             let _ =
                                 Thread::policy(thread, POLICY_TIMESHARE, 0);
                         }
                     }
-                    // SAFETY: `Thread::policy()` does not unlink
-                    // `thread`.
+                    // SAFETY: `Thread::policy()` does not unlink `thread`.
                     let next =
                         unsafe { queue_next(&raw mut (*thread).pset_threads) };
                     thread = next.cast::<Thread>();
@@ -793,12 +671,7 @@ impl ProcessorSet {
         Ok(())
     }
 
-    /// Set the set's maximum priority to `max_priority`, lowering the
-    /// maximum of every thread above it when `change_threads` is set.
     /// `processor_set_max_priority()` of kern/processor.c.
-    ///
-    /// A priority outside the run queues reports
-    /// [`KernError::InvalidArgument`].
     pub fn max_priority(
         &mut self,
         max_priority: c_int,
@@ -812,21 +685,18 @@ impl ProcessorSet {
         self.max_priority = max_priority;
 
         if change_threads != 0 {
-            // The walk touches the set through this raw pointer alone,
-            // so no reference reborrow can invalidate the list head.
             let pset = ptr::from_mut(self);
-            // SAFETY: the set lock is held, so every link is a live
-            // thread whose chain stays put during the walk; `pset` is
-            // this set, which `thread_max_priority()` only compares.
+            // SAFETY: the set lock is held, so every link is a live thread
+            // whose chain stays put during the walk; `pset` is this set, which
+            // `thread_max_priority()` only compares.
             unsafe {
                 let list = ptr::addr_of_mut!((*pset).threads);
                 let mut thread = queue_first(list).cast::<Thread>();
                 while queue_end(list, thread.cast::<QueueEntry>()) == 0 {
                     // SAFETY: `thread` is a live member of the list.
                     if (*thread).max_priority < max_priority {
-                        // SAFETY: the Rust `Thread::max_priority()`
-                        // takes the thread lock itself.  The C ignores
-                        // the result.
+                        // SAFETY: the Rust `Thread::max_priority()` takes the
+                        // thread lock itself.
                         let _ =
                             Thread::max_priority(thread, pset, max_priority);
                     }
@@ -843,13 +713,7 @@ impl ProcessorSet {
         Ok(())
     }
 
-    /// Report the set's basic or scheduling information.
     /// `processor_set_info()` of kern/processor.c.
-    ///
-    /// `count` is the caller's buffer capacity in integers; the two
-    /// accepted flavors differ in the record they return and in the
-    /// count that record needs.  An unknown flavor reports
-    /// [`KernError::InvalidArgument`].
     pub fn info(
         &self,
         flavor: c_int,
@@ -863,10 +727,9 @@ impl ProcessorSet {
 
                 self.lock.lock();
                 // SAFETY: the shims only read the `load_average` and
-                // `mach_factor` fields of the live set, whose offset
-                // the Rust mirror cannot name because it depends on
-                // the configure-time NCPUS; the set lock is held, as
-                // the C held it.
+                // `mach_factor` fields of the live set, whose offset the Rust
+                // mirror cannot name because it depends on the configure-time
+                // NCPUS; the set lock is held, as the C held it.
                 let pset = ptr::from_ref(self).cast_mut();
                 let (load_average, mach_factor) = unsafe {
                     (
@@ -878,9 +741,6 @@ impl ProcessorSet {
                     processor_count: self.processor_count,
                     task_count: self.task_count,
                     thread_count: self.thread_count,
-                    // The C assigned the `long` fields to the
-                    // `integer_t` members, a truncation on the LP64
-                    // kernel.
                     load_average: narrow_long(load_average),
                     mach_factor: narrow_long(mach_factor),
                 };
@@ -908,28 +768,20 @@ impl ProcessorSet {
 }
 
 impl Thread {
-    /// Move `thread` from `old_pset`'s thread list to `new_pset`'s.
     /// `thread_change_psets()` of kern/processor.c.
-    ///
-    /// Unlike the paired remove and add, the C does not null
-    /// `thread->processor_set` between the two lists; only the final
-    /// assignment happens here.
     ///
     /// # Safety
     ///
-    /// The caller must hold the locks of both sets and of the thread,
-    /// as the C requires, and `thread` must be live and linked into
-    /// `old_pset`'s thread list.  The old set's reference is not
-    /// dropped here; the C requires the caller to `pset_deallocate()`
-    /// it.
+    /// The caller must hold the locks of both sets and of the thread, as the C
+    /// requires, and `thread` must be live and linked into `old_pset`'s thread
+    /// list.
     pub unsafe fn change_psets(
         thread: *mut Thread,
         old_pset: *mut ProcessorSet,
         new_pset: *mut ProcessorSet,
     ) {
-        // SAFETY: the caller promises live sets and a thread linked
-        // into the old one; the queue's links are the thread's
-        // `pset_threads` field.
+        // SAFETY: the caller promises live sets and a thread linked into the
+        // old one; the queue's links are the thread's `pset_threads` field.
         unsafe {
             queue_remove_generic(
                 &raw mut (*old_pset).threads,
@@ -950,34 +802,32 @@ impl Thread {
     }
 }
 
-/// Initialize the processor in slot `slot_num`.  `processor_init()` of
-/// kern/processor.c.
+/// `processor_init()` of kern/processor.c.
 ///
 /// # Safety
 ///
-/// `pr` must point at writable storage for a [`Processor`] that no
-/// other thread can see yet, as `pset_sys_bootstrap()` guarantees.
+/// `pr` must point at writable storage for a [`Processor`] that no other
+/// thread can see yet, as `pset_sys_bootstrap()` guarantees.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn processor_init(pr: *mut Processor, slot_num: c_int) {
     // SAFETY: the caller's contract.
     unsafe { Processor::init(pr, slot_num) };
 }
 
-/// Initialize the processor set.  `pset_init()` of kern/processor.c.
+/// `pset_init()` of kern/processor.c.
 ///
 /// # Safety
 ///
-/// `pset` must point at writable storage for a full `struct
-/// processor_set` that no other thread can see yet;
-/// `pset_sys_bootstrap()` and `processor_set_create()` are the
-/// callers.
+/// `pset` must point at writable storage for a full `struct processor_set`
+/// that no other thread can see yet; `pset_sys_bootstrap()` and
+/// `processor_set_create()` are the callers.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pset_init(pset: *mut ProcessorSet) {
     // SAFETY: the caller's contract.
     unsafe { ProcessorSet::init(pset) };
 }
 
-/// Start a processor.  `processor_start()` of kern/processor.c.
+/// `processor_start()` of kern/processor.c.
 ///
 /// # Safety
 ///
@@ -995,8 +845,7 @@ pub unsafe extern "C" fn processor_start(pr: *mut Processor) -> c_int {
     }
 }
 
-/// Queue a processor for shutdown.  `processor_exit()` of
-/// kern/processor.c.
+/// `processor_exit()` of kern/processor.c.
 ///
 /// # Safety
 ///
@@ -1014,13 +863,12 @@ pub unsafe extern "C" fn processor_exit(pr: *mut Processor) -> c_int {
     }
 }
 
-/// Pass a control request to a processor.  `processor_control()` of
-/// kern/processor.c.
+/// `processor_control()` of kern/processor.c.
 ///
 /// # Safety
 ///
-/// `pr` must be null or point at a live `struct processor`, and `info`
-/// must be readable for `count` integers.
+/// `pr` must be null or point at a live `struct processor`, and `info` must be
+/// readable for `count` integers.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn processor_control(
     pr: *mut Processor,
@@ -1031,13 +879,10 @@ pub unsafe extern "C" fn processor_control(
         return c_int::from(KernError::InvalidArgument);
     };
 
-    // A zero count gets the empty slice, so a null `info` is never
-    // formed into one, which `from_raw_parts` requires.
     let info: &[c_int] = if count == 0 {
         &[]
     } else {
-        // SAFETY: the caller promises `count` readable integers.  A
-        // `natural_t` widens to `usize` on both supported widths.
+        // SAFETY: the caller promises `count` readable integers.
         unsafe { slice::from_raw_parts(info, count as usize) }
     };
 
@@ -1048,13 +893,12 @@ pub unsafe extern "C" fn processor_control(
     }
 }
 
-/// Read the set a processor belongs to, taking a reference on it.
 /// `processor_get_assignment()` of kern/processor.c.
 ///
 /// # Safety
 ///
-/// `pr` must be null or point at a live `struct processor`, and `pset`
-/// must be a valid out-parameter.
+/// `pr` must be null or point at a live `struct processor`, and `pset` must be
+/// a valid out-parameter.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn processor_get_assignment(
     pr: *mut Processor,
@@ -1067,8 +911,8 @@ pub unsafe extern "C" fn processor_get_assignment(
     // SAFETY: the caller promises a live processor.
     match unsafe { (*pr.as_ptr()).get_assignment() } {
         Ok(assignment) => {
-            // SAFETY: the caller passed the out-parameter the C
-            // signature requires.
+            // SAFETY: the caller passed the out-parameter the C signature
+            // requires.
             unsafe { *pset = assignment };
             0
         }
@@ -1076,8 +920,7 @@ pub unsafe extern "C" fn processor_get_assignment(
     }
 }
 
-/// Add one reference to the processor set.  `pset_reference()` of
-/// kern/processor.c.
+/// `pset_reference()` of kern/processor.c.
 ///
 /// # Safety
 ///
@@ -1088,17 +931,15 @@ pub unsafe extern "C" fn pset_reference(pset: *mut ProcessorSet) {
     unsafe { (*pset).reference() };
 }
 
-/// Remove one reference to the processor set, destroying it when the
-/// last reference goes.  `pset_deallocate()` of kern/processor.c.
+/// `pset_deallocate()` of kern/processor.c.
 ///
 /// # Safety
 ///
-/// `pset` must be null or point at a live `struct processor_set` that
-/// the caller holds a reference to.
+/// `pset` must be null or point at a live `struct processor_set` that the
+/// caller holds a reference to.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pset_deallocate(pset: *mut ProcessorSet) {
     let Some(pset) = ptr::NonNull::new(pset) else {
-        // The C returns early on a null set.
         return;
     };
 
@@ -1106,14 +947,13 @@ pub unsafe extern "C" fn pset_deallocate(pset: *mut ProcessorSet) {
     unsafe { (*pset.as_ptr()).deallocate() };
 }
 
-/// Add a thread to the processor set.  `pset_add_thread()` of
-/// kern/processor.c.
+/// `pset_add_thread()` of kern/processor.c.
 ///
 /// # Safety
 ///
-/// `pset` must point at a live `struct processor_set` and `thread` at
-/// a live thread that is not linked into a set; the caller must hold
-/// both locks, as the C requires.
+/// `pset` must point at a live `struct processor_set` and `thread` at a live
+/// thread that is not linked into a set; the caller must hold both locks, as
+/// the C requires.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pset_add_thread(
     pset: *mut ProcessorSet,
@@ -1123,14 +963,12 @@ pub unsafe extern "C" fn pset_add_thread(
     unsafe { (*pset).add_thread(thread) };
 }
 
-/// Remove a thread from the processor set.  `pset_remove_thread()` of
-/// kern/processor.c.
+/// `pset_remove_thread()` of kern/processor.c.
 ///
 /// # Safety
 ///
-/// `pset` must point at a live `struct processor_set` and `thread` at
-/// a live thread linked into it; the caller must hold both locks, as
-/// the C requires.
+/// `pset` must point at a live `struct processor_set` and `thread` at a live
+/// thread linked into it; the caller must hold both locks, as the C requires.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pset_remove_thread(
     pset: *mut ProcessorSet,
@@ -1140,8 +978,7 @@ pub unsafe extern "C" fn pset_remove_thread(
     unsafe { (*pset).remove_thread(thread) };
 }
 
-/// Precalculate a processor set's quanta.  `quantum_set()` of
-/// kern/processor.c.
+/// `quantum_set()` of kern/processor.c.
 ///
 /// # Safety
 ///
@@ -1152,14 +989,13 @@ pub unsafe extern "C" fn quantum_set(pset: *mut ProcessorSet) {
     unsafe { (*pset).quantum_set() };
 }
 
-/// Add a processor to a processor set.  `pset_add_processor()` of
-/// kern/processor.c.
+/// `pset_add_processor()` of kern/processor.c.
 ///
 /// # Safety
 ///
-/// `pset` must point at a live `struct processor_set` and `processor`
-/// at a live processor that is not linked into a set; the caller must
-/// hold both locks, as the C requires.
+/// `pset` must point at a live `struct processor_set` and `processor` at a
+/// live processor that is not linked into a set; the caller must hold both
+/// locks, as the C requires.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pset_add_processor(
     pset: *mut ProcessorSet,
@@ -1169,14 +1005,13 @@ pub unsafe extern "C" fn pset_add_processor(
     unsafe { (*pset).add_processor(processor) };
 }
 
-/// Remove a processor from a processor set.  `pset_remove_processor()`
-/// of kern/processor.c.
+/// `pset_remove_processor()` of kern/processor.c.
 ///
 /// # Safety
 ///
-/// `pset` must point at a live `struct processor_set` and `processor`
-/// at a live processor linked into it; the caller must hold both
-/// locks, as the C requires.
+/// `pset` must point at a live `struct processor_set` and `processor` at a
+/// live processor linked into it; the caller must hold both locks, as the C
+/// requires.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pset_remove_processor(
     pset: *mut ProcessorSet,
@@ -1186,14 +1021,13 @@ pub unsafe extern "C" fn pset_remove_processor(
     unsafe { (*pset).remove_processor(processor) };
 }
 
-/// Move a thread between processor sets.  `thread_change_psets()` of
-/// kern/processor.c.
+/// `thread_change_psets()` of kern/processor.c.
 ///
 /// # Safety
 ///
-/// `thread` must point at a live thread linked into the live set
-/// `old_pset`, and `new_pset` at a live set; the caller must hold the
-/// locks of both sets and of the thread, as the C requires.
+/// `thread` must point at a live thread linked into the live set `old_pset`,
+/// and `new_pset` at a live set; the caller must hold the locks of both sets
+/// and of the thread, as the C requires.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn thread_change_psets(
     thread: *mut Thread,
@@ -1204,7 +1038,6 @@ pub unsafe extern "C" fn thread_change_psets(
     unsafe { Thread::change_psets(thread, old_pset, new_pset) };
 }
 
-/// Set the maximum priority of a processor set.
 /// `processor_set_max_priority()` of kern/processor.c.
 ///
 /// # Safety
@@ -1229,7 +1062,6 @@ pub unsafe extern "C" fn processor_set_max_priority(
     }
 }
 
-/// Enable a scheduling policy on a processor set.
 /// `processor_set_policy_enable()` of kern/processor.c.
 ///
 /// # Safety
@@ -1251,7 +1083,6 @@ pub unsafe extern "C" fn processor_set_policy_enable(
     }
 }
 
-/// Disable a scheduling policy on a processor set.
 /// `processor_set_policy_disable()` of kern/processor.c.
 ///
 /// # Safety
@@ -1274,14 +1105,13 @@ pub unsafe extern "C" fn processor_set_policy_disable(
     }
 }
 
-/// Report a processor's basic information.  `processor_info()` of
-/// kern/processor.c.
+/// `processor_info()` of kern/processor.c.
 ///
 /// # Safety
 ///
-/// `processor` must be null or point at a live `struct processor`;
-/// `host` and `count` must be valid out-parameters, and `info` must be
-/// writable for the `processor_basic_info` that `*count` reports.
+/// `processor` must be null or point at a live `struct processor`; `host` and
+/// `count` must be valid out-parameters, and `info` must be writable for the
+/// `processor_basic_info` that `*count` reports.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn processor_info(
     processor: *mut Processor,
@@ -1300,9 +1130,9 @@ pub unsafe extern "C" fn processor_info(
     // SAFETY: the caller promises a live processor.
     match unsafe { (*processor.as_ptr()).info(flavor, capacity) } {
         Ok(basic) => {
-            // SAFETY: the count check inside `info()` guarantees the
-            // caller's buffer is at least a `processor_basic_info`,
-            // and the caller promises the other two out-parameters.
+            // SAFETY: the count check inside `info()` guarantees the caller's
+            // buffer is at least a `processor_basic_info`, and the caller
+            // promises the other two out-parameters.
             unsafe {
                 ptr::write(info.cast::<ProcessorBasicInfo>(), basic);
                 *count = PROCESSOR_BASIC_INFO_COUNT;
@@ -1314,14 +1144,13 @@ pub unsafe extern "C" fn processor_info(
     }
 }
 
-/// Report a processor set's basic or scheduling information.
 /// `processor_set_info()` of kern/processor.c.
 ///
 /// # Safety
 ///
-/// `pset` must be null or point at a live `struct processor_set`;
-/// `host` and `count` must be valid out-parameters, and `info` must be
-/// writable for the record the flavor and `*count` call for.
+/// `pset` must be null or point at a live `struct processor_set`; `host` and
+/// `count` must be valid out-parameters, and `info` must be writable for the
+/// record the flavor and `*count` call for.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn processor_set_info(
     pset: *mut ProcessorSet,
@@ -1340,10 +1169,9 @@ pub unsafe extern "C" fn processor_set_info(
     // SAFETY: the caller promises a live set.
     match unsafe { (*pset.as_ptr()).info(flavor, capacity) } {
         Ok(ProcessorSetInfo::Basic(basic)) => {
-            // SAFETY: the count check inside `info()` guarantees the
-            // caller's buffer is at least a
-            // `processor_set_basic_info`, and the caller promises the
-            // other two out-parameters.
+            // SAFETY: the count check inside `info()` guarantees the caller's
+            // buffer is at least a `processor_set_basic_info`, and the caller
+            // promises the other two out-parameters.
             unsafe {
                 ptr::write(info.cast::<ProcessorSetBasicInfo>(), basic);
                 *count = PROCESSOR_SET_BASIC_INFO_COUNT;
@@ -1352,9 +1180,9 @@ pub unsafe extern "C" fn processor_set_info(
             0
         }
         Ok(ProcessorSetInfo::Sched(sched)) => {
-            // SAFETY: the flavor's count check guarantees the caller's
-            // buffer is at least a `processor_set_sched_info`, and the
-            // caller promises the other two out-parameters.
+            // SAFETY: the flavor's count check guarantees the caller's buffer
+            // is at least a `processor_set_sched_info`, and the caller
+            // promises the other two out-parameters.
             unsafe {
                 ptr::write(info.cast::<ProcessorSetSchedInfo>(), sched);
                 *count = PROCESSOR_SET_SCHED_INFO_COUNT;
@@ -1363,11 +1191,7 @@ pub unsafe extern "C" fn processor_set_info(
             0
         }
         Err(KernError::InvalidArgument) => {
-            // An unknown flavor is the only way here; the null set and
-            // the count checks are past.  The C stores the null host
-            // on that path.
-            // SAFETY: the caller promises a valid `host`
-            // out-parameter.
+            // SAFETY: the caller promises a valid `host` out-parameter.
             unsafe {
                 *host = ptr::null_mut();
             }

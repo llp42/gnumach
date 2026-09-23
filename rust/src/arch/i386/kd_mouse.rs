@@ -6,19 +6,6 @@
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! The mouse driver, which `i386/i386at/kd_mouse.c` used to define.
-//!
-//! `/dev/mouse` speaks the Mouse Systems 5-byte, Microsoft and Logitech
-//! 3-byte and IBM PS/2 3-byte protocols, on a serial port or the
-//! keyboard controller.  The bytes are decoded into `kd_event`s and
-//! queued for `mouseread()`.
-//!
-//! Everything runs at `SPLKD` (`spltty`): `mouseintr()` is entered from
-//! the interrupt path, the device entry points bracket their queue
-//! access with `spltty()`/`splx()`, and the C file's globals are the
-//! `STATE` below under that serialization.
-//!
-//! `kdintr()` reads `MOUSE_IN_USE` and calls `mouse_handle_byte()`;
-//! only the four conf.c device entries stay `extern "C"`.
 
 use super::io_req::{
     D_NOWAIT, DEV_GET_SIZE, DEV_GET_SIZE_COUNT, DEV_GET_SIZE_DEVICE_SIZE,
@@ -65,7 +52,6 @@ const MOUSE_LEFT: KevType = 1;
 const MOUSE_MIDDLE: KevType = 2;
 const MOUSE_RIGHT: KevType = 3;
 
-// 8250 register offsets and bits, <i386at/i8250.h>.
 const RDAT: u16 = 0;
 const RIE: u16 = 1;
 const RID: u16 = 2;
@@ -87,14 +73,12 @@ const MCRTS: u8 = 0x02;
 const MCOUT2: u8 = 0x08;
 const BCNT1200: c_int = 0x60;
 
-// Keyboard controller ports, <i386at/kd.h>.
 const K_RDWR: u16 = 0x60;
 const K_STATUS: u16 = 0x64;
 const K_CMD: u16 = 0x64;
 const K_IBUF_FUL: u8 = 0x02;
 
-/// Whether `/dev/mouse` is open.  `i386/i386at/kd.c` reads it directly
-/// (`cnpollc`, `kdintr`), so the symbol and its `boolean_t` size stay.
+/// Whether `/dev/mouse` is open.
 static MOUSE_IN_USE: crate::arch::i386::kd::SyncCell<c_int> =
     crate::arch::i386::kd::SyncCell(UnsafeCell::new(0));
 
@@ -111,10 +95,6 @@ pub(crate) fn set_mouse_in_use(value: c_int) {
 }
 
 /// The driver's mutable state: the C file's file-scope globals.
-///
-/// `read_queue` is a `MaybeUninit` because a queue head has to link to
-/// itself, which no static initializer can express; it is set up on the
-/// first use, before any interrupt can reach it.
 struct State {
     queue: KdEventQueue,
     read_queue: MaybeUninit<QueueEntry>,
@@ -168,32 +148,29 @@ impl State {
 static STATE: crate::arch::i386::kd::SyncCell<State> =
     crate::arch::i386::kd::SyncCell(UnsafeCell::new(State::new()));
 
-/// The one state object.  Callers must hold `SPLKD`, which serializes
-/// every use, and must not hold the reference across a call that could
-/// re-enter the driver.
+/// The one state object.
 fn state() -> &'static mut State {
     // SAFETY: the driver runs at SPLKD; nothing else accesses `STATE`.
     unsafe { &mut *STATE.0.get() }
 }
 
-/// The read queue head, self-linked on first use.  Callers hold `SPLKD`.
+/// The read queue head, self-linked on first use.
 fn read_queue(s: &mut State) -> Pin<&mut QueueEntry> {
     let p = ptr::addr_of_mut!(s.read_queue).cast::<QueueEntry>();
     if !s.read_queue_ready {
-        // SAFETY: `p` points at this state's `QueueEntry` storage, and
-        // this is the first use; nothing else can reach it at SPLKD.
+        // SAFETY: `p` points at this state's `QueueEntry` storage, and this is
+        // the first use; nothing else can reach it at SPLKD.
         unsafe {
             QueueEntry::pin_in_place(NonNull::new_unchecked(p)).init_head();
         }
         s.read_queue_ready = true;
     }
-    // SAFETY: as above; the storage is initialized and at a fixed
-    // address.
+    // SAFETY: as above; the storage is initialized and at a fixed address.
     unsafe { QueueEntry::pin_in_place(NonNull::new_unchecked(p)) }
 }
 
-/// `printf_once("mouse: queue full\n")` in C: prints the first time a
-/// full queue drops an event, then never again.
+/// `printf_once("mouse: queue full\n")` in C: prints the first time a full
+/// queue drops an event, then never again.
 fn printf_once() {
     static PRINTED: AtomicBool = AtomicBool::new(false);
     if !PRINTED.swap(true, Ordering::Relaxed) {
@@ -202,8 +179,7 @@ fn printf_once() {
     }
 }
 
-/// Enqueue `ev` and complete any reads waiting for data.  Called at
-/// `SPLKD`.
+/// Enqueue `ev` and complete any reads waiting for data.
 fn enqueue(s: &mut State, ev: &KdEvent) {
     if s.queue.is_full() {
         printf_once();
@@ -214,21 +190,20 @@ fn enqueue(s: &mut State, ev: &KdEvent) {
         // SAFETY: the queue is self-consistent and this runs at SPLKD.
         let entry = unsafe { read_queue(s).pop_front() };
         match entry {
-            // SAFETY: each link is an `io_req` (its chain is the first
-            // field), still owned by the device layer and valid for
-            // `iodone()`.
+            // SAFETY: each link is an `io_req` (its chain is the first field),
+            // still owned by the device layer and valid for `iodone()`.
             Some(entry) => unsafe { glue::iodone(entry.as_ptr().cast()) },
             None => break,
         }
     }
 }
 
-/// Enqueue a mouse-motion event.  `mouse_moved()` in C.
+/// `mouse_moved()` in C.
 fn motion_event(s: &mut State, moved: MouseMotion) {
     enqueue(s, &KdEvent::motion(moved));
 }
 
-/// Enqueue a button event.  `mouse_button()` in C.
+/// `mouse_button()` in C.
 fn button_event(s: &mut State, which: KevType, direction: u8) {
     enqueue(s, &KdEvent::button(which, direction == MOUSE_UP));
 }
@@ -236,7 +211,6 @@ fn button_event(s: &mut State, which: KevType, direction: u8) {
 /// `init_mouse_hw()` in C: program the serial port.
 fn init_mouse_hw(s: &State, unit: c_int, mode: u8) {
     let base_addr = unsafe { glue::com_base_addr(unit) } as u16;
-    // The register offsets come from <i386at/i8250.h>.
     Port::new(base_addr + RIE).write_u8(0);
     Port::new(base_addr + RLC).write_u8(LCDLAB);
     Port::new(base_addr + RDLSB).write_u8((s.mouse_baud & 0xff) as u8);
@@ -319,11 +293,11 @@ fn read_char(s: &mut State) -> c_int {
     }
     while s.mousebufindex <= s.mouse_char_index {
         s.mouse_char_wanted = true;
-        // SAFETY: the wait channel is the driver's own buffer, and the
-        // handler wakes this exact address.
+        // SAFETY: the wait channel is the driver's own buffer, and the handler
+        // wakes this exact address.
         unsafe { glue::assert_wait(ptr::addr_of_mut!(s.mousebuf).cast(), 0) };
-        // SAFETY: no thread state to hand over; the caller resumes
-        // after the wakeup.
+        // SAFETY: no thread state to hand over; the caller resumes after the
+        // wakeup.
         unsafe { glue::thread_block(None) };
     }
     let ch = s.mousebuf[s.mouse_char_index as usize];
@@ -504,8 +478,8 @@ fn packet_ibm_ps2(s: &mut State, buf: &[u8; MOUSEBUFSIZE]) {
     }
 }
 
-/// `mouse_handle_byte()` in C: accumulate bytes until a packet is
-/// complete, then decode it.  Called at `SPLKD`.
+/// `mouse_handle_byte()` in C: accumulate bytes until a packet is complete,
+/// then decode it.
 fn handle_byte(s: &mut State, ch: u8) {
     if s.show_mouse_byte != 0 {
         // SAFETY: a literal format with two integers.
@@ -578,12 +552,12 @@ fn handle_byte(s: &mut State, ch: u8) {
     }
 }
 
-/// Open the mouse.  `mouseopen()` in C.
+/// `mouseopen()` in C.
 ///
 /// # Safety
 ///
-/// The device layer calls this with a valid, open request; everything
-/// else runs at `SPLKD`.
+/// The device layer calls this with a valid, open request; everything else
+/// runs at `SPLKD`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mouseopen(
     dev: DevT,
@@ -637,7 +611,7 @@ pub unsafe extern "C" fn mouseopen(
     Ok(DeviceSuccess::Success).as_io_return()
 }
 
-/// Close the mouse.  `mouseclose()` in C.
+/// `mouseclose()` in C.
 ///
 /// # Safety
 ///
@@ -651,7 +625,6 @@ pub unsafe extern "C" fn mouseclose(dev: DevT, _flags: c_int) {
         IBM_MOUSE => {
             ps2_close(s, dev);
             kd_close(s, IBM_MOUSE_IRQ);
-            // The C waited here for the mouse to settle.
             let mut i: c_int = 20000;
             while i != 0 {
                 i -= 1;
@@ -665,13 +638,12 @@ pub unsafe extern "C" fn mouseclose(dev: DevT, _flags: c_int) {
     set_mouse_in_use(0);
 }
 
-/// Read queued events.  `mouseread()` in C.
+/// `mouseread()` in C.
 ///
 /// # Safety
 ///
-/// The device layer calls this with a valid, read-only request whose
-/// buffer `device_read_alloc()` may allocate; everything else runs at
-/// `SPLKD`.
+/// The device layer calls this with a valid, read-only request whose buffer
+/// `device_read_alloc()` may allocate; everything else runs at `SPLKD`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mouseread(_dev: DevT, ior: *mut IoReq) -> c_int {
     let wanted = unsafe { (*ior).count() };
@@ -692,8 +664,8 @@ pub unsafe extern "C" fn mouseread(_dev: DevT, ior: *mut IoReq) -> c_int {
             return Err(DeviceError::WouldBlock).as_io_return();
         }
         unsafe { (*ior).set_done(mouse_read_done) };
-        // SAFETY: `io_req`'s chain is its first field, and it stays at
-        // its address until `iodone()`.
+        // SAFETY: `io_req`'s chain is its first field, and it stays at its
+        // address until `iodone()`.
         let entry = unsafe { (*ior).queue_entry() };
         // SAFETY: the read queue is this state's, at SPLKD.
         unsafe { read_queue(s).push_back(entry) };
@@ -706,7 +678,6 @@ pub unsafe extern "C" fn mouseread(_dev: DevT, ior: *mut IoReq) -> c_int {
     Ok(DeviceSuccess::Success).as_io_return()
 }
 
-/// Finish a read that was queued waiting for events.
 /// `mouse_read_done()` in C, as a callback value.
 unsafe extern "C" fn mouse_read_done(ior: *mut IoReq) -> c_int {
     let s = state();
@@ -728,7 +699,7 @@ unsafe extern "C" fn mouse_read_done(ior: *mut IoReq) -> c_int {
     1
 }
 
-/// Device size query.  `mousegetstat()` in C.
+/// `mousegetstat()` in C.
 ///
 /// # Safety
 ///
@@ -755,8 +726,7 @@ pub unsafe extern "C" fn mousegetstat(
     }
 }
 
-/// The unit's interrupt handler.  `mouseintr()` in C, as a callback
-/// value.
+/// `mouseintr()` in C, as a callback value.
 unsafe extern "C" fn mouseintr(unit: c_int) {
     let base_addr = unsafe { glue::com_base_addr(unit) } as u16;
     let id = Port::new(base_addr + RID).read_u8();
@@ -773,18 +743,17 @@ unsafe extern "C" fn mouseintr(unit: c_int) {
     }
 }
 
-/// Accumulate one mouse byte.  `mouse_handle_byte()` in C; called at
-/// `SPLKD` from the kd interrupt path.
+/// `mouse_handle_byte()` in C; called at `SPLKD` from the kd interrupt path.
 pub(crate) fn mouse_handle_byte(ch: u8) {
     handle_byte(state(), ch);
 }
 
-/// Enqueue a mouse-motion event.  `mouse_moved()` in C.
+/// `mouse_moved()` in C.
 pub(crate) fn mouse_moved(where_: MouseMotion) {
     motion_event(state(), where_);
 }
 
-/// Enqueue a button event.  `mouse_button()` in C.
+/// `mouse_button()` in C.
 pub(crate) fn mouse_button(which: KevType, direction: u8) {
     button_event(state(), which, direction);
 }

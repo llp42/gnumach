@@ -8,18 +8,14 @@
 //   Laboratory at the University of Utah (CSL).
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! Page geometry, from `i386/include/mach/i386/vm_param.h`, the header
-//! both x86 kernels install as `<machine/vm_param.h>`.
-//!
-//! `PAGE_SHIFT` is the machine's own value, `I386_PGSHIFT` in the C;
-//! the machine-independent `include/mach/vm_param.h` derives the other
-//! two from it.
+//! Page geometry, from `i386/include/mach/i386/vm_param.h`, the header both
+//! x86 kernels install as `<machine/vm_param.h>`.
 #![cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 
 use crate::arch::types::VmSize;
 
-/// `PAGE_SHIFT` of <machine/vm_param.h>: `I386_PGSHIFT`, the number of
-/// bits to shift for pages.
+/// `PAGE_SHIFT` of <machine/vm_param.h>: `I386_PGSHIFT`, the number of bits to
+/// shift for pages.
 pub const PAGE_SHIFT: u32 = 12;
 
 /// `PAGE_SIZE`: one page, `1 << PAGE_SHIFT` in the C.
@@ -28,6 +24,6 @@ pub const PAGE_SIZE: VmSize = 1 << PAGE_SHIFT;
 /// `PAGE_MASK`: the in-page offset bits, `PAGE_SIZE - 1` in the C.
 pub const PAGE_MASK: VmSize = PAGE_SIZE - 1;
 
-/// `KERNEL_STACK_SIZE` of <machine/vm_param.h>: the size and alignment
-/// of one kernel stack, `1*I386_PGBYTES` in the C.
+/// `KERNEL_STACK_SIZE` of <machine/vm_param.h>: the size and alignment of one
+/// kernel stack, `1*I386_PGBYTES` in the C.
 pub const KERNEL_STACK_SIZE: VmSize = PAGE_SIZE;

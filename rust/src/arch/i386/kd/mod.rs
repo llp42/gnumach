@@ -7,17 +7,6 @@
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! The keyboard/VGA console driver, which `i386/i386at/kd.c` defined.
-//!
-//! `/dev/console` is a tty whose output is drawn by `esc.rs` through
-//! the display table in `display.rs`, and whose input comes from
-//! `keyboard.rs` through `kdintr()` (or `kdcnmaygetc()` when the
-//! debugger polls).  `console.rs` holds the console entry points and
-//! `kd_event.rs`'s line discipline feed.
-//!
-//! `tty.rs` holds the tty device entry points and `keymap.rs` the
-//! scan-code table.  Everything is Rust now; only the 23 symbols that
-//! `conf.c`, `cons_conf.c`, the platform tables and `model_dep.c`
-//! reference stay `extern "C"` (see MIGRATE.md).
 
 pub mod console;
 pub mod display;
@@ -64,11 +53,9 @@ pub(crate) fn charidx(state_idx: c_int) -> usize {
 }
 
 /// `K_MAXESC` in <i386at/kd.c>: the escape sequence bytes, terminator
-/// excluded.  The C sized `esc_seq` at exactly this and still wrote the
-/// terminator one past it; the Rust keeps the byte the C was missing.
+/// excluded.
 pub(crate) const K_MAXESC: usize = 32;
 
-// Keyboard controller ports, <i386at/kd.h>.
 pub(crate) const K_TMR2: u16 = 0x42;
 pub(crate) const K_TMRCTL: u16 = 0x43;
 pub(crate) const K_RDWR: u16 = 0x60;
@@ -96,7 +83,6 @@ pub(crate) const K_CB_DISBLE: u8 = 0x10;
 pub(crate) const K_CB_ENBLIRQ: u8 = 0x01;
 pub(crate) const KBD_IRQ: c_uint = 1;
 
-// Keyboard bytes, <i386at/kd.h>.
 pub(crate) const K_ESC: u8 = 0x1b;
 pub(crate) const K_LF: u8 = 0x0a;
 pub(crate) const K_CR: u8 = 0x0d;
@@ -111,7 +97,6 @@ pub(crate) const K_RESEND: u8 = 0xfe;
 pub(crate) const K_SCAN: u8 = 0xfe;
 pub(crate) const K_DONE: u8 = 0xff;
 
-// Modifier scan codes.
 pub(crate) const K_CTLSC: u8 = 0x1d;
 pub(crate) const K_LSHSC: u8 = 0x2a;
 pub(crate) const K_RSHSC: u8 = 0x36;
@@ -121,7 +106,6 @@ pub(crate) const K_NLCKSC: u8 = 0x45;
 pub(crate) const K_HOMESC: u8 = 0x47;
 pub(crate) const K_DELSC: u8 = 0x53;
 
-// Modifier state bits and state indices.
 pub(crate) const KS_NORMAL: c_int = 0x00;
 pub(crate) const KS_NLKED: c_int = 0x02;
 pub(crate) const KS_CLKED: c_int = 0x04;
@@ -138,7 +122,6 @@ pub(crate) const SHIFT_ALT: c_int = 4;
 pub(crate) const KB_EVENT: c_int = 1;
 pub(crate) const KB_ASCII: c_int = 2;
 
-// Display attributes, <i386at/kd.h>.
 pub(crate) const KA_NORMAL: u8 = 0x07;
 pub(crate) const KAX_REVERSE: u8 = 0x01;
 pub(crate) const KAX_UNDERLINE: u8 = 0x02;
@@ -149,7 +132,6 @@ pub(crate) const KAX_INVISIBLE: u8 = 0x20;
 pub(crate) const KAX_COL_UNDERLINE: u8 = 0x0f;
 pub(crate) const KAX_COL_DIM: u8 = 0x08;
 
-// VGA/EGA registers and memory, <i386at/kd.h>.
 pub(crate) const EGA_START: usize = 0x0b8000;
 pub(crate) const EGA_IDX_REG: u16 = 0x3d4;
 pub(crate) const EGA_IO_REG: u16 = 0x3d5;
@@ -174,11 +156,8 @@ pub(crate) enum Ack {
     Data,
 }
 
-/// The `struct consdev` prefix of <device/cons.h> the console entry
-/// points touch.
-///
-/// The function pointers are owned by `cons_conf.c` only so the struct
-/// is laid out correctly; the driver writes `cn_dev` and `cn_pri`.
+/// The `struct consdev` prefix of <device/cons.h> the console entry points
+/// touch.
 #[repr(C)]
 #[allow(dead_code)]
 pub struct ConsDev {
@@ -265,8 +244,8 @@ impl State {
 
 pub(crate) use crate::utils::cell::SyncCell;
 
-/// The driver's one state object: the keyboard, display, parser and
-/// console state, the tty, and the few values other modules share.
+/// The driver's one state object: the keyboard, display, parser and console
+/// state, the tty, and the few values other modules share.
 pub(crate) struct Kd {
     pub(crate) st: State,
     pub(crate) tty: tty::Tty,
@@ -309,9 +288,7 @@ impl Kd {
 
 static KD: SyncCell<Kd> = SyncCell(UnsafeCell::new(Kd::new()));
 
-/// The one state object.  Callers must hold `SPLKD`, which serializes
-/// every use, and must not hold the reference across a call that could
-/// re-enter the driver.
+/// The one state object.
 pub(crate) fn kd() -> &'static mut Kd {
     // SAFETY: the driver runs at SPLKD; nothing else accesses `KD`.
     unsafe { &mut *KD.0.get() }
@@ -332,8 +309,8 @@ pub(crate) fn set_kb_mode(mode: c_int) {
     kd().set_kb_mode(mode);
 }
 
-/// Initialize the driver.  `kdinit()` in C; interrupts are assumed
-/// disabled, and the call is idempotent.  The caller must hold `SPLKD`.
+/// `kdinit()` in C; interrupts are assumed disabled, and the call is
+/// idempotent.
 pub(crate) fn kdinit() {
     if state().kd_initialized {
         return;
@@ -347,7 +324,6 @@ pub(crate) fn kdinit() {
     }
     display::xga_init();
 
-    // Get rid of any garbage in the output buffer.
     if Port::new(K_STATUS).read_u8() & K_OBUF_FUL != 0 {
         let _ = Port::new(K_RDWR).read_u8();
     }
@@ -363,8 +339,6 @@ pub(crate) fn kdinit() {
     }
     state().kd_initialized = true;
 
-    // Clear the LEDs after enabling the controller: this keeps
-    // NUM-LOCK from being set on the NEC Versa.
     kd().set_state_bits(KS_NORMAL);
     keyboard::cn_set_leds(KS_NORMAL as u8);
 
@@ -380,7 +354,6 @@ pub(crate) fn kdinit() {
 pub unsafe extern "C" fn cnpollc(on: c_int) {
     if crate::arch::i386::kd_mouse::mouse_in_use() != 0 {
         if on != 0 {
-            // Switch into X.
             let s = state();
             s.old_kb_mode = kb_mode();
             set_kb_mode(KB_ASCII);
@@ -389,7 +362,6 @@ pub unsafe extern "C" fn cnpollc(on: c_int) {
         } else {
             let s = state();
             s.kd_pollc -= 1;
-            // Switch out of X.
             crate::arch::i386::kd_event::x_kdb_exit();
             set_kb_mode(s.old_kb_mode);
         }
@@ -424,14 +396,12 @@ pub(crate) unsafe extern "C" fn kd_belloff(_param: *mut core::ffi::c_void) {
     state().kd_bellstate = false;
 }
 
-/// `kd_bellon()` in C.  The caller must hold `SPLKD`.
+/// `kd_bellon()` in C.
 pub(crate) fn kd_bellon() {
-    // Program timer 2.
     Port::new(K_TMRCTL)
         .write_u8(K_SELTMR2 | K_RDLDTWORD | K_TSQRWAVE | K_TBINARY);
     Port::new(K_TMR2).write_u8((1500 & 0xff) as u8);
     Port::new(K_TMR2).write_u8((1500 >> 8) as u8);
-    // Start the speaker.
     let status = Port::new(K_PORTB).read_u8() | K_ENABLETMR2 | K_SPKRDATA;
     Port::new(K_PORTB).write_u8(status);
 }

@@ -5,20 +5,8 @@
 //   Systems Laboratory (CSL).
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! The host, processor and processor-set ports, which `kern/ipc_host.c`
-//! used to define and <kern/ipc_host.h> declares.
-//!
-//! [`ipc_processor_init()`] and [`ipc_pset_init()`] build the special
-//! ports, [`ipc_pset_enable()`] and [`ipc_pset_disable()`] bind and
-//! unbind the kernel object behind them, [`ipc_pset_terminate()`]
-//! deallocates them, and [`processor_set_default()`] hands out a
-//! reference to the boot processor set.  The ports themselves are the
-//! opaque `ipc_port` pointers the rest of the IPC layer uses.
-//!
-//! The rest of `kern/ipc_host.c` stays C: the `convert_port_to_*` and
-//! `convert_*_to_port` family reads `struct ipc_port` and `struct
-//! ipc_space` fields that Rust does not mirror yet, and
-//! `ipc_host_init()` is their C caller.
+//! The host, processor and processor-set ports, which `kern/ipc_host.c` used
+//! to define and <kern/ipc_host.h> declares.
 
 use crate::arch::types::VmOffset;
 use crate::glue;
@@ -28,8 +16,8 @@ use core::ffi::{CStr, c_int, c_uint, c_void};
 use core::ptr;
 use core::ptr::NonNull;
 
-/// `IKOT_PROCESSOR` of <kern/ipc_kobject.h>: the object type of a
-/// processor's control port.
+/// `IKOT_PROCESSOR` of <kern/ipc_kobject.h>: the object type of a processor's
+/// control port.
 const IKOT_PROCESSOR: c_uint = 5;
 /// `IKOT_PSET`: the object type of a processor set's control port.
 const IKOT_PSET: c_uint = 6;
@@ -44,18 +32,13 @@ const IKO_NULL: VmOffset = 0;
 
 /// Allocate a special port in the kernel's IPC space, halting when the
 /// allocator fails as the C callers did.
-///
-/// `function` names the caller for the halt, which the C `panic()`
-/// tagged with `__FUNCTION__` and repeated as its message.
 fn alloc_kernel_port(function: &CStr) -> NonNull<c_void> {
-    // `ipc_port_alloc_kernel()` is the macro over
-    // `ipc_port_alloc_special(ipc_space_kernel)`.
-    // SAFETY: `ipc_space_kernel` is the live space `ipc_init()` built,
-    // and the allocator takes its own locks.
+    // SAFETY: `ipc_space_kernel` is the live space `ipc_init()` built, and the
+    // allocator takes its own locks.
     let port = unsafe { glue::ipc_port_alloc_special(glue::ipc_space_kernel) };
     let Some(port) = NonNull::new(port) else {
-        // SAFETY: `Panic` does not return; the tags reproduce the C
-        // `panic()` call's file, function and message.
+        // SAFETY: `Panic` does not return; the tags reproduce the C `panic()`
+        // call's file, function and message.
         unsafe {
             glue::Panic(
                 c"kern/ipc_host.c".as_ptr(),
@@ -68,14 +51,12 @@ fn alloc_kernel_port(function: &CStr) -> NonNull<c_void> {
     port
 }
 
-/// Build the two special ports that give IPC access to `processor`.
 /// `ipc_processor_init()` of kern/ipc_host.c.
 fn processor_init(processor: &mut Processor) {
     let port = alloc_kernel_port(c"ipc_processor_init");
     processor.processor_self = port.as_ptr();
-    // SAFETY: `port` is the special port just allocated and nothing
-    // else can reach it yet; `processor` is the live object the C
-    // bound.  `ipc_kobject_set` locks the port itself.
+    // SAFETY: `port` is the special port just allocated and nothing else can
+    // reach it yet; `processor` is the live object the C bound.
     unsafe {
         glue::ipc_kobject_set(
             port.as_ptr(),
@@ -96,10 +77,7 @@ fn processor_init(processor: &mut Processor) {
     }
 }
 
-/// Build the two special ports that give IPC access to `pset`.
 /// `ipc_pset_init()` of kern/ipc_host.c.
-///
-/// The ports are bound to the set only by [`pset_enable()`].
 fn pset_init(pset: &mut ProcessorSet) {
     let port = alloc_kernel_port(c"ipc_pset_init");
     pset.pset_self = port.as_ptr();
@@ -108,15 +86,13 @@ fn pset_init(pset: &mut ProcessorSet) {
     pset.pset_name_self = port.as_ptr();
 }
 
-/// Enable IPC access to `pset`: bind each port to it and take the two
-/// references the ports own.  `ipc_pset_enable()` of kern/ipc_host.c.
+/// `ipc_pset_enable()` of kern/ipc_host.c.
 fn pset_enable(pset: &mut ProcessorSet) {
     pset.lock.lock();
     if pset.active != 0 {
         let pset_addr = ptr::from_mut(pset).addr();
-        // SAFETY: the set lock is held, so the two port fields are the
-        // ports `pset_init()` allocated and nothing is deallocating
-        // them.
+        // SAFETY: the set lock is held, so the two port fields are the ports
+        // `pset_init()` allocated and nothing is deallocating them.
         unsafe {
             glue::ipc_kobject_set(pset.pset_self, pset_addr, IKOT_PSET);
             glue::ipc_kobject_set(
@@ -132,13 +108,7 @@ fn pset_enable(pset: &mut ProcessorSet) {
     pset.lock.unlock();
 }
 
-/// Disable IPC access to `pset`: clear each port's kernel object and
-/// drop the two references [`pset_enable()`] took.
 /// `ipc_pset_disable()` of kern/ipc_host.c.
-///
-/// The C decremented `ref_count` without the set's own `ref_lock`; the
-/// caller holds the set lock and a reference, which is what keeps the
-/// set alive.
 fn pset_disable(pset: &mut ProcessorSet) {
     // SAFETY: the caller holds the set lock and a reference, as the C
     // required, so the two port fields are live.
@@ -149,13 +119,10 @@ fn pset_disable(pset: &mut ProcessorSet) {
     pset.ref_count = pset.ref_count.wrapping_sub(2);
 }
 
-/// Deallocate the two special ports of a dead `pset`.
 /// `ipc_pset_terminate()` of kern/ipc_host.c.
 fn pset_terminate(pset: &mut ProcessorSet) {
-    // `ipc_port_dealloc_kernel()` is the macro over
-    // `ipc_port_dealloc_special(port, ipc_space_kernel)`.
-    // SAFETY: the set is dead, so nothing else may use the two ports,
-    // and `ipc_space_kernel` is the live space `ipc_init()` built.
+    // SAFETY: the set is dead, so nothing else may use the two ports, and
+    // `ipc_space_kernel` is the live space `ipc_init()` built.
     unsafe {
         glue::ipc_port_dealloc_special(pset.pset_self, glue::ipc_space_kernel);
         glue::ipc_port_dealloc_special(
@@ -165,7 +132,6 @@ fn pset_terminate(pset: &mut ProcessorSet) {
     }
 }
 
-/// Hand out the boot processor set with one more reference.
 /// `processor_set_default()` of kern/ipc_host.c.
 fn set_default(host: *mut c_void) -> Result<*mut ProcessorSet, KernError> {
     if host.is_null() {
@@ -173,93 +139,85 @@ fn set_default(host: *mut c_void) -> Result<*mut ProcessorSet, KernError> {
     }
 
     // SAFETY: `default_pset` is the C global `pset_sys_bootstrap()`
-    // initialized during the boot; only its address is formed, because
-    // the Rust mirror stops before the NCPUS-sized tail.
+    // initialized during the boot; only its address is formed, because the
+    // Rust mirror stops before the NCPUS-sized tail.
     let pset = ptr::addr_of_mut!(glue::default_pset).cast::<ProcessorSet>();
-    // SAFETY: the global is live from boot, and the entry is reached
-    // only once IPC is up.
+    // SAFETY: the global is live from boot, and the entry is reached only once
+    // IPC is up.
     unsafe { (*pset).reference() };
     Ok(pset)
 }
 
-/// Build the special ports of a processor.
 /// `ipc_processor_init()` of kern/ipc_host.c.
 ///
 /// # Safety
 ///
-/// `processor` must point at a live `struct processor` whose two port
-/// fields no other thread can reach yet, as `pset_sys_init()` leaves
-/// each slot during the boot.
+/// `processor` must point at a live `struct processor` whose two port fields
+/// no other thread can reach yet, as `pset_sys_init()` leaves each slot during
+/// the boot.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ipc_processor_init(processor: *mut Processor) {
     // SAFETY: the caller's contract.
     unsafe { processor_init(&mut *processor) };
 }
 
-/// Build the special ports of a processor set.
 /// `ipc_pset_init()` of kern/ipc_host.c.
 ///
 /// # Safety
 ///
-/// `pset` must point at a live `struct processor_set` whose two port
-/// fields no other thread can reach yet, as `processor_set_create()`
-/// and the default-set bootstrap leave it.
+/// `pset` must point at a live `struct processor_set` whose two port fields no
+/// other thread can reach yet, as `processor_set_create()` and the default-set
+/// bootstrap leave it.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ipc_pset_init(pset: *mut ProcessorSet) {
     // SAFETY: the caller's contract.
     unsafe { pset_init(&mut *pset) };
 }
 
-/// Enable IPC access to a processor set.
 /// `ipc_pset_enable()` of kern/ipc_host.c.
 ///
 /// # Safety
 ///
 /// `pset` must point at a live `struct processor_set` whose ports
-/// [`ipc_pset_init()`] built, and the caller must hold a reference to
-/// it.
+/// [`ipc_pset_init()`] built, and the caller must hold a reference to it.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ipc_pset_enable(pset: *mut ProcessorSet) {
     // SAFETY: the caller's contract.
     unsafe { pset_enable(&mut *pset) };
 }
 
-/// Disable IPC access to a processor set.
 /// `ipc_pset_disable()` of kern/ipc_host.c.
 ///
 /// # Safety
 ///
 /// `pset` must point at a live `struct processor_set` that has not been
-/// terminated, and the caller must hold its lock and a reference to it,
-/// as the C required.
+/// terminated, and the caller must hold its lock and a reference to it, as the
+/// C required.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ipc_pset_disable(pset: *mut ProcessorSet) {
     // SAFETY: the caller's contract.
     unsafe { pset_disable(&mut *pset) };
 }
 
-/// Deallocate the special ports of a dead processor set.
 /// `ipc_pset_terminate()` of kern/ipc_host.c.
 ///
 /// # Safety
 ///
-/// `pset` must point at a live `struct processor_set` that no other
-/// thread may use any more, and its two port fields must be the ports
-/// [`ipc_pset_init()`] built and [`ipc_pset_disable()`] unbound.
+/// `pset` must point at a live `struct processor_set` that no other thread may
+/// use any more, and its two port fields must be the ports [`ipc_pset_init()`]
+/// built and [`ipc_pset_disable()`] unbound.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ipc_pset_terminate(pset: *mut ProcessorSet) {
     // SAFETY: the caller's contract.
     unsafe { pset_terminate(&mut *pset) };
 }
 
-/// Return ports for manipulating the default processor set.
 /// `processor_set_default()` of kern/ipc_host.c.
 ///
 /// # Safety
 ///
-/// `host` must be null or point at a live `struct host`, and `pset`
-/// must be a valid out-parameter; MIG's `_Xprocessor_set_default`
-/// passes both.
+/// `host` must be null or point at a live `struct host`, and `pset` must be a
+/// valid out-parameter; MIG's `_Xprocessor_set_default` passes both.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn processor_set_default(
     host: *mut c_void,

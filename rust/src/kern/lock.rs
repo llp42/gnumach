@@ -6,28 +6,6 @@
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! The locks of `kern/lock.h`, which `kern/lock.c` used to define.
-//!
-//! `SimpleLock` mirrors `struct slock`: one `natural_t`, 0 unlocked
-//! and 1 locked.  The C `simple_lock` macros in <kern/lock.h> call
-//! [`mach_simple_lock`], [`mach_simple_unlock`] and
-//! [`mach_simple_lock_try`] below, which replace the locked `xchg`
-//! the machine <i386/lock.h> used to inline; that header is gone.
-//! The methods use `AtomicU32::swap` with `AcqRel`, so the critical
-//! section a lock acquired release-publishes is acquired by the next
-//! locker on every supported architecture.  On x86 the compiler
-//! lowers both to the same instruction.
-//!
-//! `LockData` mirrors `struct lock`, the sleep-capable recursive lock.
-//! Rust cannot express the C bitfield word, so it is one `u32` and the
-//! accessors below pack it exactly as C does: `read_count:16,
-//! want_upgrade:1, want_write:1, waiting:1, can_sleep:1,
-//! recursion_depth:12`, in that order from the least significant bit.
-//! The `lock_wait_time` spin of 100 pauses before a sleep is kept, and
-//! the two `panic()` sites become [`glue::Panic`] calls with the C
-//! messages.
-//!
-//! `lock_sleepable()` had no caller in the tree, so it was dropped with
-//! the port and its prototype is gone from `kern/lock.h`.
 
 use crate::arch::i386::percpu::current_thread;
 use crate::glue;
@@ -39,18 +17,12 @@ use core::ffi::{c_int, c_void};
 use core::ptr::{self, addr_of_mut};
 use core::sync::atomic::{AtomicU32, Ordering};
 
-/// A simple spin lock, layout-identical to `struct slock` of
-/// <kern/lock.h>.
-///
-/// The zero value is unlocked, the one value locked; C reads and
-/// writes the same word through its `lock_data` member.
+/// A simple spin lock, layout-identical to `struct slock` of <kern/lock.h>.
 #[repr(transparent)]
 pub struct SimpleLock {
     lock_data: AtomicU32,
 }
 
-// `struct slock` is one `volatile natural_t`, and `natural_t` is
-// `unsigned int` on both x86 kernels.
 const _: () = assert!(size_of::<SimpleLock>() == size_of::<u32>());
 const _: () = assert!(align_of::<SimpleLock>() == align_of::<u32>());
 
@@ -63,32 +35,22 @@ impl SimpleLock {
         }
     }
 
-    /// Reset the lock to unlocked.  `simple_lock_init()` in C.
-    ///
-    /// Only valid before the lock is first used or after the caller
-    /// has proved that no one holds it.  The store is `Relaxed`
-    /// because the caller's proof, not an ordering, is what makes it
+    /// `simple_lock_init()` in C.  The store is `Relaxed`: the caller's
+    /// proof that no one holds the lock, not an ordering, is what makes it
     /// safe.
     pub fn init(&self) {
         self.lock_data.store(0, Ordering::Relaxed);
     }
 
-    /// Whether the lock is currently held, as a non-synchronizing
-    /// query.  The load is `Relaxed`: the answer may be stale by the
-    /// time the caller acts on it, so it only informs diagnostics or
-    /// a try-again hint.
+    /// Whether the lock is currently held, as a non-synchronizing query.
+    /// The `Relaxed` load may be stale by the time the caller acts on it.
     pub fn is_locked(&self) -> bool {
         self.lock_data.load(Ordering::Relaxed) != 0
     }
 
-    /// Acquire the lock, spinning while it is held.  The C
-    /// `simple_lock()` macro.
-    ///
-    /// The outer `swap` is the `xchg` of the C macro: it takes the
-    /// lock and acquires the releasing unlock's publishes.  The inner
-    /// load is its test-and-test-and-set read of the same word and
-    /// may be `Relaxed`, because only the `swap` result decides
-    /// whether the lock was taken.
+    /// Acquire the lock, spinning while it is held.  The `swap` is the
+    /// `xchg` of the C macro and acquires the releasing unlock's publishes;
+    /// the inner load is its test-and-test-and-set read and may be `Relaxed`.
     pub fn lock(&self) {
         while self.lock_data.swap(1, Ordering::AcqRel) != 0 {
             while self.lock_data.load(Ordering::Relaxed) != 0 {
@@ -97,19 +59,15 @@ impl SimpleLock {
         }
     }
 
-    /// Try to acquire the lock, reporting whether it was taken.
-    /// `simple_lock_try()` in C.
-    ///
-    /// Like `lock()`, the `swap` acquires on success.
+    /// `simple_lock_try()` in C.  The `swap` acquires on success, as
+    /// `lock()` does.
     #[must_use]
     pub fn try_lock(&self) -> bool {
         self.lock_data.swap(1, Ordering::AcqRel) == 0
     }
 
-    /// Release the lock.  `simple_unlock()` in C.
-    ///
-    /// The `AcqRel` store publishes everything this critical section
-    /// wrote to the next successful locker.
+    /// `simple_unlock()` in C.  The `AcqRel` store publishes everything
+    /// this critical section wrote to the next successful locker.
     pub fn unlock(&self) {
         self.lock_data.swap(0, Ordering::AcqRel);
     }
@@ -121,22 +79,14 @@ impl Default for SimpleLock {
     }
 }
 
-/// The sleep-capable recursive lock of `kern/lock.h`, layout-identical
-/// to `struct lock`.
-///
-/// The owner, the bitfield word and the interlock are all C reads and
-/// writes; this side reaches them through named accessors and holds
-/// `thread` and `state` in `UnsafeCell` so that mutation through
-/// `&self` under the interlock is sound.  The word packs
-/// `read_count:16, want_upgrade:1, want_write:1, waiting:1,
-/// can_sleep:1, recursion_depth:12`, in that order from the least
-/// significant bit.
+/// The sleep-capable recursive lock of `kern/lock.h`, layout-identical to
+/// `struct lock`.
 ///
 /// # Invariants
 ///
-/// Every field access below happens while the caller holds the
-/// interlock, except the owner written or read at `lock_init()` time,
-/// when the storage is still unshared.
+/// Every field access below happens while the caller holds the interlock,
+/// except the owner written or read at `lock_init()` time, when the storage is
+/// still unshared.
 #[repr(C)]
 pub struct LockData {
     thread: UnsafeCell<*mut c_void>,
@@ -144,11 +94,6 @@ pub struct LockData {
     interlock: SimpleLock,
 }
 
-// The bitfield word is one `unsigned int` on the i386 ABI and the
-// pointer is target-sized, so the layout is pointer + word + interlock
-// on both kernels.  These are `struct lock`'s C sizes; `UnsafeCell` is
-// layout-transparent, so making two fields interior-mutable does not
-// move them.
 #[cfg(target_pointer_width = "64")]
 const _: () = assert!(size_of::<LockData>() == 16);
 #[cfg(target_pointer_width = "32")]
@@ -160,16 +105,12 @@ const _: () = assert!(
         == core::mem::offset_of!(LockData, state) + size_of::<u32>()
 );
 
-/// The `lock_wait_time` of kern/lock.c: pauses before a sleep.  The C
-/// keeps it in a `static` no code writes, so it is a `const` here.
+/// The `lock_wait_time` of kern/lock.c: pauses before a sleep.
 const LOCK_WAIT_TIME: c_int = 100;
 
 /// `(struct thread *)-1`, the owner of a lock no thread owns.
 const NO_THREAD: *mut c_void = ptr::without_provenance_mut(usize::MAX);
 
-// The bitfield packing of `struct lock`, from the least significant
-// bit: read_count:16, want_upgrade:1, want_write:1, waiting:1,
-// can_sleep:1, recursion_depth:12.
 const READ_COUNT_SHIFT: u32 = 0;
 const READ_COUNT_MASK: u32 = 0x0000_ffff;
 const WANT_UPGRADE_SHIFT: u32 = 16;
@@ -184,16 +125,14 @@ const RECURSION_DEPTH_SHIFT: u32 = 20;
 const RECURSION_DEPTH_MASK: u32 = 0x0000_0fff;
 
 impl LockData {
-    /// Initialize a lock in caller storage.  `lock_init()` in C.
+    /// `lock_init()` in C.
     ///
     /// # Safety
     ///
-    /// `lock` must point at writable storage for a [`LockData`] that
-    /// no other thread can see yet.
+    /// `lock` must point at writable storage for a [`LockData`] that no other
+    /// thread can see yet.
     pub(crate) unsafe fn init(lock: *mut Self, can_sleep: bool) {
-        // SAFETY: the caller promises writable, unshared storage.  The
-        // three fields cover the whole structure, as the C `memset`
-        // plus assignments did.
+        // SAFETY: the caller promises writable, unshared storage.
         unsafe {
             addr_of_mut!((*lock).thread)
                 .cast::<*mut c_void>()
@@ -205,18 +144,18 @@ impl LockData {
         }
     }
 
-    /// The raw bitfield word.  The caller holds the interlock.
+    /// The raw bitfield word.
     fn state(&self) -> u32 {
-        // SAFETY: the interlock serializes every access to the word,
-        // and the caller holds it; `state` is `UnsafeCell` so a read
-        // through `&self` is allowed.
+        // SAFETY: the interlock serializes every access to the word, and the
+        // caller holds it; `state` is `UnsafeCell` so a read through `&self`
+        // is allowed.
         unsafe { self.state.get().read() }
     }
 
-    /// Overwrite the bitfield word.  The caller holds the interlock.
+    /// Overwrite the bitfield word.
     fn set_state(&self, word: u32) {
-        // SAFETY: as `state()`; the caller holds the interlock and the
-        // field is interior-mutable.
+        // SAFETY: as `state()`; the caller holds the interlock and the field
+        // is interior-mutable.
         unsafe { self.state.get().write(word) };
     }
 
@@ -226,8 +165,6 @@ impl LockData {
     }
 
     /// Replace the packed field at `shift`, leaving the rest alone.
-    /// The setter narrows to the field, which is the C bitfield's own
-    /// wrap-around on assignment.
     fn set_field(&self, shift: u32, mask: u32, value: u32) {
         let cleared = self.state() & !(mask << shift);
         self.set_state(cleared | ((value & mask) << shift));
@@ -277,11 +214,10 @@ impl LockData {
         self.set_field(RECURSION_DEPTH_SHIFT, RECURSION_DEPTH_MASK, value);
     }
 
-    /// The owner of the lock, the `thread` field.  The caller holds
-    /// the interlock.
+    /// The owner of the lock, the `thread` field.
     fn thread(&self) -> *mut c_void {
-        // SAFETY: the interlock serializes ownership, and the caller
-        // holds it; `thread` is interior-mutable.
+        // SAFETY: the interlock serializes ownership, and the caller holds it;
+        // `thread` is interior-mutable.
         unsafe { self.thread.get().read() }
     }
 
@@ -291,22 +227,19 @@ impl LockData {
         unsafe { self.thread.get().write(owner) };
     }
 
-    /// Whether the calling thread already owns the lock for recursive
-    /// use.
+    /// Whether the calling thread already owns the lock for recursive use.
     fn owned_by_current(&self) -> bool {
         self.thread() == current_thread().cast::<c_void>()
     }
 
-    /// This lock's address, the event every sleeper registers and
-    /// every wakeup names.
+    /// This lock's address, the event every sleeper registers and every wakeup
+    /// names.
     fn event(&self) -> *mut c_void {
         ptr::from_ref(self).cast_mut().cast::<c_void>()
     }
 
     /// The C's bounded spin: release the interlock, pause up to
-    /// `LOCK_WAIT_TIME` times while `cond` holds, then re-take the
-    /// interlock.  The condition is read without the interlock, as the
-    /// C does.
+    /// `LOCK_WAIT_TIME` times while `cond` holds, then re-take the interlock.
     fn pause_until(&self, cond: impl Fn() -> bool) {
         let mut i = LOCK_WAIT_TIME;
         if i > 0 {
@@ -322,13 +255,12 @@ impl LockData {
         }
     }
 
-    /// Set `waiting`, sleep on this lock's address and re-take the
-    /// interlock.  The tail every C sleep loop runs.
+    /// Set `waiting`, sleep on this lock's address and re-take the interlock.
     fn sleep(&self) {
         self.set_waiting(true);
-        // SAFETY: the caller holds the interlock, which
-        // `thread_sleep()` releases before blocking; `self` outlives
-        // the call because the caller owns the lock storage.
+        // SAFETY: the caller holds the interlock, which `thread_sleep()`
+        // releases before blocking; `self` outlives the call because the
+        // caller owns the lock storage.
         unsafe {
             thread_sleep(
                 self.event(),
@@ -339,17 +271,15 @@ impl LockData {
         self.interlock.lock();
     }
 
-    /// Clear `waiting` and wake the sleeper.  The C's
-    /// `l->waiting = FALSE; thread_wakeup(l);`.
+    /// Clear `waiting` and wake the sleeper.
     fn wakeup(&self) {
         self.set_waiting(false);
-        // SAFETY: the event is the address every sleeper registered
-        // with, and the caller holds the interlock.
+        // SAFETY: the event is the address every sleeper registered with, and
+        // the caller holds the interlock.
         unsafe { thread_wakeup_prim(self.event(), 0, THREAD_AWAKENED) };
     }
 
-    /// Acquire the lock for writing, sleeping when the C routine
-    /// would.  `lock_write()` in C.
+    /// `lock_write()` in C.
     pub(crate) fn write(&self) {
         self.interlock.lock();
 
@@ -380,7 +310,7 @@ impl LockData {
         self.interlock.unlock();
     }
 
-    /// Release one level of the lock.  `lock_done()` in C.
+    /// `lock_done()` in C.
     pub(crate) fn done(&self) {
         self.interlock.lock();
 
@@ -394,9 +324,6 @@ impl LockData {
             self.set_want_write(false);
         }
 
-        // There is no reason to wake a waiting thread while the
-        // read-count is non-zero: only a writer waits, and it cannot
-        // proceed until the last reader drops the lock.
         if self.waiting() && self.read_count() == 0 {
             self.wakeup();
         }
@@ -404,8 +331,7 @@ impl LockData {
         self.interlock.unlock();
     }
 
-    /// Acquire the lock for reading, sleeping when the C routine
-    /// would.  `lock_read()` in C.
+    /// `lock_read()` in C.
     pub(crate) fn read(&self) {
         self.interlock.lock();
 
@@ -427,11 +353,7 @@ impl LockData {
         self.interlock.unlock();
     }
 
-    /// Improve a read lock to a write lock.  `lock_read_to_write()` in
-    /// C.
-    ///
-    /// Returns `true` if the upgrade failed; on failure no lock is
-    /// held.  On success the write lock is held.
+    /// `lock_read_to_write()` in C.
     #[must_use]
     pub(crate) fn read_to_write(&self) -> bool {
         self.interlock.lock();
@@ -445,8 +367,6 @@ impl LockData {
         }
 
         if self.want_upgrade() {
-            // Someone else has requested the upgrade; releasing a
-            // reader may let them through.
             if self.waiting() && self.read_count() == 0 {
                 self.wakeup();
             }
@@ -469,8 +389,7 @@ impl LockData {
         false
     }
 
-    /// Downgrade a write lock to a read lock.  `lock_write_to_read()`
-    /// in C.
+    /// `lock_write_to_read()` in C.
     pub(crate) fn write_to_read(&self) {
         self.interlock.lock();
 
@@ -490,7 +409,6 @@ impl LockData {
         self.interlock.unlock();
     }
 
-    /// Try to acquire the lock for writing; `true` if it was taken.
     /// `lock_try_write()` in C.
     #[must_use]
     pub(crate) fn try_write(&self) -> bool {
@@ -512,7 +430,6 @@ impl LockData {
         true
     }
 
-    /// Try to acquire the lock for reading; `true` if it was taken.
     /// `lock_try_read()` in C.
     #[must_use]
     pub(crate) fn try_read(&self) -> bool {
@@ -534,11 +451,7 @@ impl LockData {
         true
     }
 
-    /// Try to improve a read lock to a write lock; `true` on success.
     /// `lock_try_read_to_write()` in C.
-    ///
-    /// The wait loop does not test `can_sleep`, which is the C's own
-    /// behavior.
     #[must_use]
     pub(crate) fn try_read_to_write(&self) -> bool {
         self.interlock.lock();
@@ -565,14 +478,13 @@ impl LockData {
         true
     }
 
-    /// Allow the current thread to acquire the lock recursively, for
-    /// read, write or update.  `lock_set_recursive()` in C.
+    /// `lock_set_recursive()` in C.
     pub(crate) fn set_recursive(&self) {
         self.interlock.lock();
 
         if !self.want_write() {
-            // SAFETY: `Panic` does not return; the message and
-            // arguments are the C `panic()` macro's.
+            // SAFETY: `Panic` does not return; the message and arguments are
+            // the C `panic()` macro's.
             unsafe {
                 glue::Panic(
                     c"kern/lock.c".as_ptr(),
@@ -586,13 +498,12 @@ impl LockData {
         self.interlock.unlock();
     }
 
-    /// Prevent the lock from being re-acquired.  `lock_clear_recursive()`
-    /// in C.
+    /// `lock_clear_recursive()` in C.
     pub(crate) fn clear_recursive(&self) {
         self.interlock.lock();
         if !self.owned_by_current() {
-            // SAFETY: `Panic` does not return; the message and
-            // arguments are the C `panic()` macro's.
+            // SAFETY: `Panic` does not return; the message and arguments are
+            // the C `panic()` macro's.
             unsafe {
                 glue::Panic(
                     c"kern/lock.c".as_ptr(),
@@ -609,45 +520,41 @@ impl LockData {
     }
 }
 
-/// Initialize a lock in caller storage.  `lock_init()` in C.
+/// `lock_init()` in C.
 ///
 /// # Safety
 ///
-/// `lock` must point at writable storage for a [`LockData`] that no
-/// other thread can see yet.
+/// `lock` must point at writable storage for a [`LockData`] that no other
+/// thread can see yet.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn lock_init(lock: *mut LockData, can_sleep: c_int) {
     // SAFETY: the caller promises writable, unshared storage.
     unsafe { LockData::init(lock, can_sleep != 0) };
 }
 
-/// Acquire the lock for writing, sleeping when the C routine would.
 /// `lock_write()` in C.
 ///
 /// # Safety
 ///
-/// `lock` must point at a live [`LockData`]; the interlock is taken
-/// here.
+/// `lock` must point at a live [`LockData`]; the interlock is taken here.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn lock_write(lock: *mut LockData) {
     // SAFETY: the caller promises a live lock.
     unsafe { (*lock).write() };
 }
 
-/// Acquire the lock for reading, sleeping when the C routine would.
 /// `lock_read()` in C.
 ///
 /// # Safety
 ///
-/// `lock` must point at a live [`LockData`]; the interlock is taken
-/// here.
+/// `lock` must point at a live [`LockData`]; the interlock is taken here.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn lock_read(lock: *mut LockData) {
     // SAFETY: the caller promises a live lock.
     unsafe { (*lock).read() };
 }
 
-/// Release one level of the lock.  `lock_done()` in C.
+/// `lock_done()` in C.
 ///
 /// # Safety
 ///
@@ -658,9 +565,7 @@ pub unsafe extern "C" fn lock_done(lock: *mut LockData) {
     unsafe { (*lock).done() };
 }
 
-/// Improve a read lock to a write lock.  `lock_read_to_write()` in C.
-///
-/// Returns `true` if the upgrade failed; on failure no lock is held.
+/// `lock_read_to_write()` in C.
 ///
 /// # Safety
 ///
@@ -672,27 +577,22 @@ pub unsafe extern "C" fn lock_read_to_write(lock: *mut LockData) -> c_int {
     c_int::from(unsafe { (*lock).read_to_write() })
 }
 
-/// Downgrade a write lock to a read lock.  `lock_write_to_read()` in
-/// C.
+/// `lock_write_to_read()` in C.
 ///
 /// # Safety
 ///
-/// `lock` must point at a live [`LockData`] the caller holds for
-/// write.
+/// `lock` must point at a live [`LockData`] the caller holds for write.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn lock_write_to_read(lock: *mut LockData) {
     // SAFETY: the caller promises a live lock it holds for write.
     unsafe { (*lock).write_to_read() };
 }
 
-/// Try to acquire the lock for writing.  `lock_try_write()` in C.
-///
-/// Returns `true` if the lock is held on return.
+/// `lock_try_write()` in C.
 ///
 /// # Safety
 ///
-/// `lock` must point at a live [`LockData`]; the interlock is taken
-/// here.
+/// `lock` must point at a live [`LockData`]; the interlock is taken here.
 #[unsafe(no_mangle)]
 #[must_use]
 pub unsafe extern "C" fn lock_try_write(lock: *mut LockData) -> c_int {
@@ -700,14 +600,11 @@ pub unsafe extern "C" fn lock_try_write(lock: *mut LockData) -> c_int {
     c_int::from(unsafe { (*lock).try_write() })
 }
 
-/// Try to acquire the lock for reading.  `lock_try_read()` in C.
-///
-/// Returns `true` if the lock is held on return.
+/// `lock_try_read()` in C.
 ///
 /// # Safety
 ///
-/// `lock` must point at a live [`LockData`]; the interlock is taken
-/// here.
+/// `lock` must point at a live [`LockData`]; the interlock is taken here.
 #[unsafe(no_mangle)]
 #[must_use]
 pub unsafe extern "C" fn lock_try_read(lock: *mut LockData) -> c_int {
@@ -715,10 +612,7 @@ pub unsafe extern "C" fn lock_try_read(lock: *mut LockData) -> c_int {
     c_int::from(unsafe { (*lock).try_read() })
 }
 
-/// Try to improve a read lock to a write lock.
 /// `lock_try_read_to_write()` in C.
-///
-/// Returns `true` on success, the C code's own boolean.
 ///
 /// # Safety
 ///
@@ -730,34 +624,30 @@ pub unsafe extern "C" fn lock_try_read_to_write(lock: *mut LockData) -> c_int {
     c_int::from(unsafe { (*lock).try_read_to_write() })
 }
 
-/// Allow the current thread to acquire the lock recursively.
 /// `lock_set_recursive()` in C.
 ///
 /// # Safety
 ///
-/// `lock` must point at a live [`LockData`] the caller holds for
-/// write.
+/// `lock` must point at a live [`LockData`] the caller holds for write.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn lock_set_recursive(lock: *mut LockData) {
     // SAFETY: the caller promises a live lock it holds for write.
     unsafe { (*lock).set_recursive() };
 }
 
-/// Prevent the lock from being re-acquired.  `lock_clear_recursive()`
-/// in C.
+/// `lock_clear_recursive()` in C.
 ///
 /// # Safety
 ///
-/// `lock` must point at a live [`LockData`] the caller holds, and the
-/// current thread must be its recursive owner.
+/// `lock` must point at a live [`LockData`] the caller holds, and the current
+/// thread must be its recursive owner.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn lock_clear_recursive(lock: *mut LockData) {
     // SAFETY: the caller promises a live lock it holds.
     unsafe { (*lock).clear_recursive() };
 }
 
-/// Acquire a simple lock, spinning while it is held.  The machine
-/// half of the C `simple_lock()` macro.
+/// Acquire a simple lock, spinning while it is held.
 ///
 /// # Safety
 ///
@@ -768,8 +658,7 @@ pub unsafe extern "C" fn mach_simple_lock(lock: *mut SimpleLock) {
     unsafe { (*lock).lock() };
 }
 
-/// Release a simple lock.  The machine half of the C
-/// `simple_unlock()` macro.
+/// Release a simple lock.
 ///
 /// # Safety
 ///
@@ -780,11 +669,7 @@ pub unsafe extern "C" fn mach_simple_unlock(lock: *mut SimpleLock) {
     unsafe { (*lock).unlock() };
 }
 
-/// Try to acquire a simple lock.  The machine half of the C
-/// `simple_lock_try()` macro.
-///
-/// Returns the C boolean the macro produces, nonzero when the lock
-/// was taken.
+/// Try to acquire a simple lock.
 ///
 /// # Safety
 ///

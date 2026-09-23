@@ -4,22 +4,13 @@
 //   Copyright (c) 1991,1990,1989,1988,1987 Carnegie Mellon University.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! VM scalar and handle types, from `mach/vm_prot.h`, `vm_inherit.h`
-//! and the VM headers' opaque pointers.
-//!
-//! `vm_offset_t` and `vm_size_t` are `arch::types`', because they are
-//! pointer-sized and the machine decides, and the page geometry is
-//! `arch::vm_param`'s for the same reason.
+//! VM scalar and handle types, from `mach/vm_prot.h`, `vm_inherit.h` and the
+//! VM headers' opaque pointers.
 
 pub(crate) use crate::arch::vm_param::{PAGE_MASK, PAGE_SHIFT, PAGE_SIZE};
 use core::ffi::c_int;
 
 /// `vm_prot_t` of <mach/vm_prot.h>: a set of bits.
-///
-/// `#[repr(transparent)]`, so it keeps the ABI of the `c_int` it
-/// wraps.  This definition moved here from `kern/elf_load.rs`, which
-/// uses it for `PT_GNU_STACK`; the VM map uses it for entry
-/// protections.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct VmProt(c_int);
@@ -45,9 +36,7 @@ impl VmProt {
         self.0
     }
 
-    /// A protection value from the C side.  Bits outside `ALL` are
-    /// kept: `VM_PROT_NO_CHANGE` and `VM_PROT_NOTIFY` are defined on
-    /// top of this type by their users.
+    /// A protection value from the C side.
     pub const fn from_bits(bits: c_int) -> Self {
         Self(bits)
     }

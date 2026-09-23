@@ -4,20 +4,10 @@
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! The `io_return_t` codes of <device/device_types.h>.
-//!
-//! C spelled every device result as an `int`: the success code, the
-//! "request queued" code, or one of ten errors, in the same domain as
-//! `kern_return_t`.  [`IoResult`] is that three-way result, and
-//! [`IoResultExt`] is the only place that turns it back into the `int`
-//! the `extern "C"` device entries return.
 
 use core::ffi::c_int;
 
-/// A failed device operation, as the `D_*` codes of
-/// <device/device_types.h>.
-///
-/// The C called all of these `io_return_t`, in the same domain as
-/// `kern_return_t`; only the codes below are device errors.
+/// A failed device operation, as the `D_*` codes of <device/device_types.h>.
 #[repr(i32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DeviceError {
@@ -43,40 +33,28 @@ pub enum DeviceError {
     ReadOnly = 2509,
 }
 
-/// A completed device operation, as the `D_SUCCESS` and `D_IO_QUEUED`
-/// codes of <device/device_types.h>.
-///
-/// The C spelled both of these as the same `io_return_t` integer, in
-/// the same domain as `kern_return_t`.
+/// A completed device operation, as the `D_SUCCESS` and `D_IO_QUEUED` codes of
+/// <device/device_types.h>.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DeviceSuccess {
-    /// `D_SUCCESS`: the operation completed, and the caller owns the
-    /// result.
+    /// `D_SUCCESS`: the operation completed, and the caller owns the result.
     Success,
-    /// `D_IO_QUEUED`: the request is queued and the driver completes
-    /// it, so the caller must not.
+    /// `D_IO_QUEUED`: the request is queued and the driver completes it, so
+    /// the caller must not.
     IoQueued,
 }
 
 /// The result of a device operation, the Rust form of `io_return_t`.
-///
-/// [`DeviceSuccess::Success`] is `D_SUCCESS`.
-/// [`DeviceSuccess::IoQueued`] is `D_IO_QUEUED`.  `Err` carries the
-/// [`DeviceError`] the C returned as a code.
 pub type IoResult = Result<DeviceSuccess, DeviceError>;
 
 /// The C-shaped edge of [`IoResult`]: the two conversions between the
-/// `io_return_t` an `extern "C"` device entry returns and the result
-/// the core logic works in.
+/// `io_return_t` an `extern "C"` device entry returns and the result the core
+/// logic works in.
 pub trait IoResultExt {
     /// Hand the [`IoResult`] back to C as an `io_return_t`.
     fn as_io_return(&self) -> c_int;
 
     /// The [`IoResult`] a C `io_return_t` denotes.
-    ///
-    /// [`None`] means `code` is outside the device codes: it is a
-    /// `kern_return_t` the C passed through, and the caller keeps it
-    /// raw rather than inventing a device error for it.
     fn from_io_return(code: c_int) -> Option<Self>
     where
         Self: Sized;

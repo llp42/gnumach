@@ -5,13 +5,8 @@
 //   Systems Laboratory (CSL).
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! The four port-right server routines, which `ipc/mach_port.c` used
-//! to define and `ipc/mach_port.h` belongs to.
-//!
-//! Their prototypes are frozen in the generated
-//! `ipc/mach_port.server.h`, so the MIG server goes on calling the same
-//! symbol names.  The rest of `ipc/mach_port.c` stays C until its space
-//! and right locks have Rust homes.
+//! The four port-right server routines, which `ipc/mach_port.c` used to define
+//! and `ipc/mach_port.h` belongs to.
 
 use crate::glue;
 use crate::ipc::ipc_object::ipc_object_copyin_type;
@@ -19,8 +14,8 @@ use crate::ipc::{IpcPort, IpcSpace};
 use crate::kern::types::KernError;
 use core::ffi::{c_int, c_uint, c_void};
 
-/// `MACH_PORT_NAME_VALID(name)` of <mach/port.h>: a name is valid when
-/// it is neither null nor dead.
+/// `MACH_PORT_NAME_VALID(name)` of <mach/port.h>: a name is valid when it is
+/// neither null nor dead.
 const fn port_name_valid(name: c_uint) -> bool {
     name != 0 && name != c_uint::MAX
 }
@@ -30,39 +25,34 @@ const MOVE_RECEIVE: c_uint = 16;
 /// `MACH_MSG_TYPE_MOVE_SEND_ONCE`: the last name
 /// `MACH_MSG_TYPE_PORT_ANY_RIGHT` accepts.
 const MOVE_SEND_ONCE: c_uint = 18;
-/// `MACH_MSG_TYPE_MAKE_SEND_ONCE`: the last name
-/// `MACH_MSG_TYPE_PORT_ANY` accepts.
+/// `MACH_MSG_TYPE_MAKE_SEND_ONCE`: the last name `MACH_MSG_TYPE_PORT_ANY`
+/// accepts.
 const MAKE_SEND_ONCE: c_uint = 21;
 
 /// `MACH_PORT_RIGHT_RECEIVE` of <mach/port.h>: the right
 /// `ipc_port_translate_receive` asks `ipc_object_translate` for.
 const MACH_PORT_RIGHT_RECEIVE: c_uint = 1;
 
-/// `MACH_NOTIFY_PORT_DESTROYED` of <mach/notify.h>: `MACH_NOTIFY_FIRST
-/// + 5`, a receive right was deallocated.
+/// `MACH_NOTIFY_PORT_DESTROYED` of <mach/notify.h>: `MACH_NOTIFY_FIRST + 5`, a
+/// receive right was deallocated.
 const MACH_NOTIFY_PORT_DESTROYED: c_int = 0o100 + 5;
-/// `MACH_NOTIFY_NO_SENDERS` of <mach/notify.h>: `MACH_NOTIFY_FIRST +
-/// 6`, a receive right has no extant send rights.
+/// `MACH_NOTIFY_NO_SENDERS` of <mach/notify.h>: `MACH_NOTIFY_FIRST + 6`, a
+/// receive right has no extant send rights.
 const MACH_NOTIFY_NO_SENDERS: c_int = 0o100 + 6;
-/// `MACH_NOTIFY_DEAD_NAME` of <mach/notify.h>: `MACH_NOTIFY_FIRST +
-/// 010`, a send or send-once right died, leaving a dead name.
+/// `MACH_NOTIFY_DEAD_NAME` of <mach/notify.h>: `MACH_NOTIFY_FIRST + 010`, a
+/// send or send-once right died, leaving a dead name.
 const MACH_NOTIFY_DEAD_NAME: c_int = 0o100 + 0o10;
 
-/// `IO_DEAD` of <ipc/ipc_object.h>: the dead-object pointer, all bits
-/// set.
+/// `IO_DEAD` of <ipc/ipc_object.h>: the dead-object pointer, all bits set.
 const IO_DEAD: *mut c_void = usize::MAX as *mut c_void;
 
-/// `IO_VALID(io)` of <ipc/ipc_object.h>: an object is valid when it is
-/// neither null nor dead.
+/// `IO_VALID(io)` of <ipc/ipc_object.h>: an object is valid when it is neither
+/// null nor dead.
 fn io_valid(object: *mut c_void) -> bool {
     !object.is_null() && !core::ptr::eq(object, IO_DEAD)
 }
 
 /// The [`KernError`] a C `kern_return_t` stands for.
-///
-/// A `kern_return_t` is an `int`, and every code this module receives
-/// fits a byte; one that does not cannot name a defined error and
-/// becomes [`KernError::Failure`].
 fn kern_error(code: c_int) -> Result<(), KernError> {
     match u8::try_from(code) {
         Ok(code) => KernError::from_u8(code),
@@ -70,11 +60,7 @@ fn kern_error(code: c_int) -> Result<(), KernError> {
     }
 }
 
-/// Changes the name denoting a right, from `oname` to `nname`.
 /// `mach_port_rename()` in C.
-///
-/// `None` is the C `IS_NULL`, and the checks run in the C order: the
-/// null space first, then the new name, then the callee.
 fn rename(
     space: Option<IpcSpace>,
     oname: c_uint,
@@ -88,19 +74,14 @@ fn rename(
         return Err(KernError::InvalidValue);
     }
 
-    // SAFETY: the adapter's caller promises a live space, and the two
-    // names are plain values; `ipc_object_rename` takes no reference.
+    // SAFETY: the adapter's caller promises a live space, and the two names
+    // are plain values; `ipc_object_rename` takes no reference.
     kern_error(unsafe {
         glue::ipc_object_rename(space.as_ptr(), oname, nname)
     })
 }
 
-/// Inserts a right into a space under a specific `name`.
 /// `mach_port_insert_right()` in C.
-///
-/// `poly` must be a live object, not `IO_NULL` or `IO_DEAD`, and
-/// `poly_poly` one of the three move names, 16 through 18.  `None` is
-/// the C `IS_NULL`, and the checks run in the C order.
 fn insert_right(
     space: Option<IpcSpace>,
     name: c_uint,
@@ -111,8 +92,6 @@ fn insert_right(
         return Err(KernError::InvalidTask);
     };
 
-    // `MACH_PORT_NAME_VALID(name)` and `MACH_MSG_TYPE_PORT_ANY_RIGHT`,
-    // which is the name range 16 through 18.
     if !port_name_valid(name)
         || !(MOVE_RECEIVE..=MOVE_SEND_ONCE).contains(&poly_poly)
     {
@@ -123,22 +102,15 @@ fn insert_right(
         return Err(KernError::InvalidCapability);
     }
 
-    // SAFETY: the adapter's caller promises a live space; `poly` is
-    // valid by the check above, and on success
-    // `ipc_object_copyout_name` consumes one reference to it, which
-    // the caller owns.  The zero is the C `FALSE` for `overflow`.
+    // SAFETY: the adapter's caller promises a live space; `poly` is valid by
+    // the check above, and on success `ipc_object_copyout_name` consumes one
+    // reference to it, which the caller owns.
     kern_error(unsafe {
         glue::ipc_object_copyout_name(space.as_ptr(), poly, poly_poly, 0, name)
     })
 }
 
-/// Extracts a right from a space, as if the space voluntarily sent it.
 /// `mach_port_extract_right()` in C.
-///
-/// On success the returned object owns the reference
-/// `ipc_object_copyin` acquired, and the returned name is the type the
-/// receiver ends up holding.  `None` is the C `IS_NULL`, and the checks
-/// run in the C order.
 fn extract_right(
     space: Option<IpcSpace>,
     name: c_uint,
@@ -148,40 +120,29 @@ fn extract_right(
         return Err(KernError::InvalidTask);
     };
 
-    // `MACH_MSG_TYPE_PORT_ANY`, the six names 16 through 21.
     if !(MOVE_RECEIVE..=MAKE_SEND_ONCE).contains(&msgt_name) {
         return Err(KernError::InvalidValue);
     }
 
     let mut object: *mut c_void = core::ptr::null_mut();
-    // SAFETY: the adapter's caller promises a live space; the name is
-    // a plain value and the out-pointer is this live local.
+    // SAFETY: the adapter's caller promises a live space; the name is a plain
+    // value and the out-pointer is this live local.
     kern_error(unsafe {
         glue::ipc_object_copyin(space.as_ptr(), name, msgt_name, &mut object)
     })?;
 
-    // The range check above is what makes the name one the conversion
-    // accepts; `ipc_object_copyin_type` would halt on any other.
     Ok((object, ipc_object_copyin_type(msgt_name)))
 }
 
-/// Looks up the receive right `name` denotes in `space`.
 /// The `ipc_port_translate_receive()` macro of <ipc/ipc_port.h> in C.
-///
-/// On success the port is returned locked and active; the caller then
-/// owns the unlock, which the notification registration performs.
 fn translate_receive(
     space: IpcSpace,
     name: c_uint,
 ) -> Result<*mut c_void, KernError> {
     let mut port: *mut c_void = core::ptr::null_mut();
 
-    // The C macro `ipc_port_translate_receive` expands to
-    // `ipc_object_translate` with `MACH_PORT_RIGHT_RECEIVE`; a macro
-    // cannot cross FFI, so the real symbol is called with the
-    // constant.
-    // SAFETY: the caller promises a live space; `name` is a plain
-    // value and the out-pointer is this live local.
+    // SAFETY: the caller promises a live space; `name` is a plain value and
+    // the out-pointer is this live local.
     kern_error(unsafe {
         glue::ipc_object_translate(
             space.as_ptr(),
@@ -194,12 +155,7 @@ fn translate_receive(
     Ok(port)
 }
 
-/// Requests one of the three notification registrations on a port
-/// right.  `mach_port_request_notification()` in C.
-///
-/// On success the returned port is the previously registered send-once
-/// right, if any, which the request replaced.  [`None`] is the C
-/// `IP_NULL`, and the checks run in the C order.
+/// `mach_port_request_notification()` in C.
 fn request_notification(
     space: Option<IpcSpace>,
     name: c_uint,
@@ -224,9 +180,9 @@ fn request_notification(
             let port = translate_receive(space, name)?;
 
             let mut previous: *mut c_void = core::ptr::null_mut();
-            // SAFETY: `translate_receive` returned the live, locked
-            // port; `ipc_port_pdrequest` owns the unlock and writes
-            // the previous send-once right to this live local.
+            // SAFETY: `translate_receive` returned the live, locked port;
+            // `ipc_port_pdrequest` owns the unlock and writes the previous
+            // send-once right to this live local.
             unsafe { glue::ipc_port_pdrequest(port, notify, &mut previous) };
 
             Ok(IpcPort::new(previous))
@@ -235,9 +191,9 @@ fn request_notification(
             let port = translate_receive(space, name)?;
 
             let mut previous: *mut c_void = core::ptr::null_mut();
-            // SAFETY: `translate_receive` returned the live, locked
-            // port; `ipc_port_nsrequest` owns the unlock and writes
-            // the previous send-once right to this live local.
+            // SAFETY: `translate_receive` returned the live, locked port;
+            // `ipc_port_nsrequest` owns the unlock and writes the previous
+            // send-once right to this live local.
             unsafe {
                 glue::ipc_port_nsrequest(port, sync, notify, &mut previous)
             };
@@ -246,10 +202,9 @@ fn request_notification(
         }
         MACH_NOTIFY_DEAD_NAME => {
             let mut previous: *mut c_void = core::ptr::null_mut();
-            // SAFETY: the caller promises a live space; the name,
-            // flag and notify port are plain values; this live local
-            // is the out-slot `ipc_right_dnrequest` writes on success
-            // only.
+            // SAFETY: the caller promises a live space; the name, flag and
+            // notify port are plain values; this live local is the out-slot
+            // `ipc_right_dnrequest` writes on success only.
             kern_error(unsafe {
                 glue::ipc_right_dnrequest(
                     space.as_ptr(),
@@ -274,7 +229,6 @@ fn kern_return(result: Result<(), KernError>) -> c_int {
     }
 }
 
-/// Changes the name denoting a right.
 /// `mach_port_rename()` in C.
 ///
 /// # Safety
@@ -289,14 +243,13 @@ pub unsafe extern "C" fn mach_port_rename(
     kern_return(rename(IpcSpace::new(task), old_name, new_name))
 }
 
-/// Inserts a right into a space under a specific name.
 /// `mach_port_insert_right()` in C.
 ///
 /// # Safety
 ///
-/// `task` must be null or a live `ipc_space`, and `poly` must be
-/// `IO_NULL`, `IO_DEAD` or a live `ipc_object` the caller holds one
-/// reference to, which the call consumes on success.
+/// `task` must be null or a live `ipc_space`, and `poly` must be `IO_NULL`,
+/// `IO_DEAD` or a live `ipc_object` the caller holds one reference to, which
+/// the call consumes on success.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mach_port_insert_right(
     task: *mut c_void,
@@ -307,15 +260,12 @@ pub unsafe extern "C" fn mach_port_insert_right(
     kern_return(insert_right(IpcSpace::new(task), name, poly, poly_poly))
 }
 
-/// Extracts a right from a space, as if the space voluntarily sent it.
 /// `mach_port_extract_right()` in C.
 ///
 /// # Safety
 ///
-/// `task` must be null or a live `ipc_space`; `poly` must be writable
-/// storage for one object pointer and `poly_poly` for one type name.
-/// Both are written only on success, when `poly` takes the reference
-/// `ipc_object_copyin` acquired.
+/// `task` must be null or a live `ipc_space`; `poly` must be writable storage
+/// for one object pointer and `poly_poly` for one type name.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mach_port_extract_right(
     task: *mut c_void,
@@ -326,8 +276,8 @@ pub unsafe extern "C" fn mach_port_extract_right(
 ) -> c_int {
     match extract_right(IpcSpace::new(task), name, msgt_name) {
         Ok((object, received)) => {
-            // SAFETY: the caller promises both out-pointers are
-            // writable; this is the success path the C writes on.
+            // SAFETY: the caller promises both out-pointers are writable; this
+            // is the success path the C writes on.
             unsafe {
                 poly.write(object);
                 poly_poly.write(received);
@@ -338,14 +288,13 @@ pub unsafe extern "C" fn mach_port_extract_right(
     }
 }
 
-/// Requests one of the three notification registrations on a port
-/// right.  `mach_port_request_notification()` in C.
+/// `mach_port_request_notification()` in C.
 ///
 /// # Safety
 ///
-/// `task` must be null or a live `ipc_space`; `notify` must be
-/// `IP_NULL`, `IP_DEAD` or a live `ipc_port`; and `previous` must be
-/// writable storage for one port pointer, written only on success.
+/// `task` must be null or a live `ipc_space`; `notify` must be `IP_NULL`,
+/// `IP_DEAD` or a live `ipc_port`; and `previous` must be writable storage for
+/// one port pointer, written only on success.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mach_port_request_notification(
     task: *mut c_void,
@@ -360,8 +309,8 @@ pub unsafe extern "C" fn mach_port_request_notification(
             let previous_port =
                 previous_port.map_or(core::ptr::null_mut(), IpcPort::as_ptr);
 
-            // SAFETY: the caller promises `previous` is writable; this
-            // is the success path the C writes on.
+            // SAFETY: the caller promises `previous` is writable; this is the
+            // success path the C writes on.
             unsafe { previous.write(previous_port) };
 
             0

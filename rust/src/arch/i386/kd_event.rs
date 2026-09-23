@@ -5,19 +5,7 @@
 //   Copyright 1988, 1989 by Olivetti Advanced Technology Center, Inc.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! The keyboard event driver, which `i386/i386at/kd_event.c` used to
-//! define.
-//!
-//! `/dev/kbd` is fed by `kd.c`, which calls `kd_enqsc()` for every scan
-//! code when the keyboard is in Event mode; `kbdread()` drains the
-//! events to the reader.  The file also carries the `X_kdb` port-I/O
-//! escape used by `cnpollc()`: the caller installs a list of in/out
-//! commands with `kbdsetstat()`, and `x_kdb_enter()`/`x_kdb_exit()`
-//! replay them.
-//!
-//! The queue and the device entry points run at `SPLKD` (`spltty`),
-//! like the C file's globals.  `i386/i386at/kd.c` calls `x_kdb_enter()`
-//! and `x_kdb_exit()`, and `conf.c` keeps the four device entries.
+//! The keyboard event driver, which `i386/i386at/kd_event.c` used to define.
 
 use super::io_req::{
     D_NOWAIT, DEV_GET_SIZE, DEV_GET_SIZE_COUNT, DEV_GET_SIZE_DEVICE_SIZE,
@@ -37,19 +25,16 @@ use core::pin::Pin;
 use core::ptr::{self, NonNull};
 use core::sync::atomic::{AtomicBool, Ordering};
 
-/// `sizeof x_kdb_enter_str / sizeof x_kdb_enter_str[0]` in C: the most
-/// port commands `x_kdb_enter_init()` accepts.
+/// `sizeof x_kdb_enter_str / sizeof x_kdb_enter_str[0]` in C: the most port
+/// commands `x_kdb_enter_init()` accepts.
 const KDB_STR_MAX: usize = 512;
 
-// The keyboard ioctls of <device/input.h>, whose `_IOW`/`_IOR` values
-// are computed there; `sizeof(int)` is four on both targets.
 const KDSKBDMODE: c_uint = 0x8004_4b01;
 const KDGKBDTYPE: c_uint = 0x4004_4b02;
 const KDSETLEDS: c_uint = 0x8004_4b05;
 const KB_ASCII: c_int = 2;
 const KB_VANILLAKB: c_int = 0;
 
-// The `X_kdb` command bits of <i386at/kd.h>.
 const K_X_IN: c_uint = 0x0100_0000;
 const K_X_OUT: c_uint = 0x0200_0000;
 const K_X_BYTE: c_uint = 0x0001_0000;
@@ -58,8 +43,6 @@ const K_X_LONG: c_uint = 0x0004_0000;
 const K_X_TYPE: c_uint = 0x0307_0000;
 const K_X_PORT: c_uint = 0x0000_ffff;
 
-// Match patterns cannot be built with `|` (that is alternation), so the
-// six kinds are spelled out.
 const K_X_IN_BYTE: c_uint = K_X_IN | K_X_BYTE;
 const K_X_IN_WORD: c_uint = K_X_IN | K_X_WORD;
 const K_X_IN_LONG: c_uint = K_X_IN | K_X_LONG;
@@ -67,9 +50,6 @@ const K_X_OUT_BYTE: c_uint = K_X_OUT | K_X_BYTE;
 const K_X_OUT_WORD: c_uint = K_X_OUT | K_X_WORD;
 const K_X_OUT_LONG: c_uint = K_X_OUT | K_X_LONG;
 
-// `K_X_KDB_ENTER`/`EXIT` carry `sizeof(struct X_kdb)` in the ioctl
-// length field, and that is a pointer plus an `u_int`: 8 bytes on i686,
-// 16 on x86_64.
 #[cfg(target_pointer_width = "32")]
 const K_X_KDB_ENTER: c_uint = 0x8008_4b10;
 #[cfg(target_pointer_width = "32")]
@@ -109,32 +89,29 @@ impl State {
 static STATE: crate::arch::i386::kd::SyncCell<State> =
     crate::arch::i386::kd::SyncCell(UnsafeCell::new(State::new()));
 
-/// The one state object.  Callers must hold `SPLKD`, which serializes
-/// every use, and must not hold the reference across a call that could
-/// re-enter the driver.
+/// The one state object.
 fn state() -> &'static mut State {
     // SAFETY: the driver runs at SPLKD; nothing else accesses `STATE`.
     unsafe { &mut *STATE.0.get() }
 }
 
-/// The read queue head, self-linked on first use.  Callers hold `SPLKD`.
+/// The read queue head, self-linked on first use.
 fn read_queue(s: &mut State) -> Pin<&mut QueueEntry> {
     let p = ptr::addr_of_mut!(s.read_queue).cast::<QueueEntry>();
     if !s.read_queue_ready {
-        // SAFETY: `p` points at this state's `QueueEntry` storage, and
-        // this is the first use; nothing else can reach it at SPLKD.
+        // SAFETY: `p` points at this state's `QueueEntry` storage, and this is
+        // the first use; nothing else can reach it at SPLKD.
         unsafe {
             QueueEntry::pin_in_place(NonNull::new_unchecked(p)).init_head();
         }
         s.read_queue_ready = true;
     }
-    // SAFETY: as above; the storage is initialized and at a fixed
-    // address.
+    // SAFETY: as above; the storage is initialized and at a fixed address.
     unsafe { QueueEntry::pin_in_place(NonNull::new_unchecked(p)) }
 }
 
-/// `printf_once("kbd: queue full\n")` in C: prints the first time a
-/// full queue drops an event, then never again.
+/// `printf_once("kbd: queue full\n")` in C: prints the first time a full queue
+/// drops an event, then never again.
 fn printf_once() {
     static PRINTED: AtomicBool = AtomicBool::new(false);
     if !PRINTED.swap(true, Ordering::Relaxed) {
@@ -143,8 +120,7 @@ fn printf_once() {
     }
 }
 
-/// Enqueue `ev` and complete any reads waiting for data.  Called at
-/// `SPLKD`.
+/// Enqueue `ev` and complete any reads waiting for data.
 fn enqueue_event(s: &mut State, ev: &KdEvent) {
     if s.queue.is_full() {
         printf_once();
@@ -155,9 +131,8 @@ fn enqueue_event(s: &mut State, ev: &KdEvent) {
         // SAFETY: the queue is self-consistent and this runs at SPLKD.
         let entry = unsafe { read_queue(s).pop_front() };
         match entry {
-            // SAFETY: each link is an `io_req` (its chain is the first
-            // field), still owned by the device layer and valid for
-            // `iodone()`.
+            // SAFETY: each link is an `io_req` (its chain is the first field),
+            // still owned by the device layer and valid for `iodone()`.
             Some(entry) => unsafe { glue::iodone(entry.as_ptr().cast()) },
             None => break,
         }
@@ -175,8 +150,7 @@ fn kbdinit() {
     unsafe { glue::splx(sp) };
 }
 
-/// `kdb_in_out()` in C: run one `X_kdb` command, whose second word is
-/// `p1`.
+/// `kdb_in_out()` in C: run one `X_kdb` command, whose second word is `p1`.
 fn kdb_in_out(p0: c_uint, p1: c_uint) {
     let port = (p0 & K_X_PORT) as u16;
     match p0 & K_X_TYPE {
@@ -196,7 +170,7 @@ fn kdb_in_out(p0: c_uint, p1: c_uint) {
     }
 }
 
-/// Open the keyboard.  `kbdopen()` in C.
+/// `kbdopen()` in C.
 ///
 /// # Safety
 ///
@@ -215,8 +189,7 @@ pub unsafe extern "C" fn kbdopen(
     Ok(DeviceSuccess::Success).as_io_return()
 }
 
-/// Close the keyboard: back to Ascii mode, empty queue.  `kbdclose()`
-/// in C.
+/// `kbdclose()` in C.
 ///
 /// # Safety
 ///
@@ -224,18 +197,17 @@ pub unsafe extern "C" fn kbdopen(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kbdclose(_dev: DevT, _flags: c_int) {
     let sp = unsafe { glue::spltty() };
-    // The mode is kd's, now that the keyboard driver is Rust.
     crate::arch::i386::kd::set_kb_mode(KB_ASCII);
     state().queue.clear();
     unsafe { glue::splx(sp) };
 }
 
-/// Device status query.  `kbdgetstat()` in C.
+/// `kbdgetstat()` in C.
 ///
 /// # Safety
 ///
-/// The device layer calls this with `data` able to hold the value the
-/// flavor asks for and a valid `count`.
+/// The device layer calls this with `data` able to hold the value the flavor
+/// asks for and a valid `count`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kbdgetstat(
     _dev: DevT,
@@ -264,12 +236,12 @@ pub unsafe extern "C" fn kbdgetstat(
     }
 }
 
-/// Device status set.  `kbdsetstat()` in C.
+/// `kbdsetstat()` in C.
 ///
 /// # Safety
 ///
-/// The device layer calls this with `data` holding `count` values for
-/// the flavor.
+/// The device layer calls this with `data` holding `count` values for the
+/// flavor.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kbdsetstat(
     _dev: DevT,
@@ -285,8 +257,8 @@ pub unsafe extern "C" fn kbdsetstat(
         if count != 1 {
             return Err(DeviceError::InvalidOperation).as_io_return();
         }
-        // SAFETY: `count == 1` promises one readable value; kd
-        // truncates to the `u_char` the C passed.
+        // SAFETY: `count == 1` promises one readable value; kd truncates to
+        // the `u_char` the C passed.
         let val = unsafe { *data };
         crate::arch::i386::kd::keyboard::set_leds1(val as u8);
         Ok(DeviceSuccess::Success).as_io_return()
@@ -301,13 +273,12 @@ pub unsafe extern "C" fn kbdsetstat(
     }
 }
 
-/// Read queued events.  `kbdread()` in C.
+/// `kbdread()` in C.
 ///
 /// # Safety
 ///
-/// The device layer calls this with a valid, read-only request whose
-/// buffer `device_read_alloc()` may allocate; everything else runs at
-/// `SPLKD`.
+/// The device layer calls this with a valid, read-only request whose buffer
+/// `device_read_alloc()` may allocate; everything else runs at `SPLKD`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kbdread(_dev: DevT, ior: *mut IoReq) -> c_int {
     let wanted = unsafe { (*ior).count() };
@@ -317,8 +288,6 @@ pub unsafe extern "C" fn kbdread(_dev: DevT, ior: *mut IoReq) -> c_int {
     // SAFETY: the request is the caller's, as the C assumed.
     let err = unsafe { glue::device_read_alloc(ior.cast(), wanted as usize) };
     if err != KERN_SUCCESS {
-        // `err` is a `kern_return_t` from `device_read_alloc()`, not a
-        // device code; pass it through unchanged.
         return err;
     }
     let s = state();
@@ -330,8 +299,8 @@ pub unsafe extern "C" fn kbdread(_dev: DevT, ior: *mut IoReq) -> c_int {
             return Err(DeviceError::WouldBlock).as_io_return();
         }
         unsafe { (*ior).set_done(kbd_read_done) };
-        // SAFETY: `io_req`'s chain is its first field, and it stays at
-        // its address until `iodone()`.
+        // SAFETY: `io_req`'s chain is its first field, and it stays at its
+        // address until `iodone()`.
         let entry = unsafe { (*ior).queue_entry() };
         // SAFETY: the read queue is this state's, at SPLKD.
         unsafe { read_queue(s).push_back(entry) };
@@ -344,7 +313,6 @@ pub unsafe extern "C" fn kbdread(_dev: DevT, ior: *mut IoReq) -> c_int {
     Ok(DeviceSuccess::Success).as_io_return()
 }
 
-/// Finish a read that was queued waiting for events.
 /// `kbd_read_done()` in C, as a callback value.
 unsafe extern "C" fn kbd_read_done(ior: *mut IoReq) -> c_int {
     let s = state();
@@ -366,13 +334,12 @@ unsafe extern "C" fn kbd_read_done(ior: *mut IoReq) -> c_int {
     1
 }
 
-/// Enqueue a scancode.  `kd_enqsc()` in C; called at `SPLKD` from the
-/// kd interrupt path.
+/// `kd_enqsc()` in C; called at `SPLKD` from the kd interrupt path.
 pub(crate) fn kd_enqsc(sc: Scancode) {
     enqueue_event(state(), &KdEvent::scancode(sc));
 }
 
-/// Replay the `x_kdb_enter` port commands.  `x_kdb_enter()` in C.
+/// `x_kdb_enter()` in C.
 pub(crate) fn x_kdb_enter() {
     let s = state();
     let len = s.x_kdb_enter_len;
@@ -383,7 +350,7 @@ pub(crate) fn x_kdb_enter() {
     }
 }
 
-/// Replay the `x_kdb_exit` port commands.  `x_kdb_exit()` in C.
+/// `x_kdb_exit()` in C.
 pub(crate) fn x_kdb_exit() {
     let s = state();
     let len = s.x_kdb_exit_len;
@@ -394,14 +361,14 @@ pub(crate) fn x_kdb_exit() {
     }
 }
 
-/// Install the `x_kdb_enter` port commands.  `x_kdb_enter_init()` in C.
+/// `x_kdb_enter_init()` in C.
 unsafe fn x_kdb_enter_init(data: *mut c_uint, count: c_uint) -> IoResult {
     if count as usize > KDB_STR_MAX {
         return Err(DeviceError::InvalidOperation);
     }
     let s = state();
-    // SAFETY: `count` is in bounds and the caller promises that many
-    // readable integers behind `data`.
+    // SAFETY: `count` is in bounds and the caller promises that many readable
+    // integers behind `data`.
     unsafe {
         ptr::copy_nonoverlapping(
             data,
@@ -413,14 +380,14 @@ unsafe fn x_kdb_enter_init(data: *mut c_uint, count: c_uint) -> IoResult {
     Ok(DeviceSuccess::Success)
 }
 
-/// Install the `x_kdb_exit` port commands.  `x_kdb_exit_init()` in C.
+/// `x_kdb_exit_init()` in C.
 unsafe fn x_kdb_exit_init(data: *mut c_uint, count: c_uint) -> IoResult {
     if count as usize > KDB_STR_MAX {
         return Err(DeviceError::InvalidOperation);
     }
     let s = state();
-    // SAFETY: `count` is in bounds and the caller promises that many
-    // readable integers behind `data`.
+    // SAFETY: `count` is in bounds and the caller promises that many readable
+    // integers behind `data`.
     unsafe {
         ptr::copy_nonoverlapping(
             data,

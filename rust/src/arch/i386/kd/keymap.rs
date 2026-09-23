@@ -6,11 +6,8 @@
 //   Copyright 1988, 1989 by Intel Corporation.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! `key_map[]` of <i386at/kd.h>, generated from the C table: scancode
-//! to character sequences for the five modifier states.
-//!
-//! `kdgetkbent()`/`kdsetkbent()` remap entries at runtime, so this is
-//! a mutable table.
+//! `key_map[]` of <i386at/kd.h>, generated from the C table: scancode to
+//! character sequences for the five modifier states.
 
 use super::{NUMKEYS, WIDTH_KMAP};
 

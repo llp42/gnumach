@@ -4,10 +4,6 @@
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! The radix-tree leaf `kern/rdxtree.c` used to define.
-//!
-//! `rdxtree_replace_slot()` is the whole of it: the C's
-//! `llsync_assign_ptr` macro is a plain store, so the replacement is a
-//! pointer exchange.  The tree's node helpers stay C for now.
 
 use core::ffi::c_void;
 
@@ -20,21 +16,16 @@ fn replace_slot(slot: &mut *mut c_void, ptr: *mut c_void) -> *mut c_void {
 /// The `rdxtree_replace_slot()` entry of <kern/rdxtree.h>, which
 /// `kern/rdxtree.c` used to define.
 ///
-/// The header contract is a slot from `rdxtree_lookup_slot()` and a
-/// non-null `ptr`; neither is checked here.
-///
 /// # Safety
 ///
-/// `slot` must point at a live, aligned `void *` slot that the caller
-/// owns for writing, and no reference to its contents may outlive the
-/// call.  `ptr` must be the non-null pointer the header requires.
+/// `slot` must point at a live, aligned `void *` slot that the caller owns for
+/// writing, and no reference to its contents may outlive the call.
 #[unsafe(no_mangle)]
 #[must_use]
 pub unsafe extern "C" fn rdxtree_replace_slot(
     slot: *mut *mut c_void,
     ptr: *mut c_void,
 ) -> *mut c_void {
-    // SAFETY: the caller promises `slot` is a live slot it owns for
-    // writing.
+    // SAFETY: the caller promises `slot` is a live slot it owns for writing.
     replace_slot(unsafe { &mut *slot }, ptr)
 }

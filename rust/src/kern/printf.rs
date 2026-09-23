@@ -3,25 +3,16 @@
 //   Copyright (c) 1993 Carnegie Mellon University
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! The non-variadic leaves of `kern/printf.c`: `printnum` and
-//! `safe_gets`.
-//!
-//! The rest of the file stays C.  `printf`, `iprintf`, `snprintf`,
-//! `vsnprintf` and `vprintf` are C-variadic, and `_doprnt` reads a
-//! `va_list`; none of them can be written on the pinned toolchain, and
-//! the C half calls the two entries below exactly as it did before.
+//! The non-variadic leaves of `kern/printf.c`: `printnum` and `safe_gets`.
 
 use crate::arch::types::VmOffset;
 use crate::glue;
 use core::ffi::{c_char, c_int};
 
-/// `MAXBUF` of <kern/printf.c>: enough for the binary form of a
-/// `long long`.  `u64::BITS` is 64 and fits a `usize` on both x86
-/// kernels, so the cast is exact.
+/// `MAXBUF` of <kern/printf.c>: enough for the binary form of a `long long`.
 const MAXBUF: usize = u64::BITS as usize;
 
-/// `digs[]` of <kern/printf.c>: the digits `printnum` indexes by
-/// remainder.
+/// `digs[]` of <kern/printf.c>: the digits `printnum` indexes by remainder.
 const DIGITS: [u8; 16] = *b"0123456789abcdef";
 
 /// A radix in `2..=16`, the range [`DIGITS`] covers.
@@ -29,8 +20,8 @@ const DIGITS: [u8; 16] = *b"0123456789abcdef";
 struct Base(u32);
 
 impl Base {
-    /// The base named by the C `int`, or [`None`] when it is outside
-    /// the digit table.
+    /// The base named by the C `int`, or [`None`] when it is outside the digit
+    /// table.
     fn new(base: c_int) -> Option<Self> {
         let base = u32::try_from(base).ok()?;
         match base {
@@ -41,10 +32,6 @@ impl Base {
 }
 
 /// Write `u` in `base` to `putc`, most significant digit first.
-///
-/// The body of `printnum()` in `kern/printf.c`.  The C filled a
-/// `char buf[MAXBUF]` from its last byte and walked forward again; the
-/// port fills forward and walks back, which needs no pre-decrement.
 fn print_num<F>(mut u: u64, base: Base, putc: &mut F, putc_arg: VmOffset)
 where
     F: FnMut(c_char, VmOffset),
@@ -52,9 +39,6 @@ where
     let mut buf = [0u8; MAXBUF];
     let mut len = 0;
     loop {
-        // `base` is at least two, so the loop runs at most 64 times
-        // and every index stays inside the digit table and the
-        // buffer.
         let rem = u % u64::from(base.0);
         let Ok(index) = usize::try_from(rem) else {
             return;
@@ -76,23 +60,19 @@ where
         return;
     };
     for byte in digits.iter().rev() {
-        // Every byte in the table is ASCII, so the conversion to
-        // `c_char` cannot change the value.
+        // Every byte in the table is ASCII, so the conversion to `c_char`
+        // cannot change the value.
         putc(*byte as c_char, putc_arg);
     }
 }
 
-/// The `printnum()` entry of <kern/printf.h>, which `kern/printf.c`
-/// used to define.
-///
-/// A null `putc` or a `base` outside `2..=16` is out of contract: the
-/// C dereferenced the null callback, read past `digs[]` or looped
-/// forever, and the port writes nothing.
+/// The `printnum()` entry of <kern/printf.h>, which `kern/printf.c` used to
+/// define.
 ///
 /// # Safety
 ///
-/// When `putc` is non-null, it must be a valid function pointer that
-/// can be called with `putc_arg` as its second argument.
+/// When `putc` is non-null, it must be a valid function pointer that can be
+/// called with `putc_arg` as its second argument.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn printnum(
     u: u64,
@@ -107,28 +87,19 @@ pub unsafe extern "C" fn printnum(
         return;
     };
     let mut putc = |c: c_char, arg: VmOffset| {
-        // SAFETY: the caller promises `callback` is a live function
-        // pointer and `arg` the argument it takes.
+        // SAFETY: the caller promises `callback` is a live function pointer
+        // and `arg` the argument it takes.
         unsafe { callback(c, arg) };
     };
     print_num(u, base, &mut putc, putc_arg);
 }
 
 /// Assemble one console line into `line`, echoing each accepted byte.
-///
-/// The body of `safe_gets()` in `kern/printf.c`, with the console
-/// reads and writes injected.  The line ends at CR or LF, which is
-/// stored as the terminator; an erase removes the last byte when
-/// there is one, and a kill clears the line.  A printable byte is
-/// stored while one slot is left for the terminator, and a beep
-/// answers a full buffer.
 fn get_line(
     line: &mut [u8],
     getc: &mut impl FnMut() -> c_int,
     putc: &mut impl FnMut(u8),
 ) {
-    // The C wrote the terminator at `str + maxlen - 1`, so one byte
-    // is always left free.
     let strmax = line.len().saturating_sub(1);
     let mut len = 0;
     loop {
@@ -156,8 +127,8 @@ fn get_line(
             c if (0x20..0x7f).contains(&c) => {
                 if len < strmax {
                     if let Some(cell) = line.get_mut(len) {
-                        // The arm's upper bound is below 0x7f, so the
-                        // byte is exact.
+                        // The arm's upper bound is below 0x7f, so the byte is
+                        // exact.
                         let byte = c as u8;
                         *cell = byte;
                         len += 1;
@@ -172,36 +143,30 @@ fn get_line(
     }
 }
 
-/// The `safe_gets()` entry of <kern/printf.h>, which `kern/printf.c`
-/// used to define.
-///
-/// The console reads go through `cngetc()` and the echo through
-/// `printf("%c", c)`, byte by byte, as the C did.  A non-positive
-/// `maxlen` names an empty buffer: the C wrote its terminator at
-/// `str[0]` regardless, one byte past what the caller declared, and
-/// the port writes nothing.
+/// The `safe_gets()` entry of <kern/printf.h>, which `kern/printf.c` used to
+/// define.
 ///
 /// # Safety
 ///
-/// When `maxlen` is positive, `str` must point at `maxlen` writable
-/// bytes that nothing else writes for the duration.
+/// When `maxlen` is positive, `str` must point at `maxlen` writable bytes that
+/// nothing else writes for the duration.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn safe_gets(str: *mut c_char, maxlen: c_int) {
     let len = usize::try_from(maxlen).unwrap_or(0);
-    // SAFETY: for a positive `maxlen` the caller promises `str` is
-    // valid for that many writes; for a non-positive one the slice is
-    // empty and no byte is touched.
+    // SAFETY: for a positive `maxlen` the caller promises `str` is valid for
+    // that many writes; for a non-positive one the slice is empty and no byte
+    // is touched.
     let line =
         unsafe { core::slice::from_raw_parts_mut(str.cast::<u8>(), len) };
     let mut getc = || {
-        // SAFETY: `cngetc()` is the real C symbol <device/cons.h>
-        // declares and takes no argument.
+        // SAFETY: `cngetc()` is the real C symbol <device/cons.h> declares and
+        // takes no argument.
         unsafe { glue::cngetc() }
     };
     let mut putc = |byte: u8| {
-        // SAFETY: `printf` is the C entry point of <kern/printf.h>,
-        // the format is the one-character literal below, and the
-        // character is its only argument.
+        // SAFETY: `printf` is the C entry point of <kern/printf.h>, the format
+        // is the one-character literal below, and the character is its only
+        // argument.
         unsafe { glue::printf(c"%c".as_ptr(), c_int::from(byte)) };
     };
     get_line(line, &mut getc, &mut putc);

@@ -6,13 +6,9 @@
 //   Copyright 1988, 1989 by Intel Corporation.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! The keyboard half of the kd driver: the scan-code interrupt, the
-//! modifier state machine, the magic key sequences, the keyboard
-//! controller commands and the key map.
-//!
-//! Everything here runs at `SPLKD`; `kdintr()` is entered from the
-//! keyboard IRQ (vector 1) and `kdcnmaygetc()` polls the same engine
-//! when the debugger has interrupts off.
+//! The keyboard half of the kd driver: the scan-code interrupt, the modifier
+//! state machine, the magic key sequences, the keyboard controller commands
+//! and the key map.
 
 use super::keymap::KEY_MAP;
 use super::*;
@@ -26,7 +22,6 @@ use core::ffi::{c_int, c_uint};
 /// (`MOUSE_LEFT`, `MOUSE_MIDDLE`, `MOUSE_RIGHT` of <device/input.h>).
 const WHICH_BUTTON: [u16; 4] = [0, 1, 2, 3];
 
-// The scancodes the magic-key "mouse" uses.
 const K_F1SC: c_int = 0x3b;
 const K_F2SC: c_int = 0x3c;
 const K_F3SC: c_int = 0x3d;
@@ -220,8 +215,6 @@ pub(crate) fn kbd_magic(scancode: c_int) -> c_int {
     }
 
     match scancode {
-        // f1 f2 f3, with the C switch's fallthrough: 0x3b yields 1,
-        // 0x3c 2, 0x3d 3.
         K_F1SC | K_F2SC | K_F3SC => {
             let new_button = scancode - K_F1SC + 1;
             let s = state();
@@ -238,12 +231,10 @@ pub(crate) fn kbd_magic(scancode: c_int) -> c_int {
                 s.kd_kbd_magic_button = new_button;
             }
         }
-        // right left up down
         K_RIGHTSC => motion(state().kd_kbd_magic_scale, 0),
         K_LEFTSC => motion(-state().kd_kbd_magic_scale, 0),
         K_UPSC => motion(0, state().kd_kbd_magic_scale),
         K_DOWNSC => motion(0, -state().kd_kbd_magic_scale),
-        // home pageup end pagedown
         K_KP_HOME => motion(
             -2 * state().kd_kbd_magic_scale,
             2 * state().kd_kbd_magic_scale,
@@ -268,7 +259,6 @@ pub(crate) fn kbd_magic(scancode: c_int) -> c_int {
 /// `kdcheckmagic()`: the magic key sequences.
 fn checkmagic(scancode: u8) -> bool {
     if scancode == K_SLCKSC {
-        // Scroll lock: toggle the keyboard-as-mouse hack.
         let s = state();
         s.kd_kbd_mouse = c_int::from(s.kd_kbd_mouse == 0);
         s.kd_kbd_magic_button = 0;
@@ -289,7 +279,7 @@ fn checkmagic(scancode: u8) -> bool {
     false
 }
 
-/// The keyboard IRQ handler.  `kdintr()` in C.
+/// `kdintr()` in C.
 fn intr() {
     if state().kd_pollc != 0 {
         return; // kdb polling the keyboard
@@ -298,8 +288,6 @@ fn intr() {
         return;
     }
 
-    // Allow for keyboards that raise the interrupt before the character
-    // reaches the buffer, but do not wait forever.
     let mut safety: c_int = 1000;
     while Port::new(K_STATUS).read_u8() & K_OBUF_FUL == 0 {
         safety -= 1;
@@ -308,7 +296,6 @@ fn intr() {
         }
     }
 
-    // We may have seen a mouse event.
     if Port::new(K_STATUS).read_u8() & K_AUX_OBUF_FUL == K_AUX_OBUF_FUL {
         let sc = Port::new(K_RDWR).read_u8();
         if kd_mouse::mouse_in_use() != 0 {
@@ -365,7 +352,6 @@ fn intr() {
                         max = char_idx;
                     }
                 }
-                // NumLock only affects the physical keypad.
                 if state_bits() & KS_NLKED != 0
                     && (K_HOMESC..=K_DELSC).contains(&scancode)
                 {
@@ -386,7 +372,7 @@ fn intr() {
     }
 }
 
-/// The keyboard IRQ handler.  `kdintr()` in C.
+/// `kdintr()` in C.
 ///
 /// # Safety
 ///
@@ -396,15 +382,15 @@ pub unsafe extern "C" fn kdintr(_vec: c_int) {
     intr();
 }
 
-/// Wait for the input buffer and write the controller command register,
-/// which `kd_mouse.rs` uses for its PS/2 sequences.
+/// Wait for the input buffer and write the controller command register, which
+/// `kd_mouse.rs` uses for its PS/2 sequences.
 pub(crate) fn cmdreg_write(val: c_int) {
     sendcmd(KC_CMD_WRITE);
     senddata(val as u8);
 }
 
-/// Drain pending keyboard bytes, printing them; `kd_mouse.rs` closes a
-/// PS/2 mouse with this.
+/// Drain pending keyboard bytes, printing them; `kd_mouse.rs` closes a PS/2
+/// mouse with this.
 pub(crate) fn mouse_drain() {
     while Port::new(K_STATUS).read_u8() & K_IBUF_FUL != 0 {}
     let mut i = Port::new(K_STATUS).read_u8();

@@ -7,8 +7,7 @@
 
 use core::ffi::c_int;
 
-/// `POLICY_TIMESHARE` in <mach/policy.h>: the default scheduling
-/// policy.
+/// `POLICY_TIMESHARE` in <mach/policy.h>: the default scheduling policy.
 pub const POLICY_TIMESHARE: c_int = 1;
 /// `POLICY_FIXEDPRI`: fixed-priority scheduling.
 pub const POLICY_FIXEDPRI: c_int = 2;

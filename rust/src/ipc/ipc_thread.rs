@@ -6,16 +6,6 @@
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! IPC operations on threads, which `ipc/ipc_thread.c` used to define.
-//!
-//! An `IpcThreadQueue` is a LIFO stack of threads, not a FIFO queue:
-//! `enqueue()` pushes at the front, so a thread that just ran is reused
-//! early, which helps locality of reference (the C header's note).  The
-//! links live in `struct thread` as `ith_next`/`ith_prev`, read from
-//! the [`Thread`] mirror in [`crate::kern::thread`]; the queue itself
-//! is Rust.
-//!
-//! A queue has no lock of its own: the caller holds the message-queue
-//! or port lock that protects it.
 
 use crate::kern::thread::Thread;
 use core::ffi::c_void;
@@ -34,16 +24,12 @@ pub struct IpcThreadQueue {
 }
 
 /// The `ith_next`/`ith_prev` pair inside `struct thread`, as one record.
-/// `ThreadRef::links()` returns its address.
 #[repr(C)]
 struct ThreadLinks {
     next: Option<ThreadRef>,
     prev: Option<ThreadRef>,
 }
 
-// The C header defines `struct ipc_thread_queue` and embeds it, so the
-// mirror must be one pointer; `ThreadLinks` is the mirror's adjacent
-// `ith_next`/`ith_prev` pair.
 const _: () = assert!(size_of::<IpcThreadQueue>() == size_of::<*mut c_void>());
 const _: () =
     assert!(size_of::<IpcThreadQueue>() == size_of::<Option<ThreadRef>>());
@@ -89,8 +75,7 @@ impl ThreadRef {
     ///
     /// # Safety
     ///
-    /// The thread must be valid, and it must not be linked in any
-    /// queue.
+    /// The thread must be valid, and it must not be linked in any queue.
     unsafe fn links_init(self) {
         // SAFETY: the caller promises a valid, unlinked thread.
         unsafe {
@@ -113,30 +98,30 @@ impl IpcThreadQueue {
         Self { base: None }
     }
 
-    /// Empty the queue.  `ipc_thread_queue_init()` in C.
+    /// `ipc_thread_queue_init()` in C.
     pub fn init(&mut self) {
         *self = Self::new();
     }
 
-    /// The first thread, if any.  `ipc_thread_queue_first()` in C.
+    /// `ipc_thread_queue_first()` in C.
     pub fn first(&self) -> Option<ThreadRef> {
         self.base
     }
 
-    /// Push a thread at the front.  `ipc_thread_enqueue()` in C.
+    /// `ipc_thread_enqueue()` in C.
     ///
     /// # Safety
     ///
-    /// The thread must be valid and not linked in any queue, and the
-    /// caller must hold the lock protecting this queue.
+    /// The thread must be valid and not linked in any queue, and the caller
+    /// must hold the lock protecting this queue.
     pub unsafe fn enqueue(&mut self, thread: ThreadRef) {
         let Some(first) = self.base else {
             self.base = Some(thread);
             return;
         };
 
-        // SAFETY: the caller promises a valid, unlinked thread, and
-        // the queue's first thread is linked.
+        // SAFETY: the caller promises a valid, unlinked thread, and the
+        // queue's first thread is linked.
         unsafe {
             let first_links = first.links();
             let last = (*first_links.as_ptr())
@@ -154,12 +139,12 @@ impl IpcThreadQueue {
         self.base = Some(thread);
     }
 
-    /// Pop the first thread.  `ipc_thread_dequeue()` in C.
+    /// `ipc_thread_dequeue()` in C.
     ///
     /// # Safety
     ///
-    /// The queued threads must be valid and linked, and the caller must
-    /// hold the lock protecting this queue.
+    /// The queued threads must be valid and linked, and the caller must hold
+    /// the lock protecting this queue.
     pub unsafe fn dequeue(&mut self) -> Option<ThreadRef> {
         let first = self.first()?;
         // SAFETY: the caller promises a valid, linked thread.
@@ -167,12 +152,12 @@ impl IpcThreadQueue {
         Some(first)
     }
 
-    /// Remove an arbitrary thread.  `ipc_thread_rmqueue()` in C.
+    /// `ipc_thread_rmqueue()` in C.
     ///
     /// # Safety
     ///
-    /// `thread` must be linked in this queue, and the caller must hold
-    /// the lock protecting it.
+    /// `thread` must be linked in this queue, and the caller must hold the
+    /// lock protecting it.
     pub unsafe fn rmqueue(&mut self, thread: ThreadRef) {
         // SAFETY: the caller promises a valid, linked thread.
         unsafe {
@@ -202,13 +187,13 @@ impl IpcThreadQueue {
         }
     }
 
-    /// Remove the first thread.  `ipc_thread_rmqueue_first()` in C; the
-    /// caller's macro used to assume `thread` was the first.
+    /// `ipc_thread_rmqueue_first()` in C; the caller's macro used to assume
+    /// `thread` was the first.
     ///
     /// # Safety
     ///
-    /// `thread` must be the first thread of this queue, and the caller
-    /// must hold the lock protecting it.
+    /// `thread` must be the first thread of this queue, and the caller must
+    /// hold the lock protecting it.
     pub unsafe fn rmqueue_first(&mut self, thread: ThreadRef) {
         // SAFETY: the caller promises a valid, linked thread.
         unsafe {
@@ -236,12 +221,12 @@ impl IpcThreadQueue {
     }
 }
 
-/// Enqueue a thread.  `ipc_thread_enqueue()` in C.
+/// `ipc_thread_enqueue()` in C.
 ///
 /// # Safety
 ///
-/// `queue` must be valid, `thread` valid and unlinked, and the caller
-/// must hold the lock protecting the queue.
+/// `queue` must be valid, `thread` valid and unlinked, and the caller must
+/// hold the lock protecting the queue.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ipc_thread_enqueue(
     queue: *mut IpcThreadQueue,
@@ -251,12 +236,12 @@ pub unsafe extern "C" fn ipc_thread_enqueue(
     unsafe { (*queue).enqueue(ThreadRef::new(thread)) };
 }
 
-/// Dequeue a thread.  `ipc_thread_dequeue()` in C.
+/// `ipc_thread_dequeue()` in C.
 ///
 /// # Safety
 ///
-/// `queue` must be valid and its threads linked, and the caller must
-/// hold the lock protecting it.
+/// `queue` must be valid and its threads linked, and the caller must hold the
+/// lock protecting it.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ipc_thread_dequeue(
     queue: *mut IpcThreadQueue,
@@ -266,12 +251,12 @@ pub unsafe extern "C" fn ipc_thread_dequeue(
     thread.map_or(ptr::null_mut(), ThreadRef::as_ptr)
 }
 
-/// Remove a thread.  `ipc_thread_rmqueue()` in C.
+/// `ipc_thread_rmqueue()` in C.
 ///
 /// # Safety
 ///
-/// `queue` must be valid, `thread` linked in it, and the caller must
-/// hold the lock protecting it.
+/// `queue` must be valid, `thread` linked in it, and the caller must hold the
+/// lock protecting it.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ipc_thread_rmqueue(
     queue: *mut IpcThreadQueue,
@@ -281,7 +266,7 @@ pub unsafe extern "C" fn ipc_thread_rmqueue(
     unsafe { (*queue).rmqueue(ThreadRef::new(thread)) };
 }
 
-/// Make a thread unlinked.  `ipc_thread_links_init()` in C.
+/// `ipc_thread_links_init()` in C.
 ///
 /// # Safety
 ///
@@ -292,7 +277,7 @@ pub unsafe extern "C" fn ipc_thread_links_init(thread: *mut c_void) {
     unsafe { ThreadRef::new(thread).links_init() };
 }
 
-/// Empty a queue.  `ipc_thread_queue_init()` in C.
+/// `ipc_thread_queue_init()` in C.
 ///
 /// # Safety
 ///
@@ -303,7 +288,7 @@ pub unsafe extern "C" fn ipc_thread_queue_init(queue: *mut IpcThreadQueue) {
     unsafe { (*queue).init() };
 }
 
-/// The first thread of a queue.  `ipc_thread_queue_first()` in C.
+/// `ipc_thread_queue_first()` in C.
 ///
 /// # Safety
 ///
@@ -317,13 +302,13 @@ pub unsafe extern "C" fn ipc_thread_queue_first(
     thread.map_or(ptr::null_mut(), ThreadRef::as_ptr)
 }
 
-/// Remove the first thread of a queue.  `ipc_thread_rmqueue_first()`
-/// in C, where it was `ipc_thread_rmqueue_first_macro()`.
+/// `ipc_thread_rmqueue_first()` in C, where it was
+/// `ipc_thread_rmqueue_first_macro()`.
 ///
 /// # Safety
 ///
-/// `queue` must be valid, `thread` its first thread, and the caller
-/// must hold the lock protecting it.
+/// `queue` must be valid, `thread` its first thread, and the caller must hold
+/// the lock protecting it.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ipc_thread_rmqueue_first(
     queue: *mut IpcThreadQueue,

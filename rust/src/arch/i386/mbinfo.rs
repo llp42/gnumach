@@ -4,10 +4,6 @@
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! `/dev/mbinfo`: `mbinfo.c`'s raw multiboot information device.
-//!
-//! The boot path hands the multiboot information block to
-//! `mbinfo_register_boot_data()` and a user reads it back with
-//! `mbinforead()`, one copy of the raw block, no parsing.
 
 use crate::arch::i386::io_req::{DevT, IoReq, KERN_SUCCESS};
 use crate::device::r#return::{DeviceError, DeviceSuccess, IoResultExt};
@@ -19,8 +15,6 @@ use core::mem::size_of;
 use core::ptr;
 
 /// `struct multiboot_framebuffer_info` of <mach/i386/multiboot.h>.
-/// The trailing union is opaque here: the device copies the block, it
-/// never reads a field.
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub struct MultibootFramebufferInfo {
@@ -81,8 +75,8 @@ pub unsafe extern "C" fn mbinfo_register_boot_data(
 ///
 /// # Safety
 ///
-/// Called from the `/dev/mbinfo` device switch in `conf.c`; `ior` must
-/// be the request the device layer passed.
+/// Called from the `/dev/mbinfo` device switch in `conf.c`; `ior` must be the
+/// request the device layer passed.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mbinforead(_dev: DevT, ior: *mut IoReq) -> c_int {
     // SAFETY: the device layer owns the request for this call.
@@ -101,8 +95,8 @@ pub unsafe extern "C" fn mbinforead(_dev: DevT, ior: *mut IoReq) -> c_int {
     if err != KERN_SUCCESS {
         return err;
     }
-    // SAFETY: the request now has a buffer of `count` bytes, and the
-    // info block is at least that large.
+    // SAFETY: the request now has a buffer of `count` bytes, and the info
+    // block is at least that large.
     unsafe {
         ptr::copy_nonoverlapping(
             MB_INFO.0.get().cast::<u8>(),

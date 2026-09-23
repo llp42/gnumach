@@ -5,23 +5,8 @@
 //   Copyright 1988, 1989 by Olivetti Advanced Technology Center, Inc.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! The keyboard/mouse event ring buffer, which `i386/i386at/kd_queue.c`
-//! used to define.
-//!
-//! A fixed `KDQSIZE`-slot queue with a read and a write index.  One
-//! slot stays free, so it holds at most `KDQSIZE - 1` events and the
-//! indices alone tell a full queue from an empty one.  Its callers
-//! (`i386/i386at/kd_event.rs` and `kd_mouse.rs`) serialize access by
-//! raising the interrupt level (`SPLKD`).
-//!
-//! `push_back()` copies an event into the queue; `pop_front()` returns
-//! a reference to the slot it left.  `KdEvent` is how those drivers
-//! build the records the user side reads, so its layout still mirrors
-//! `kd_event` of <device/input.h> in the default kernel configuration.
-//! `--enable-user32` redefines `rpc_long_integer_t` to `int32_t`
-//! through a configure define Rust cannot see, which would make
-//! `kd_event` smaller; only the default configuration is mirrored, as
-//! in `src/kern/elf_load.rs`.
+//! The keyboard/mouse event ring buffer, which `i386/i386at/kd_queue.c` used
+//! to define.
 
 use crate::glue::time_value::RpcTimeValue;
 use core::ffi::c_int;
@@ -56,9 +41,6 @@ union KdValue {
 }
 
 /// `kd_event` of <device/input.h>, field for field.
-///
-/// The fields are never read here: the queue copies whole events, and
-/// the layout is all this module needs.
 #[repr(C)]
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
@@ -76,10 +58,6 @@ pub struct KdEventQueue {
     firstout: c_int,
 }
 
-// The C layouts, pinned so that a change to the mirror cannot drift from
-// the header silently.  `kd_event` is 16 bytes on i686, and 32 on x86_64
-// where `long_integer_t` is 64 bits; the two counts below come from
-// `kd_event` times `KDQSIZE` plus the two indices.
 #[cfg(target_pointer_width = "32")]
 const _: () = {
     assert!(size_of::<KdEvent>() == 16);
@@ -105,8 +83,8 @@ impl Default for KdEventQueue {
 }
 
 impl KdEvent {
-    /// An all-zero event, the image BSS holds before anything is
-    /// queued; only `KdEventQueue::new()` needs it.
+    /// An all-zero event, the image BSS holds before anything is queued; only
+    /// `KdEventQueue::new()` needs it.
     const fn zeroed() -> Self {
         Self {
             type_: 0,
@@ -130,9 +108,8 @@ impl KdEvent {
         }
     }
 
-    /// A button event of type `which`, pressed when `up` is false:
-    /// what `mouse_button()` builds.  `up` becomes the C `boolean_t`
-    /// the callers read.
+    /// A button event of type `which`, pressed when `up` is false: what
+    /// `mouse_button()` builds.
     pub const fn button(which: KevType, up: bool) -> Self {
         Self {
             type_: which,
@@ -144,8 +121,7 @@ impl KdEvent {
         }
     }
 
-    /// A `KEYBD_EVENT` carrying scancode `sc`: what `kd_enqsc()`
-    /// builds.
+    /// A `KEYBD_EVENT` carrying scancode `sc`: what `kd_enqsc()` builds.
     pub const fn scancode(sc: Scancode) -> Self {
         Self {
             type_: 5,
@@ -176,9 +152,8 @@ impl KdEventQueue {
         self.firstfree == self.firstout
     }
 
-    /// Whether the queue holds its most, `KDQSIZE - 1` events: one slot
-    /// stays free so that a full queue and an empty one cannot look
-    /// alike.
+    /// Whether the queue holds its most, `KDQSIZE - 1` events: one slot stays
+    /// free so that a full queue and an empty one cannot look alike.
     pub fn is_full(&self) -> bool {
         Self::next(self.firstfree) == self.firstout
     }
@@ -188,15 +163,15 @@ impl KdEventQueue {
         self.firstout = 0;
     }
 
-    /// Copy `ev` into the free slot and advance the write index; the
-    /// caller has checked `is_full()`.
+    /// Copy `ev` into the free slot and advance the write index; the caller
+    /// has checked `is_full()`.
     pub fn push_back(&mut self, ev: KdEvent) {
         self.events[self.firstfree as usize] = ev;
         self.firstfree = Self::next(self.firstfree);
     }
 
-    /// Advance the read index and return the slot it left, or `None`
-    /// when the queue is empty.
+    /// Advance the read index and return the slot it left, or `None` when the
+    /// queue is empty.
     pub fn pop_front(&mut self) -> Option<&mut KdEvent> {
         if self.is_empty() {
             return None;

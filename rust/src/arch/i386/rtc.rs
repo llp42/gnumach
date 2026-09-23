@@ -6,21 +6,6 @@
 
 //! The CMOS clock, which `i386/i386at/rtc.c` used to define and
 //! `i386/i386at/rtc.h` declares.
-//!
-//! `readtodc()` reads the current time into the caller's `uint64_t`,
-//! and `writetodc()` programs the registers from the kernel's
-//! wall-clock global.  The registers hold binary-coded decimal, so the
-//! two nibble conversions and the bissextile-year rules come along.
-//! The alarm and status bytes are read back untouched.
-//!
-//! Three deliberate divergences from the C stay out of contract.  The
-//! day arithmetic is `u64`, where the C's `int` product overflows for
-//! dates after January 2038; a zero day-of-month saturates instead of
-//! subtracting a day; and the month loop stops at the table end where
-//! the C would read past `month[12]` for a corrupt month field.
-//! `writetodc()` also samples the wall clock once, where the C read it
-//! twice and could straddle a tick; the callers run it at `splhigh`
-//! with the thread bound to the master CPU.
 
 use crate::arch::i386::pio::Port;
 use crate::glue;
@@ -28,8 +13,8 @@ use core::ffi::c_int;
 use core::mem::{align_of, offset_of, size_of};
 use core::sync::atomic::{AtomicBool, Ordering};
 
-/// The first year the two-digit year field can name, `CENTURY_START`
-/// in `rtc.c`.
+/// The first year the two-digit year field can name, `CENTURY_START` in
+/// `rtc.c`.
 const CENTURY_START: u32 = 1970;
 
 /// The register select port, `RTC_ADDR` of <i386at/rtc.h>.
@@ -70,12 +55,7 @@ enum RtcError {
     NotValid,
 }
 
-/// `struct rtc_st` of <i386at/rtc.h>: the fourteen CMOS registers in
-/// order.
-///
-/// The C cast the struct to `unsigned char *` for `load_rtc` and
-/// `save_rtc`, so the fields are bytes here.  The alarm registers and
-/// the four status bytes are read back unchanged and never inspected.
+/// `struct rtc_st` of <i386at/rtc.h>: the fourteen CMOS registers in order.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct RtcSt {
@@ -95,7 +75,6 @@ struct RtcSt {
     rtc_statusd: u8,
 }
 
-// A C `char[14]`: one byte per field, no padding.
 const _: () = assert!(size_of::<RtcSt>() == 14);
 const _: () = assert!(align_of::<RtcSt>() == 1);
 const _: () = assert!(offset_of!(RtcSt, rtc_sec) == 0);
@@ -114,8 +93,8 @@ const _: () = assert!(offset_of!(RtcSt, rtc_statusc) == 12);
 const _: () = assert!(offset_of!(RtcSt, rtc_statusd) == 13);
 
 impl RtcSt {
-    /// `load_rtc` of <i386at/rtc.h>: read registers 0 through
-    /// `RTC_NREG - 1` into the fields.
+    /// `load_rtc` of <i386at/rtc.h>: read registers 0 through `RTC_NREG - 1`
+    /// into the fields.
     fn load(&mut self) {
         let registers = [
             &mut self.rtc_sec,
@@ -139,8 +118,8 @@ impl RtcSt {
         }
     }
 
-    /// `save_rtc` of <i386at/rtc.h>: write the time and alarm fields
-    /// back, leaving the status bytes alone.
+    /// `save_rtc` of <i386at/rtc.h>: write the time and alarm fields back,
+    /// leaving the status bytes alone.
     fn save(&self) {
         let registers = [
             &self.rtc_sec,
@@ -162,12 +141,6 @@ impl RtcSt {
 }
 
 /// Whether [`rtcinit()`] has run, the C's `first_rtcopen_ever`.
-///
-/// The C programmed the clock on the first open only.  The swap is
-/// what picks the one caller that does it if two ever race; the
-/// ordering is `Relaxed` because the flag guards the port writes and
-/// publishes nothing else, and `splclock` covers callers on the same
-/// CPU.
 static RTC_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 /// Program registers A and B: `rtcinit()` of `rtc.c`.
@@ -178,8 +151,8 @@ fn rtcinit() {
     RTC_DATA.write_u8(RTC_HM);
 }
 
-/// Run [`rtcinit()`] on the first call ever, the C's
-/// `first_rtcopen_ever` check.
+/// Run [`rtcinit()`] on the first call ever, the C's `first_rtcopen_ever`
+/// check.
 fn rtcinit_once() {
     if !RTC_INITIALIZED.swap(true, Ordering::Relaxed) {
         rtcinit();
@@ -187,10 +160,6 @@ fn rtcinit_once() {
 }
 
 /// Read the register block: `rtcget()` of `rtc.c`.
-///
-/// Fails when register D says the time is invalid.  The register A
-/// busy-wait re-selects the register each iteration, exactly as the C
-/// loop did.
 fn rtcget() -> Result<RtcSt, RtcError> {
     rtcinit_once();
     RTC_ADDR.write_u8(RTC_D);
@@ -207,9 +176,6 @@ fn rtcget() -> Result<RtcSt, RtcError> {
 }
 
 /// Program the time registers back: `rtcput()` of `rtc.c`.
-///
-/// Register B is read and written out with `RTC_SET` while the bytes
-/// go, then written back without it.
 fn rtcput(st: &RtcSt) {
     rtcinit_once();
     RTC_ADDR.write_u8(RTC_B);
@@ -221,19 +187,17 @@ fn rtcput(st: &RtcSt) {
     RTC_DATA.write_u8(saved & !RTC_SET);
 }
 
-/// The decimal value of the binary-coded-decimal byte `byte`:
-/// `hexdectodec()` of `rtc.c`.
+/// The decimal value of the binary-coded-decimal byte `byte`: `hexdectodec()`
+/// of `rtc.c`.
 fn hexdectodec(byte: u8) -> u32 {
-    // C `char` is signed on this target, but both operands are masked,
-    // so the C's signed shift produces the same two digits.
     u32::from((byte >> 4) & 0x0F) * 10 + u32::from(byte & 0x0F)
 }
 
-/// The binary-coded-decimal byte for the two decimal digits of
-/// `value`: `dectohexdec()` of `rtc.c`.
+/// The binary-coded-decimal byte for the two decimal digits of `value`:
+/// `dectohexdec()` of `rtc.c`.
 fn dectohexdec(value: u64) -> u8 {
-    // In contract `value` is below 100, so the two nibbles are its two
-    // digits and the C's `char` conversion loses nothing.
+    // In contract `value` is below 100, so the two nibbles are its two digits
+    // and the C's `char` conversion loses nothing.
     ((((value / 10) << 4) & 0xF0) | ((value % 10) & 0x0F)) as u8
 }
 
@@ -248,15 +212,10 @@ fn yeartoday(year: u32) -> u32 {
     if !year.is_multiple_of(400) {
         return 365;
     }
-    // Divisible by 400: 2000 was made bissextile, and the rules after
-    // it are not officially decided.
     366
 }
 
 /// The month lengths with February at 29 in a bissextile year.
-///
-/// The C mutated its `month` table for the length of each call; here
-/// the table is [`MONTH`] and every caller takes its own copy.
 fn month_lengths(bissextile: bool) -> [u8; 12] {
     let mut months = MONTH;
     if bissextile {
@@ -265,15 +224,10 @@ fn month_lengths(bissextile: bool) -> [u8; 12] {
     months
 }
 
-/// Read the wall clock.  The body of `readtodc()` in `rtc.c`.
-///
-/// Returns the seconds since [`CENTURY_START`] and fails only when the
-/// clock reports itself invalid.  The clock is read at `splclock`; the
-/// conversion then runs at the level `splx` restored, as the C did.
+/// Read the wall clock.
 fn read_todc() -> Result<u64, RtcError> {
-    // SAFETY: `splclock()` is the real asm function <i386/spl.h>
-    // declares, and the value it returns is only handed back to
-    // `splx()`.
+    // SAFETY: `splclock()` is the real asm function <i386/spl.h> declares, and
+    // the value it returns is only handed back to `splx()`.
     let ospl = unsafe { glue::splclock() };
     let st = match rtcget() {
         Ok(st) => st,
@@ -299,9 +253,8 @@ fn read_todc() -> Result<u64, RtcError> {
     };
 
     if yr >= CENTURY_START + 90 {
-        // SAFETY: `printf` is variadic; the format's one conversion is
-        // `%u`, and the argument is the unsigned constant the C
-        // passed.
+        // SAFETY: `printf` is variadic; the format's one conversion is `%u`,
+        // and the argument is the unsigned constant the C passed.
         unsafe {
             glue::printf(
                 c"FIXME: we are approaching %u, update CENTURY_START\n"
@@ -311,8 +264,8 @@ fn read_todc() -> Result<u64, RtcError> {
         }
     }
 
-    // SAFETY: `printf` is variadic and every `%u` takes one of the
-    // unsigned fields in the order the C passed them.
+    // SAFETY: `printf` is variadic and every `%u` takes one of the unsigned
+    // fields in the order the C passed them.
     unsafe {
         glue::printf(
             c"RTC time is %04u-%02u-%02u %02u:%02u:%02u\n".as_ptr(),
@@ -343,12 +296,7 @@ fn read_todc() -> Result<u64, RtcError> {
     Ok(n)
 }
 
-/// Program the wall clock.  The body of `writetodc()` in `rtc.c`.
-///
-/// Reads the register block first, so the alarm and status bytes
-/// survive, fills the time fields from the kernel's wall clock, and
-/// programs them back at `splclock`.  Fails only when the clock reports
-/// itself invalid.
+/// Program the wall clock.
 fn write_todc() -> Result<(), RtcError> {
     // SAFETY: as in `read_todc()`.
     let ospl = unsafe { glue::splclock() };
@@ -363,12 +311,12 @@ fn write_todc() -> Result<(), RtcError> {
     // SAFETY: `ospl` is the level `splclock()` returned.
     unsafe { glue::splx(ospl) };
 
-    // SAFETY: `time` is the wall-clock global `kern/mach_clock.c`
-    // defines, read at the level `splx()` just restored, as the C did.
+    // SAFETY: `time` is the wall-clock global `kern/mach_clock.c` defines,
+    // read at the level `splx()` just restored, as the C did.
     let seconds = unsafe { glue::time.seconds };
-    // `time_t` is `unsigned long long`, and the C assigned the int64
-    // wall clock to it; the clock is a post-epoch count, so the
-    // sign-extending cast is that conversion.
+    // `time_t` is `unsigned long long`, and the C assigned the int64 wall
+    // clock to it; the clock is a post-epoch count, so the sign-extending cast
+    // is that conversion.
     let seconds = seconds as u64;
 
     let mut n = seconds % (3600 * 24);
@@ -378,8 +326,8 @@ fn write_todc() -> Result<(), RtcError> {
     st.rtc_hr = dectohexdec(n / 60);
 
     n = seconds / (3600 * 24);
-    // 1/1/70 is a Thursday and the field counts from Sunday, so the
-    // value is below seven and the cast is exact.
+    // 1/1/70 is a Thursday and the field counts from Sunday, so the value is
+    // below seven and the cast is exact.
     st.rtc_dow = ((n + 4) % 7) as u8;
 
     let mut year = u64::from(CENTURY_START);
@@ -387,8 +335,8 @@ fn write_todc() -> Result<(), RtcError> {
     while n >= year_days {
         n -= year_days;
         year += 1;
-        // In contract the clock is between 1970 and 2070, so the year
-        // stays far inside `u32`.
+        // In contract the clock is between 1970 and 2070, so the year stays
+        // far inside `u32`.
         year_days = u64::from(yeartoday(year as u32));
     }
     st.rtc_yr = dectohexdec(year % 100);
@@ -406,8 +354,8 @@ fn write_todc() -> Result<(), RtcError> {
     st.rtc_mon = dectohexdec(month + 1);
     st.rtc_dom = dectohexdec(n + 1);
 
-    // SAFETY: `splclock()` returns the level `splx()` restores; the C
-    // re-took it right before `rtcput()`.
+    // SAFETY: `splclock()` returns the level `splx()` restores; the C re-took
+    // it right before `rtcput()`.
     let ospl = unsafe { glue::splclock() };
     rtcput(&st);
     // SAFETY: `ospl` is the level just returned by `splclock()`.
@@ -416,11 +364,7 @@ fn write_todc() -> Result<(), RtcError> {
     Ok(())
 }
 
-/// Read the time of day.  `readtodc()` of <i386at/rtc.h>, which
-/// `i386/i386at/rtc.c` used to define.
-///
-/// Returns zero on success and `-1` when the clock reports itself
-/// invalid; `*tp` is left alone on failure, as in the C.
+/// `readtodc()` of <i386at/rtc.h>, which `i386/i386at/rtc.c` used to define.
 ///
 /// # Safety
 ///
@@ -437,17 +381,11 @@ pub unsafe extern "C" fn readtodc(tp: *mut u64) -> c_int {
     }
 }
 
-/// Program the time of day.  `writetodc()` of <i386at/rtc.h>, which
-/// `i386/i386at/rtc.c` used to define.
-///
-/// Returns zero on success and `-1` when the clock reports itself
-/// invalid.
+/// `writetodc()` of <i386at/rtc.h>, which `i386/i386at/rtc.c` used to define.
 ///
 /// # Safety
 ///
-/// There is no argument contract, the C prototype takes none.  The
-/// function programs the RTC through port I/O at `splclock`, as the C
-/// did.
+/// There is no argument contract, the C prototype takes none.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn writetodc() -> c_int {
     match write_todc() {

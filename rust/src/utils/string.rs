@@ -3,9 +3,6 @@
 
 //! The string and memory routines, which `i386/i386/strings.c` and
 //! `kern/strings.c` used to define.
-//!
-//! Signatures follow POSIX (`s1`, `s2`, `n`, `s`, `c`), matching
-//! `include/string.h`.
 
 use core::ffi::{c_char, c_int, c_void};
 use core::{ptr, slice};
@@ -14,9 +11,9 @@ use core::{ptr, slice};
 ///
 /// # Safety
 ///
-/// `s2` must be valid for reads of `n` bytes, `s1` valid for writes of
-/// `n` bytes, and the two regions must not overlap -- `memmove()` is the
-/// one that allows that.
+/// `s2` must be valid for reads of `n` bytes, `s1` valid for writes of `n`
+/// bytes, and the two regions must not overlap -- `memmove()` is the one that
+/// allows that.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn memcpy(
     s1: *mut c_void,
@@ -36,13 +33,10 @@ pub unsafe extern "C" fn memcpy(
 
 /// Move `n` bytes from `s2` to `s1` and return `s1`.
 ///
-/// The regions may overlap: the copy direction is chosen so that every
-/// byte is read before it can be overwritten.
-///
 /// # Safety
 ///
-/// `s2` must be valid for reads of `n` bytes and `s1` valid for
-/// writes of `n` bytes; the two regions may overlap.
+/// `s2` must be valid for reads of `n` bytes and `s1` valid for writes of `n`
+/// bytes; the two regions may overlap.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn memmove(
     s1: *mut c_void,
@@ -70,9 +64,6 @@ pub unsafe extern "C" fn memmove(
 }
 
 /// Compare the first `n` bytes at `s1` and `s2`.
-///
-/// Returns 0 when they agree, or the difference between the first two
-/// bytes that differ, taken as unsigned chars.
 ///
 /// # Safety
 ///
@@ -123,11 +114,8 @@ pub unsafe extern "C" fn memset(
     s.cast::<c_void>()
 }
 
-/// Return a pointer to the first occurrence of `c` in the
-/// NUL-terminated string at `s`, or null.
-///
-/// `c` is taken as a char, so a NUL `c` returns the terminator.  Bytes
-/// are compared unsigned; the C this replaces sign-extended them.
+/// Return a pointer to the first occurrence of `c` in the NUL-terminated
+/// string at `s`, or null.
 ///
 /// # Safety
 ///
@@ -138,8 +126,8 @@ pub unsafe extern "C" fn strchr(s: *const c_char, c: c_int) -> *mut c_char {
     let mut i = 0;
 
     loop {
-        // SAFETY: the caller promises `s` is NUL-terminated, so the
-        // walk stops inside the string.
+        // SAFETY: the caller promises `s` is NUL-terminated, so the walk stops
+        // inside the string.
         let b = unsafe { *s.add(i) } as u8;
         if b == byte {
             // SAFETY: `i` is inside the string.
@@ -152,13 +140,13 @@ pub unsafe extern "C" fn strchr(s: *const c_char, c: c_int) -> *mut c_char {
     }
 }
 
-/// Copy the NUL-terminated string at `s2`, terminator included, to
-/// `s1`, and return `s1`.
+/// Copy the NUL-terminated string at `s2`, terminator included, to `s1`, and
+/// return `s1`.
 ///
 /// # Safety
 ///
-/// `s2` must point to a NUL-terminated string and `s1` to room for
-/// it, terminator included; the two must not overlap.
+/// `s2` must point to a NUL-terminated string and `s1` to room for it,
+/// terminator included; the two must not overlap.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn strcpy(
     s1: *mut c_char,
@@ -167,8 +155,8 @@ pub unsafe extern "C" fn strcpy(
     let mut i = 0;
 
     loop {
-        // SAFETY: the caller promises `s2` is NUL-terminated and `s1`
-        // has room for it, so the walk stops inside both.
+        // SAFETY: the caller promises `s2` is NUL-terminated and `s1` has room
+        // for it, so the walk stops inside both.
         let byte = unsafe { *s2.add(i) };
         // SAFETY: as above.
         unsafe { *s1.add(i) = byte };
@@ -181,13 +169,13 @@ pub unsafe extern "C" fn strcpy(
     s1
 }
 
-/// Copy up to `n` bytes of the NUL-terminated string at `s2` to `s1`,
-/// padding with NULs when `s2` is shorter, and return `s1`.
+/// Copy up to `n` bytes of the NUL-terminated string at `s2` to `s1`, padding
+/// with NULs when `s2` is shorter, and return `s1`.
 ///
 /// # Safety
 ///
-/// `s2` must point to a NUL-terminated string and `s1` to room for
-/// `n` bytes; the two must not overlap.
+/// `s2` must point to a NUL-terminated string and `s1` to room for `n` bytes;
+/// the two must not overlap.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn strncpy(
     s1: *mut c_char,
@@ -197,8 +185,8 @@ pub unsafe extern "C" fn strncpy(
     let mut i = 0;
 
     while i < n {
-        // SAFETY: the caller promises `s2` is NUL-terminated and `s1`
-        // has room for `n` bytes.
+        // SAFETY: the caller promises `s2` is NUL-terminated and `s1` has room
+        // for `n` bytes.
         let byte = unsafe { *s2.add(i) };
         // SAFETY: as above.
         unsafe { *s1.add(i) = byte };
@@ -219,14 +207,10 @@ pub unsafe extern "C" fn strncpy(
 
 /// Split the string at `*strp` on the first byte found in `delim`.
 ///
-/// Returns the token before the delimiter, which is overwritten with a
-/// NUL, and advances `*strp` past it; at the end of the string `*strp`
-/// becomes null.  Returns null when `*strp` is null.
-///
 /// # Safety
 ///
-/// `strp` must point to a valid pointer to a writable NUL-terminated
-/// string, or to null; `delim` must point to a NUL-terminated string.
+/// `strp` must point to a valid pointer to a writable NUL-terminated string,
+/// or to null; `delim` must point to a NUL-terminated string.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn strsep(
     strp: *mut *mut c_char,
@@ -240,12 +224,11 @@ pub unsafe extern "C" fn strsep(
 
     let mut i = 0;
     loop {
-        // SAFETY: the caller promises `s` is NUL-terminated, so the
-        // walk stops inside the string.
+        // SAFETY: the caller promises `s` is NUL-terminated, so the walk stops
+        // inside the string.
         let byte = unsafe { *s.add(i) };
         if byte == 0 {
-            // SAFETY: the caller promises `strp` points to a valid
-            // pointer.
+            // SAFETY: the caller promises `strp` points to a valid pointer.
             unsafe { *strp = ptr::null_mut() };
             return s;
         }
@@ -274,11 +257,6 @@ pub unsafe extern "C" fn strsep(
 
 /// Compare the NUL-terminated strings at `s1` and `s2`.
 ///
-/// Returns 0 when they are equal, or the difference between the first
-/// two bytes that differ, taken as unsigned chars.  (The C this
-/// replaces sign-extended bytes at 0x80 and above; this compares them
-/// unsigned, as standard C does.)
-///
 /// # Safety
 ///
 /// `s1` and `s2` must point to NUL-terminated strings.
@@ -290,8 +268,8 @@ pub unsafe extern "C" fn strcmp(
     let mut i = 0;
 
     loop {
-        // SAFETY: the caller promises both strings are NUL-terminated,
-        // so the walk stops inside both.
+        // SAFETY: the caller promises both strings are NUL-terminated, so the
+        // walk stops inside both.
         let (a, b) = unsafe { (*s1.add(i) as u8, *s2.add(i) as u8) };
         if a != b {
             return c_int::from(a) - c_int::from(b);
@@ -303,10 +281,8 @@ pub unsafe extern "C" fn strcmp(
     }
 }
 
-/// Compare at most `n` bytes of the NUL-terminated strings at `s1` and
-/// `s2`, as `strcmp()` does.
-///
-/// Bytes are compared as unsigned chars, as standard C does.
+/// Compare at most `n` bytes of the NUL-terminated strings at `s1` and `s2`,
+/// as `strcmp()` does.
 ///
 /// # Safety
 ///
@@ -318,8 +294,8 @@ pub unsafe extern "C" fn strncmp(
     n: usize,
 ) -> c_int {
     for i in 0..n {
-        // SAFETY: the caller promises both strings are NUL-terminated,
-        // so the walk stops inside both.
+        // SAFETY: the caller promises both strings are NUL-terminated, so the
+        // walk stops inside both.
         let (a, b) = unsafe { (*s1.add(i) as u8, *s2.add(i) as u8) };
         if a != b {
             return c_int::from(a) - c_int::from(b);
@@ -341,8 +317,8 @@ pub unsafe extern "C" fn strncmp(
 pub unsafe extern "C" fn strlen(s: *const c_char) -> usize {
     let mut len = 0;
 
-    // SAFETY: the caller promises `s` is NUL-terminated, so this walk
-    // stops inside the string.
+    // SAFETY: the caller promises `s` is NUL-terminated, so this walk stops
+    // inside the string.
     while unsafe { *s.add(len) } != 0 {
         len += 1;
     }
@@ -352,8 +328,6 @@ pub unsafe extern "C" fn strlen(s: *const c_char) -> usize {
 
 /// Return a pointer to the first occurrence of the string `s2` in the
 /// NUL-terminated string at `s1`, or null.
-///
-/// An empty `s2` matches at `s1` itself.
 ///
 /// # Safety
 ///
@@ -370,11 +344,10 @@ pub unsafe extern "C" fn strstr(
     }
 
     let mut i = 0;
-    // SAFETY: the caller promises `s1` is NUL-terminated, so the walk
-    // stops inside the string.
+    // SAFETY: the caller promises `s1` is NUL-terminated, so the walk stops
+    // inside the string.
     while unsafe { *s1.add(i) } != 0 {
-        // SAFETY: `i` is inside the string and `s2` is
-        // NUL-terminated.
+        // SAFETY: `i` is inside the string and `s2` is NUL-terminated.
         if unsafe { strncmp(s1.add(i), s2, len) } == 0 {
             // SAFETY: `i` is inside the string.
             return unsafe { s1.add(i).cast_mut() };

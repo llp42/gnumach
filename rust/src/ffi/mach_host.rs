@@ -3,11 +3,8 @@
 //   Copyright (c) 1993,1992,1991,1990,1989,1988 Carnegie Mellon University.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! The <mach/mach_host.defs> server entries that have moved to Rust,
-//! 4 of its 44 routines.
-//!
-//! MIG's `_X` stubs call these by the names the `.defs` gives them;
-//! the cores are in [`crate::kern::host`].
+//! The <mach/mach_host.defs> server entries that have moved to Rust, 4 of its
+//! 44 routines.
 
 use crate::arch::types::VmOffset;
 use crate::config::{KERNEL_VERSION, KERNEL_VERSION_MAX};
@@ -19,8 +16,8 @@ use core::ptr::NonNull;
 
 const _: () = assert!(KERNEL_VERSION.len() < KERNEL_VERSION_MAX);
 
-/// Both the name and the 512 come from <mach/mach_host.defs>, whose
-/// reply is a `c_string[512]`.
+/// Both the name and the 512 come from <mach/mach_host.defs>, whose reply is a
+/// `c_string[512]`.
 #[unsafe(no_mangle)]
 pub extern "C" fn host_get_kernel_version(
     host: Option<NonNull<Host>>,
@@ -63,7 +60,6 @@ pub extern "C" fn host_processor_set_priv(
             0
         }
         Err(error) => {
-            // The C stores the null set on this path too.
             *out = None;
             c_int::from(error)
         }

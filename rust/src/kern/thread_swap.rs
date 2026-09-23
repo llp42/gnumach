@@ -5,17 +5,6 @@
 
 //! The thread swapper, which `kern/thread_swap.c` used to define and
 //! `kern/thread_swap.h` declares.
-//!
-//! [`thread_swapin()`] moves a swapped-out thread onto `swapin_queue`
-//! under the swapper lock; the swapin kernel thread [`swapin_thread()`]
-//! drains that queue, and [`thread_doswapin()`] allocates a kernel
-//! stack and returns the thread to a run queue.  Every queue link is
-//! the thread's own `links` field, so the `!Unpin` discipline of
-//! [`QueueEntry`] applies: a thread is linked only while the swapper
-//! owns it.
-//!
-//! `swapin_queue` is both the queue head and the wakeup event, so it
-//! keeps its exact C symbol and type.
 
 use crate::arch::i386::percpu::current_thread;
 use crate::glue;
@@ -38,8 +27,8 @@ const KERN_SUCCESS: c_int = 0;
 /// `swapper_lock_data` of kern/thread_swap.c: guards `swapin_queue`.
 static SWAPPER_LOCK: SimpleLock = SimpleLock::new();
 
-/// `swapin_queue` of kern/thread_swap.c: the threads waiting for a
-/// stack, and the event the swapin thread sleeps on.
+/// `swapin_queue` of kern/thread_swap.c: the threads waiting for a stack, and
+/// the event the swapin thread sleeps on.
 #[unsafe(export_name = "swapin_queue")]
 static mut SWAPIN_QUEUE: QueueEntry = QueueEntry::unlinked();
 
@@ -47,12 +36,12 @@ static mut SWAPIN_QUEUE: QueueEntry = QueueEntry::unlinked();
 ///
 /// # Safety
 ///
-/// The caller must hold `SWAPPER_LOCK`, except during
-/// [`swapper_init()`], and the returned reference must not outlive the
-/// critical section: the static must not have two live `&mut` views.
+/// The caller must hold `SWAPPER_LOCK`, except during [`swapper_init()`], and
+/// the returned reference must not outlive the critical section: the static
+/// must not have two live `&mut` views.
 unsafe fn swapin_queue<'a>() -> Pin<&'a mut QueueEntry> {
-    // SAFETY: `SWAPIN_QUEUE` is a static, so it is valid, aligned and
-    // never moves.
+    // SAFETY: `SWAPIN_QUEUE` is a static, so it is valid, aligned and never
+    // moves.
     unsafe {
         QueueEntry::pin_in_place(NonNull::new_unchecked(&raw mut SWAPIN_QUEUE))
     }
@@ -63,53 +52,51 @@ fn swapin_event() -> *mut c_void {
     (&raw mut SWAPIN_QUEUE).cast::<c_void>()
 }
 
-/// Initialize the swapper module.  `swapper_init()` in C.
+/// `swapper_init()` in C.
 ///
 /// # Safety
 ///
-/// Must be called once during boot, before any thread is queued for
-/// swapin; `setup_main()` is the only caller.
+/// Must be called once during boot, before any thread is queued for swapin;
+/// `setup_main()` is the only caller.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn swapper_init() {
-    // SAFETY: the boot caller is single-threaded here, and
-    // `SWAPIN_QUEUE` is an unlinked static.
+    // SAFETY: the boot caller is single-threaded here, and `SWAPIN_QUEUE` is
+    // an unlinked static.
     unsafe {
         swapin_queue().init_head();
     }
     SWAPPER_LOCK.init();
 }
 
-/// Queue a swapped-out thread for the swapin thread.  `thread_swapin()`
-/// in C.
+/// `thread_swapin()` in C.
 ///
 /// # Safety
 ///
-/// `thread` must be a live thread whose lock the caller holds, at
-/// splsched, as the scheduler's swap path is.
+/// `thread` must be a live thread whose lock the caller holds, at splsched, as
+/// the scheduler's swap path is.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn thread_swapin(thread: *mut Thread) {
-    // SAFETY: the caller holds the thread lock, so the state read is
-    // stable and `thread` is live and non-null.
+    // SAFETY: the caller holds the thread lock, so the state read is stable
+    // and `thread` is live and non-null.
     let state = unsafe { (*thread).state() };
     match state & TH_SWAP_STATE {
         TH_SWAPPED => {
-            // SAFETY: as above; this is the C assignment to the
-            // 16-bit `state` field.
+            // SAFETY: as above; this is the C assignment to the 16-bit `state`
+            // field.
             unsafe {
                 (*thread)
                     .set_state((state & !TH_SWAP_STATE) | TH_SW_COMING_IN);
             }
-            // SAFETY: the swapper lock serializes the queue, and the
-            // thread's `links` field is free while the thread is
-            // swapped out.
+            // SAFETY: the swapper lock serializes the queue, and the thread's
+            // `links` field is free while the thread is swapped out.
             unsafe {
                 SWAPPER_LOCK.lock();
                 let links = NonNull::new_unchecked(&raw mut (*thread).links);
                 swapin_queue().push_back(QueueEntry::pin_in_place(links));
                 SWAPPER_LOCK.unlock();
             }
-            // SAFETY: the event is the queue head's fixed address, the
-            // key the swapin thread registers with `assert_wait()`.
+            // SAFETY: the event is the queue head's fixed address, the key the
+            // swapin thread registers with `assert_wait()`.
             unsafe {
                 thread_wakeup_prim(swapin_event(), 0, THREAD_AWAKENED);
             }
@@ -130,19 +117,17 @@ pub unsafe extern "C" fn thread_swapin(thread: *mut Thread) {
     }
 }
 
-/// Swap a thread back in and return it to a run queue.
-/// `thread_doswapin()` of kern/thread_swap.c, the body behind the
-/// adapter below.
+/// `thread_doswapin()` of kern/thread_swap.c, the body behind the adapter
+/// below.
 ///
 /// # Safety
 ///
-/// `thread` must be a live thread with `TH_SWAP_STATE` set that no
-/// lock protects, because the stack allocation can block; the caller
-/// must hold no spin lock.
+/// `thread` must be a live thread with `TH_SWAP_STATE` set that no lock
+/// protects, because the stack allocation can block; the caller must hold no
+/// spin lock.
 unsafe fn doswapin(thread: *mut Thread) -> c_int {
-    // SAFETY: the caller's contract; the Rust `stack_alloc()` may
-    // block and resumes the thread through `thread_continue` once it
-    // has a stack.
+    // SAFETY: the caller's contract; the Rust `stack_alloc()` may block and
+    // resumes the thread through `thread_continue` once it has a stack.
     let kr = unsafe {
         crate::kern::thread::stack_alloc(thread, Some(thread_continue))
     };
@@ -150,8 +135,8 @@ unsafe fn doswapin(thread: *mut Thread) -> c_int {
         return kr;
     }
 
-    // SAFETY: `thread` is live and not locked; the spl level and the
-    // thread lock guard the state and the run queue, in the C order.
+    // SAFETY: `thread` is live and not locked; the spl level and the thread
+    // lock guard the state and the run queue, in the C order.
     unsafe {
         let s = glue::splsched();
         (*thread).lock.lock();
@@ -165,31 +150,28 @@ unsafe fn doswapin(thread: *mut Thread) -> c_int {
     KERN_SUCCESS
 }
 
-/// Swap a thread back in and return it to a run queue.
 /// `thread_doswapin()` in C.
 ///
 /// # Safety
 ///
-/// `thread` must be a live thread queued for swapin, and the caller
-/// must hold no spin lock, because the stack allocation can block.
+/// `thread` must be a live thread queued for swapin, and the caller must hold
+/// no spin lock, because the stack allocation can block.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn thread_doswapin(thread: *mut Thread) -> c_int {
     // SAFETY: the caller's contract.
     unsafe { doswapin(thread) }
 }
 
-/// The swapin thread's loop.  `swapin_thread_continue()` of
-/// kern/thread_swap.c, which C kept private.
+/// `swapin_thread_continue()` of kern/thread_swap.c, which C kept private.
 ///
 /// # Safety
 ///
-/// Runs as the swapin kernel thread.  It may block in `doswapin()`, so
-/// it must run with no lock held, and it never returns.
+/// Runs as the swapin kernel thread.
 unsafe extern "C" fn swapin_thread_continue() -> ! {
     loop {
-        // SAFETY: the continuation runs in thread context; the swapper
-        // lock and the spl level guard the queue, and `doswapin()`
-        // blocks only with both released.
+        // SAFETY: the continuation runs in thread context; the swapper lock
+        // and the spl level guard the queue, and `doswapin()` blocks only with
+        // both released.
         unsafe {
             let mut s = glue::splsched();
             SWAPPER_LOCK.lock();
@@ -198,9 +180,9 @@ unsafe extern "C" fn swapin_thread_continue() -> ! {
                 SWAPPER_LOCK.unlock();
                 glue::splx(s);
 
-                // SAFETY: `links` is the first field of `struct
-                // thread`, so a popped link is its thread; every entry
-                // on this queue was pushed that way.
+                // SAFETY: `links` is the first field of `struct thread`, so a
+                // popped link is its thread; every entry on this queue was
+                // pushed that way.
                 let thread = elt.as_ptr().cast::<Thread>();
                 let kr = doswapin(thread);
 
@@ -215,8 +197,8 @@ unsafe extern "C" fn swapin_thread_continue() -> ! {
                 }
             }
 
-            // SAFETY: the event is the queue head's fixed address, and
-            // the lock is released before blocking, as in C.
+            // SAFETY: the event is the queue head's fixed address, and the
+            // lock is released before blocking, as in C.
             assert_wait(swapin_event(), 0);
             SWAPPER_LOCK.unlock();
             glue::splx(s);
@@ -227,31 +209,26 @@ unsafe extern "C" fn swapin_thread_continue() -> ! {
 
 /// The `void (*)(void)` continuation `thread_block()` resumes.
 ///
-/// C passed `swapin_thread_continue()` straight to `thread_block()`,
-/// whose `continuation_t` cannot carry the never type; this thin
-/// wrapper gives the scheduler the function pointer it stores in
-/// `swap_func`.
-///
 /// # Safety
 ///
-/// Runs as the swapin kernel thread's continuation after a block; it
-/// never returns.
+/// Runs as the swapin kernel thread's continuation after a block; it never
+/// returns.
 unsafe extern "C" fn swapin_thread_continuation() {
     // SAFETY: the swapin thread's own loop, which never returns.
     unsafe { swapin_thread_continue() }
 }
 
-/// The swapin kernel thread's entry point.  `swapin_thread()` in C.
+/// `swapin_thread()` in C.
 ///
 /// # Safety
 ///
-/// Started by `kernel_thread()` as the "swapin" thread; it reserves
-/// its stack and never returns.
+/// Started by `kernel_thread()` as the "swapin" thread; it reserves its stack
+/// and never returns.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn swapin_thread() -> ! {
-    // SAFETY: the kernel thread starts here with `current_thread()`
-    // pointing at itself, and `stack_privilege()` reserves the stack
-    // it already runs on.
+    // SAFETY: the kernel thread starts here with `current_thread()` pointing
+    // at itself, and `stack_privilege()` reserves the stack it already runs
+    // on.
     unsafe {
         let thread = current_thread();
         (*thread).vm_privilege = 1;

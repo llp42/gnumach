@@ -6,24 +6,20 @@
 //   Copyright 1988, 1989 by Intel Corporation.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! The EGA-style kd display backend: the text write and cursor, and
-//! the screen block moves (through the `kd_slm*` assembly).  The
-//! bitmap backend was never selected by the ported `kdinit()` and had
-//! no C callers, so it is gone, along with `kdsoft.h`'s pointer table.
+//! The EGA-style kd display backend: the text write and cursor, and the screen
+//! block moves (through the `kd_slm*` assembly).
 
 use super::*;
 use crate::arch::i386::pio::Port;
 use crate::glue;
 use core::ffi::{c_char, c_int, c_short};
 
-/// The CRT cursor shape scanlines the firmware default is replaced
-/// with when it left them zero.
+/// The CRT cursor shape scanlines the firmware default is replaced with when
+/// it left them zero.
 const CURSOR_START_SCANLINE: u8 = 14;
 const CURSOR_STOP_SCANLINE: u8 = 15;
 /// Bytes of the bitmap the C cleared at initialization.
 const BITMAP_CLEAR_BYTES: usize = 200;
-
-// Safe operations for the escape engine.
 
 pub(crate) fn dput(pos: c_short, ch: u8, attr: u8) {
     // SAFETY: the screen is mapped and SPLKD is held.
@@ -77,7 +73,7 @@ pub(crate) fn scrolldn() {
     dclear(0, (ONE_LINE / ONE_SPACE) as c_int, state().kd_attr);
 }
 
-/// Put an attributed character for EGA/CGA.  `text_put()` in C.
+/// `text_put()` in C.
 unsafe fn text_put(pos: c_short, ch: c_char, chattr: c_char) {
     let s = state();
     // SAFETY: `vid_start` is the mapped screen and `pos` is in range.
@@ -87,7 +83,7 @@ unsafe fn text_put(pos: c_short, ch: c_char, chattr: c_char) {
     }
 }
 
-/// Set the hardware cursor for EGA/CGA.  `set_cursor()` in C.
+/// `set_cursor()` in C.
 unsafe fn set_cursor(newpos: c_short) {
     let curpos = newpos / ONE_SPACE;
     let s = state();
@@ -98,7 +94,7 @@ unsafe fn set_cursor(newpos: c_short) {
     s.kd_curpos = newpos;
 }
 
-/// Block move up for EGA/CGA.  `move_up()` in C.
+/// `move_up()` in C.
 unsafe fn move_up(from: c_short, to: c_short, count: c_int) {
     let s = state();
     // SAFETY: both offsets are inside the screen.
@@ -111,7 +107,7 @@ unsafe fn move_up(from: c_short, to: c_short, count: c_int) {
     };
 }
 
-/// Block move down for EGA/CGA.  `move_down()` in C.
+/// `move_down()` in C.
 unsafe fn move_down(from: c_short, to: c_short, count: c_int) {
     let s = state();
     // SAFETY: both offsets are inside the screen.
@@ -124,7 +120,7 @@ unsafe fn move_down(from: c_short, to: c_short, count: c_int) {
     };
 }
 
-/// Fast clear for EGA/CGA.  `text_clear()` in C.
+/// `text_clear()` in C.
 unsafe fn text_clear(to: c_short, count: c_int, chattr: c_char) {
     let s = state();
     let value = (((chattr as u8) as c_int) << 8) + K_SPACE as c_int;
@@ -134,10 +130,10 @@ unsafe fn text_clear(to: c_short, count: c_int, chattr: c_char) {
     };
 }
 
-/// No-op reset.  `noop_reset()` in C.
+/// `noop_reset()` in C.
 unsafe fn noop_reset() {}
 
-/// Prepare the display for reboot.  The EGA backend needs nothing.
+/// Prepare the display for reboot.
 pub(crate) fn reset() {
     // SAFETY: resetting has no preconditions.
     unsafe { noop_reset() };
@@ -152,7 +148,7 @@ fn phystokv(addr: usize) -> usize {
     addr.wrapping_add(BASE)
 }
 
-/// The current hardware cursor position.  `get_cursor()` in C.
+/// `get_cursor()` in C.
 fn get_cursor() -> c_short {
     let s = state();
     Port::new(s.kd_index_reg as u16).write_u8(C_HIGH);
@@ -163,8 +159,7 @@ fn get_cursor() -> c_short {
     ONE_SPACE * pos as c_short
 }
 
-/// Initialize the character-based graphics adapter.  `kd_xga_init()` in
-/// C; called once, from `kdinit()`.
+/// `kd_xga_init()` in C; called once, from `kdinit()`.
 pub(crate) fn xga_init() {
     {
         let s = state();
@@ -181,14 +176,12 @@ pub(crate) fn xga_init() {
     let s = state();
     Port::new(s.kd_index_reg as u16).write_u8(C_START);
     let mut start = Port::new(s.kd_io_reg as u16).read_u8();
-    // Make sure the cursor is enabled.
     start &= !0x20;
     Port::new(s.kd_io_reg as u16).write_u8(start);
     Port::new(s.kd_index_reg as u16).write_u8(C_STOP);
     let stop = Port::new(s.kd_io_reg as u16).read_u8();
 
     if start == 0 && stop == 0 {
-        // Some firmware leaves the cursor size unset; use standards.
         let s = state();
         Port::new(s.kd_index_reg as u16).write_u8(C_START);
         Port::new(s.kd_io_reg as u16).write_u8(CURSOR_START_SCANLINE);

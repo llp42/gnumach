@@ -6,10 +6,6 @@
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! Kernel return codes as Rust errors, from `mach/kern_return.h`.
-//!
-//! The C `kern_return_t` is an `int`; the Rust core works in `Error`
-//! and the `extern "C"` adapters convert, so no function behind them
-//! returns an error code.
 
 use core::ffi::c_int;
 
@@ -25,17 +21,14 @@ pub const KERN_MEMORY_ERROR: c_int = 10;
 pub const KERN_INVALID_NAME: c_int = 15;
 pub const KERN_INVALID_TASK: c_int = 16;
 pub const KERN_WRITE_PROTECTION_FAILURE: c_int = 24;
-/// `MACH_SEND_INTERRUPTED` of <mach/message.h>: the pager wait an
-/// object copy performs was interrupted.  It reaches the VM map
-/// through `vm_object_copy_slowly`/`vm_object_copy_strategically`.
+/// `MACH_SEND_INTERRUPTED` of <mach/message.h>: the pager wait an object copy
+/// performs was interrupted.
 pub const MACH_SEND_INTERRUPTED: c_int = 0x10000007;
 
-/// The errors the VM map can report, named as in
-/// `mach/kern_return.h`.
+/// The errors the VM map can report, named as in `mach/kern_return.h`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
-    /// `KERN_SUCCESS`: no error.  `Result<_, Error>` never carries it,
-    /// but the C conversion needs the code.
+    /// `KERN_SUCCESS`: no error.
     Success,
     /// `KERN_INVALID_ADDRESS`.
     InvalidAddress,
@@ -53,18 +46,15 @@ pub enum Error {
     NoAccess,
     /// `KERN_MEMORY_ERROR`.
     MemoryError,
-    /// `KERN_INVALID_NAME`: a port the call needs is not valid.  It
-    /// reaches the VM map from `memory_object_create_proxy` when the
-    /// region has no pager to proxy.
+    /// `KERN_INVALID_NAME`: a port the call needs is not valid.
     InvalidName,
     /// `KERN_INVALID_TASK`: the proxy call's IPC space is `IS_NULL`.
     InvalidTask,
-    /// `KERN_WRITE_PROTECTION_FAILURE`: the entry asks for
-    /// `VM_PROT_NOTIFY` and the fault is a write.
+    /// `KERN_WRITE_PROTECTION_FAILURE`: the entry asks for `VM_PROT_NOTIFY`
+    /// and the fault is a write.
     WriteProtectionFailure,
     /// `MACH_SEND_INTERRUPTED`: an object copy waiting for a pager was
-    /// interrupted.  Not a VM error itself, but what
-    /// `vm_map_copyin` can receive from the copy strategies under it.
+    /// interrupted.
     SendInterrupted,
 }
 
@@ -97,8 +87,7 @@ pub const fn kern_return(result: Result<(), Error>) -> c_int {
     }
 }
 
-/// The `Error` for a C `kern_return_t`.  A code with no named error
-/// becomes `Failure`, which a C caller sees unchanged.
+/// The `Error` for a C `kern_return_t`.
 pub const fn error_from_kern_return(code: c_int) -> Result<(), Error> {
     match code {
         KERN_SUCCESS => Ok(()),

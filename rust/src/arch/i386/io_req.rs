@@ -7,16 +7,6 @@
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! `struct io_req` of <device/io_req.h>, as the x86 drivers share it.
-//! The device return codes live in
-//! [`return`](crate::device::return).
-//!
-//! Only a prefix of the request is mirrored, through `io_done`: the
-//! fields after it are never read.  The request's first two fields are
-//! its queue chain, which is why the C let an `io_req_t` double as its
-//! own `queue_entry_t`.
-//!
-//! This belongs under a `src/device/` module once the device layer has
-//! one; until then the two x86 drivers share it here.
 
 use crate::kern::queue::QueueEntry;
 use crate::utils::kd_queue::{KdEvent, KdEventQueue};
@@ -51,7 +41,6 @@ pub struct IoReq {
     done: Option<IoDone>,
 }
 
-// The queue cast depends on the chain being the first field.
 const _: () = assert!(offset_of!(IoReq, next) == 0);
 const _: () = assert!(offset_of!(IoReq, prev) == size_of::<*mut c_void>());
 
@@ -85,8 +74,8 @@ impl IoReq {
     ///
     /// # Safety
     ///
-    /// The request must stay at its address until it is unlinked: the
-    /// queue links point at it.  The device layer keeps it so.
+    /// The request must stay at its address until it is unlinked: the queue
+    /// links point at it.
     pub unsafe fn queue_entry(&mut self) -> Pin<&mut QueueEntry> {
         let p = (self as *mut IoReq).cast::<QueueEntry>();
         // SAFETY: the caller promises the address is stable.
@@ -94,9 +83,8 @@ impl IoReq {
     }
 }
 
-/// Drain up to `ior`'s byte count of queued events into its data
-/// buffer, and return the bytes copied.  The caller rejected a byte
-/// count that is not a multiple of the event size and holds `SPLKD`.
+/// Drain up to `ior`'s byte count of queued events into its data buffer, and
+/// return the bytes copied.
 pub fn drain(queue: &mut KdEventQueue, ior: &mut IoReq) -> c_long {
     let mut count: c_long = 0;
     while !queue.is_empty() && count < ior.count {
@@ -104,8 +92,8 @@ pub fn drain(queue: &mut KdEventQueue, ior: &mut IoReq) -> c_long {
             break;
         };
         let src = (ev as *const KdEvent).cast::<u8>();
-        // SAFETY: `device_read_alloc()` allocated `io_count` bytes for
-        // the request, and the loop condition keeps this copy inside.
+        // SAFETY: `device_read_alloc()` allocated `io_count` bytes for the
+        // request, and the loop condition keeps this copy inside.
         let dst = unsafe { ior.data.add(count as usize).cast::<u8>() };
         // SAFETY: as above; `src` is the popped event.
         unsafe { ptr::copy_nonoverlapping(src, dst, size_of::<KdEvent>()) };
@@ -114,9 +102,6 @@ pub fn drain(queue: &mut KdEventQueue, ior: &mut IoReq) -> c_long {
     count
 }
 
-// The mode flag of <device/device_types.h>, the ioctl flavors, and
-// the `kern_return_t` of <mach/kern_return.h>; the device return codes
-// moved to [`crate::device::r#return`].
 pub const D_NOWAIT: c_uint = 0x8;
 pub const DEV_GET_SIZE: c_uint = 0;
 pub const DEV_GET_SIZE_DEVICE_SIZE: usize = 0;

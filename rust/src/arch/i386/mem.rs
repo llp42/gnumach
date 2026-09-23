@@ -4,11 +4,6 @@
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! `/dev/mem`: `memmmap()` of `i386/i386at/mem.c`.
-//!
-//! The only operation is to hand out physical pages for memory that is
-//! not main RAM, so a user can look at the BIOS areas, the VGA window
-//! and the like without going through the VM system.  `off` is a
-//! byte address, and `-1` refuses it.
 
 use crate::arch::i386::io_req::DevT;
 use crate::arch::types::VmOffset;
@@ -31,6 +26,5 @@ pub unsafe extern "C" fn memmmap(
     if unsafe { glue::biosmem_addr_available(off) } != 0 {
         return VmOffset::MAX;
     }
-    // i386_btop(): shift by I386_PGSHIFT.
     off >> PAGE_SHIFT
 }

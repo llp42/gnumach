@@ -3,20 +3,8 @@
 //   Copyright (c) 1993-1989 Carnegie Mellon University.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! The memory-object entry points the device pager does not implement,
-//! which `device/dev_pager.c` used to define.
-//!
-//! `device/device_pager.srv` renames the whole `memory_object`
-//! protocol onto `device_pager_*`, so MIG generates an unmarshaller
-//! and a server-routine slot for every message the interface has.  Six
-//! of them describe operations a device pager cannot perform: the
-//! memory it hands out is physical, never paged, so there is nothing
-//! to copy, nothing to return and no completion to report.  Each entry
-//! point therefore exists only to fill its slot, and each halts the
-//! machine if a message ever reaches it.
-//!
-//! The rest of `device/dev_pager.c` -- the pager itself, its hash
-//! table and its cache -- stays C.
+//! The memory-object entry points the device pager does not implement, which
+//! `device/dev_pager.c` used to define.
 
 use crate::arch::types::{VmOffset, VmSize};
 use crate::glue;
@@ -24,16 +12,9 @@ use crate::ipc::IpcPort;
 use crate::vm::types::VmProt;
 use core::ffi::{CStr, c_int, c_uint};
 
-/// Halt with the message the C `panic()` of `device/dev_pager.c`
-/// printed.
-///
-/// `line` is this file's, as [`line!`] reports it, and `fun` is the
-/// entry point's name, the two arguments the C `panic()` macro filled
-/// in from `__LINE__` and `__FUNCTION__`.
+/// Halt with the message the C `panic()` of `device/dev_pager.c` printed.
 fn unimplemented(line: c_int, fun: &CStr, message: &CStr) -> ! {
-    // SAFETY: `Panic` does not return.  Both pointers come from
-    // `CStr`s, so they are NUL-terminated, and `message` holds no
-    // conversion specifier for the varargs `Panic` never receives.
+    // SAFETY: `Panic` does not return.
     unsafe {
         glue::Panic(
             c"device/dev_pager.c".as_ptr(),
@@ -44,13 +25,11 @@ fn unimplemented(line: c_int, fun: &CStr, message: &CStr) -> ! {
     }
 }
 
-/// Halts: a device pager cannot copy its memory object.
 /// `device_pager_copy()` in C.
 ///
 /// # Safety
 ///
-/// Never returns; the caller must accept the halt.  The ports, if the
-/// call is ever made, are the MIG server's and are not touched.
+/// Never returns; the caller must accept the halt.
 ///
 /// # Panics
 ///
@@ -70,8 +49,7 @@ pub unsafe extern "C" fn device_pager_copy(
     )
 }
 
-/// Halts: a device pager never supplies pages, so no supply can
-/// complete.  `device_pager_supply_completed()` in C.
+/// `device_pager_supply_completed()` in C.
 ///
 /// # Safety
 ///
@@ -96,13 +74,11 @@ pub unsafe extern "C" fn device_pager_supply_completed(
     )
 }
 
-/// Halts: device memory is never paged out, so no data comes back.
 /// `device_pager_data_return()` in C.
 ///
 /// # Safety
 ///
-/// Never returns; the caller must accept the halt.  `data` is not
-/// dereferenced.
+/// Never returns; the caller must accept the halt.
 ///
 /// # Panics
 ///
@@ -124,8 +100,7 @@ pub unsafe extern "C" fn device_pager_data_return(
     )
 }
 
-/// Halts: a device pager accepts no attribute change, so none can
-/// complete.  `device_pager_change_completed()` in C.
+/// `device_pager_change_completed()` in C.
 ///
 /// # Safety
 ///
@@ -147,7 +122,6 @@ pub unsafe extern "C" fn device_pager_change_completed(
     )
 }
 
-/// Halts: device pages carry no lock to release.
 /// `device_pager_data_unlock()` in C.
 ///
 /// # Safety
@@ -172,7 +146,6 @@ pub unsafe extern "C" fn device_pager_data_unlock(
     )
 }
 
-/// Halts: a device pager issues no lock request, so none can complete.
 /// `device_pager_lock_completed()` in C.
 ///
 /// # Safety

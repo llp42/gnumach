@@ -6,13 +6,9 @@
 //   Copyright 1988, 1989 by Intel Corporation.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! The kd output engine of <i386at/kd.c>: `kd_putc()` draws one
-//! character, `kd_putc_esc()` collects escape sequences, and
-//! `kd_parserest()` interprets the ANSI commands the console writes.
-//!
-//! `putc()` and `putc_esc()` are the module's two entry points; behind
-//! them the drawing and the interpreter are safe Rust, and `unsafe`
-//! stops at the `display.rs` boundary.
+//! The kd output engine of <i386at/kd.c>: `kd_putc()` draws one character,
+//! `kd_putc_esc()` collects escape sequences, and `kd_parserest()` interprets
+//! the ANSI commands the console writes.
 
 use super::display::{
     dclear, dmvdown, dmvup, dput, scrolldn, scrollup, setpos,
@@ -33,7 +29,6 @@ enum Progress {
     Incomplete,
 }
 
-/// Draw one character, applying the control specials.
 /// `kd_putc()` in C.
 pub(crate) fn putc(ch: u8) {
     if ch == 0 && state().sit_for_0 {
@@ -70,7 +65,6 @@ fn ring_bell() {
     state().kd_bellstate = true;
 }
 
-/// Collect one character, or replay a completed escape sequence.
 /// `kd_putc_esc()` in C.
 pub(crate) fn putc_esc(c: u8) {
     let spt = state().esc_spt;
@@ -87,8 +81,6 @@ pub(crate) fn putc_esc(c: u8) {
         }
     } else if spt != 0 {
         if spt > K_MAXESC - 1 {
-            // The sequence outgrew the buffer; drop the byte and start
-            // over, as the C did.
             state().esc_spt = 0;
             return;
         }
@@ -106,7 +98,6 @@ pub(crate) fn putc_esc(c: u8) {
     }
 }
 
-/// Interpret the sequence just collected, or say it is not finished.
 /// `kd_parseesc()` in C.
 fn parse_escape() -> Progress {
     let seq = state().esc_seq;
@@ -125,16 +116,12 @@ fn parse_escape() -> Progress {
     }
 }
 
-/// The ANSI interpreter for the bytes after `\e[`.  `kd_parserest()` in
-/// C.
+/// `kd_parserest()` in C.
 fn parse_parameters(seq: &[u8], start: usize) -> Progress {
     let mut cp = start;
     let mut number: [Option<c_int>; MAX_PARAMS] = [None; MAX_PARAMS];
     let mut last = 0;
 
-    // `\e[?...` and `\e[<...` are unsupported; their numbers are still
-    // consumed, and then a final byte is dropped silently while
-    // anything else is odd and gets drawn.
     let private = seq[cp] == b'?' || seq[cp] == b'<';
     if private {
         cp += 1;
@@ -163,8 +150,6 @@ fn parse_parameters(seq: &[u8], start: usize) -> Progress {
         };
     }
 
-    // The count parameter of the cursor commands; absent means one, and
-    // zero means none, matching the C's `while (number[0]--)` loops.
     let count = number[0].unwrap_or(1);
 
     match seq[cp] {
@@ -232,8 +217,7 @@ fn parse_parameters(seq: &[u8], start: usize) -> Progress {
     Progress::Done
 }
 
-/// Apply one `\e[...m` attribute list and refresh `kd_attr`.  The C did
-/// this inline in `kd_parserest()`.
+/// Apply one `\e[...m` attribute list and refresh `kd_attr`.
 fn set_attributes(values: &[Option<c_int>]) {
     let (mut flags, mut color) = {
         let s = state();
@@ -325,8 +309,7 @@ fn move_up() {
     }
 }
 
-/// `kd_down()` in C: one line down, scrolling the screen up at the
-/// bottom.
+/// `kd_down()` in C: one line down, scrolling the screen up at the bottom.
 fn move_down() {
     let pos = state().kd_curpos;
     if pos >= ONE_PAGE - ONE_LINE {
@@ -414,8 +397,8 @@ fn erase_line() {
     blank(beg_of_line(pos), beg_of_line(pos) + ONE_LINE, attr);
 }
 
-/// `kd_erase()` in C: blank `number` cells from the cursor, stopping at
-/// the line end.
+/// `kd_erase()` in C: blank `number` cells from the cursor, stopping at the
+/// line end.
 fn erase_chars(number: c_int) {
     let (pos, attr) = cursor();
     let mut stop = pos + ONE_SPACE * number as c_short;
@@ -538,9 +521,7 @@ fn cursor() -> (c_short, u8) {
     (s.kd_curpos, s.kd_attr)
 }
 
-/// A `\e[<n>G` column or `\e[<n>;<m>H` row/column parameter: absent and
-/// zero both mean the first column or row, and a value above zero counts
-/// from one.  `take_number()` cannot produce a negative one.
+/// `take_number()` cannot produce a negative one.
 fn zero_based(n: Option<c_int>) -> c_int {
     match n {
         None => 0,
@@ -550,8 +531,7 @@ fn zero_based(n: Option<c_int>) -> c_int {
 }
 
 /// The leading decimal digits of `seq` at `cp`: the number of bytes they
-/// occupy and their value.  `None` means there were no digits, or the
-/// value does not fit a `c_int`.
+/// occupy and their value.
 fn take_number(seq: &[u8], cp: usize) -> (usize, Option<c_int>) {
     let rest = seq.get(cp..).unwrap_or_default();
     let digits = rest.iter().take_while(|b| b.is_ascii_digit()).count();

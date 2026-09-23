@@ -5,13 +5,6 @@
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! The kernel mutex, which `kern/kmutex.c` used to define.
-//!
-//! A three-state sleepable mutex: [`KMutex::try_lock()`] takes `Avail`
-//! to `Locked` with one acquiring compare-exchange, and a failure drops
-//! to the interlock, moves the state to `Contended` and sleeps on the
-//! mutex's own address.  `kern/gsync.c` embeds one in each hash bucket,
-//! so the record and the four `kmutex_*` symbols stay for C; nothing in
-//! C reads `state` or `lock` directly.
 
 use crate::arch::i386::percpu::current_thread;
 use crate::kern::lock::SimpleLock;
@@ -24,8 +17,7 @@ use core::mem::offset_of;
 use core::ptr;
 use core::sync::atomic::{AtomicU32, Ordering};
 
-/// The three states of a mutex, the `KMUTEX_*` constants of
-/// <kern/kmutex.h>.
+/// The three states of a mutex, the `KMUTEX_*` constants of <kern/kmutex.h>.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]
 enum State {
@@ -38,8 +30,7 @@ enum State {
 }
 
 impl State {
-    /// The `unsigned int` the state is stored in.  A fieldless
-    /// `repr(u32)` enum casts to its discriminant exactly.
+    /// The `unsigned int` the state is stored in.
     const fn as_u32(self) -> u32 {
         self as u32
     }
@@ -50,16 +41,13 @@ impl State {
 /// # Invariants
 ///
 /// `state` always holds one of the three `KMUTEX_*` values, and `lock`
-/// serializes every slow path.  Both fields are private because C only
-/// embeds the record and calls the four entry points.
+/// serializes every slow path.
 #[repr(C)]
 pub struct KMutex {
     state: AtomicU32,
     lock: SimpleLock,
 }
 
-// `struct kmutex` is the state word followed by the interlock; 8 bytes
-// with the lock at offset 4 on both x86 kernels.
 const _: () = assert!(size_of::<KMutex>() == 8);
 const _: () = assert!(align_of::<KMutex>() == 4);
 const _: () = assert!(offset_of!(KMutex, state) == 0);
@@ -75,12 +63,9 @@ impl KMutex {
         }
     }
 
-    /// Try to acquire the mutex without sleeping.  `kmutex_trylock()`
-    /// in C.
-    ///
-    /// The compare-exchange acquires on success and is `Relaxed` on
-    /// failure, since the failure path takes the interlock before it
-    /// reads anything the state protects.
+    /// `kmutex_trylock()` in C.  The compare-exchange acquires on success;
+    /// its failure is `Relaxed`, since the failure path takes the interlock
+    /// before it reads anything the state protects.
     ///
     /// # Errors
     ///
@@ -102,19 +87,13 @@ impl KMutex {
         }
     }
 
-    /// Acquire the mutex, sleeping while it is held.  `kmutex_lock()`
-    /// in C.
-    ///
-    /// The swap is `Acquire`, like the C `atomic_swap_acq()`, because
-    /// it must see the previous owner's unlock.  A swap that reads
-    /// `Avail` means the mutex was released while this side was taking
-    /// the interlock.
+    /// `kmutex_lock()` in C.
     ///
     /// # Errors
     ///
-    /// Returns [`KernError::Interrupted`] when `interruptible` is set
-    /// and the sleep ends early; the mutex then belongs to its owner,
-    /// which sets the state.
+    /// Returns [`KernError::Interrupted`] when `interruptible` is set and the
+    /// sleep ends early; the mutex then belongs to its owner, which sets the
+    /// state.
     pub fn lock(&self, interruptible: bool) -> Result<(), KernError> {
         if self.try_lock().is_ok() {
             return Ok(());
@@ -126,17 +105,14 @@ impl KMutex {
             .swap(State::Contended.as_u32(), Ordering::Acquire)
             == State::Avail.as_u32()
         {
-            // The mutex was released in between.
             self.lock.unlock();
             return Ok(());
         }
 
-        // Sleep and check the result of the wait.  The owner sets the
-        // state on every wakeup, so this side does not set it again.
-        // SAFETY: this mutex is live and outlives the call, and the
-        // interlock `thread_sleep()` is handed is the live second
-        // field of the same record; the call releases it before
-        // blocking, taking over the hold from above.
+        // SAFETY: this mutex is live and outlives the call, and the interlock
+        // `thread_sleep()` is handed is the live second field of the same
+        // record; the call releases it before blocking, taking over the hold
+        // from above.
         unsafe {
             thread_sleep(
                 ptr::from_ref(self).cast_mut().cast::<c_void>(),
@@ -145,8 +121,8 @@ impl KMutex {
             );
         }
 
-        // SAFETY: this is the thread that just slept, and
-        // `current_thread()` reads it from the live per-CPU block.
+        // SAFETY: this is the thread that just slept, and `current_thread()`
+        // reads it from the live per-CPU block.
         let wait_result = unsafe { (*current_thread()).wait_result };
         if wait_result == THREAD_AWAKENED {
             Ok(())
@@ -155,15 +131,9 @@ impl KMutex {
         }
     }
 
-    /// Release the mutex, waking one sleeper when one is waiting.
-    /// `kmutex_unlock()` in C.
-    ///
-    /// The compare-exchange releases on success, like the C
-    /// `atomic_cas_rel()`; its failure is `Relaxed`, since the
-    /// interlock orders the slow path.  The plain `state = AVAIL` the
-    /// C makes under the interlock is a `Relaxed` store for the same
-    /// reason: the interlock carries the ordering, and a woken thread
-    /// takes it before it looks at the state.
+    /// `kmutex_unlock()` in C.  The compare-exchange releases on success,
+    /// like the C `atomic_cas_rel()`; its failure and the later reset store
+    /// are `Relaxed`, since the interlock orders the slow path.
     pub fn unlock(&self) {
         if self
             .state
@@ -180,9 +150,6 @@ impl KMutex {
 
         self.lock.lock();
 
-        // The C `thread_wakeup_one()`: wake the first thread waiting
-        // on this mutex and report whether one was woken.  The return
-        // is a `boolean_t`, so zero is the false case.
         // SAFETY: the event is this live mutex, the key its sleepers
         // registered with, and the caller owns it for the call.
         let woke = unsafe {
@@ -208,25 +175,24 @@ impl Default for KMutex {
     }
 }
 
-/// Initialize a mutex in caller storage.  `kmutex_init()` in C.
+/// `kmutex_init()` in C.
 ///
 /// # Safety
 ///
-/// A non-null `mtxp` must point at writable [`KMutex`] storage that no
-/// other thread can see yet.
+/// A non-null `mtxp` must point at writable [`KMutex`] storage that no other
+/// thread can see yet.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kmutex_init(mtxp: *mut KMutex) {
     let Some(mtxp) = ptr::NonNull::new(mtxp) else {
-        // A null mutex has no storage to write; the C would fault.
         return;
     };
 
-    // SAFETY: the caller promises writable, unshared storage, and the
-    // write covers the whole record.
+    // SAFETY: the caller promises writable, unshared storage, and the write
+    // covers the whole record.
     unsafe { mtxp.as_ptr().write(KMutex::new()) };
 }
 
-/// Acquire a mutex, sleeping while it is held.  `kmutex_lock()` in C.
+/// `kmutex_lock()` in C.
 ///
 /// # Safety
 ///
@@ -247,7 +213,7 @@ pub unsafe extern "C" fn kmutex_lock(
     }
 }
 
-/// Try to acquire a mutex without sleeping.  `kmutex_trylock()` in C.
+/// `kmutex_trylock()` in C.
 ///
 /// # Safety
 ///
@@ -265,16 +231,15 @@ pub unsafe extern "C" fn kmutex_trylock(mtxp: *mut KMutex) -> c_int {
     }
 }
 
-/// Release a mutex.  `kmutex_unlock()` in C.
+/// `kmutex_unlock()` in C.
 ///
 /// # Safety
 ///
-/// A non-null `mtxp` must point at a live initialized [`KMutex`] the
-/// caller holds.
+/// A non-null `mtxp` must point at a live initialized [`KMutex`] the caller
+/// holds.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kmutex_unlock(mtxp: *mut KMutex) {
     let Some(mtxp) = ptr::NonNull::new(mtxp) else {
-        // A null mutex has no state to release; the C would fault.
         return;
     };
 

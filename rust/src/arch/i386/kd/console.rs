@@ -6,9 +6,9 @@
 //   Copyright 1988, 1989 by Intel Corporation.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! The kd console entry points, which <device/cons.c> calls through
-//! `constab`: probe/init and the polled getc/putc the kernel debugger
-//! uses, plus the bell ioctl.
+//! The kd console entry points, which <device/cons.c> calls through `constab`:
+//! probe/init and the polled getc/putc the kernel debugger uses, plus the bell
+//! ioctl.
 
 use super::keymap::KEY_MAP;
 use super::*;
@@ -21,7 +21,7 @@ use core::ffi::{c_int, c_uint};
 const KD_BELLON: c_int = 1;
 const KD_BELLOFF: c_int = 0;
 
-/// Probe the console.  `kdcnprobe()` in C.
+/// `kdcnprobe()` in C.
 ///
 /// # Safety
 ///
@@ -29,13 +29,12 @@ const KD_BELLOFF: c_int = 0;
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kdcnprobe(cp: *mut ConsDev) -> c_int {
     let cp = unsafe { &mut *cp };
-    // makedev(0, 0)
     cp.cn_dev = 0;
     cp.cn_pri = CN_INTERNAL;
     0
 }
 
-/// Initialize the console.  `kdcninit()` in C.
+/// `kdcninit()` in C.
 ///
 /// # Safety
 ///
@@ -46,12 +45,12 @@ pub unsafe extern "C" fn kdcninit(_cp: *mut ConsDev) -> c_int {
     0
 }
 
-/// Polled console getc.  `kdcngetc()` in C.
+/// `kdcngetc()` in C.
 ///
 /// # Safety
 ///
-/// The caller must hold the console lock and interrupts must be off
-/// while the debugger polls.
+/// The caller must hold the console lock and interrupts must be off while the
+/// debugger polls.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kdcngetc(_dev: u16, wait: c_int) -> c_int {
     if wait != 0 {
@@ -66,7 +65,7 @@ pub unsafe extern "C" fn kdcngetc(_dev: u16, wait: c_int) -> c_int {
     }
 }
 
-/// Console putc.  `kdcnputc()` in C.
+/// `kdcnputc()` in C.
 ///
 /// # Safety
 ///
@@ -84,9 +83,7 @@ pub unsafe extern "C" fn kdcnputc(_dev: u16, c: c_int) -> c_int {
     0
 }
 
-/// Polled keyboard getc, ignoring caps lock.  `kdcnmaygetc()` in C.
-/// The caller must hold `SPLKD` (interrupts are usually off in the
-/// debugger).
+/// `kdcnmaygetc()` in C.
 pub(crate) fn maygetc() -> c_int {
     if !state().kd_initialized {
         return -1;
@@ -99,7 +96,6 @@ pub(crate) fn maygetc() -> c_int {
         }
 
         let mut up = false;
-        // We would come here for mouse events in the debugger.
         if Port::new(K_STATUS).read_u8() & K_AUX_OBUF_FUL == K_AUX_OBUF_FUL {
             let sc = Port::new(K_RDWR).read_u8();
             // SAFETY: a literal format with one integer.
@@ -107,8 +103,6 @@ pub(crate) fn maygetc() -> c_int {
             continue;
         }
         let mut scancode = Port::new(K_RDWR).read_u8();
-        // Handle the extend modifier and ack/resend, or a key may never
-        // arrive.
         if scancode == K_EXTEND {
             state().kd_extended = true;
             continue;
@@ -146,8 +140,8 @@ pub(crate) fn maygetc() -> c_int {
                 && c == K_ESC
                 && unsafe { KEY_MAP[scancode as usize][char_idx + 1] } == 0x5b
             {
-                // Remap some keys to the readline-like shortcuts the
-                // debugger supports.
+                // Remap some keys to the readline-like shortcuts the debugger
+                // supports.
                 c = unsafe { KEY_MAP[scancode as usize][char_idx + 2] };
                 return match c {
                     0x48 => 0x01, // home
@@ -169,8 +163,7 @@ pub(crate) fn maygetc() -> c_int {
     }
 }
 
-/// `kdsetbell()` in C: turn the bell on or off.  The caller must hold
-/// `SPLKD`.
+/// `kdsetbell()` in C: turn the bell on or off.
 pub(crate) fn set_bell(val: c_int, _flags: c_int) -> IoResult {
     if val == KD_BELLON {
         super::kd_bellon();

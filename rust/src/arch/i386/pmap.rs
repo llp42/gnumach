@@ -6,10 +6,8 @@
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! The pmap leaves, which `i386/intel/pmap.c` used to define and
-//! `i386/intel/pmap.h` declares: the advisory pageable call and the
-//! boot-time unmapping of page zero.
-//!
-//! The rest of `pmap.c` stays C: it is the page tables themselves.
+//! `i386/intel/pmap.h` declares: the advisory pageable call and the boot-time
+//! unmapping of page zero.
 
 use crate::arch::types::VmOffset;
 use crate::glue;
@@ -18,27 +16,19 @@ use core::arch::asm;
 use core::ffi::c_int;
 use core::ptr::NonNull;
 
-/// `LINEAR_DS` of <i386/gdt.h>: the flat data selector `gdt_fill()`
-/// builds with base zero, which makes an offset in it a linear
-/// address.
+/// `LINEAR_DS` of <i386/gdt.h>: the flat data selector `gdt_fill()` builds
+/// with base zero, which makes an offset in it a linear address.
 const LINEAR_DS: u16 = 0x38;
 
-/// `KERNEL_DS` of <i386/gdt.h>: the kernel data selector, which the
-/// TLB invalidation puts back in `%es`.
+/// `KERNEL_DS` of <i386/gdt.h>: the kernel data selector, which the TLB
+/// invalidation puts back in `%es`.
 const KERNEL_DS: u16 = 0x10;
 
 /// Invalidate the TLB entry for one page, given its linear address.
-/// The constant single-page arm of the `INVALIDATE_TLB` macro in
-/// `i386/intel/pmap.c`, which is `invlpg_linear()` of
-/// <i386/proc_reg.h>: load `%es` with `LINEAR_DS`, execute `invlpg`,
-/// and restore `%es` to `KERNEL_DS`.
 fn invalidate_linear_page(linear: VmOffset) {
     // SAFETY: The two selectors are the architectural constants of
-    // <i386/gdt.h>, and the kernel's GDT describes them from
-    // `gdt_init()` on, so neither load can fault.  `invlpg` only
-    // discards a TLB entry, and a linear address with no mapping is
-    // not a fault.  The loads and the instruction touch neither the
-    // stack nor the flags, and `%es` is restored before returning.
+    // <i386/gdt.h>, and the kernel's GDT describes them from `gdt_init()` on,
+    // so neither load can fault.
     unsafe {
         asm!(
             "movw {linear_ds:x}, %es",
@@ -52,16 +42,8 @@ fn invalidate_linear_page(linear: VmOffset) {
     }
 }
 
-/// Make a range of a pmap pageable, or not, as asked.
-/// `pmap_pageable()` in i386/intel/pmap.c.
-///
-/// The routine is advisory: `pmap_enter()` is told whether each page
-/// is to be wired down, so the i386 pmap has nothing to record here
-/// and the C body was empty too.  Every argument is therefore unused.
-///
-/// A page that is not pageable may not take a fault, so its page
-/// table entry has to stay valid for the duration; that is the
-/// caller's affair and this routine does not police it.
+/// `pmap_pageable()` in i386/intel/pmap.c: advisory, and empty in the C
+/// too, since `pmap_enter()` already learns whether a page is wired.
 #[unsafe(no_mangle)]
 pub extern "C" fn pmap_pageable(
     _pmap: *mut Pmap,
@@ -71,48 +53,35 @@ pub extern "C" fn pmap_pageable(
 ) {
 }
 
-/// Unmap the page at virtual address zero so that a null reference
-/// faults.  The body of `pmap_unmap_page_zero()` in
-/// `i386/intel/pmap.c`.
+/// Unmap the page at virtual address zero so that a null reference faults.
 fn unmap_page_zero() {
-    // SAFETY: `printf` is the real C routine <kern/printf.h> declares,
-    // and this format has no conversion specifier.
+    // SAFETY: `printf` is the real C routine <kern/printf.h> declares, and
+    // this format has no conversion specifier.
     unsafe {
         glue::printf(
             c"Unmapping the zero page.  Some BIOS functions may not be working any more.\n"
                 .as_ptr(),
         )
     };
-    // SAFETY: `kernel_pmap` is the kernel's live pmap from
-    // `pmap_bootstrap()` on, and `pmap_pte()` returns null rather than
-    // something invalid for an address with no page-table entry.
+    // SAFETY: `kernel_pmap` is the kernel's live pmap from `pmap_bootstrap()`
+    // on, and `pmap_pte()` returns null rather than something invalid for an
+    // address with no page-table entry.
     let pte = unsafe { glue::pmap_pte(glue::kernel_pmap, 0) };
     let Some(pte) = NonNull::new(pte) else {
         return;
     };
-    // SAFETY: `pmap_pte()` returned a non-null pointer to a live page
-    // table entry for address zero.  The C wrote through an `int *`,
-    // so this zeroes the entry's low 32 bits exactly as the C did.
+    // SAFETY: `pmap_pte()` returned a non-null pointer to a live page table
+    // entry for address zero.
     unsafe { pte.as_ptr().cast::<c_int>().write(0) };
-    // The macro's range is the constant `PAGE_SIZE`, so its `invlpg`
-    // arm runs and `flush_tlb()` is not reached.  Its argument is
-    // `kvtolin(0)`, and `LINEAR_MIN_KERNEL_ADDRESS` equals
-    // `VM_MIN_KERNEL_ADDRESS` on both targets, so `kvtolin` is the
-    // identity and the linear address is zero.
     invalidate_linear_page(0);
 }
 
-/// Unmap the page at virtual address zero so that a null reference
-/// faults.  The `pmap_unmap_page_zero()` entry of <i386/intel/pmap.h>,
-/// which `i386/intel/pmap.c` used to define.
+/// Unmap the page at virtual address zero so that a null reference faults.
 ///
 /// # Safety
 ///
-/// The kernel pmap must be initialized, so that `pmap_pte()` can walk
-/// it, and nothing may depend on the zero page's mapping afterwards.
-/// The call is also an unsynchronised single-page update: the boot
-/// path of `i386/i386at/model_dep.c` is its only caller and runs it
-/// once, before another CPU uses the pmap.
+/// The kernel pmap must be initialized, so that `pmap_pte()` can walk it, and
+/// nothing may depend on the zero page's mapping afterwards.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pmap_unmap_page_zero() {
     unmap_page_zero();

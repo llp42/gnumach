@@ -16,7 +16,6 @@ struct CStr<const N: usize> {
 impl<const N: usize> CStr<N> {
     fn new(s: &str) -> Self {
         let mut buf = [0; N];
-        // One byte is held back for the terminator.
         let n = if s.len() < N { s.len() } else { N - 1 };
         buf[..n].copy_from_slice(&s.as_bytes()[..n]);
         Self { buf }

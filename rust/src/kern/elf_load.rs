@@ -2,39 +2,7 @@
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! The ELF executable loader, which `kern/elf-load.c` used to define.
-//!
-//! `exec_load()` identifies the image and dispatches it to one of two
-//! typed paths, `exec_load32()` and `exec_load64()`.  Each reads its
-//! ELF header and program headers through a caller-supplied `read`,
-//! then hands every `PT_LOAD` segment to a caller-supplied
-//! `read_exec`.  The loader itself neither does file I/O nor touches
-//! destination memory; both are the caller's.
-//!
-//! Both ELF classes are compiled in, and the class comes from
-//! `e_ident[EI_CLASS]`; the program headers are read one at a time, so
-//! their count is not bounded.
-//!
-//! The callbacks are trusted kernel code: a read is taken as having
-//! initialized everything it reports.  The image is not trusted, so
-//! nothing a header says is dereferenced: each header is read as a
-//! value, and the fields that decide what the loader itself does are
-//! checked; the rest reach only the trusted callbacks.
-//!
-//! The identification read is only a dispatch hint.  Each path that
-//! reads a header checks its class, byte order and machine again (the
-//! i686 ELF64 path refuses before reading), so a callback that answers
-//! differently on a second read can change which error is reported,
-//! never what the loader trusts.
-//!
-//! `PT_GNU_STACK` sets `stack_prot`, which starts as `VmProt::ALL`.
-//! The caller's `exec_info_t` is zeroed once the image is recognized,
-//! and `entry`/`stack_prot` are written only after the whole image has
-//! loaded.  A failure stops the load without undoing the segments
-//! already handed to `read_exec`.  `e_phnum` is a `u16`, so the
-//! one-at-a-time loop runs at most 65535 times.  MIGRATE.md records the
-//! port's differences from the C.
 
-// The ELF type names below are <mach/exec/elf.h>'s, verbatim.
 #![allow(non_camel_case_types)]
 
 use crate::arch::types::{VmOffset, VmSize};
@@ -42,9 +10,7 @@ use crate::vm::types::VmProt;
 use core::ffi::{c_int, c_void};
 use core::mem::{MaybeUninit, size_of};
 
-/// `exec_sectype_t` of <mach/exec/exec.h>: a set of bits.  The low
-/// three are `VmProt`'s read/write/execute bits; the rest tell
-/// `read_exec()` what to do with the segment.
+/// `exec_sectype_t` of <mach/exec/exec.h>: a set of bits.
 #[derive(Clone, Copy)]
 #[repr(transparent)]
 pub struct ExecSectype(c_int);
@@ -90,13 +56,8 @@ pub type ReadExecFn = unsafe extern "C" fn(
     section_type: ExecSectype,
 ) -> c_int;
 
-/// `exec_info_t` of <mach/exec/exec.h>.
-///
-/// Only `entry` and `stack_prot` carry information back to the caller;
-/// the other fields exist so that their offsets hold.  `exec_load()`
-/// zeroes the struct once the image is recognized and writes those two
-/// fields only after the whole image has loaded.  `format` stays a
-/// `c_int`: it is written only by the zeroing and never read.
+/// `exec_load()` zeroes the struct once the image is recognized and writes
+/// those two fields only after the whole image has loaded.
 #[repr(C)]
 #[allow(dead_code)]
 pub struct ExecInfo {
@@ -107,10 +68,8 @@ pub struct ExecInfo {
     stack_prot: VmProt,
 }
 
-/// The ELF scalar types of <mach/exec/elf.h>, which its `Ehdr` and
-/// `Phdr` structures use.  The `Sword`/`Sxword`/`Shalf` types belong
-/// to the section, symbol and relocation structures, which this
-/// module does not mirror.
+/// The ELF scalar types of <mach/exec/elf.h>, which its `Ehdr` and `Phdr`
+/// structures use.
 type Elf32_Half = u16;
 type Elf32_Word = u32;
 type Elf32_Addr = u32;
@@ -189,8 +148,6 @@ struct Elf64_Phdr {
     p_align: Elf64_Xword,
 }
 
-// The `EI_*`, `ELFCLASS*`, `EM_*`, `ET_*`, `PT_*` and `PF_*` constants
-// of <mach/exec/elf.h>.
 const EI_NIDENT: usize = 16;
 const EI_CLASS: usize = 4;
 const EI_DATA: usize = 5;
@@ -208,8 +165,8 @@ const PF_X: u32 = 0x1;
 const PF_W: u32 = 0x2;
 const PF_R: u32 = 0x4;
 
-/// The errors `exec_load()` reports: the `EX_*` codes of
-/// <mach/exec/exec.h>, or a callback's own result passed through.
+/// The errors `exec_load()` reports: the `EX_*` codes of <mach/exec/exec.h>,
+/// or a callback's own result passed through.
 #[derive(Clone, Copy)]
 enum ExecError {
     /// `EX_NOT_EXECUTABLE`: not a recognized executable format.
@@ -234,23 +191,22 @@ impl ExecError {
     }
 }
 
-/// The `exec_info_t` fields a load computes.  `exec_load()` converts it
-/// back into the caller's struct once the whole image has loaded.
+/// `exec_load()` converts it back into the caller's struct once the whole
+/// image has loaded.
 #[derive(Clone, Copy)]
 struct LoadInfo {
     entry: VmOffset,
     stack_prot: VmProt,
 }
 
-/// Read the `size_of::<T>()` bytes at `offset` as a `T`, or `too_short`
-/// if the callback reports fewer.  The reading half of every typed read
-/// below.
+/// Read the `size_of::<T>()` bytes at `offset` as a `T`, or `too_short` if the
+/// callback reports fewer.
 ///
 /// # Safety
 ///
-/// `read` must be valid for `handle`, as the caller of `exec_load()`
-/// promises, and `T` must be valid for every bit pattern: the callback
-/// reports how much it wrote, and that report is trusted.
+/// `read` must be valid for `handle`, as the caller of `exec_load()` promises,
+/// and `T` must be valid for every bit pattern: the callback reports how much
+/// it wrote, and that report is trusted.
 #[inline]
 unsafe fn read_struct<T>(
     read: ReadFn,
@@ -261,8 +217,8 @@ unsafe fn read_struct<T>(
     let mut value = MaybeUninit::<T>::uninit();
     let mut actual: VmSize = 0;
 
-    // SAFETY: `read` is valid for `handle` per this function's
-    // contract, and `value` is a valid destination for its size.
+    // SAFETY: `read` is valid for `handle` per this function's contract, and
+    // `value` is a valid destination for its size.
     let result = unsafe {
         read(
             handle,
@@ -279,8 +235,8 @@ unsafe fn read_struct<T>(
         return Err(too_short);
     }
 
-    // SAFETY: the read reported the whole value, and `T` is valid for
-    // every bit pattern.
+    // SAFETY: the read reported the whole value, and `T` is valid for every
+    // bit pattern.
     Ok(unsafe { value.assume_init() })
 }
 
@@ -288,20 +244,19 @@ unsafe fn read_struct<T>(
 ///
 /// # Safety
 ///
-/// `read` must be valid for `handle`, as the caller of `exec_load()`
-/// promises.
+/// `read` must be valid for `handle`, as the caller of `exec_load()` promises.
 #[inline]
 unsafe fn read_ident(
     read: ReadFn,
     handle: *mut c_void,
 ) -> Result<[u8; EI_NIDENT], ExecError> {
-    // SAFETY: the caller promises `read` is valid for `handle`, and
-    // `[u8; EI_NIDENT]` is valid for every bit pattern.
+    // SAFETY: the caller promises `read` is valid for `handle`, and `[u8;
+    // EI_NIDENT]` is valid for every bit pattern.
     unsafe { read_struct(read, handle, 0, ExecError::NotExecutable) }
 }
 
-/// Reject what cannot be an ELF this loader understands: the magic and
-/// the byte order.  The class is checked by the dispatch.
+/// Reject what cannot be an ELF this loader understands: the magic and the
+/// byte order.
 #[inline]
 fn check_ident(ident: &[u8; EI_NIDENT]) -> Result<(), ExecError> {
     if ident[..4] != ELFMAG {
@@ -359,8 +314,7 @@ fn stack_prot(p_flags: u32) -> VmProt {
 ///
 /// # Safety
 ///
-/// `read` must be valid for `handle`, as the caller of `exec_load()`
-/// promises.
+/// `read` must be valid for `handle`, as the caller of `exec_load()` promises.
 #[inline]
 unsafe fn read_header32(
     read: ReadFn,
@@ -375,8 +329,7 @@ unsafe fn read_header32(
 ///
 /// # Safety
 ///
-/// `read` must be valid for `handle`, as the caller of `exec_load()`
-/// promises.
+/// `read` must be valid for `handle`, as the caller of `exec_load()` promises.
 #[inline]
 unsafe fn read_phdr32(
     read: ReadFn,
@@ -391,13 +344,13 @@ unsafe fn read_phdr32(
     unsafe { read_struct(read, handle, offset, ExecError::Corrupt) }
 }
 
-/// Apply one 32-bit program header: load a `PT_LOAD` segment, or
-/// record the `PT_GNU_STACK` protection.
+/// Apply one 32-bit program header: load a `PT_LOAD` segment, or record the
+/// `PT_GNU_STACK` protection.
 ///
 /// # Safety
 ///
-/// `read_exec` must be valid for `handle`, as the caller of
-/// `exec_load()` promises.
+/// `read_exec` must be valid for `handle`, as the caller of `exec_load()`
+/// promises.
 #[inline]
 unsafe fn apply_phdr32(
     read_exec: ReadExecFn,
@@ -409,8 +362,8 @@ unsafe fn apply_phdr32(
     match ph.p_type {
         PT_LOAD => {
             let type_ = section_type(ph.p_flags);
-            // SAFETY: `read_exec` is valid for `handle` per this
-            // function's contract.
+            // SAFETY: `read_exec` is valid for `handle` per this function's
+            // contract.
             let result = unsafe {
                 read_exec(
                     handle,
@@ -435,8 +388,7 @@ unsafe fn apply_phdr32(
     }
 }
 
-/// Load an ELF32 image.  The 32-bit path of `exec_load()`, and the
-/// mirror of `exec_load64()`.
+/// Load an ELF32 image.
 ///
 /// # Safety
 ///
@@ -469,8 +421,7 @@ unsafe fn exec_load32(
     for i in 0..x.e_phnum as usize {
         // SAFETY: the caller promises `read` is valid for `handle`.
         let ph = unsafe { read_phdr32(read, handle, &x, i) }?;
-        // SAFETY: the caller promises `read_exec` is valid for
-        // `handle`.
+        // SAFETY: the caller promises `read_exec` is valid for `handle`.
         info =
             unsafe { apply_phdr32(read_exec, handle, &ph, loadbase, info) }?;
     }
@@ -482,8 +433,7 @@ unsafe fn exec_load32(
 ///
 /// # Safety
 ///
-/// `read` must be valid for `handle`, as the caller of `exec_load()`
-/// promises.
+/// `read` must be valid for `handle`, as the caller of `exec_load()` promises.
 #[inline]
 unsafe fn read_header64(
     read: ReadFn,
@@ -498,8 +448,7 @@ unsafe fn read_header64(
 ///
 /// # Safety
 ///
-/// `read` must be valid for `handle`, as the caller of `exec_load()`
-/// promises.
+/// `read` must be valid for `handle`, as the caller of `exec_load()` promises.
 #[inline]
 unsafe fn read_phdr64(
     read: ReadFn,
@@ -514,13 +463,13 @@ unsafe fn read_phdr64(
     unsafe { read_struct(read, handle, offset, ExecError::Corrupt) }
 }
 
-/// Apply one 64-bit program header: load a `PT_LOAD` segment, or
-/// record the `PT_GNU_STACK` protection.
+/// Apply one 64-bit program header: load a `PT_LOAD` segment, or record the
+/// `PT_GNU_STACK` protection.
 ///
 /// # Safety
 ///
-/// `read_exec` must be valid for `handle`, as the caller of
-/// `exec_load()` promises.
+/// `read_exec` must be valid for `handle`, as the caller of `exec_load()`
+/// promises.
 #[inline]
 unsafe fn apply_phdr64(
     read_exec: ReadExecFn,
@@ -532,8 +481,8 @@ unsafe fn apply_phdr64(
     match ph.p_type {
         PT_LOAD => {
             let type_ = section_type(ph.p_flags);
-            // SAFETY: `read_exec` is valid for `handle` per this
-            // function's contract.
+            // SAFETY: `read_exec` is valid for `handle` per this function's
+            // contract.
             let result = unsafe {
                 read_exec(
                     handle,
@@ -558,11 +507,7 @@ unsafe fn apply_phdr64(
     }
 }
 
-/// Load an ELF64 image.  The 64-bit path of `exec_load()`, and the
-/// mirror of `exec_load32()`.
-///
-/// A 32-bit kernel cannot hold a 64-bit image's addresses, so it
-/// rejects them rather than truncating them.
+/// Load an ELF64 image.
 ///
 /// # Safety
 ///
@@ -599,8 +544,7 @@ unsafe fn exec_load64(
     for i in 0..x.e_phnum as usize {
         // SAFETY: the caller promises `read` is valid for `handle`.
         let ph = unsafe { read_phdr64(read, handle, &x, i) }?;
-        // SAFETY: the caller promises `read_exec` is valid for
-        // `handle`.
+        // SAFETY: the caller promises `read_exec` is valid for `handle`.
         info =
             unsafe { apply_phdr64(read_exec, handle, &ph, loadbase, info) }?;
     }
@@ -610,20 +554,10 @@ unsafe fn exec_load64(
 
 /// Load an ELF executable through the caller's `read` and `read_exec`.
 ///
-/// A 64-bit kernel accepts both classes; a 32-bit kernel takes only
-/// ELF32 and rejects ELF64 with `EX_WRONG_ARCH` rather than truncating
-/// its addresses.  Only the default kernel configuration is supported;
-/// `--enable-user32` builds are not.  The identification read only
-/// picks the path; each path checks the class, byte order and machine
-/// of the header it reads.
-///
 /// # Safety
 ///
-/// `read` and `read_exec` must be valid function pointers, callable
-/// with `handle` for the duration of the call.  `out_info` must point
-/// at aligned storage for an `ExecInfo`, valid for writes and not
-/// otherwise read or written during the call, including through
-/// `handle`; it may be uninitialized, since `exec_load()` zeroes it.
+/// `read` and `read_exec` must be valid function pointers, callable with
+/// `handle` for the duration of the call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn exec_load(
     read: ReadFn,
@@ -641,14 +575,12 @@ pub unsafe extern "C" fn exec_load(
     }
 
     // SAFETY: the caller promises `out_info` is valid and aligned for
-    // `ExecInfo`.  It may be uninitialized, and its
-    // `format`/`init_dp`/`interp` are never read; zeroing keeps the
-    // whole value initialized.
+    // `ExecInfo`.
     unsafe { out_info.write_bytes(0, 1) };
 
     let result = match ident[EI_CLASS] {
-        // SAFETY: the caller promises both callbacks are valid for
-        // `handle`, as `exec_load32()` requires.
+        // SAFETY: the caller promises both callbacks are valid for `handle`,
+        // as `exec_load32()` requires.
         ELFCLASS32 => unsafe { exec_load32(read, read_exec, handle) },
         // SAFETY: as above.
         ELFCLASS64 => unsafe { exec_load64(read, read_exec, handle) },
@@ -657,9 +589,8 @@ pub unsafe extern "C" fn exec_load(
 
     match result {
         Ok(info) => {
-            // SAFETY: the caller promises `out_info` is valid for
-            // writes and exclusively ours; only these two fields are
-            // written.
+            // SAFETY: the caller promises `out_info` is valid for writes and
+            // exclusively ours; only these two fields are written.
             unsafe {
                 (*out_info).entry = info.entry;
                 (*out_info).stack_prot = info.stack_prot;

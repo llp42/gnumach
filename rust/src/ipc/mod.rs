@@ -2,10 +2,6 @@
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! IPC facilities; mirrors `ipc/`.
-//!
-//! `IpcPort` and `IpcSpace` are the two IPC handles the VM map port
-//! needs so far: `struct ipc_port *` and `struct ipc_space *`, opaque
-//! to Rust until `ipc/ipc_port.c` and `ipc/ipc_space.c` move.
 
 use core::ffi::c_void;
 use core::ptr::NonNull;
@@ -19,7 +15,6 @@ pub mod ipc_thread;
 pub mod mach_port;
 
 /// `ipc_port_t`: a send right to a kernel port, opaque to Rust so far.
-/// `None` is the C `IP_NULL`.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IpcPort(NonNull<c_void>);
@@ -35,8 +30,7 @@ impl IpcPort {
     }
 }
 
-/// `ipc_space_t`: a port namespace, opaque to Rust so far.  `None` is
-/// the C `IS_NULL`.
+/// `ipc_space_t`: a port namespace, opaque to Rust so far.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IpcSpace(NonNull<c_void>);
