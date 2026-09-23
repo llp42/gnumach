@@ -452,8 +452,8 @@ its entry below and the §9 table record what moved.
   `processor_ptr`) because it runs at IRQ level; `net_ast` for the
   network AST.  AST bits themselves are arch (`i386/i386/ast.h:38`).
 * **Blockers.** L1 thread/processor mirrors, L2 percpu+IRQ, the exported
-  `need_ast` global.  `cause_ast_check`/`init_ast_check`
-  (`i386/i386/ast_check.c`, APIC IPI) stay arch C.
+  `need_ast` global.  `cause_ast_check`/`init_ast_check` are ported in
+  `src/arch/i386/ast_check.rs`.
 * **Boundary / notes.** Define `need_ast` as a `#[no_mangle] static mut
   [usize; NCPUS]` (or atomics), but C macros keep writing it; do not
   reorder or make it private.  `ast_taken` must clear `need_ast` before
@@ -1424,7 +1424,7 @@ entry below keeps the detail §4.1 gives the `kern/` files.
 
 | File | LOC | Role | Friction | Blockers |
 |---|---:|---|---:|---|
-| `ast_check.c` | 52 | AST IPI dispatch | 2 | one callee `smp_remote_ast` |
+| `ast_check.c` | 52 | AST IPI dispatch | 2 | ported; see §9 |
 | `hardclock.c` | 69 | tick | 2 | `clock_interrupt`, trap return |
 | `irq.c` | 95 | IRQ ack/enable | 2 | ioapic EOI, spl |
 | `pit.c` | 144 | 8254 timer | 2 | `splon/sploff`, hz |
@@ -1748,7 +1748,7 @@ No new C, no new mirror, no new constant, no design conversation.
 Tier 0 is worked to exhaustion before any infrastructure is proposed
 (`AGENTS.md`, "Take the free ports first").
 
-Twenty-eight functions, thirty-nine counting the stub batch.  Clusters
+Twenty-six functions, thirty-seven counting the stub batch.  Clusters
 first, because a whole file leaving C in one commit is worth more than
 the same functions leaving one at a time.
 
@@ -1764,7 +1764,6 @@ the same functions leaving one at a time.
 | Function | Why it is free |
 |---|---|
 | `kern/machine.c:115 host_reboot` | Calls `Debugger` and `halt_all_cpus`, both real.  `host` is only compared against `HOST_NULL`. |
-| `i386/i386/ast_check.c:46 init_ast_check`, `:53 cause_ast_check` | The first has an empty body.  The second reads `processor->slot_num`, which the `Processor` mirror covers, and calls the real `smp_remote_ast`.  `APIC_LOGICAL_ID` is arithmetic on a plain constant, which Rust rewrites rather than calls.  `cause_ast_check` is already declared in `glue`, so the port turns that declaration into a Rust definition. |
 | `i386/i386/mp_desc.c:189 cpu_control` | One `printf` and a constant return.  Its signature already matches the `glue` declaration Rust calls today. |
 | `i386/i386/mp_desc.c:174 simple_lock_pause` | Calls nothing; spins over a file-local `static volatile int`. |
 | `i386/i386/fpu.c:261 fp_free` | One `kmem_cache_free`, already in `glue`.  Never dereferences its argument; `ifps_cache` is passed by address only.  `ASSERT_IPL` expands to nothing. |
@@ -1846,7 +1845,7 @@ or Rust already.  Each phase exists to make the next one legal, and no
 phase contains a shim.  Where the old phasing said "add the shim", the
 replacement says which file to port instead.
 
-* **Phase 0 — Tier 0 (now).**  The twenty-eight free functions of
+* **Phase 0 — Tier 0 (now).**  The twenty-six free functions of
   §6.1, worked to exhaustion.  Each needs nothing that does not exist
   today, so this phase can start and finish without a single decision
   from any later one.  Nothing below is begun while Tier 0 has
@@ -1987,6 +1986,7 @@ kernel may add host tests like the rbtree's; see §8.
 | `kern/debug.c` (`SoftDebugger`, `Debugger`, `panic_init`) | `src/kern/debug.rs` | `pending` |
 | `kern/processor.c` (`processor_init`, `pset_init`, `processor_start/exit/control`, `processor_get_assignment`, `processor_info`, `processor_set_info`, `pset_reference`, `pset_deallocate`, `pset_add/remove_thread`, `thread_change_psets`, `processor_set_max_priority`, `processor_set_policy_enable/disable`) | `src/kern/processor.rs` | `pending` |
 | `kern/thread_swap.c` | `src/kern/thread_swap.rs` | `pending` |
+| `i386/i386/ast_check.c` | `src/arch/i386/ast_check.rs` | `pending` |
 
 Deleted dead code: `device/blkio.c` (unreachable block pager path) and
 the `#if 0` profiling facility (`profil.h`, `profilparam.h`,

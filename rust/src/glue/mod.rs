@@ -102,9 +102,9 @@ unsafe extern "C" {
     pub fn set_timeout(t: *mut c_void, interval: c_uint);
     pub fn reset_timeout(t: *mut c_void) -> c_int;
 
-    // <kern/ast.h>: `cause_ast_check()` is a function; the `ast_on()`
-    // family lives in rust/src/kern/ast.rs.
-    pub fn cause_ast_check(processor: *mut Processor);
+    // <i386/i386/smp.h>: the remote-AST IPI that
+    // rust/src/arch/i386/ast_check.rs's `cause_ast_check()` sends.
+    pub fn smp_remote_ast(logical_id: c_uint);
 
     // <kern/sched_prim.c>: `unsigned sched_tick`, the second counter
     // priorities age against.

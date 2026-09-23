@@ -19,6 +19,7 @@
 //! `thread_select()`, `update_priority()`, `set_pri()`, `rem_runq()`)
 //! are called through `glue`.
 
+use crate::arch::i386::ast_check::cause_ast_check;
 use crate::arch::i386::percpu::{
     cpu_number, current_processor, current_thread, percpu_at,
 };
@@ -235,7 +236,7 @@ fn setrun(th: *mut Thread, may_preempt: bool) {
                     (*processor).state = PROCESSOR_DISPATCHING;
                     (*pset).idle_lock.unlock();
                     if processor != current_processor() {
-                        glue::cause_ast_check(processor);
+                        cause_ast_check(processor);
                     }
                     return;
                 }
@@ -272,7 +273,7 @@ fn setrun(th: *mut Thread, may_preempt: bool) {
                     (*pset).idle_lock.unlock();
                     (*processor).lock.unlock();
                     if processor != current_processor() {
-                        glue::cause_ast_check(processor);
+                        cause_ast_check(processor);
                     }
                     return;
                 }
@@ -286,7 +287,7 @@ fn setrun(th: *mut Thread, may_preempt: bool) {
             if processor == current_processor() {
                 ast_on(cpu_number(), AST_BLOCK);
             } else if (*processor).state != PROCESSOR_OFF_LINE {
-                glue::cause_ast_check(processor);
+                cause_ast_check(processor);
             }
         }
     }
