@@ -5,7 +5,7 @@
 //   Systems Laboratory (CSL).
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! The three port-right server routines, which `ipc/mach_port.c` used
+//! The four port-right server routines, which `ipc/mach_port.c` used
 //! to define and `ipc/mach_port.h` belongs to.
 //!
 //! Their prototypes are frozen in the generated
@@ -14,8 +14,8 @@
 //! and right locks have Rust homes.
 
 use crate::glue;
-use crate::ipc::IpcSpace;
 use crate::ipc::ipc_object::ipc_object_copyin_type;
+use crate::ipc::{IpcPort, IpcSpace};
 use crate::kern::types::KernError;
 use core::ffi::{c_int, c_uint, c_void};
 
@@ -33,6 +33,20 @@ const MOVE_SEND_ONCE: c_uint = 18;
 /// `MACH_MSG_TYPE_MAKE_SEND_ONCE`: the last name
 /// `MACH_MSG_TYPE_PORT_ANY` accepts.
 const MAKE_SEND_ONCE: c_uint = 21;
+
+/// `MACH_PORT_RIGHT_RECEIVE` of <mach/port.h>: the right
+/// `ipc_port_translate_receive` asks `ipc_object_translate` for.
+const MACH_PORT_RIGHT_RECEIVE: c_uint = 1;
+
+/// `MACH_NOTIFY_PORT_DESTROYED` of <mach/notify.h>: `MACH_NOTIFY_FIRST
+/// + 5`, a receive right was deallocated.
+const MACH_NOTIFY_PORT_DESTROYED: c_int = 0o100 + 5;
+/// `MACH_NOTIFY_NO_SENDERS` of <mach/notify.h>: `MACH_NOTIFY_FIRST +
+/// 6`, a receive right has no extant send rights.
+const MACH_NOTIFY_NO_SENDERS: c_int = 0o100 + 6;
+/// `MACH_NOTIFY_DEAD_NAME` of <mach/notify.h>: `MACH_NOTIFY_FIRST +
+/// 010`, a send or send-once right died, leaving a dead name.
+const MACH_NOTIFY_DEAD_NAME: c_int = 0o100 + 0o10;
 
 /// `IO_DEAD` of <ipc/ipc_object.h>: the dead-object pointer, all bits
 /// set.
@@ -151,6 +165,107 @@ fn extract_right(
     Ok((object, ipc_object_copyin_type(msgt_name)))
 }
 
+/// Looks up the receive right `name` denotes in `space`.
+/// The `ipc_port_translate_receive()` macro of <ipc/ipc_port.h> in C.
+///
+/// On success the port is returned locked and active; the caller then
+/// owns the unlock, which the notification registration performs.
+fn translate_receive(
+    space: IpcSpace,
+    name: c_uint,
+) -> Result<*mut c_void, KernError> {
+    let mut port: *mut c_void = core::ptr::null_mut();
+
+    // The C macro `ipc_port_translate_receive` expands to
+    // `ipc_object_translate` with `MACH_PORT_RIGHT_RECEIVE`; a macro
+    // cannot cross FFI, so the real symbol is called with the
+    // constant.
+    // SAFETY: the caller promises a live space; `name` is a plain
+    // value and the out-pointer is this live local.
+    kern_error(unsafe {
+        glue::ipc_object_translate(
+            space.as_ptr(),
+            name,
+            MACH_PORT_RIGHT_RECEIVE,
+            &mut port,
+        )
+    })?;
+
+    Ok(port)
+}
+
+/// Requests one of the three notification registrations on a port
+/// right.  `mach_port_request_notification()` in C.
+///
+/// On success the returned port is the previously registered send-once
+/// right, if any, which the request replaced.  [`None`] is the C
+/// `IP_NULL`, and the checks run in the C order.
+fn request_notification(
+    space: Option<IpcSpace>,
+    name: c_uint,
+    id: c_int,
+    sync: c_uint,
+    notify: *mut c_void,
+) -> Result<Option<IpcPort>, KernError> {
+    let Some(space) = space else {
+        return Err(KernError::InvalidTask);
+    };
+
+    if core::ptr::eq(notify, IO_DEAD) {
+        return Err(KernError::InvalidCapability);
+    }
+
+    match id {
+        MACH_NOTIFY_PORT_DESTROYED => {
+            if sync != 0 {
+                return Err(KernError::InvalidValue);
+            }
+
+            let port = translate_receive(space, name)?;
+
+            let mut previous: *mut c_void = core::ptr::null_mut();
+            // SAFETY: `translate_receive` returned the live, locked
+            // port; `ipc_port_pdrequest` owns the unlock and writes
+            // the previous send-once right to this live local.
+            unsafe { glue::ipc_port_pdrequest(port, notify, &mut previous) };
+
+            Ok(IpcPort::new(previous))
+        }
+        MACH_NOTIFY_NO_SENDERS => {
+            let port = translate_receive(space, name)?;
+
+            let mut previous: *mut c_void = core::ptr::null_mut();
+            // SAFETY: `translate_receive` returned the live, locked
+            // port; `ipc_port_nsrequest` owns the unlock and writes
+            // the previous send-once right to this live local.
+            unsafe {
+                glue::ipc_port_nsrequest(port, sync, notify, &mut previous)
+            };
+
+            Ok(IpcPort::new(previous))
+        }
+        MACH_NOTIFY_DEAD_NAME => {
+            let mut previous: *mut c_void = core::ptr::null_mut();
+            // SAFETY: the caller promises a live space; the name,
+            // flag and notify port are plain values; this live local
+            // is the out-slot `ipc_right_dnrequest` writes on success
+            // only.
+            kern_error(unsafe {
+                glue::ipc_right_dnrequest(
+                    space.as_ptr(),
+                    name,
+                    c_int::from(sync != 0),
+                    notify,
+                    &mut previous,
+                )
+            })?;
+
+            Ok(IpcPort::new(previous))
+        }
+        _ => Err(KernError::InvalidValue),
+    }
+}
+
 /// The C `kern_return_t` of a core result: zero, or the error's code.
 fn kern_return(result: Result<(), KernError>) -> c_int {
     match result {
@@ -217,6 +332,38 @@ pub unsafe extern "C" fn mach_port_extract_right(
                 poly.write(object);
                 poly_poly.write(received);
             }
+            0
+        }
+        Err(error) => c_int::from(error),
+    }
+}
+
+/// Requests one of the three notification registrations on a port
+/// right.  `mach_port_request_notification()` in C.
+///
+/// # Safety
+///
+/// `task` must be null or a live `ipc_space`; `notify` must be
+/// `IP_NULL`, `IP_DEAD` or a live `ipc_port`; and `previous` must be
+/// writable storage for one port pointer, written only on success.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mach_port_request_notification(
+    task: *mut c_void,
+    name: c_uint,
+    id: c_int,
+    sync: c_uint,
+    notify: *mut c_void,
+    previous: *mut *mut c_void,
+) -> c_int {
+    match request_notification(IpcSpace::new(task), name, id, sync, notify) {
+        Ok(previous_port) => {
+            let previous_port =
+                previous_port.map_or(core::ptr::null_mut(), IpcPort::as_ptr);
+
+            // SAFETY: the caller promises `previous` is writable; this
+            // is the success path the C writes on.
+            unsafe { previous.write(previous_port) };
+
             0
         }
         Err(error) => c_int::from(error),

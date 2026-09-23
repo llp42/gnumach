@@ -4,9 +4,10 @@
 //! The C functions Rust calls, and the interface records both halves
 //! share.
 //!
-//! C *macros* cannot come through here; when Rust needs one, it gets a
-//! small C shim function beside the header that defines it, and that
-//! shim is declared below like any other C function.
+//! C *macros* cannot come through here, and no shim may be written for
+//! one: the thing that defines the macro is ported first, or the real
+//! symbol the macro expands to is declared below like any other C
+//! function.
 //!
 //! [`mig`] holds the conversions between the Rust error codes and the
 //! result codes the C side passes, and [`time_value`] the time records
@@ -326,6 +327,44 @@ unsafe extern "C" {
         name: c_uint,
         msgt_name: c_uint,
         objectp: *mut *mut c_void,
+    ) -> c_int;
+
+    // <ipc/ipc_object.c>: the receive-right lookup that the C macro
+    // `ipc_port_translate_receive` expands to.  A macro cannot cross
+    // FFI, so the underlying symbol is declared and
+    // `MACH_PORT_RIGHT_RECEIVE` is supplied by the caller.
+    pub fn ipc_object_translate(
+        space: *mut c_void,
+        name: c_uint,
+        right: c_uint,
+        objectp: *mut *mut c_void,
+    ) -> c_int;
+
+    // <ipc/ipc_port.h>: the two notification registrations behind
+    // `mach_port_request_notification()`.  Both consume the port lock
+    // `ipc_object_translate` returned; the previous send-once right
+    // comes back through the out-pointer.
+    pub fn ipc_port_pdrequest(
+        port: *mut c_void,
+        notify: *mut c_void,
+        previousp: *mut *mut c_void,
+    );
+    pub fn ipc_port_nsrequest(
+        port: *mut c_void,
+        sync: c_uint,
+        notify: *mut c_void,
+        previousp: *mut *mut c_void,
+    );
+
+    // <ipc/ipc_right.h>: the dead-name registration, which owns its
+    // own space and port locking and writes `previousp` on success
+    // only.
+    pub fn ipc_right_dnrequest(
+        space: *mut c_void,
+        name: c_uint,
+        immediate: c_int,
+        notify: *mut c_void,
+        previousp: *mut *mut c_void,
     ) -> c_int;
 
     // The three caches of the map module and the submap placeholder,
