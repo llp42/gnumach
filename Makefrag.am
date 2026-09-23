@@ -141,7 +141,6 @@ libkernel_a_SOURCES += \
 	kern/task.h \
 	kern/thread.c \
 	kern/thread.h \
-	kern/thread_swap.c \
 	kern/thread_swap.h \
 	kern/timer.c \
 	kern/timer.h \

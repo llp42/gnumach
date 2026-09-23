@@ -66,6 +66,15 @@ unsafe extern "C" {
     // calls them.
     pub fn update_priority(thread: *mut Thread);
     pub fn stack_free(thread: *mut Thread);
+    // <kern/sched_prim.h>: allocate a kernel stack for a swapped-out
+    // thread and resume it through the given continuation.  The
+    // continuation is `thread_continue` below, a C symbol the swapin
+    // path passes by address.
+    pub fn stack_alloc(
+        thread: *mut Thread,
+        resume: Option<unsafe extern "C" fn(*mut Thread)>,
+    ) -> c_int;
+    pub fn thread_continue(thread: *mut Thread);
 
     // <kern/syscall_subr.h>: the priority-depression timeout, stored
     // in `thread.depress_timer.fcn`.
@@ -84,6 +93,9 @@ unsafe extern "C" {
         pset: *mut ProcessorSet,
         max_priority: c_int,
     ) -> c_int;
+    // <kern/thread.h>: reserve the thread's current kernel stack, so
+    // `stack_alloc_try()` on it always succeeds.
+    pub fn stack_privilege(thread: *mut Thread);
 
     // <kern/mach_clock.h>: the wait timeout, set under the thread
     // lock.  The handle is opaque here; its layout lives in

@@ -19,5 +19,6 @@ pub mod sched;
 pub mod sched_prim;
 pub mod smp;
 pub mod thread;
+pub mod thread_swap;
 pub mod timer;
 pub mod types;

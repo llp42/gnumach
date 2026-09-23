@@ -185,7 +185,7 @@ from §2.
 |---|---:|---:|---|---:|---|
 | `rbtree.c` | 463 | 0 | L0 | **2** | `src/kern/rbtree.rs` |
 | `timer.c` | 236 | 0 | L0+L2 | **3** | `src/kern/timer.rs` |
-| `thread_swap.c` | 196 | 14 | L4 | **2** | `src/kern/thread_swap.rs` |
+| `thread_swap.c` | 196 | 14 | L4 | **2** | `src/kern/thread_swap.rs` — ported |
 | `mach_factor.c` | 150 | 6 | L1+L4 | **2** | `src/kern/mach_factor.rs` |
 | `kmutex.c` | 75 | 2 | L2+L4 | **3** | `src/kern/kmutex.rs` — ported |
 | `boot_script.c` | 728 | 14 | L3 | **2** | `src/kern/boot_script.rs` |
@@ -305,24 +305,36 @@ its entry below and the §9 table record what moved.
   `thread.c`/`mach_clock.c` move.  `timer_delta` is pure arithmetic and
   can be fully safe.
 
-#### `kern/thread_swap.c` — 196 lines — friction 2/5
+#### `kern/thread_swap.c` — 196 lines — ported
 * **Role.** The swapin queue and the swapper kernel thread: allocate a
   kernel stack for a swapped-out thread and put it back on a run queue.
-* **Exports/data.** `swapin_queue`, `swapper_init`, `thread_swapin`,
-  `thread_doswapin`, `swapin_thread`.
-* **Dependencies — why.** Scheduler primitives only: `thread_wakeup`,
-  `assert_wait`/`thread_block`, `thread_setrun`, `thread_continue`,
-  `stack_alloc`/`stack_privilege` (`thread_swap.c:97-192`).  Locks are
-  the `simple_lock` macros; queues are already Rust functions.
-* **Blockers.** The L4 sleep/wake/continuation story and `thread.state`/
-  `links` access.  Small and regular once `Thread` has locked field
-  accessors.
-* **Boundary / notes.** `swapin_queue` is both a data symbol and the
-  wakeup event address; keep the same static address.  `thread->links`
-  is reused as the swapin chain, so the same `!Unpin` `QueueEntry`
-  discipline applies.  `thread_doswapin` must clear
-  `TH_SWAPPED|TH_SW_COMING_IN` before `stack_alloc` can expose the
-  thread.
+* **Rust home.** `src/kern/thread_swap.rs`.  `swapin_queue` keeps its
+  exact C symbol and its `QueueEntry` type, because it is both the
+  queue head and the wakeup event; `swapper_lock_data` is a private
+  `SimpleLock`.  The four exported routines keep their symbols and
+  signatures, and the continuation stays private:
+  `swapper_init` heads the queue and initializes the lock,
+  `thread_swapin` switches on `TH_SWAP_STATE` and enqueues the
+  thread's `links` at the tail under the swapper lock before waking
+  through the Rust `thread_wakeup_prim` the C macro expands to, and
+  `thread_doswapin` is a thin adapter over a private `doswapin` that
+  calls `stack_alloc(thread, thread_continue)` and then takes
+  splsched, locks the thread, clears `TH_SWAPPED|TH_SW_COMING_IN` and
+  runs `thread_setrun` when `TH_RUN` survives.  The private noreturn
+  continuation alternates `doswapin` (which may block) with the
+  spl/queue protocol, re-enqueues at the head on failure, and blocks
+  through `assert_wait` and `thread_block`.  Every `unsafe` block
+  carries its own `// SAFETY:` note.
+* **Boundary / notes.** `stack_alloc`, `stack_privilege` and
+  `thread_continue` are the only new `glue` declarations; `splsched`,
+  `splx` and `thread_block` were already there, and `assert_wait`,
+  `thread_setrun`, `thread_wakeup_prim`, `current_thread` and the
+  `SimpleLock` are Rust.  No C was added.  The queue operations use
+  the pinned `QueueEntry` API, not the C-shaped queue adapters.
+* **Tests.** Qemu only: `swapper_init()` and `thread_doswapin()` run
+  on every boot (`kern/startup.c:129,160,202` and `kern/thread.c:1567`);
+  `thread_swapin()`/`swapin_thread()` need a real swap and are not
+  reached by the pack.
 
 #### `kern/mach_factor.c` — 150 lines — friction 2/5
 * **Role.** Periodic load averaging: publishes `avenrun[3]` and
@@ -1717,7 +1729,7 @@ No new C, no new mirror, no new constant, no design conversation.
 Tier 0 is worked to exhaustion before any infrastructure is proposed
 (`AGENTS.md`, "Take the free ports first").
 
-Forty functions, fifty-one counting the stub batch.  Clusters
+Thirty-five functions, forty-six counting the stub batch.  Clusters
 first, because a whole file leaving C in one commit is worth more than
 the same functions leaving one at a time.
 
@@ -1725,7 +1737,6 @@ the same functions leaving one at a time.
 
 | File | Functions | Why it is free |
 |---|---:|---|
-| `kern/thread_swap.c` | 5 — `swapper_init:69`, `thread_swapin:85`, `thread_doswapin:122`, `swapin_thread_continue:155`, `swapin_thread:189` | Locks are `mach_simple_lock`; `queue_init`, `enqueue_tail`, `dequeue_head`, `thread_setrun`, `assert_wait` and `thread_wakeup_prim` are Rust; `stack_alloc`, `stack_privilege`, `splsched`, `splx` and `thread_block` are real symbols.  Every field it touches (`state`, `links`, `lock`, `vm_privilege`) is in the `Thread` mirror. |
 | `i386/i386at/rtc.c` | 7 — `rtcinit:62`, `rtcget:72`, `rtcput:89`, `hexdectodec:111`, `yeartoday:134`, `dectohexdec:140`, `readtodc:146` | The three arithmetic helpers call nothing at all.  The rest is port I/O plus `printf` and `splclock`/`splx`, all real.  `struct rtc_st` is used only inside `rtc.c`/`rtc.h`, so it moves with the file rather than needing a mirror. |
 | `i386/i386/pit.c` | 4 — `pit_prepare_sleep:69`, `pit_sleep:89`, `pit_udelay:105`, `pit_mdelay:117` | Port I/O and plain constants only; the two `*delay` entries call their siblings in the same file. |
 
@@ -1818,7 +1829,7 @@ or Rust already.  Each phase exists to make the next one legal, and no
 phase contains a shim.  Where the old phasing said "add the shim", the
 replacement says which file to port instead.
 
-* **Phase 0 — Tier 0 (now).**  The forty free functions of
+* **Phase 0 — Tier 0 (now).**  The thirty-five free functions of
   §6.1, worked to exhaustion.  Each needs nothing that does not exist
   today, so this phase can start and finish without a single decision
   from any later one.  Nothing below is begun while Tier 0 has
@@ -1879,7 +1890,7 @@ replacement says which file to port instead.
   parked in `vm/vm_external_glue.c` and `vm/vm_map_glue.c`.  A
   `GlobalAlloc` over `kalloc` remains a separate design decision.
 
-* **Phase 6 — scheduler surface.**  `mach_factor`, `thread_swap`,
+* **Phase 6 — scheduler surface.**  `mach_factor`,
   `priority`, `syscall_sw`, then the rest of `sched_prim.c`, then
   `ipc_sched.c`'s `thread_go`/`will_wait`, then `ast.c`.  Keep
   `switch_context`, `call_continuation` and `stack_handoff` C.
@@ -1956,6 +1967,7 @@ kernel may add host tests like the rbtree's; see §8.
 | `kern/thread.c` (`thread_init`) | `src/kern/thread.rs` | `pending` |
 | `kern/sched.h` (`thread_timer_delta`) | `src/kern/thread.rs`, `src/kern/timer.rs` | `pending` |
 | `kern/processor.c` (`processor_init`, `pset_init`, `processor_start/exit/control`, `processor_get_assignment`, `processor_info`, `processor_set_info`, `pset_reference`, `pset_deallocate`, `pset_add/remove_thread`, `thread_change_psets`, `processor_set_max_priority`, `processor_set_policy_enable/disable`) | `src/kern/processor.rs` | `pending` |
+| `kern/thread_swap.c` | `src/kern/thread_swap.rs` | `pending` |
 
 Deleted dead code: `device/blkio.c` (unreachable block pager path) and
 the `#if 0` profiling facility (`profil.h`, `profilparam.h`,
