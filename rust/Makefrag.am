@@ -38,6 +38,16 @@ MACH_RS_SRCS = \
 	rust/src/kern/types.rs \
 	rust/src/lib.rs \
 	rust/src/panic.rs \
+	rust/src/spin/barrier.rs \
+	rust/src/spin/lazylock.rs \
+	rust/src/spin/mod.rs \
+	rust/src/spin/mutex.rs \
+	rust/src/spin/mutex/fair.rs \
+	rust/src/spin/mutex/spin.rs \
+	rust/src/spin/mutex/ticket.rs \
+	rust/src/spin/once.rs \
+	rust/src/spin/relax.rs \
+	rust/src/spin/rwlock.rs \
 	rust/src/utils/atoi.rs \
 	rust/src/utils/byteorder.rs \
 	rust/src/utils/cell.rs \
@@ -58,6 +68,7 @@ EXTRA_DIST += \
 	rust-toolchain.toml \
 	rust/compiler_builtins_stub.rs \
 	rust/rustfmt.toml \
+	rust/src/spin/LICENSE \
 	rust/targets/i686-gnumach.json \
 	rust/targets/x86_64-gnumach.json
 
