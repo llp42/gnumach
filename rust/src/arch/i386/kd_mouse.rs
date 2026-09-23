@@ -21,12 +21,11 @@
 //! only the four conf.c device entries stay `extern "C"`.
 
 use super::io_req::{
-    D_ALREADY_OPEN, D_INVALID_OPERATION, D_INVALID_SIZE, D_IO_QUEUED,
-    D_NOWAIT, D_SUCCESS, D_WOULD_BLOCK, DEV_GET_SIZE, DEV_GET_SIZE_COUNT,
-    DEV_GET_SIZE_DEVICE_SIZE, DEV_GET_SIZE_RECORD_SIZE, DevT, IoReq,
-    KERN_SUCCESS, drain,
+    D_NOWAIT, DEV_GET_SIZE, DEV_GET_SIZE_COUNT, DEV_GET_SIZE_DEVICE_SIZE,
+    DEV_GET_SIZE_RECORD_SIZE, DevT, IoReq, KERN_SUCCESS, drain,
 };
 use crate::arch::i386::pio::Port;
+use crate::device::r#return::{DeviceError, IoResultExt};
 use crate::device::subrs;
 use crate::glue;
 use crate::kern::queue::QueueEntry;
@@ -592,7 +591,7 @@ pub unsafe extern "C" fn mouseopen(
     _ior: *mut IoReq,
 ) -> c_int {
     if mouse_in_use() != 0 {
-        return D_ALREADY_OPEN;
+        return Err(DeviceError::AlreadyOpen).as_io_return();
     }
     set_mouse_in_use(1);
     let s = state();
@@ -635,7 +634,7 @@ pub unsafe extern "C" fn mouseopen(
         _ => {}
     }
     s.mousebufindex = 0;
-    0
+    Ok(false).as_io_return()
 }
 
 /// Close the mouse.  `mouseclose()` in C.
@@ -677,7 +676,7 @@ pub unsafe extern "C" fn mouseclose(dev: DevT, _flags: c_int) {
 pub unsafe extern "C" fn mouseread(_dev: DevT, ior: *mut IoReq) -> c_int {
     let wanted = unsafe { (*ior).count() };
     if wanted % size_of::<KdEvent>() as c_long != 0 {
-        return D_INVALID_SIZE;
+        return Err(DeviceError::InvalidSize).as_io_return();
     }
     // SAFETY: the request is the caller's, as the C assumed.
     let err = unsafe { glue::device_read_alloc(ior.cast(), wanted as usize) };
@@ -690,7 +689,7 @@ pub unsafe extern "C" fn mouseread(_dev: DevT, ior: *mut IoReq) -> c_int {
     if s.queue.is_empty() {
         if unsafe { (*ior).mode() } & D_NOWAIT != 0 {
             unsafe { glue::splx(sp) };
-            return D_WOULD_BLOCK;
+            return Err(DeviceError::WouldBlock).as_io_return();
         }
         unsafe { (*ior).set_done(mouse_read_done) };
         // SAFETY: `io_req`'s chain is its first field, and it stays at
@@ -699,12 +698,12 @@ pub unsafe extern "C" fn mouseread(_dev: DevT, ior: *mut IoReq) -> c_int {
         // SAFETY: the read queue is this state's, at SPLKD.
         unsafe { read_queue(s).push_back(entry) };
         unsafe { glue::splx(sp) };
-        return D_IO_QUEUED;
+        return Ok(true).as_io_return();
     }
     let count = drain(&mut s.queue, unsafe { &mut *ior });
     unsafe { glue::splx(sp) };
     unsafe { (*ior).set_residual((*ior).count() - count) };
-    D_SUCCESS
+    Ok(false).as_io_return()
 }
 
 /// Finish a read that was queued waiting for events.
@@ -750,9 +749,9 @@ pub unsafe extern "C" fn mousegetstat(
                 size_of::<KdEvent>() as c_int;
             *count = DEV_GET_SIZE_COUNT;
         }
-        D_SUCCESS
+        Ok(false).as_io_return()
     } else {
-        D_INVALID_OPERATION
+        Err(DeviceError::InvalidOperation).as_io_return()
     }
 }
 

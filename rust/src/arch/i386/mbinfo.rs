@@ -9,9 +9,8 @@
 //! `mbinfo_register_boot_data()` and a user reads it back with
 //! `mbinforead()`, one copy of the raw block, no parsing.
 
-use crate::arch::i386::io_req::{
-    D_INVALID_SIZE, D_SUCCESS, DevT, IoReq, KERN_SUCCESS,
-};
+use crate::arch::i386::io_req::{DevT, IoReq, KERN_SUCCESS};
+use crate::device::r#return::{DeviceError, IoResultExt};
 use crate::glue;
 use crate::utils::cell::SyncCell;
 use core::cell::UnsafeCell;
@@ -90,7 +89,7 @@ pub unsafe extern "C" fn mbinforead(_dev: DevT, ior: *mut IoReq) -> c_int {
     let ior = unsafe { &mut *ior };
     let count = ior.count();
     if count > size_of::<MultibootRawInfo>() as c_long {
-        return D_INVALID_SIZE;
+        return Err(DeviceError::InvalidSize).as_io_return();
     }
     // SAFETY: `count` bytes fit the info block, checked above.
     let err = unsafe {
@@ -112,5 +111,5 @@ pub unsafe extern "C" fn mbinforead(_dev: DevT, ior: *mut IoReq) -> c_int {
         )
     };
     ior.set_residual(0);
-    D_SUCCESS
+    Ok(false).as_io_return()
 }

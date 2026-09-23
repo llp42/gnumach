@@ -6,8 +6,9 @@
 //   Copyright 1988, 1989 by Olivetti Advanced Technology Center, Inc.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! `struct io_req` of <device/io_req.h> and the device return codes of
-//! <device/device_types.h>, as the x86 drivers share them.
+//! `struct io_req` of <device/io_req.h>, as the x86 drivers share it.
+//! The device return codes live in
+//! [`return`](crate::device::return).
 //!
 //! Only a prefix of the request is mirrored, through `io_done`: the
 //! fields after it are never read.  The request's first two fields are
@@ -94,8 +95,8 @@ impl IoReq {
 }
 
 /// Drain up to `ior`'s byte count of queued events into its data
-/// buffer, and return the bytes copied.  The caller checked
-/// `D_INVALID_SIZE` and holds `SPLKD`.
+/// buffer, and return the bytes copied.  The caller rejected a byte
+/// count that is not a multiple of the event size and holds `SPLKD`.
 pub fn drain(queue: &mut KdEventQueue, ior: &mut IoReq) -> c_long {
     let mut count: c_long = 0;
     while !queue.is_empty() && count < ior.count {
@@ -113,13 +114,9 @@ pub fn drain(queue: &mut KdEventQueue, ior: &mut IoReq) -> c_long {
     count
 }
 
-// Return codes, <device/device_types.h> and <mach/kern_return.h>.
-pub const D_IO_QUEUED: c_int = -1;
-pub const D_SUCCESS: c_int = 0;
-pub const D_WOULD_BLOCK: c_int = 2501;
-pub const D_ALREADY_OPEN: c_int = 2503;
-pub const D_INVALID_OPERATION: c_int = 2505;
-pub const D_INVALID_SIZE: c_int = 2507;
+// The mode flag of <device/device_types.h>, the ioctl flavors, and
+// the `kern_return_t` of <mach/kern_return.h>; the device return codes
+// moved to [`crate::device::r#return`].
 pub const D_NOWAIT: c_uint = 0x8;
 pub const DEV_GET_SIZE: c_uint = 0;
 pub const DEV_GET_SIZE_DEVICE_SIZE: usize = 0;

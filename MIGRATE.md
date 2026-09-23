@@ -1554,9 +1554,9 @@ detail §4.1 gives the `kern/` files.
   `kd_event.h` stays a symbol: `conf.c`'s four device entries and
   `kd.c`'s `X_kdb_enter()`/`X_kdb_exit()`/`kd_enqsc()` calls are
   unchanged.
-* **Shared pieces.** The `IoReq` prefix mirror, the request drain and
-  the device return codes moved to `src/arch/i386/io_req.rs`, whose
-  future home is a `src/device/` module.  The 16/32-bit port access the
+* **Shared pieces.** The `IoReq` prefix mirror and the request drain
+  live in `src/arch/i386/io_req.rs`; the device return codes are
+  `src/device/return.rs`.  The 16/32-bit port access the
   `X_kdb` interpreter needs is `src/arch/i386/pio.rs`; `kb_mode` moved
   into the Rust kd module, so its `kbd_set_mode()` shim is gone.
 * **Notes.** The ioctl flavors are mirrored as computed values;
@@ -1599,8 +1599,9 @@ detail §4.1 gives the `kern/` files.
   `kd.h`/`kd_mouse.h`/`kd_event.h` no longer declare the retired
   symbols.
 * **Idioms (cleanup).** Named scancode/controller constants, `bool`
-  and `usize` internal returns, device return codes shared from
-  `io_req.rs`, `Option<NonNull<_>>` for the tty's inert pointers, and
+  and `usize` internal returns, device return codes from
+  `src/device/return.rs`, `Option<NonNull<_>>` for the tty's inert
+  pointers, and
   private names that read as Rust (`cn_set_leds`, `char_to_bit`,
   `fb_ptr`, `motion`, ...).
 * **State (cleanup).** The driver's globals live in one `Kd` object

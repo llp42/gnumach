@@ -19,6 +19,7 @@ use super::*;
 use crate::arch::i386::io_req::{DevT, IoReq};
 use crate::arch::vm_param::PAGE_SHIFT;
 use crate::device::cirbuf::Cirbuf;
+use crate::device::r#return::{DeviceError, IoResultExt};
 use crate::glue;
 use crate::kern::lock::SimpleLock;
 use crate::kern::queue::QueueEntry;
@@ -48,8 +49,6 @@ const KDGKBENT: c_uint = 0xc005_6b01;
 const KDSKBENT: c_uint = 0x8005_6b02;
 /// `KDSETBELL` of <i386at/kd.h>.
 const KDSETBELL: c_uint = 0x8004_6b04;
-
-use crate::arch::i386::io_req::{D_INVALID_OPERATION, D_SUCCESS};
 
 /// `kdmmap()` refuses offsets past this.
 const MAP_LIMIT: usize = 128 * 1024;
@@ -286,19 +285,19 @@ pub unsafe extern "C" fn kdgetstat(
 ) -> c_int {
     if flavor == KDGSTATE {
         if unsafe { *count } < 1 {
-            return D_INVALID_OPERATION;
+            return Err(DeviceError::InvalidOperation).as_io_return();
         }
         unsafe {
             *data = super::kd().state_bits();
             *count = 1;
         }
-        D_SUCCESS
+        Ok(false).as_io_return()
     } else if flavor == KDGKBENT {
         // SAFETY: the caller passes a `struct kbentry`.
         let kb = unsafe { &mut *data.cast::<super::KbEntry>() };
         super::keyboard::entry_get(kb);
         unsafe { *count = 1 };
-        D_SUCCESS
+        Ok(false).as_io_return()
     } else {
         // SAFETY: the tty layer handles its own flavors.
         unsafe { glue::tty_get_status(ptr(tty()), flavor, data, count) }
@@ -319,19 +318,19 @@ pub unsafe extern "C" fn kdsetstat(
 ) -> c_int {
     if flavor == KDSKBENT {
         if count < 1 {
-            return D_INVALID_OPERATION;
+            return Err(DeviceError::InvalidOperation).as_io_return();
         }
         // SAFETY: the caller passes a `struct kbentry`.
         let kb = unsafe { &*data.cast::<super::KbEntry>() };
         super::keyboard::entry_set(kb);
-        D_SUCCESS
+        Ok(false).as_io_return()
     } else if flavor == KDSETBELL {
         if count < 1 {
-            return D_INVALID_OPERATION;
+            return Err(DeviceError::InvalidOperation).as_io_return();
         }
         // SAFETY: one integer behind `data`.
         let val = unsafe { *data };
-        super::console::set_bell(val, 0)
+        super::console::set_bell(val, 0).as_io_return()
     } else {
         // SAFETY: the tty layer handles its own flavors.
         unsafe { glue::tty_set_status(ptr(tty()), flavor, data, count) }

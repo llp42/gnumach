@@ -5,9 +5,11 @@
 //! device layer.
 //!
 //! `cirbuf.rs` holds the circular character buffers, `dev_name.rs` the
-//! device-name comparison and the empty device-table entries, and
-//! `subrs.rs` the Ethernet formatter and the BSD wait/wake wrappers.
+//! device-name comparison and the empty device-table entries,
+//! `return.rs` the device return codes, and `subrs.rs` the Ethernet
+//! formatter and the BSD wait/wake wrappers.
 
 pub mod cirbuf;
 pub mod dev_name;
+pub mod r#return;
 pub mod subrs;

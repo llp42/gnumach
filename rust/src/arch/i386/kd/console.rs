@@ -13,14 +13,13 @@
 use super::keymap::KEY_MAP;
 use super::*;
 use crate::arch::i386::pio::Port;
+use crate::device::r#return::{DeviceError, IoResult};
 use crate::glue;
 use core::ffi::{c_int, c_uint};
 
 /// `KD_BELLON`/`KD_BELLOFF` of <i386at/kd.h>.
 const KD_BELLON: c_int = 1;
 const KD_BELLOFF: c_int = 0;
-
-use crate::arch::i386::io_req::D_INVALID_OPERATION;
 
 /// Probe the console.  `kdcnprobe()` in C.
 ///
@@ -174,15 +173,15 @@ pub(crate) fn maygetc() -> c_int {
 
 /// `kdsetbell()` in C: turn the bell on or off.  The caller must hold
 /// `SPLKD`.
-pub(crate) fn set_bell(val: c_int, _flags: c_int) -> c_int {
+pub(crate) fn set_bell(val: c_int, _flags: c_int) -> IoResult {
     if val == KD_BELLON {
         super::kd_bellon();
-        0
+        Ok(false)
     } else if val == KD_BELLOFF {
         // SAFETY: the timeout callback is the driver's.
         unsafe { super::kd_belloff(core::ptr::null_mut()) };
-        0
+        Ok(false)
     } else {
-        D_INVALID_OPERATION
+        Err(DeviceError::InvalidOperation)
     }
 }

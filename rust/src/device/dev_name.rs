@@ -18,10 +18,11 @@
 //! `dev_set_indirection()`, stay C and keep their prototypes.
 //!
 //! The device return codes come from <device/device_types.h> through
-//! their single Rust home in [`crate::arch::i386::io_req`].
+//! their single Rust home in [`return`](crate::device::return).
 
-use crate::arch::i386::io_req::{D_INVALID_OPERATION, D_SUCCESS, DevT, IoReq};
+use crate::arch::i386::io_req::{DevT, IoReq};
 use crate::arch::types::VmOffset;
+use crate::device::r#return::{DeviceError, IoResultExt};
 use core::ffi::{c_char, c_int, c_uint, c_ushort, c_void};
 use core::slice;
 
@@ -30,7 +31,7 @@ use core::slice;
 /// The C ignores its argument and always succeeds.
 #[unsafe(no_mangle)]
 pub extern "C" fn nulldev_reset(_dev: DevT) -> c_int {
-    D_SUCCESS
+    Ok(false).as_io_return()
 }
 
 /// The default open slot of the device tables.  `nulldev_open()` in C.
@@ -43,7 +44,7 @@ pub extern "C" fn nulldev_open(
     _flags: c_int,
     _ior: *mut IoReq,
 ) -> c_int {
-    D_SUCCESS
+    Ok(false).as_io_return()
 }
 
 /// The default close slot of the device tables.  `nulldev_close()` in
@@ -58,8 +59,8 @@ pub extern "C" fn nulldev_close(_dev: DevT, _flags: c_int) {}
 /// The C ignores its arguments and succeeds; the request is never
 /// read.
 #[unsafe(no_mangle)]
-pub extern "C" fn nulldev_read(_dev: DevT, _ior: *mut c_void) -> c_int {
-    D_SUCCESS
+pub extern "C" fn nulldev_read(_dev: DevT, _ior: *mut IoReq) -> c_int {
+    Ok(false).as_io_return()
 }
 
 /// The default write slot of the device tables.  `nulldev_write()` in
@@ -68,8 +69,8 @@ pub extern "C" fn nulldev_read(_dev: DevT, _ior: *mut c_void) -> c_int {
 /// The C ignores its arguments and succeeds; the request is never
 /// read.
 #[unsafe(no_mangle)]
-pub extern "C" fn nulldev_write(_dev: DevT, _ior: *mut c_void) -> c_int {
-    D_SUCCESS
+pub extern "C" fn nulldev_write(_dev: DevT, _ior: *mut IoReq) -> c_int {
+    Ok(false).as_io_return()
 }
 
 /// The status query slot of a device with no status.
@@ -84,7 +85,7 @@ pub extern "C" fn nulldev_getstat(
     _data: *mut c_int,
     _count: *mut c_uint,
 ) -> c_int {
-    D_INVALID_OPERATION
+    Err(DeviceError::InvalidOperation).as_io_return()
 }
 
 /// The status setter slot of a device with no status.
@@ -99,7 +100,7 @@ pub extern "C" fn nulldev_setstat(
     _data: *mut c_int,
     _count: c_uint,
 ) -> c_int {
-    D_INVALID_OPERATION
+    Err(DeviceError::InvalidOperation).as_io_return()
 }
 
 /// The port-death slot of a device with no reply ports.
@@ -108,7 +109,7 @@ pub extern "C" fn nulldev_setstat(
 /// The C ignores its arguments and always succeeds.
 #[unsafe(no_mangle)]
 pub extern "C" fn nulldev_portdeath(_dev: DevT, _port: VmOffset) -> c_int {
-    D_SUCCESS
+    Ok(false).as_io_return()
 }
 
 /// The asynchronous-input slot of a device with no filters.
@@ -124,7 +125,7 @@ pub extern "C" fn nodev_async_in(
     _filter: *mut c_ushort,
     _j: c_uint,
 ) -> c_int {
-    D_INVALID_OPERATION
+    Err(DeviceError::InvalidOperation).as_io_return()
 }
 
 /// The driver-info slot of a device with no driver info.
@@ -134,7 +135,7 @@ pub extern "C" fn nodev_async_in(
 /// output array is never read.
 #[unsafe(no_mangle)]
 pub extern "C" fn nodev_info(_dev: DevT, _a: c_int, _b: *mut c_int) -> c_int {
-    D_INVALID_OPERATION
+    Err(DeviceError::InvalidOperation).as_io_return()
 }
 
 /// The mmap slot of a device that cannot be mapped.  `nomap()` in C.
