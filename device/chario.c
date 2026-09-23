@@ -95,57 +95,6 @@ int pdma_timeouts[NSPEEDS]; /* how many ticks in timeout */
 int pdma_water_mark[NSPEEDS];
 
 
-void chario_init(void)
-{
-  /* the basic idea with the timeouts is two allow enough
-     time for a character to show up if data is coming in at full data rate
-     plus a little slack. 2 ticks is considered slack
-     Below 300 baud we just glob a character at a time */
-#define _PR(x) ((hz/x) + 2)
-
-  int i;
-
-  for (i = B0; i < B300; i++)
-    pdma_timeouts[i] = 0;
-
-  pdma_timeouts[B300] = _PR(30);
-  pdma_timeouts[B600] = _PR(60);
-  pdma_timeouts[B1200] = _PR(120);
-  pdma_timeouts[B1800] = _PR(180);
-  pdma_timeouts[B2400] = _PR(240);
-  pdma_timeouts[B4800] = _PR(480);
-  pdma_timeouts[B9600] = _PR(960);
-  pdma_timeouts[EXTA]  = _PR(1440); /* >14400 baud */
-  pdma_timeouts[EXTB]  = _PR(1920); /* >19200 baud */
-  pdma_timeouts[B57600] = _PR(5760);
-  pdma_timeouts[B115200] = _PR(11520);
-
-  for (i = B0; i < B300; i++)
-    pdma_water_mark[i] = 0;
-
-  /* for the slow speeds, we try to buffer 0.02 of the baud rate
-     (20% of the character rate). For the faster lines,
-     we try to buffer 1/2 the input queue size */
-
-#undef _PR
-#define _PR(x) (0.20 * x)
-
-  pdma_water_mark[B300] = _PR(120);
-  pdma_water_mark[B600] = _PR(120);
-  pdma_water_mark[B1200] = _PR(120);
-  pdma_water_mark[B1800] = _PR(180);
-  pdma_water_mark[B2400] = _PR(240);
-  pdma_water_mark[B4800] = _PR(480);
-  i = tty_inq_size/2;
-  pdma_water_mark[B9600] = i;
-  pdma_water_mark[EXTA]  = i; /* >14400 baud */
-  pdma_water_mark[EXTB]  = i; /* >19200 baud */
-  pdma_water_mark[B57600] = i;
-  pdma_water_mark[B115200] = i;
-
-  return;
-}
-
 /*
  * Open TTY, waiting for CARR_ON.
  * No locks may be held.

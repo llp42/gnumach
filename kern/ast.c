@@ -27,6 +27,9 @@
  * the rights to redistribute these changes.
  */
 /*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
+/*
  *
  *	This file contains routines to check whether an ast is needed.
  *
@@ -51,15 +54,6 @@
 
 
 volatile ast_t need_ast[NCPUS];
-
-void
-ast_init(void)
-{
-	int i;
-
-	for (i=0; i<NCPUS; i++)
-		need_ast[i] = 0;
-}
 
 void
 ast_taken(void)

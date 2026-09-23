@@ -99,38 +99,6 @@ void pset_sys_bootstrap(void)
 	 */
 }
 
-#if	MACH_HOST
-/*
- *	Rest of pset system initializations.
- */
-void pset_sys_init(void)
-{
-	int		i;
-	processor_t	processor;
-
-	/*
-	 * Allocate the cache for processor sets.
-	 */
-	kmem_cache_init(&pset_cache, "processor_set",
-			sizeof(struct processor_set), 0, NULL, 0);
-
-	/*
-	 * Give each processor a control port.
-	 * The master processor already has one.
-	 */
-	for (i = 0; i < NCPUS; i++) {
-	    processor = processor_ptr(i);
-	    if (processor != master_processor &&
-		machine_slot[i].is_cpu)
-	    {
-		ipc_processor_init(processor);
-	    }
-	}
-
-	processor_set_create(&realhost, &slave_pset, &slave_pset);
-}
-#endif	/* MACH_HOST */
-
 /*
  *	pset_remove_task() removes a task from a processor_set.
  *	Caller must hold locks on pset and task.  Pset reference count

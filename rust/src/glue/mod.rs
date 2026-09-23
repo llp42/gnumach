@@ -7,6 +7,7 @@ pub mod mig;
 pub mod time_value;
 
 use crate::arch::types::{VmOffset, VmSize};
+use crate::config::NCPUS;
 use crate::kern::lock::SimpleLock;
 use crate::kern::mach_clock::Timeout;
 use crate::kern::machine::MachineSlot;
@@ -15,6 +16,7 @@ use crate::kern::queue::QueueEntry;
 use crate::kern::sched::RunQueue;
 use crate::kern::sched_prim::NUMQUEUES;
 use crate::kern::thread::{Continuation, StackResume, Thread};
+use crate::kern::timer::Timer;
 use crate::vm::types::{Pmap, VmObject, VmPage, VmProt};
 use crate::vm::vm_map::{VmMap, VmMapEntry};
 use core::ffi::{c_char, c_int, c_short, c_uint, c_ulong, c_void};
@@ -174,6 +176,9 @@ unsafe extern "C" {
     pub static mut recompute_priorities_timer: Timeout;
     pub static mut sched_thread_id: *mut Thread;
 
+    pub static mut current_timer: [*mut Timer; NCPUS];
+    pub static mut kernel_timer: [Timer; NCPUS];
+
     pub static mut wait_queue: [QueueEntry; NUMQUEUES];
     pub static mut wait_lock: [SimpleLock; NUMQUEUES];
 
@@ -201,14 +206,20 @@ unsafe extern "C" {
 
     pub static mut master_processor: *mut Processor;
 
-    pub static mut machine_slot: MachineSlot;
+    pub static mut machine_slot: [MachineSlot; NCPUS];
 
     pub static mut default_pset: c_void;
     pub static mut pset_cache: c_void;
+    pub static mut slave_pset: *mut ProcessorSet;
 
     pub static mut realhost: c_void;
 
     pub fn processor_shutdown(processor: *mut Processor) -> c_int;
+    pub fn processor_set_create(
+        host: *mut c_void,
+        new_set: *mut *mut ProcessorSet,
+        new_name: *mut *mut ProcessorSet,
+    ) -> c_int;
 
     pub fn iodone(ior: *mut c_void);
     pub fn device_read_alloc(ior: *mut c_void, size: usize) -> c_int;
@@ -218,7 +229,6 @@ unsafe extern "C" {
     pub fn dev_lookup_init();
     pub fn net_io_init();
     pub fn device_pager_init();
-    pub fn chario_init();
     pub fn io_done_thread();
     pub fn net_thread();
     pub fn kernel_thread(
@@ -277,6 +287,10 @@ unsafe extern "C" {
 
     pub static linesw: [LdiscSwitch; 1];
     pub static ttlowat: [c_short; NSPEEDS];
+
+    pub static tty_inq_size: c_uint;
+    pub static mut pdma_timeouts: [c_int; NSPEEDS];
+    pub static mut pdma_water_mark: [c_int; NSPEEDS];
 
     pub static hz: c_int;
     pub static rebootflag: c_int;
@@ -338,6 +352,9 @@ unsafe extern "C" {
     pub fn convert_processor_name_to_port(
         processor: *mut Processor,
     ) -> *mut c_void;
+
+    pub fn convert_processor_to_port(processor: *mut Processor)
+    -> *mut c_void;
 
     pub fn ipc_kobject_set(
         port: *mut c_void,

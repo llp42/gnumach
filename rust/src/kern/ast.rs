@@ -12,6 +12,7 @@
 //! The per-CPU AST bits, which `kern/ast.h` declares as macros over
 //! `need_ast[]` and `kern/ast.c` defines.
 
+use crate::config::NCPUS;
 use crate::kern::smp::smp_get_numcpus;
 use core::ffi::c_int;
 
@@ -19,7 +20,7 @@ use core::ffi::c_int;
 pub const AST_BLOCK: usize = 0x4;
 
 unsafe extern "C" {
-    static mut need_ast: usize;
+    static mut need_ast: [usize; NCPUS];
 }
 
 /// The `ast_needed()` macro of <kern/ast.h>: the reasons pending on `cpu`.
@@ -48,6 +49,26 @@ pub fn ast_off(cpu: c_int, reasons: usize) {
     }
 }
 
+/// `ast_init()` of kern/ast.c.
+///
+/// # Safety
+///
+/// `kern/sched_prim.c` is the only caller; it runs this during boot, before any
+/// CPU can take an AST.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ast_init() {
+    for cpu in 0..NCPUS {
+        // SAFETY: `cpu` indexes the `NCPUS` C slots, and no other thread can
+        // set an AST before the boot reaches the scheduler.
+        unsafe {
+            (&raw mut need_ast)
+                .cast::<usize>()
+                .add(cpu)
+                .write_volatile(0)
+        };
+    }
+}
+
 /// The address of `need_ast[cpu]`.
 ///
 /// # Safety
@@ -59,7 +80,8 @@ unsafe fn slot(cpu: c_int) -> *mut usize {
         "AST cpu {cpu} outside the {} probed CPUs",
         smp_get_numcpus(),
     );
-    // SAFETY: the caller promises a live CPU number; `cpu` is a non-negative
-    // number, and widening it to pointer width is exact.
-    unsafe { (&raw mut need_ast).offset(cpu as isize) }
+    // SAFETY: the caller promises a live CPU number and the debug assertion
+    // holds it below the probed count, at most `NCPUS`; the cast cannot wrap
+    // because `cpu` is non-negative.
+    unsafe { (&raw mut need_ast).cast::<usize>().add(cpu as usize) }
 }

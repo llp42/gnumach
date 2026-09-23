@@ -6,6 +6,7 @@
 //! The device service's creation, which `device/device_init.c` used to define
 //! and <device/device_init.h> declares.
 
+use crate::device::chario;
 use crate::glue;
 use core::ffi::c_int;
 use core::ptr;
@@ -51,7 +52,7 @@ pub unsafe extern "C" fn device_service_create() {
         glue::dev_lookup_init();
         glue::net_io_init();
         glue::device_pager_init();
-        glue::chario_init();
+        chario::chario_init();
     }
 
     // SAFETY: `kernel_task` is the kernel's own task, live since startup, and

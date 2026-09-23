@@ -49,54 +49,6 @@
 
 host_data_t	realhost;
 
-kern_return_t host_processors(
-	const host_t		host,
-	processor_array_t	*processor_list,
-	natural_t		*countp)
-{
-	unsigned		i;
-	processor_t		*tp;
-	vm_offset_t		addr;
-	unsigned int		count;
-
-	if (host == HOST_NULL)
-		return KERN_INVALID_ARGUMENT;
-
-	/*
-	 *	Determine how many processors we have.
-	 *	(This number shouldn't change.)
-	 */
-
-	count = 0;
-	for (i = 0; i < NCPUS; i++)
-		if (machine_slot[i].is_cpu)
-			count++;
-
-	if (count == 0)
-		panic("host_processors");
-
-	addr = kalloc((vm_size_t) (count * sizeof(mach_port_t)));
-	if (addr == 0)
-		return KERN_RESOURCE_SHORTAGE;
-
-	tp = (processor_t *) addr;
-	for (i = 0; i < NCPUS; i++)
-		if (machine_slot[i].is_cpu)
-			*tp++ = processor_ptr(i);
-
-	*countp = count;
-	*processor_list = (mach_port_t *) addr;
-
-	/* do the conversion that Mig should handle */
-
-	tp = (processor_t *) addr;
-	for (i = 0; i < count; i++)
-		((mach_port_t *) tp)[i] =
-		      (mach_port_t)convert_processor_to_port(tp[i]);
-
-	return KERN_SUCCESS;
-}
-
 kern_return_t	host_info(
 	const host_t	host,
 	int		flavor,

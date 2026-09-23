@@ -42,29 +42,6 @@
 timer_t		current_timer[NCPUS];
 timer_data_t	kernel_timer[NCPUS];
 
-/*
- *	init_timers initializes all non-thread timers and puts the
- *	service routine on the callout queue.  All timers must be
- *	serviced by the callout routine once an hour.
- */
-void init_timers(void)
-{
-	int	i;
-	timer_t	this_timer;
-
-	/*
-	 *	Initialize all the kernel timers and start the one
-	 *	for this cpu (master) slaves start theirs later.
-	 */
-	this_timer = &kernel_timer[0];
-	for ( i=0 ; i<NCPUS ; i++, this_timer++) {
-		timer_init(this_timer);
-		current_timer[i] = (timer_t) 0;
-	}
-
-	start_timer(&kernel_timer[cpu_number()]);
-}
-
 #define TIMER_TO_TIME_VALUE64(tv, timer) 				\
 MACRO_BEGIN								\
 		(tv)->seconds = (timer)->high + (timer)->low / 1000000;	\

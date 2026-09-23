@@ -11,9 +11,12 @@
 //! `kern/processor.c` used to define.
 
 use crate::arch::i386::mp_desc::cpu_control;
+use crate::arch::i386::percpu::percpu_at;
 use crate::config::NCPUS;
 use crate::glue;
+use crate::kern::ipc_host;
 use crate::kern::lock::SimpleLock;
+use crate::kern::machine;
 use crate::kern::policy::{POLICY_TIMESHARE, invalid_policy};
 use crate::kern::processor_info::{
     PROCESSOR_BASIC_INFO, PROCESSOR_BASIC_INFO_COUNT,
@@ -340,11 +343,9 @@ impl Processor {
         // own count, so it names an entry of the C table and is not negative;
         // widening it to pointer width cannot wrap.
         let slot = slot_num as usize;
-        // SAFETY: `slot` indexes the `NCPUS`-element `machine_slot` table,
-        // whose entries the arch probe filled in; every field read below is a
-        // plain integer.
-        let machine =
-            unsafe { &*ptr::addr_of_mut!(glue::machine_slot).add(slot) };
+        // SAFETY: `slot` is below the configured `NCPUS`, and every field read
+        // below is a plain integer.
+        let machine = unsafe { &*machine::slot(slot) };
 
         let state = self.state;
         let running =
@@ -832,6 +833,66 @@ pub unsafe extern "C" fn processor_init(pr: *mut Processor, slot_num: c_int) {
 pub unsafe extern "C" fn pset_init(pset: *mut ProcessorSet) {
     // SAFETY: the caller's contract.
     unsafe { ProcessorSet::init(pset) };
+}
+
+/// The rest of the processor-set system initialization: the set cache, the
+/// control port of every CPU but the master, and the slave set.
+fn system_init() {
+    // SAFETY: `pset_cache` is the C cache storage this boot step owns, and the
+    // initializer only writes the cache's own fields.
+    unsafe {
+        glue::kmem_cache_init(
+            ptr::addr_of_mut!(glue::pset_cache),
+            c"processor_set".as_ptr(),
+            size_of::<ProcessorSet>(),
+            0,
+            None,
+            0,
+        );
+    }
+
+    // SAFETY: `pset_sys_bootstrap()` ran during the boot and pointed this at
+    // the master slot.
+    let master = unsafe { glue::master_processor };
+
+    for i in 0..NCPUS {
+        // The C indexed `percpu_array` with an `int`; `i` counts at most
+        // `NCPUS`, so the narrowing cannot wrap.
+        let cpu = i as c_int;
+        // SAFETY: `i` is below `NCPUS`, the length of the C `percpu_array`.
+        let processor =
+            unsafe { ptr::addr_of_mut!((*percpu_at(cpu)).processor) };
+        // SAFETY: `i` is below `NCPUS`, the length of the C `machine_slot`
+        // array.
+        let is_cpu = unsafe { (*machine::slot(i)).is_cpu } != 0;
+        if processor != master && is_cpu {
+            // SAFETY: the processor is a live CPU's own record, and no other
+            // thread can reach its two port fields yet.
+            unsafe { ipc_host::ipc_processor_init(processor) };
+        }
+    }
+
+    // SAFETY: `realhost` is the live host object and `slave_pset` the C
+    // pointer this call sets; the set allocator takes the cache just
+    // initialized.
+    unsafe {
+        glue::processor_set_create(
+            ptr::addr_of_mut!(glue::realhost),
+            ptr::addr_of_mut!(glue::slave_pset),
+            ptr::addr_of_mut!(glue::slave_pset),
+        );
+    }
+}
+
+/// `pset_sys_init()` of kern/processor.c.
+///
+/// # Safety
+///
+/// `kern/startup.c` is the only caller; it runs this during boot after
+/// `pset_sys_bootstrap()` and before any other CPU is started.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pset_sys_init() {
+    system_init();
 }
 
 /// `processor_start()` of kern/processor.c.

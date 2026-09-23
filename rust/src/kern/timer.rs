@@ -6,10 +6,13 @@
 //! The statistical timers, which `kern/timer.c` used to define for
 //! `kern/timer.h`.
 
+use crate::config::NCPUS;
+use crate::glue;
 use crate::glue::time_value::TimeValue64;
 use crate::kern::thread::Thread;
 use core::ffi::c_uint;
 use core::mem::offset_of;
+use core::ptr;
 use core::sync::atomic::{Ordering, fence};
 
 /// `TIMER_RATE` in <kern/timer.h>: the timer's tick rate, in microseconds per
@@ -132,6 +135,36 @@ fn read(timer: &Timer) -> TimeValue64 {
 /// <kern/timer.c> did.
 fn read_times(thread: &Thread) -> (TimeValue64, TimeValue64) {
     (read(&thread.user_timer), read(&thread.system_timer))
+}
+
+/// Zero every kernel timer and clear every current-timer pointer, as
+/// `init_timers()` of kern/timer.c did.
+fn init_all() {
+    let timers = (&raw mut glue::kernel_timer).cast::<Timer>();
+    let current = (&raw mut glue::current_timer).cast::<*mut Timer>();
+
+    for i in 0..NCPUS {
+        // SAFETY: `i` is below `NCPUS`, the length of both C arrays, and this
+        // boot step is their only writer until the other CPUs come up.
+        unsafe {
+            (*timers.add(i)).init();
+            current.add(i).write(ptr::null_mut());
+        }
+    }
+
+    // The C `start_timer()` is an empty macro in <kern/timer.h>, so its call
+    // after the loop expands to nothing.
+}
+
+/// `init_timers()` of kern/timer.c.
+///
+/// # Safety
+///
+/// `kern/startup.c` is the only caller; it runs this during boot, before any
+/// other CPU starts its timers.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn init_timers() {
+    init_all();
 }
 
 /// `timer_init()` in C.

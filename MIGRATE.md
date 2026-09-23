@@ -73,14 +73,14 @@ file, or `—` when the rest is ready too.
 
 | File | LOC | Friction | Free | Holds the rest |
 |---|---:|---:|---:|---|
-| `ast.c` | 221 | 3 | 0 | `need_ast[NCPUS]`; `ast_taken`/`ast_check` need `cpu_number` at the call site |
+| `ast.c` | 215 | 3 | 0 | `ast_taken`/`ast_check` need `net_ast()` and the run-queue walk |
 | `boot_script.c` | 696 | 2 | 0 | `struct cmd` fields; static helpers |
 | `bootstrap.c` | 751 | 5 | 0 | bootstrap data; static helpers |
 | `debug.c` | 121 | 3 | 0 | C variadics (`log`) |
 | `eventcount.c` | 305 | 4 | 0 | `struct eventcounter` has no mirror |
 | `exception.c` | 934 | 5 | 0 | `struct exception` and `ipc_port` fields |
 | `gsync.c` | 537 | 4 | 0 | `struct gsync_node` internals |
-| `host.c` | 338 | 3 | 0 | NCPUS loops over `machine_slot`/`percpu_array` |
+| `host.c` | 290 | 3 | 0 | `host_info`'s `machine_info` and load-average globals |
 | `ipc_host.c` | 390 | 3 | 0 | `ipc_port`/`ipc_space` fields |
 | `ipc_kobject.c` | 362 | 4 | 0 | `ipc_port` fields |
 | `ipc_mig.c` | 856 | 5 | 0 | `port_name_to_*` are static; wire-type structs |
@@ -91,7 +91,7 @@ file, or `—` when the rest is ready too.
 | `machine.c` | 630 | 4 | 0 | `machine_info` and NCPUS loops |
 | `printf.c` | 592 | 5 | 0 | C-variadic definitions; blocked (see §8) |
 | `priority.c` | 196 | 4 | 0 | pset tail and `struct slock_irq` |
-| `processor.c` | 497 | 4 | 0 | NCPUS loops |
+| `processor.c` | 465 | 4 | 0 | `processor_set_things`'s allocation and port conversions |
 | `rdxtree.c` | 791 | 3 | 0 | static node helpers |
 | `sched_prim.c` | 1238 | 5 | 0 | static `thread_select`/`do_runq_scan`; continuations |
 | `slab.c` | 1280 | 5 | 0 | `struct kmem_cache` and `struct vm_page` mirrors |
@@ -101,7 +101,7 @@ file, or `—` when the rest is ready too.
 | `syscall_sw.c` | 220 | 3 | 0 | trap table ABI; static stubs |
 | `task.c` | 1354 | 5 | 0 | `struct task` is opaque by design |
 | `thread.c` | 1737 | 5 | 0 | reaper/collect scans, static helpers, task fields |
-| `timer.c` | 116 | 3 | 0 | `init_timers` loops over `current_timer[NCPUS]` |
+| `timer.c` | 93 | 3 | 0 | `db_thread_read_times` and its static helpers |
 
 ## 5. Outside `kern/`
 
@@ -147,7 +147,7 @@ file, or `—` when the rest is ready too.
 
 | File | LOC | Free | Holds the rest |
 |---|---:|---:|---|
-| `chario.c` | 1049 | 0 | `pdma_timeouts`/`pdma_water_mark` are NCPUS-sized; `struct tty` fields |
+| `chario.c` | 998 | 0 | `struct tty` fields |
 | `cons.c` | 176 | 0 | `cn_tab` static table |
 | `device_init.c` | 49 | 0 | — |
 | `dev_lookup.c` | 365 | 0 | `mach_device` fields |
@@ -247,14 +247,15 @@ final.
 
 ### 6.2 Blocked with one unlock
 
-**NCPUS/NINTR/NCOM (20).**  The configure constants are in
+**NCPUS/NINTR/NCOM (15).**  The configure constants are in
 `rust/src/config.rs`, the `processor_set` tail they sized is mirrored, and
 the four `processor_glue.c` shims plus `thread_glue_pset_sched_load` are
-deleted (§9, §10).  The other 20 this unlock frees are still C:
-`init_timers`, `ast_init`, `host_processors`, `pset_sys_init`,
-`chario_init`, `pmap_virtual_space`, `interrupt_stack_alloc`,
-`picdisable`, the four `i386/i386/irq.c` accessors and the eight
-`i386/i386at/com.c` entries.
+deleted (§9, §10).  Five of the 20 moved in a follow-up pass:
+`init_timers`, `ast_init`, `host_processors`, `pset_sys_init` and
+`chario_init` (§9).  The other 15 this unlock frees are still C:
+`pmap_virtual_space`,
+`interrupt_stack_alloc`, `picdisable`, the four `i386/i386/irq.c`
+accessors and the eight `i386/i386at/com.c` entries.
 
 **Mirror gaps.**
 `host_ipc_marequest_info` and `host_virtual_physical_table_info` need a
@@ -437,6 +438,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `vm/vm_user.c` (`vm_allocate`, `vm_deallocate`, `vm_inherit`, `vm_protect`, `vm_machine_attribute`, `vm_read`, `vm_write`, `vm_copy`, `vm_object_sync`, `vm_msync`, `vm_get_size_limit`) | `src/vm/vm_user.rs`, `src/vm/vm_user_ffi.rs` | pending |
 | `vm/vm_fault.c` (`vm_fault_wire`), `vm/vm_page.c` (`vm_page_seg_name`), `vm/vm_resident.c` (`pmap_steal_memory`, `vm_page_rename`, `vm_page_alloc_flags`, `vm_page_alloc`) | `src/vm/vm_fault.rs`, `vm_fault_ffi.rs`, `vm_page.rs`, `vm_page_ffi.rs`, `vm_resident.rs`, `vm_resident_ffi.rs` | pending |
 | `kern/processor_glue.c` (4 shims), `kern/sched_prim.c` (`thread_glue_pset_sched_load`) | `src/config.rs` (`NCPUS`, `NCOM`, `NINTR`), `src/kern/processor.rs`, `src/kern/thread.rs` | pending |
+| `kern/ast.c` (`ast_init`), `kern/timer.c` (`init_timers`), `kern/host.c` (`host_processors`), `kern/processor.c` (`pset_sys_init`), `device/chario.c` (`chario_init`) | `src/kern/ast.rs`, `src/kern/timer.rs`, `src/kern/host.rs`, `src/kern/processor.rs`, `src/device/chario.rs` | pending |
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `i386/i386at/kd_glue.c`

@@ -17,7 +17,7 @@ use crate::kern::debug;
 use crate::kern::types::KernError;
 use core::ffi::{c_int, c_void};
 use core::mem::offset_of;
-use core::ptr::NonNull;
+use core::ptr::{self, NonNull};
 
 /// `CPU_STATE_MAX` in <mach/machine.h>: the per-state tick counters every
 /// machine slot carries.
@@ -46,6 +46,21 @@ const _: () = assert!(offset_of!(MachineSlot, cpu_subtype) == 8);
 const _: () = assert!(offset_of!(MachineSlot, running) == 12);
 const _: () = assert!(offset_of!(MachineSlot, cpu_ticks) == 16);
 const _: () = assert!(offset_of!(MachineSlot, clock_freq) == 28);
+
+/// The C `machine_slot[cpu]` of <mach/machine.h>.
+///
+/// # Safety
+///
+/// `cpu` must be below the configured `NCPUS`, the C array's length.
+pub(crate) unsafe fn slot(cpu: usize) -> *mut MachineSlot {
+    // SAFETY: the caller promises `cpu < NCPUS`; `.cast()` keeps the element
+    // pointer and `.add()` stays inside the array.
+    unsafe {
+        ptr::addr_of_mut!(glue::machine_slot)
+            .cast::<MachineSlot>()
+            .add(cpu)
+    }
+}
 
 /// The `RB_*` flag word of <sys/reboot.h>, the `host_reboot()` options.
 #[repr(transparent)]

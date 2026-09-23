@@ -4,14 +4,17 @@
 //   University.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! The processor-set cores of `kern/host.c`, mirroring <kern/host.h>.
+//! The cores of `kern/host.c`, mirroring <kern/host.h>.
 
+use crate::arch::i386::percpu::percpu_at;
 use crate::arch::types::VmOffset;
+use crate::config::NCPUS;
 use crate::glue;
+use crate::kern::machine;
 use crate::kern::processor::{Processor, ProcessorSet};
 use crate::kern::queue::{queue_end, queue_first, queue_next};
 use crate::kern::types::KernError;
-use core::ffi::{c_uint, c_void};
+use core::ffi::{c_int, c_uint, c_void};
 use core::ptr;
 use core::ptr::NonNull;
 
@@ -87,4 +90,102 @@ pub(crate) fn processor_ports(
 
     pset.lock.unlock();
     Ok((ports.cast::<VmOffset>(), count))
+}
+
+/// The body of `host_processors()` in kern/host.c: the control port of every
+/// CPU the machine reports.
+fn processors(
+    host: Option<NonNull<Host>>,
+) -> Result<(NonNull<VmOffset>, c_uint), KernError> {
+    if host.is_none() {
+        return Err(KernError::InvalidArgument);
+    }
+
+    let mut count: c_uint = 0;
+    for i in 0..NCPUS {
+        // SAFETY: `i` is below the configured `NCPUS`, the C array's length.
+        if unsafe { (*machine::slot(i)).is_cpu } != 0 {
+            count += 1;
+        }
+    }
+
+    if count == 0 {
+        // SAFETY: `Panic` does not return; the tags reproduce the C
+        // `panic()` call's file, function and message.
+        unsafe {
+            glue::Panic(
+                c"kern/host.c".as_ptr(),
+                line!() as c_int,
+                c"host_processors".as_ptr(),
+                c"host_processors".as_ptr(),
+            )
+        }
+    }
+
+    // The C count holds at most `NCPUS` slots, so the widening cannot lose a
+    // bit.
+    let slots = count as usize;
+    let size = slots * size_of::<VmOffset>();
+
+    // SAFETY: `kalloc_init()` ran during the boot this MIG entry follows.
+    let base = unsafe { glue::kalloc(size) };
+    let Some(ports) =
+        NonNull::new(ptr::with_exposed_provenance_mut::<VmOffset>(base))
+    else {
+        return Err(KernError::ResourceShortage);
+    };
+
+    let mut slot = 0;
+    for i in 0..NCPUS {
+        // SAFETY: `i` is below the configured `NCPUS`, the C array's length.
+        if unsafe { (*machine::slot(i)).is_cpu } == 0 {
+            continue;
+        }
+
+        // The C indexed `percpu_array` with an `int`; `i` counts at most
+        // `NCPUS`, so the narrowing cannot wrap.
+        let cpu = i as c_int;
+        // SAFETY: `i` is a live CPU number, and its per-CPU block and
+        // processor are live from `pset_sys_bootstrap()`.
+        let processor =
+            unsafe { ptr::addr_of_mut!((*percpu_at(cpu)).processor) };
+        // SAFETY: `slot` is below `count`, the allocation's length; the C
+        // stored the processors and converted them in a second pass, and
+        // converting each as it is stored leaves the same array.
+        unsafe {
+            ports
+                .add(slot)
+                .write(glue::convert_processor_to_port(processor).addr());
+        }
+        slot += 1;
+    }
+
+    Ok((ports, count))
+}
+
+/// `host_processors()` of kern/host.c, the routine <mach/mach_host.defs>
+/// declares.
+///
+/// # Safety
+///
+/// `host` must be `HOST_NULL` or the live host pointer the generated server
+/// converted the request port into; `processor_list` and `countp` must be
+/// valid out-parameters.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn host_processors(
+    host: *mut Host,
+    processor_list: *mut *mut VmOffset,
+    countp: *mut c_uint,
+) -> c_int {
+    match processors(NonNull::new(host)) {
+        Ok((list, count)) => {
+            // SAFETY: the caller promises both out-parameters are valid.
+            unsafe {
+                *processor_list = list.as_ptr();
+                *countp = count;
+            }
+            0
+        }
+        Err(error) => c_int::from(error),
+    }
 }
