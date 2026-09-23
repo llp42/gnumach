@@ -1,7 +1,11 @@
-// SPDX-License-Identifier: BSD-2-Clause
+// SPDX-License-Identifier: CMU-Mach
+// Derived from kern/lock.c and kern/lock.h:
+//   Copyright (c) 1991,1990,1989,1988,1987 Carnegie Mellon University.
+//   Copyright (c) 1993,1994 The University of Utah and the Computer
+//   Systems Laboratory (CSL).
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! Locks of `kern/lock.h`, the machine-independent half.
+//! The locks of `kern/lock.h`, which `kern/lock.c` used to define.
 //!
 //! `SimpleLock` mirrors `struct slock`: one `natural_t`, 0 unlocked
 //! and 1 locked.  The C `simple_lock`/`simple_unlock` macros in
@@ -11,12 +15,26 @@
 //! supported architecture.  On x86 the compiler lowers both to the
 //! same instruction.
 //!
-//! `LockData` mirrors `struct lock`, the sleep-capable recursive lock
-//! whose operations stay in C (`kern/lock.c`) for now; only its layout
-//! is shared, because `struct vm_map` embeds one at offset 0 and the
-//! Rust side has to name the field.
+//! `LockData` mirrors `struct lock`, the sleep-capable recursive lock.
+//! Rust cannot express the C bitfield word, so it is one `u32` and the
+//! accessors below pack it exactly as C does: `read_count:16,
+//! want_upgrade:1, want_write:1, waiting:1, can_sleep:1,
+//! recursion_depth:12`, in that order from the least significant bit.
+//! The `lock_wait_time` spin of 100 pauses before a sleep is kept, and
+//! the two `panic()` sites become [`glue::Panic`] calls with the C
+//! messages.
+//!
+//! `lock_sleepable()` had no caller in the tree, so it was dropped with
+//! the port and its prototype is gone from `kern/lock.h`.
 
-use core::ffi::c_void;
+use crate::arch::i386::percpu::current_thread;
+use crate::glue;
+use crate::kern::sched_prim::{
+    THREAD_AWAKENED, thread_sleep, thread_wakeup_prim,
+};
+use core::cell::UnsafeCell;
+use core::ffi::{c_int, c_void};
+use core::ptr::{self, addr_of_mut};
 use core::sync::atomic::{AtomicU32, Ordering};
 
 /// A simple spin lock, layout-identical to `struct slock` of
@@ -104,22 +122,31 @@ impl Default for SimpleLock {
 /// The sleep-capable recursive lock of `kern/lock.h`, layout-identical
 /// to `struct lock`.
 ///
-/// `thread`, the bitfield word and the interlock are all the C side
-/// touches; the Rust side only has to name the member inside
-/// `struct vm_map`.  The word packs
+/// The owner, the bitfield word and the interlock are all C reads and
+/// writes; this side reaches them through named accessors and holds
+/// `thread` and `state` in `UnsafeCell` so that mutation through
+/// `&self` under the interlock is sound.  The word packs
 /// `read_count:16, want_upgrade:1, want_write:1, waiting:1,
 /// can_sleep:1, recursion_depth:12`, in that order from the least
 /// significant bit.
+///
+/// # Invariants
+///
+/// Every field access below happens while the caller holds the
+/// interlock, except the owner written or read at `lock_init()` time,
+/// when the storage is still unshared.
 #[repr(C)]
 pub struct LockData {
-    thread: *mut c_void,
-    state: u32,
+    thread: UnsafeCell<*mut c_void>,
+    state: UnsafeCell<u32>,
     interlock: SimpleLock,
 }
 
 // The bitfield word is one `unsigned int` on the i386 ABI and the
 // pointer is target-sized, so the layout is pointer + word + interlock
-// on both kernels.  These are `struct lock`'s C sizes.
+// on both kernels.  These are `struct lock`'s C sizes; `UnsafeCell` is
+// layout-transparent, so making two fields interior-mutable does not
+// move them.
 #[cfg(target_pointer_width = "64")]
 const _: () = assert!(size_of::<LockData>() == 16);
 #[cfg(target_pointer_width = "32")]
@@ -130,3 +157,607 @@ const _: () = assert!(
     core::mem::offset_of!(LockData, interlock)
         == core::mem::offset_of!(LockData, state) + size_of::<u32>()
 );
+
+/// The `lock_wait_time` of kern/lock.c: pauses before a sleep.  The C
+/// keeps it in a `static` no code writes, so it is a `const` here.
+const LOCK_WAIT_TIME: c_int = 100;
+
+/// `(struct thread *)-1`, the owner of a lock no thread owns.
+const NO_THREAD: *mut c_void = ptr::without_provenance_mut(usize::MAX);
+
+// The bitfield packing of `struct lock`, from the least significant
+// bit: read_count:16, want_upgrade:1, want_write:1, waiting:1,
+// can_sleep:1, recursion_depth:12.
+const READ_COUNT_SHIFT: u32 = 0;
+const READ_COUNT_MASK: u32 = 0x0000_ffff;
+const WANT_UPGRADE_SHIFT: u32 = 16;
+const WANT_UPGRADE_MASK: u32 = 0x1;
+const WANT_WRITE_SHIFT: u32 = 17;
+const WANT_WRITE_MASK: u32 = 0x1;
+const WAITING_SHIFT: u32 = 18;
+const WAITING_MASK: u32 = 0x1;
+const CAN_SLEEP_SHIFT: u32 = 19;
+const CAN_SLEEP_MASK: u32 = 0x1;
+const RECURSION_DEPTH_SHIFT: u32 = 20;
+const RECURSION_DEPTH_MASK: u32 = 0x0000_0fff;
+
+impl LockData {
+    /// Initialize a lock in caller storage.  `lock_init()` in C.
+    ///
+    /// # Safety
+    ///
+    /// `lock` must point at writable storage for a [`LockData`] that
+    /// no other thread can see yet.
+    pub(crate) unsafe fn init(lock: *mut Self, can_sleep: bool) {
+        // SAFETY: the caller promises writable, unshared storage.  The
+        // three fields cover the whole structure, as the C `memset`
+        // plus assignments did.
+        unsafe {
+            addr_of_mut!((*lock).thread)
+                .cast::<*mut c_void>()
+                .write(NO_THREAD);
+            addr_of_mut!((*lock).state)
+                .cast::<u32>()
+                .write(u32::from(can_sleep) << CAN_SLEEP_SHIFT);
+            (*lock).interlock.init();
+        }
+    }
+
+    /// The raw bitfield word.  The caller holds the interlock.
+    fn state(&self) -> u32 {
+        // SAFETY: the interlock serializes every access to the word,
+        // and the caller holds it; `state` is `UnsafeCell` so a read
+        // through `&self` is allowed.
+        unsafe { self.state.get().read() }
+    }
+
+    /// Overwrite the bitfield word.  The caller holds the interlock.
+    fn set_state(&self, word: u32) {
+        // SAFETY: as `state()`; the caller holds the interlock and the
+        // field is interior-mutable.
+        unsafe { self.state.get().write(word) };
+    }
+
+    /// Extract the packed field at `shift`, `mask` bits wide.
+    fn field(&self, shift: u32, mask: u32) -> u32 {
+        (self.state() >> shift) & mask
+    }
+
+    /// Replace the packed field at `shift`, leaving the rest alone.
+    /// The setter narrows to the field, which is the C bitfield's own
+    /// wrap-around on assignment.
+    fn set_field(&self, shift: u32, mask: u32, value: u32) {
+        let cleared = self.state() & !(mask << shift);
+        self.set_state(cleared | ((value & mask) << shift));
+    }
+
+    fn read_count(&self) -> u32 {
+        self.field(READ_COUNT_SHIFT, READ_COUNT_MASK)
+    }
+
+    fn set_read_count(&self, value: u32) {
+        self.set_field(READ_COUNT_SHIFT, READ_COUNT_MASK, value);
+    }
+
+    fn want_upgrade(&self) -> bool {
+        self.field(WANT_UPGRADE_SHIFT, WANT_UPGRADE_MASK) != 0
+    }
+
+    fn set_want_upgrade(&self, on: bool) {
+        self.set_field(WANT_UPGRADE_SHIFT, WANT_UPGRADE_MASK, u32::from(on));
+    }
+
+    fn want_write(&self) -> bool {
+        self.field(WANT_WRITE_SHIFT, WANT_WRITE_MASK) != 0
+    }
+
+    fn set_want_write(&self, on: bool) {
+        self.set_field(WANT_WRITE_SHIFT, WANT_WRITE_MASK, u32::from(on));
+    }
+
+    fn waiting(&self) -> bool {
+        self.field(WAITING_SHIFT, WAITING_MASK) != 0
+    }
+
+    fn set_waiting(&self, on: bool) {
+        self.set_field(WAITING_SHIFT, WAITING_MASK, u32::from(on));
+    }
+
+    fn can_sleep(&self) -> bool {
+        self.field(CAN_SLEEP_SHIFT, CAN_SLEEP_MASK) != 0
+    }
+
+    fn recursion_depth(&self) -> u32 {
+        self.field(RECURSION_DEPTH_SHIFT, RECURSION_DEPTH_MASK)
+    }
+
+    fn set_recursion_depth(&self, value: u32) {
+        self.set_field(RECURSION_DEPTH_SHIFT, RECURSION_DEPTH_MASK, value);
+    }
+
+    /// The owner of the lock, the `thread` field.  The caller holds
+    /// the interlock.
+    fn thread(&self) -> *mut c_void {
+        // SAFETY: the interlock serializes ownership, and the caller
+        // holds it; `thread` is interior-mutable.
+        unsafe { self.thread.get().read() }
+    }
+
+    /// Record the current thread as the owner.
+    fn set_thread(&self, owner: *mut c_void) {
+        // SAFETY: as `thread()`; the caller holds the interlock.
+        unsafe { self.thread.get().write(owner) };
+    }
+
+    /// Whether the calling thread already owns the lock for recursive
+    /// use.
+    fn owned_by_current(&self) -> bool {
+        self.thread() == current_thread().cast::<c_void>()
+    }
+
+    /// This lock's address, the event every sleeper registers and
+    /// every wakeup names.
+    fn event(&self) -> *mut c_void {
+        ptr::from_ref(self).cast_mut().cast::<c_void>()
+    }
+
+    /// The C's bounded spin: release the interlock, pause up to
+    /// `LOCK_WAIT_TIME` times while `cond` holds, then re-take the
+    /// interlock.  The condition is read without the interlock, as the
+    /// C does.
+    fn pause_until(&self, cond: impl Fn() -> bool) {
+        let mut i = LOCK_WAIT_TIME;
+        if i > 0 {
+            self.interlock.unlock();
+            loop {
+                i -= 1;
+                if i <= 0 || !cond() {
+                    break;
+                }
+                core::hint::spin_loop();
+            }
+            self.interlock.lock();
+        }
+    }
+
+    /// Set `waiting`, sleep on this lock's address and re-take the
+    /// interlock.  The tail every C sleep loop runs.
+    fn sleep(&self) {
+        self.set_waiting(true);
+        // SAFETY: the caller holds the interlock, which
+        // `thread_sleep()` releases before blocking; `self` outlives
+        // the call because the caller owns the lock storage.
+        unsafe {
+            thread_sleep(
+                self.event(),
+                ptr::from_ref(&self.interlock).cast_mut(),
+                0,
+            );
+        }
+        self.interlock.lock();
+    }
+
+    /// Clear `waiting` and wake the sleeper.  The C's
+    /// `l->waiting = FALSE; thread_wakeup(l);`.
+    fn wakeup(&self) {
+        self.set_waiting(false);
+        // SAFETY: the event is the address every sleeper registered
+        // with, and the caller holds the interlock.
+        unsafe { thread_wakeup_prim(self.event(), 0, THREAD_AWAKENED) };
+    }
+
+    /// Acquire the lock for writing, sleeping when the C routine
+    /// would.  `lock_write()` in C.
+    pub(crate) fn write(&self) {
+        self.interlock.lock();
+
+        if self.owned_by_current() {
+            // Recursive lock.
+            self.set_recursion_depth(self.recursion_depth().wrapping_add(1));
+            self.interlock.unlock();
+            return;
+        }
+
+        // Try to acquire the want_write bit.
+        while self.want_write() {
+            self.pause_until(|| self.want_write());
+
+            if self.can_sleep() && self.want_write() {
+                self.sleep();
+            }
+        }
+        self.set_want_write(true);
+
+        // Wait for readers (and upgrades) to finish.
+        while self.read_count() != 0 || self.want_upgrade() {
+            self.pause_until(|| self.read_count() != 0 || self.want_upgrade());
+
+            if self.can_sleep()
+                && (self.read_count() != 0 || self.want_upgrade())
+            {
+                self.sleep();
+            }
+        }
+        self.interlock.unlock();
+    }
+
+    /// Release one level of the lock.  `lock_done()` in C.
+    pub(crate) fn done(&self) {
+        self.interlock.lock();
+
+        if self.read_count() != 0 {
+            self.set_read_count(self.read_count().wrapping_sub(1));
+        } else if self.recursion_depth() != 0 {
+            self.set_recursion_depth(self.recursion_depth().wrapping_sub(1));
+        } else if self.want_upgrade() {
+            self.set_want_upgrade(false);
+        } else {
+            self.set_want_write(false);
+        }
+
+        // There is no reason to wake a waiting thread while the
+        // read-count is non-zero: only a writer waits, and it cannot
+        // proceed until the last reader drops the lock.
+        if self.waiting() && self.read_count() == 0 {
+            self.wakeup();
+        }
+
+        self.interlock.unlock();
+    }
+
+    /// Acquire the lock for reading, sleeping when the C routine
+    /// would.  `lock_read()` in C.
+    pub(crate) fn read(&self) {
+        self.interlock.lock();
+
+        if self.owned_by_current() {
+            // Recursive lock.
+            self.set_read_count(self.read_count().wrapping_add(1));
+            self.interlock.unlock();
+            return;
+        }
+
+        while self.want_write() || self.want_upgrade() {
+            self.pause_until(|| self.want_write() || self.want_upgrade());
+
+            if self.can_sleep() && (self.want_write() || self.want_upgrade()) {
+                self.sleep();
+            }
+        }
+
+        self.set_read_count(self.read_count().wrapping_add(1));
+        self.interlock.unlock();
+    }
+
+    /// Improve a read lock to a write lock.  `lock_read_to_write()` in
+    /// C.
+    ///
+    /// Returns `true` if the upgrade failed; on failure no lock is
+    /// held.  On success the write lock is held.
+    #[must_use]
+    pub(crate) fn read_to_write(&self) -> bool {
+        self.interlock.lock();
+
+        self.set_read_count(self.read_count().wrapping_sub(1));
+
+        if self.owned_by_current() {
+            // Recursive lock.
+            self.set_recursion_depth(self.recursion_depth().wrapping_add(1));
+            self.interlock.unlock();
+            return false;
+        }
+
+        if self.want_upgrade() {
+            // Someone else has requested the upgrade; releasing a
+            // reader may let them through.
+            if self.waiting() && self.read_count() == 0 {
+                self.wakeup();
+            }
+
+            self.interlock.unlock();
+            return true;
+        }
+
+        self.set_want_upgrade(true);
+
+        while self.read_count() != 0 {
+            self.pause_until(|| self.read_count() != 0);
+
+            if self.can_sleep() && self.read_count() != 0 {
+                self.sleep();
+            }
+        }
+
+        self.interlock.unlock();
+        false
+    }
+
+    /// Downgrade a write lock to a read lock.  `lock_write_to_read()`
+    /// in C.
+    pub(crate) fn write_to_read(&self) {
+        self.interlock.lock();
+
+        self.set_read_count(self.read_count().wrapping_add(1));
+        if self.recursion_depth() != 0 {
+            self.set_recursion_depth(self.recursion_depth().wrapping_sub(1));
+        } else if self.want_upgrade() {
+            self.set_want_upgrade(false);
+        } else {
+            self.set_want_write(false);
+        }
+
+        if self.waiting() {
+            self.wakeup();
+        }
+
+        self.interlock.unlock();
+    }
+
+    /// Try to acquire the lock for writing; `true` if it was taken.
+    /// `lock_try_write()` in C.
+    #[must_use]
+    pub(crate) fn try_write(&self) -> bool {
+        self.interlock.lock();
+
+        if self.owned_by_current() {
+            // Recursive lock.
+            self.set_recursion_depth(self.recursion_depth().wrapping_add(1));
+            self.interlock.unlock();
+            return true;
+        }
+
+        if self.want_write() || self.want_upgrade() || self.read_count() != 0 {
+            self.interlock.unlock();
+            return false;
+        }
+
+        self.set_want_write(true);
+        self.interlock.unlock();
+        true
+    }
+
+    /// Try to acquire the lock for reading; `true` if it was taken.
+    /// `lock_try_read()` in C.
+    #[must_use]
+    pub(crate) fn try_read(&self) -> bool {
+        self.interlock.lock();
+
+        if self.owned_by_current() {
+            // Recursive lock.
+            self.set_read_count(self.read_count().wrapping_add(1));
+            self.interlock.unlock();
+            return true;
+        }
+
+        if self.want_write() || self.want_upgrade() {
+            self.interlock.unlock();
+            return false;
+        }
+
+        self.set_read_count(self.read_count().wrapping_add(1));
+        self.interlock.unlock();
+        true
+    }
+
+    /// Try to improve a read lock to a write lock; `true` on success.
+    /// `lock_try_read_to_write()` in C.
+    ///
+    /// The wait loop does not test `can_sleep`, which is the C's own
+    /// behavior.
+    #[must_use]
+    pub(crate) fn try_read_to_write(&self) -> bool {
+        self.interlock.lock();
+
+        if self.owned_by_current() {
+            // Recursive lock.
+            self.set_read_count(self.read_count().wrapping_sub(1));
+            self.set_recursion_depth(self.recursion_depth().wrapping_add(1));
+            self.interlock.unlock();
+            return true;
+        }
+
+        if self.want_upgrade() {
+            self.interlock.unlock();
+            return false;
+        }
+        self.set_want_upgrade(true);
+        self.set_read_count(self.read_count().wrapping_sub(1));
+
+        while self.read_count() != 0 {
+            self.sleep();
+        }
+
+        self.interlock.unlock();
+        true
+    }
+
+    /// Allow the current thread to acquire the lock recursively, for
+    /// read, write or update.  `lock_set_recursive()` in C.
+    pub(crate) fn set_recursive(&self) {
+        self.interlock.lock();
+
+        if !self.want_write() {
+            // SAFETY: `Panic` does not return; the message and
+            // arguments are the C `panic()` macro's.
+            unsafe {
+                glue::Panic(
+                    c"kern/lock.c".as_ptr(),
+                    line!() as c_int,
+                    c"lock_set_recursive".as_ptr(),
+                    c"lock_set_recursive: don't have write lock".as_ptr(),
+                )
+            }
+        }
+        self.set_thread(current_thread().cast::<c_void>());
+        self.interlock.unlock();
+    }
+
+    /// Prevent the lock from being re-acquired.  `lock_clear_recursive()`
+    /// in C.
+    pub(crate) fn clear_recursive(&self) {
+        self.interlock.lock();
+        if !self.owned_by_current() {
+            // SAFETY: `Panic` does not return; the message and
+            // arguments are the C `panic()` macro's.
+            unsafe {
+                glue::Panic(
+                    c"kern/lock.c".as_ptr(),
+                    line!() as c_int,
+                    c"lock_clear_recursive".as_ptr(),
+                    c"lock_clear_recursive: wrong thread".as_ptr(),
+                )
+            }
+        }
+        if self.recursion_depth() == 0 {
+            self.set_thread(NO_THREAD);
+        }
+        self.interlock.unlock();
+    }
+}
+
+/// Initialize a lock in caller storage.  `lock_init()` in C.
+///
+/// # Safety
+///
+/// `lock` must point at writable storage for a [`LockData`] that no
+/// other thread can see yet.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lock_init(lock: *mut LockData, can_sleep: c_int) {
+    // SAFETY: the caller promises writable, unshared storage.
+    unsafe { LockData::init(lock, can_sleep != 0) };
+}
+
+/// Acquire the lock for writing, sleeping when the C routine would.
+/// `lock_write()` in C.
+///
+/// # Safety
+///
+/// `lock` must point at a live [`LockData`]; the interlock is taken
+/// here.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lock_write(lock: *mut LockData) {
+    // SAFETY: the caller promises a live lock.
+    unsafe { (*lock).write() };
+}
+
+/// Acquire the lock for reading, sleeping when the C routine would.
+/// `lock_read()` in C.
+///
+/// # Safety
+///
+/// `lock` must point at a live [`LockData`]; the interlock is taken
+/// here.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lock_read(lock: *mut LockData) {
+    // SAFETY: the caller promises a live lock.
+    unsafe { (*lock).read() };
+}
+
+/// Release one level of the lock.  `lock_done()` in C.
+///
+/// # Safety
+///
+/// `lock` must point at a live [`LockData`] the caller holds.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lock_done(lock: *mut LockData) {
+    // SAFETY: the caller promises a live lock it holds.
+    unsafe { (*lock).done() };
+}
+
+/// Improve a read lock to a write lock.  `lock_read_to_write()` in C.
+///
+/// Returns `true` if the upgrade failed; on failure no lock is held.
+///
+/// # Safety
+///
+/// `lock` must point at a live [`LockData`] the caller holds for read.
+#[unsafe(no_mangle)]
+#[must_use]
+pub unsafe extern "C" fn lock_read_to_write(lock: *mut LockData) -> c_int {
+    // SAFETY: the caller promises a live lock it holds for read.
+    c_int::from(unsafe { (*lock).read_to_write() })
+}
+
+/// Downgrade a write lock to a read lock.  `lock_write_to_read()` in
+/// C.
+///
+/// # Safety
+///
+/// `lock` must point at a live [`LockData`] the caller holds for
+/// write.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lock_write_to_read(lock: *mut LockData) {
+    // SAFETY: the caller promises a live lock it holds for write.
+    unsafe { (*lock).write_to_read() };
+}
+
+/// Try to acquire the lock for writing.  `lock_try_write()` in C.
+///
+/// Returns `true` if the lock is held on return.
+///
+/// # Safety
+///
+/// `lock` must point at a live [`LockData`]; the interlock is taken
+/// here.
+#[unsafe(no_mangle)]
+#[must_use]
+pub unsafe extern "C" fn lock_try_write(lock: *mut LockData) -> c_int {
+    // SAFETY: the caller promises a live lock.
+    c_int::from(unsafe { (*lock).try_write() })
+}
+
+/// Try to acquire the lock for reading.  `lock_try_read()` in C.
+///
+/// Returns `true` if the lock is held on return.
+///
+/// # Safety
+///
+/// `lock` must point at a live [`LockData`]; the interlock is taken
+/// here.
+#[unsafe(no_mangle)]
+#[must_use]
+pub unsafe extern "C" fn lock_try_read(lock: *mut LockData) -> c_int {
+    // SAFETY: the caller promises a live lock.
+    c_int::from(unsafe { (*lock).try_read() })
+}
+
+/// Try to improve a read lock to a write lock.
+/// `lock_try_read_to_write()` in C.
+///
+/// Returns `true` on success, the C code's own boolean.
+///
+/// # Safety
+///
+/// `lock` must point at a live [`LockData`] the caller holds for read.
+#[unsafe(no_mangle)]
+#[must_use]
+pub unsafe extern "C" fn lock_try_read_to_write(lock: *mut LockData) -> c_int {
+    // SAFETY: the caller promises a live lock it holds for read.
+    c_int::from(unsafe { (*lock).try_read_to_write() })
+}
+
+/// Allow the current thread to acquire the lock recursively.
+/// `lock_set_recursive()` in C.
+///
+/// # Safety
+///
+/// `lock` must point at a live [`LockData`] the caller holds for
+/// write.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lock_set_recursive(lock: *mut LockData) {
+    // SAFETY: the caller promises a live lock it holds for write.
+    unsafe { (*lock).set_recursive() };
+}
+
+/// Prevent the lock from being re-acquired.  `lock_clear_recursive()`
+/// in C.
+///
+/// # Safety
+///
+/// `lock` must point at a live [`LockData`] the caller holds, and the
+/// current thread must be its recursive owner.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lock_clear_recursive(lock: *mut LockData) {
+    // SAFETY: the caller promises a live lock it holds.
+    unsafe { (*lock).clear_recursive() };
+}

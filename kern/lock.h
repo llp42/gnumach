@@ -24,6 +24,9 @@
  * the rights to redistribute these changes.
  */
 /*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
+/*
  *	File:	kern/lock.h
  *	Author:	Avadis Tevanian, Jr., Michael Wayne Young
  *	Date:	1985
@@ -131,7 +134,6 @@ typedef struct lock	*lock_t;
 /* Sleep locks must work even if no multiprocessing */
 
 extern void		lock_init(lock_t, boolean_t);
-extern void		lock_sleepable(lock_t, boolean_t);
 extern void		lock_write(lock_t);
 extern void		lock_read(lock_t);
 extern void		lock_done(lock_t);

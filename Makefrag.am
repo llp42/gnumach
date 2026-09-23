@@ -102,7 +102,6 @@ libkernel_a_SOURCES += \
 	kern/kmutex.c \
 	kern/kmutex.h \
 	kern/list.h \
-	kern/lock.c \
 	kern/lock.h \
 	kern/log2.h \
 	kern/mach_clock.c \

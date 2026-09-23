@@ -13,7 +13,7 @@
 pub mod mig;
 
 use crate::arch::types::{VmOffset, VmSize};
-use crate::kern::lock::{LockData, SimpleLock};
+use crate::kern::lock::SimpleLock;
 use crate::kern::processor::Processor;
 use crate::kern::queue::QueueEntry;
 use crate::kern::sched_prim::NUMQUEUES;
@@ -181,14 +181,6 @@ unsafe extern "C" {
     // <ipc/ipc_thread_glue.c>: the ith_next/ith_prev pair of a thread,
     // as one `struct ipc_thread_links *`.
     pub fn ipc_thread_glue_links(thread: *mut c_void) -> *mut c_void;
-
-    // <kern/lock.c>: the sleep-capable recursive lock whose layout is
-    // `kern/lock.rs`'s `LockData`.  The Rust VM map calls them.
-    pub fn lock_init(lock: *mut LockData, can_sleep: c_int);
-    pub fn lock_read(lock: *mut LockData);
-    pub fn lock_write(lock: *mut LockData);
-    pub fn lock_done(lock: *mut LockData);
-    pub fn lock_read_to_write(lock: *mut LockData) -> c_int;
 
     // <kern/slab.h>.  `kmem_cache_alloc` returns the object address as
     // the C code does; the caller turns it into a pointer.
@@ -467,12 +459,6 @@ unsafe extern "C" {
         len: VmSize,
         src_addr: VmOffset,
     );
-
-    // <kern/lock.h>: the recursive/downgrade operations of the map
-    // lock, used by the pageability scan.
-    pub fn lock_set_recursive(lock: *mut LockData);
-    pub fn lock_write_to_read(lock: *mut LockData);
-    pub fn lock_clear_recursive(lock: *mut LockData);
 
     // The VM bootstrap, which rust/src/vm/vm_init.rs calls in the
     // order the packages depend on.

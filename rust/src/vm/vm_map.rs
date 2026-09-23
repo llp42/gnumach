@@ -39,12 +39,10 @@ use crate::glue::{
     Panic, assert_wait, ipc_port_copy_send, ipc_port_release_send, kalloc,
     kernel_map, kernel_object, kernel_pmap, kernel_virtual_end,
     kernel_virtual_start, kfree, kmem_cache_alloc, kmem_cache_free,
-    kmem_cache_init, lock_clear_recursive, lock_done, lock_init, lock_read,
-    lock_read_to_write, lock_set_recursive, lock_write, lock_write_to_read,
-    pmap_create, pmap_destroy, pmap_pageable, pmap_protect, pmap_remove,
-    printf, projected_buffer_collect, thread_block, vm_fault_copy,
-    vm_fault_page, vm_fault_unwire, vm_fault_wire, vm_map_cache,
-    vm_map_copy_cache, vm_map_entry_cache,
+    kmem_cache_init, pmap_create, pmap_destroy, pmap_pageable, pmap_protect,
+    pmap_remove, printf, projected_buffer_collect, thread_block,
+    vm_fault_copy, vm_fault_page, vm_fault_unwire, vm_fault_wire,
+    vm_map_cache, vm_map_copy_cache, vm_map_entry_cache,
     vm_map_glue_memory_object_create_proxy, vm_map_glue_object_can_coalesce,
     vm_map_glue_object_can_release, vm_map_glue_object_extend_size,
     vm_map_glue_object_is_pristine_submap, vm_map_glue_object_is_shadowed,
@@ -495,9 +493,9 @@ impl VmMap {
     /// thread's VM privilege and the map timestamp.
     /// `vm_map_lock()` in C.
     pub(crate) fn lock(map: NonNull<VmMap>) {
-        // SAFETY: the caller owns the map, and `lock_write` is the C
-        // sleep lock the mirror names.
-        unsafe { lock_write(addr_of_mut!((*map.as_ptr()).lock)) };
+        // SAFETY: the caller owns the map, and the sleep lock lives in
+        // its storage.
+        unsafe { (*map.as_ptr()).lock.write() };
         // SAFETY: the shim reads the current thread, if any.
         unsafe { vm_map_glue_privilege_inc() };
         // SAFETY: the write lock is held, so this is the only writer;
@@ -514,7 +512,7 @@ impl VmMap {
         // C code balances the privilege bump with this call.
         unsafe { vm_map_glue_privilege_dec() };
         // SAFETY: the caller holds the write lock on this map.
-        unsafe { lock_done(addr_of_mut!((*map.as_ptr()).lock)) };
+        unsafe { (*map.as_ptr()).lock.done() };
     }
 
     /// Take the read lock and check the version; on mismatch the lock
@@ -522,13 +520,13 @@ impl VmMap {
     /// must call `vm_map_verify_done()`.  `vm_map_verify()` in C.
     pub(crate) fn verify(map: NonNull<VmMap>, version: &VmMapVersion) -> bool {
         // SAFETY: the caller owns the map.
-        unsafe { lock_read(addr_of_mut!((*map.as_ptr()).lock)) };
+        unsafe { (*map.as_ptr()).lock.read() };
         // SAFETY: reading the timestamp holds at least the read lock.
         let timestamp = unsafe { (*map.as_ptr()).timestamp };
         let result = timestamp == version.main_timestamp;
         if !result {
             // SAFETY: the read lock was taken above.
-            unsafe { lock_done(addr_of_mut!((*map.as_ptr()).lock)) };
+            unsafe { (*map.as_ptr()).lock.done() };
         }
         result
     }
@@ -774,7 +772,7 @@ impl VmMap {
         }
 
         // SAFETY: the sleep lock lives in the caller's map storage.
-        unsafe { lock_init(addr_of_mut!(map.lock), 1) };
+        unsafe { LockData::init(addr_of_mut!(map.lock), true) };
         map.timestamp = 0;
         map.ref_lock.init();
         map.hint_lock.init();
@@ -905,12 +903,11 @@ impl VmMap {
     /// the upgrade succeeds.  Returns `true` if the lock must be
     /// retried, in which case no lock is held.
     fn lock_read_to_write(map: NonNull<VmMap>) -> bool {
-        // SAFETY: the caller holds the read lock; `lock_read_to_write`
-        // leaves the write lock held when the upgrade succeeds and
-        // releases the read lock with no lock held when it fails.
-        let failed = unsafe {
-            lock_read_to_write(addr_of_mut!((*map.as_ptr()).lock)) != 0
-        };
+        // SAFETY: the caller holds the read lock;
+        // `LockData::read_to_write` leaves the write lock held when
+        // the upgrade succeeds and releases the read lock with no lock
+        // held when it fails.
+        let failed = unsafe { (*map.as_ptr()).lock.read_to_write() };
         if !failed {
             // SAFETY: the write lock is held, so the timestamp is
             // exclusively ours; the macro's `map->timestamp++` wraps
@@ -1004,9 +1001,7 @@ impl VmMap {
                 }
 
                 // SAFETY: the write lock taken by the upgrade.
-                unsafe {
-                    lock_write_to_read(addr_of_mut!((*map.as_ptr()).lock))
-                };
+                unsafe { (*map.as_ptr()).lock.write_to_read() };
             } else {
                 // A read of a copy-on-write page must not be allowed
                 // to write.
@@ -1033,7 +1028,7 @@ impl VmMap {
             }
 
             // SAFETY: the write lock taken by the upgrade.
-            unsafe { lock_write_to_read(addr_of_mut!((*map.as_ptr()).lock)) };
+            unsafe { (*map.as_ptr()).lock.write_to_read() };
         }
 
         // SAFETY: the entry is live under the lock.
@@ -1076,26 +1071,24 @@ impl VmMap {
             let map = *var_map;
             // SAFETY: the caller owns the map for the call; the read
             // lock keeps the entries stable.
-            unsafe { lock_read(addr_of_mut!((*map.as_ptr()).lock)) };
+            unsafe { (*map.as_ptr()).lock.read() };
 
             match VmMap::lookup_locked(map, vaddr, fault_type) {
                 LookupAttempt::Found(result) => {
                     if !keep_map_locked {
                         // SAFETY: the read lock taken above.
-                        unsafe {
-                            lock_done(addr_of_mut!((*map.as_ptr()).lock))
-                        };
+                        unsafe { (*map.as_ptr()).lock.done() };
                     }
                     return Ok(result);
                 }
                 LookupAttempt::Failed(error) => {
                     // SAFETY: the read lock taken above.
-                    unsafe { lock_done(addr_of_mut!((*map.as_ptr()).lock)) };
+                    unsafe { (*map.as_ptr()).lock.done() };
                     return Err(error);
                 }
                 LookupAttempt::SubMap(submap) => {
                     // SAFETY: the read lock taken above.
-                    unsafe { lock_done(addr_of_mut!((*map.as_ptr()).lock)) };
+                    unsafe { (*map.as_ptr()).lock.done() };
                     *var_map = submap;
                 }
                 // The failed upgrade released the read lock, so the
@@ -3382,8 +3375,8 @@ impl VmMap {
             // SAFETY: the map lock is held; the downgrade is the C
             // protocol for faulting with a read lock.
             unsafe {
-                lock_set_recursive(addr_of_mut!((*map.as_ptr()).lock));
-                lock_write_to_read(addr_of_mut!((*map.as_ptr()).lock));
+                (*map.as_ptr()).lock.set_recursive();
+                (*map.as_ptr()).lock.write_to_read();
             }
         }
 
@@ -3421,9 +3414,7 @@ impl VmMap {
             }
         } else {
             // SAFETY: the map read lock is held.
-            unsafe {
-                lock_clear_recursive(addr_of_mut!((*map.as_ptr()).lock));
-            }
+            unsafe { (*map.as_ptr()).lock.clear_recursive() };
         }
     }
 
@@ -6700,7 +6691,7 @@ impl VmMap {
         let map = NonNull::from(self);
         // SAFETY: the caller owns the map; the read lock keeps the
         // entries stable and the named object alive below.
-        unsafe { lock_read(addr_of_mut!((*map.as_ptr()).lock)) };
+        unsafe { (*map.as_ptr()).lock.read() };
 
         let region = self.region_entry(address).map(|entry| {
             // SAFETY: `entry` is a live entry of the read-locked map;
@@ -6730,7 +6721,7 @@ impl VmMap {
         });
 
         // SAFETY: the read lock taken above.
-        unsafe { lock_done(addr_of_mut!((*map.as_ptr()).lock)) };
+        unsafe { (*map.as_ptr()).lock.done() };
 
         region
     }
@@ -6808,14 +6799,14 @@ impl VmMap {
         let map = NonNull::from(self);
         // SAFETY: the caller owns the map; the read lock keeps the
         // entry and its object stable while the pager is copied.
-        unsafe { lock_read(addr_of_mut!((*map.as_ptr()).lock)) };
+        unsafe { (*map.as_ptr()).lock.read() };
 
         let locked =
             self.region_create_proxy_locked(address, max_protection, len);
 
         // SAFETY: the read lock taken above; the C drops it before the
         // proxy call, which no longer needs the map.
-        unsafe { lock_done(addr_of_mut!((*map.as_ptr()).lock)) };
+        unsafe { (*map.as_ptr()).lock.done() };
 
         let RegionProxy {
             max_protection,
