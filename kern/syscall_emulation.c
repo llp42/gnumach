@@ -56,13 +56,6 @@
 	( ((size) - base_size) / sizeof(vm_offset_t) )
 
 /*
- *  eml_init:	initialize user space emulation code
- */
-void eml_init(void)
-{
-}
-
-/*
  * eml_task_reference() [Exported]
  *
  *	Bumps the reference count on the common emulation

@@ -1089,19 +1089,6 @@ task_assign(
 
 
 /*
- *	task_assign_default:
- *
- *	Version of task_assign to assign to default processor set.
- */
-kern_return_t
-task_assign_default(
-	task_t		task,
-	boolean_t	assign_threads)
-{
-	return task_assign(task, &default_pset, assign_threads);
-}
-
-/*
  *	task_get_assignment
  *
  *	Return name of processor set that task is assigned to.

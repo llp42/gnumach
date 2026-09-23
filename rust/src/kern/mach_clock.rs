@@ -1,18 +1,31 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Derived from kern/mach_clock.h:
 //   Copyright (C) 2006, 2007 Free Software Foundation, Inc.
+// Derived from kern/mach_clock.c:
+//   Copyright (c) 1994-1988 Carnegie Mellon University.
+//   Copyright (c) 1993,1994 The University of Utah and the Computer
+//   Systems Laboratory (CSL).
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! The kernel timeout element, which `kern/mach_clock.h` declares.
+//! The kernel timeout element, which `kern/mach_clock.h` declares,
+//! and the `/dev/time` open and close entries.
 //!
-//! Only `struct timeout` and its `TIMEOUT_*` bits move here.
-//! `kern/mach_clock.c` is still C and keeps touching the same record
-//! through the C macro spellings; the scheduler reaches it through
-//! [`reset_timeout_check()`].
+//! Of the timeout machinery, only `struct timeout` and its
+//! `TIMEOUT_*` bits move here.  `kern/mach_clock.c` is still C and
+//! keeps touching the same record through the C macro spellings; the
+//! scheduler reaches it through [`reset_timeout_check()`].
+//!
+//! [`timeopen()`] and [`timeclose()`] are the device-switch entries
+//! `i386/i386at/conf.c` puts in the `timename` row.  `/dev/time` is
+//! the mapped-time page and nothing else: there is no per-open state
+//! to build or tear down, so opening always succeeds and closing has
+//! nothing to do.
 
+use crate::arch::i386::io_req::{DevT, IoReq};
+use crate::device::r#return::{DeviceSuccess, IoResultExt};
 use crate::glue;
 use crate::kern::queue::QueueEntry;
-use core::ffi::c_void;
+use core::ffi::{c_int, c_void};
 use core::mem::offset_of;
 
 /// `struct timeout` of <kern/mach_clock.h>: a kernel timeout element.
@@ -52,6 +65,27 @@ pub(crate) unsafe fn reset_timeout_check(t: *mut Timeout) {
         unsafe { glue::reset_timeout(t.cast()) };
     }
 }
+
+/// Open `/dev/time`.  `timeopen()` of kern/mach_clock.c.
+///
+/// The C ignores its arguments and always succeeds; the request is
+/// never read.  `/dev/time` carries no per-open state, so there is
+/// nothing to build.
+#[unsafe(no_mangle)]
+pub extern "C" fn timeopen(
+    _dev: DevT,
+    _flag: c_int,
+    _ior: *mut IoReq,
+) -> c_int {
+    Ok(DeviceSuccess::Success).as_io_return()
+}
+
+/// Close `/dev/time`.  `timeclose()` of kern/mach_clock.c.
+///
+/// The C ignores its arguments and returns nothing: [`timeopen()`]
+/// built no state, so there is none to release.
+#[unsafe(no_mangle)]
+pub extern "C" fn timeclose(_dev: DevT, _flag: c_int) {}
 
 // `struct timeout`: the queue chain, the callback pair, the expiry and
 // the state byte.

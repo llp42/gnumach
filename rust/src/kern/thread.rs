@@ -35,8 +35,10 @@ use crate::kern::processor::{Processor, ProcessorSet};
 use crate::kern::queue::{QueueEntry, queue_init};
 use crate::kern::sched::{BASEPRI_SYSTEM, RUN_QUEUE_NULL, RunQueue};
 use crate::kern::timer::{Timer, TimerSave};
+use crate::kern::types::KernError;
 use core::ffi::{c_char, c_int, c_long, c_uint, c_void};
 use core::mem::{MaybeUninit, offset_of};
+use core::ptr;
 
 /// `size_of(struct thread)` on each kernel; see the module's layout
 /// assertions.
@@ -555,4 +557,43 @@ pub unsafe extern "C" fn thread_init() {
 pub unsafe extern "C" fn thread_timer_delta(thread: *mut Thread) {
     // SAFETY: the caller's contract.
     unsafe { Thread::timer_delta(thread) };
+}
+
+/// Assign a thread to the default processor set.
+/// `thread_assign_default()` of kern/thread.c.
+///
+/// The C forwards to `thread_assign()` with `&default_pset`, and so
+/// does this: the assignment itself is the `#if MACH_HOST` half of
+/// kern/thread.c and stays C.
+///
+/// # Safety
+///
+/// `thread` must be null or a live thread the caller holds an extra
+/// reference to, and the caller must hold no locks: `thread_assign()`
+/// may block.  The MIG server calls this with the
+/// operation-in-progress reference.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn thread_assign_default(thread: *mut Thread) -> c_int {
+    // SAFETY: the caller's contract is `thread_assign()`'s own, and
+    // the default set is a live `struct processor_set` for the life
+    // of the kernel.
+    let assigned = unsafe {
+        glue::thread_assign(
+            thread,
+            ptr::addr_of_mut!(glue::default_pset).cast::<ProcessorSet>(),
+        )
+    };
+
+    // `thread_assign()` answers KERN_SUCCESS or KERN_INVALID_ARGUMENT,
+    // both inside the byte range; a code outside it could not name a
+    // defined error, so it becomes the catch-all.
+    let result = match u8::try_from(assigned) {
+        Ok(code) => KernError::from_u8(code),
+        Err(_) => Err(KernError::Failure),
+    };
+
+    match result {
+        Ok(()) => 0,
+        Err(error) => c_int::from(error),
+    }
 }

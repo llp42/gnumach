@@ -101,6 +101,21 @@ unsafe extern "C" {
         pset: *mut ProcessorSet,
         max_priority: c_int,
     ) -> c_int;
+
+    // <kern/thread.h> and <kern/task.h>: the processor-set assignment
+    // routines the `*_assign_default` entries forward to.  Both are
+    // the `#if MACH_HOST` half of their file and stay C; the port
+    // calls them with the arguments the C default entries supplied.
+    pub fn thread_assign(
+        thread: *mut Thread,
+        new_pset: *mut ProcessorSet,
+    ) -> c_int;
+    pub fn task_assign(
+        task: *mut c_void,
+        new_pset: *mut ProcessorSet,
+        assign_threads: c_int,
+    ) -> c_int;
+
     // <kern/thread.h>: reserve the thread's current kernel stack, so
     // `stack_alloc_try()` on it always succeeds.
     pub fn stack_privilege(thread: *mut Thread);

@@ -13,6 +13,7 @@ use core::ptr::NonNull;
 pub mod ipc_object;
 pub mod ipc_port;
 pub mod ipc_table;
+pub mod ipc_target;
 pub mod ipc_thread;
 pub mod mach_port;
 

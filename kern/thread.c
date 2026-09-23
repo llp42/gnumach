@@ -1838,19 +1838,6 @@ thread_assign(
 #endif	/* MACH_HOST */
 
 /*
- *	thread_assign_default:
- *
- *	Special version of thread_assign for assigning threads to default
- *	processor set.
- */
-kern_return_t
-thread_assign_default(
-	thread_t	thread)
-{
-	return thread_assign(thread, &default_pset);
-}
-
-/*
  *	thread_get_assignment
  *
  *	Return current assignment for this thread.

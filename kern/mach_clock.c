@@ -699,15 +699,6 @@ void mapable_time_init(void)
 	update_mapped_uptime(&uptime);
 }
 
-int timeopen(dev_t dev, int flag, io_req_t ior)
-{
-	return(0);
-}
-void timeclose(dev_t dev, int flag)
-{
-	return;
-}
-
 /*
  *	Compatibility for device drivers.
  *	New code should use set_timeout/reset_timeout and private timers.
