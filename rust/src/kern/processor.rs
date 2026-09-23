@@ -7,6 +7,10 @@
 //   Copyright (c) 1993-1988 Carnegie Mellon University
 // Derived from kern/sched.h:
 //   Copyright (c) 1991,1990,1989,1988,1987 Carnegie Mellon University
+// Derived from include/mach/processor_info.h:
+//   Copyright (c) 1993,1992,1991,1990,1989 Carnegie Mellon University.
+// Derived from include/mach/machine.h:
+//   Copyright (c) 1991,1990,1989,1988,1987 Carnegie Mellon University.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! Processors, processor sets and run queues, which `kern/processor.h`
@@ -28,7 +32,8 @@
 //! [`ProcessorSet::add_processor()`],
 //! [`ProcessorSet::remove_processor()`], [`ProcessorSet::quantum_set()`],
 //! [`ProcessorSet::add_thread()`], [`ProcessorSet::remove_thread()`],
-//! [`Thread::change_psets()`] and the three processor-set policy
+//! [`Thread::change_psets()`], [`Processor::info()`],
+//! [`ProcessorSet::info()`] and the three processor-set policy
 //! setters are also ported from the same file.  The adapters below
 //! keep the symbols the C half calls.
 
@@ -40,7 +45,7 @@ use crate::kern::queue::{
 };
 use crate::kern::thread::{BASEPRI_SYSTEM, POLICY_TIMESHARE, Thread};
 use crate::kern::types::KernError;
-use core::ffi::{c_int, c_uint, c_void};
+use core::ffi::{c_int, c_long, c_uint, c_void};
 use core::mem::offset_of;
 use core::ptr;
 use core::slice;
@@ -66,6 +71,28 @@ pub const PROCESSOR_DISPATCHING: c_int = 3;
 pub const PROCESSOR_ASSIGN: c_int = 4;
 /// `PROCESSOR_SHUTDOWN`: being shut down.
 pub const PROCESSOR_SHUTDOWN: c_int = 5;
+
+/// `PROCESSOR_BASIC_INFO` in <mach/processor_info.h>: the basic
+/// information flavor.
+pub const PROCESSOR_BASIC_INFO: c_int = 1;
+/// `PROCESSOR_BASIC_INFO_COUNT`: the integers that flavor needs.
+pub const PROCESSOR_BASIC_INFO_COUNT: c_uint = 5;
+
+/// `PROCESSOR_SET_BASIC_INFO` in <mach/processor_info.h>: the basic
+/// information flavor.
+pub const PROCESSOR_SET_BASIC_INFO: c_int = 1;
+/// `PROCESSOR_SET_BASIC_INFO_COUNT`: the integers that flavor needs.
+pub const PROCESSOR_SET_BASIC_INFO_COUNT: c_uint = 5;
+
+/// `PROCESSOR_SET_SCHED_INFO` in <mach/processor_info.h>: the
+/// scheduling information flavor.
+pub const PROCESSOR_SET_SCHED_INFO: c_int = 2;
+/// `PROCESSOR_SET_SCHED_INFO_COUNT`: the integers that flavor needs.
+pub const PROCESSOR_SET_SCHED_INFO_COUNT: c_uint = 2;
+
+/// `CPU_STATE_MAX` in <mach/machine.h>: the per-state tick counters
+/// every machine slot carries.
+pub const CPU_STATE_MAX: usize = 3;
 
 /// `struct run_queue` of <kern/sched.h>: the `NRQS` priority queues
 /// and their lock.
@@ -275,6 +302,116 @@ const _: () = {
     assert!(offset_of!(ProcessorSet, quantum_adj_lock) == 636);
 };
 
+/// `struct machine_slot` of <mach/machine.h>: what the arch probe
+/// records about each possible CPU.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MachineSlot {
+    /// `is_cpu`: whether there is a cpu in this slot.
+    pub is_cpu: c_int,
+    /// `cpu_type`: the type of the cpu.
+    pub cpu_type: c_int,
+    /// `cpu_subtype`: the subtype of the cpu.
+    pub cpu_subtype: c_int,
+    /// `running`: whether the cpu is running.
+    pub running: c_int,
+    /// `cpu_ticks`: the ticks accumulated per `CPU_STATE_*`.
+    pub cpu_ticks: [c_int; CPU_STATE_MAX],
+    /// `clock_freq`: the clock interrupt frequency.
+    pub clock_freq: c_int,
+}
+
+// `struct machine_slot`: six `integer_t`s, with the three tick
+// counters between `running` and `clock_freq`; the C compiler's size
+// is 32 and its alignment 4.
+const _: () = assert!(size_of::<MachineSlot>() == 32);
+const _: () = assert!(align_of::<MachineSlot>() == align_of::<c_int>());
+const _: () = assert!(offset_of!(MachineSlot, is_cpu) == 0);
+const _: () = assert!(offset_of!(MachineSlot, cpu_type) == 4);
+const _: () = assert!(offset_of!(MachineSlot, cpu_subtype) == 8);
+const _: () = assert!(offset_of!(MachineSlot, running) == 12);
+const _: () = assert!(offset_of!(MachineSlot, cpu_ticks) == 16);
+const _: () = assert!(offset_of!(MachineSlot, clock_freq) == 28);
+
+/// `struct processor_basic_info` of <mach/processor_info.h>: what the
+/// `PROCESSOR_BASIC_INFO` flavor reports.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProcessorBasicInfo {
+    /// `cpu_type`: the type of cpu.
+    pub cpu_type: c_int,
+    /// `cpu_subtype`: the subtype of cpu.
+    pub cpu_subtype: c_int,
+    /// `running`: whether the processor is running.
+    pub running: c_int,
+    /// `slot_num`: the machine-independent slot number.
+    pub slot_num: c_int,
+    /// `is_master`: whether this is the master processor.
+    pub is_master: c_int,
+}
+
+// `struct processor_basic_info`: five `integer_t`s; 20 bytes, which
+// `PROCESSOR_BASIC_INFO_COUNT` counts.
+const _: () = assert!(size_of::<ProcessorBasicInfo>() == 20);
+const _: () = assert!(offset_of!(ProcessorBasicInfo, cpu_type) == 0);
+const _: () = assert!(offset_of!(ProcessorBasicInfo, cpu_subtype) == 4);
+const _: () = assert!(offset_of!(ProcessorBasicInfo, running) == 8);
+const _: () = assert!(offset_of!(ProcessorBasicInfo, slot_num) == 12);
+const _: () = assert!(offset_of!(ProcessorBasicInfo, is_master) == 16);
+
+/// `struct processor_set_basic_info` of <mach/processor_info.h>: what
+/// the `PROCESSOR_SET_BASIC_INFO` flavor reports.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProcessorSetBasicInfo {
+    /// `processor_count`: how many processors the set holds.
+    pub processor_count: c_int,
+    /// `task_count`: how many tasks are assigned.
+    pub task_count: c_int,
+    /// `thread_count`: how many threads are assigned.
+    pub thread_count: c_int,
+    /// `load_average`: the scaled load average.
+    pub load_average: c_int,
+    /// `mach_factor`: the scaled mach factor.
+    pub mach_factor: c_int,
+}
+
+// `struct processor_set_basic_info`: five `integer_t`s in the C
+// struct's order, `load_average` before `mach_factor`; 20 bytes.
+const _: () = assert!(size_of::<ProcessorSetBasicInfo>() == 20);
+const _: () = assert!(offset_of!(ProcessorSetBasicInfo, processor_count) == 0);
+const _: () = assert!(offset_of!(ProcessorSetBasicInfo, task_count) == 4);
+const _: () = assert!(offset_of!(ProcessorSetBasicInfo, thread_count) == 8);
+const _: () = assert!(offset_of!(ProcessorSetBasicInfo, load_average) == 12);
+const _: () = assert!(offset_of!(ProcessorSetBasicInfo, mach_factor) == 16);
+
+/// `struct processor_set_sched_info` of <mach/processor_info.h>: what
+/// the `PROCESSOR_SET_SCHED_INFO` flavor reports.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProcessorSetSchedInfo {
+    /// `policies`: the allowed policies.
+    pub policies: c_int,
+    /// `max_priority`: the maximum priority for new threads.
+    pub max_priority: c_int,
+}
+
+// `struct processor_set_sched_info`: two `integer_t`s; 8 bytes, which
+// `PROCESSOR_SET_SCHED_INFO_COUNT` counts.
+const _: () = assert!(size_of::<ProcessorSetSchedInfo>() == 8);
+const _: () = assert!(offset_of!(ProcessorSetSchedInfo, policies) == 0);
+const _: () = assert!(offset_of!(ProcessorSetSchedInfo, max_priority) == 4);
+
+/// The data a [`ProcessorSet::info()`] call reports, one variant per
+/// accepted flavor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProcessorSetInfo {
+    /// The `PROCESSOR_SET_BASIC_INFO` record.
+    Basic(ProcessorSetBasicInfo),
+    /// The `PROCESSOR_SET_SCHED_INFO` record.
+    Sched(ProcessorSetSchedInfo),
+}
+
 /// Put an unlocked simple lock in `storage`, as the C
 /// `simple_lock_init()` did.  The write happens before any reference
 /// is formed, so the storage may still be uninitialized on entry.
@@ -334,6 +471,15 @@ fn invalid_pri(priority: c_int) -> bool {
         Ok(priority) => priority >= NRQS,
         Err(_) => true,
     }
+}
+
+/// Narrow the C `long` a processor-set field holds to the `integer_t`
+/// a record member holds.
+///
+/// The C assigned the two `long` fields to `integer_t` members, which
+/// truncates on the LP64 kernel and passes the value through on i386.
+fn narrow_long(value: c_long) -> c_int {
+    value as c_int
 }
 
 impl Processor {
@@ -419,6 +565,52 @@ impl Processor {
         // the set's lock serializes the count.
         unsafe { (*pset).reference() };
         Ok(pset)
+    }
+
+    /// Report the processor's basic information.
+    /// `processor_info()` of kern/processor.c.
+    ///
+    /// `count` is the caller's buffer capacity in integers; the
+    /// `PROCESSOR_BASIC_INFO` flavor needs
+    /// [`PROCESSOR_BASIC_INFO_COUNT`] of them and a shorter one
+    /// reports [`KernError::Failure`].
+    pub fn info(
+        &self,
+        flavor: c_int,
+        count: c_uint,
+    ) -> Result<ProcessorBasicInfo, KernError> {
+        if flavor != PROCESSOR_BASIC_INFO || count < PROCESSOR_BASIC_INFO_COUNT
+        {
+            return Err(KernError::Failure);
+        }
+
+        let slot_num = self.slot_num;
+        // The slot is the one `processor_init()` recorded from the
+        // machine's own count, so it names an entry of the C table and
+        // is not negative; widening it to pointer width cannot wrap.
+        let slot = slot_num as usize;
+        // SAFETY: `slot` indexes the `NCPUS`-element `machine_slot`
+        // table, whose entries the arch probe filled in; every field
+        // read below is a plain integer.
+        let machine =
+            unsafe { &*ptr::addr_of_mut!(glue::machine_slot).add(slot) };
+
+        // The C treats shutdown and off-line as the two non-running
+        // states and everything else as running.
+        let state = self.state;
+        let running =
+            state != PROCESSOR_SHUTDOWN && state != PROCESSOR_OFF_LINE;
+        // SAFETY: `master_processor` is the live C global, which
+        // `pset_sys_bootstrap()` points at the master slot.
+        let is_master = ptr::eq(self, unsafe { glue::master_processor });
+
+        Ok(ProcessorBasicInfo {
+            cpu_type: machine.cpu_type,
+            cpu_subtype: machine.cpu_subtype,
+            running: c_int::from(running),
+            slot_num,
+            is_master: c_int::from(is_master),
+        })
     }
 }
 
@@ -851,6 +1043,69 @@ impl ProcessorSet {
 
         Ok(())
     }
+
+    /// Report the set's basic or scheduling information.
+    /// `processor_set_info()` of kern/processor.c.
+    ///
+    /// `count` is the caller's buffer capacity in integers; the two
+    /// accepted flavors differ in the record they return and in the
+    /// count that record needs.  An unknown flavor reports
+    /// [`KernError::InvalidArgument`].
+    pub fn info(
+        &self,
+        flavor: c_int,
+        count: c_uint,
+    ) -> Result<ProcessorSetInfo, KernError> {
+        match flavor {
+            PROCESSOR_SET_BASIC_INFO => {
+                if count < PROCESSOR_SET_BASIC_INFO_COUNT {
+                    return Err(KernError::Failure);
+                }
+
+                self.lock.lock();
+                // SAFETY: the shims only read the `load_average` and
+                // `mach_factor` fields of the live set, whose offset
+                // the Rust mirror cannot name because it depends on
+                // the configure-time NCPUS; the set lock is held, as
+                // the C held it.
+                let pset = ptr::from_ref(self).cast_mut();
+                let (load_average, mach_factor) = unsafe {
+                    (
+                        glue::processor_glue_pset_load_average(pset),
+                        glue::processor_glue_pset_mach_factor(pset),
+                    )
+                };
+                let info = ProcessorSetBasicInfo {
+                    processor_count: self.processor_count,
+                    task_count: self.task_count,
+                    thread_count: self.thread_count,
+                    // The C assigned the `long` fields to the
+                    // `integer_t` members, a truncation on the LP64
+                    // kernel.
+                    load_average: narrow_long(load_average),
+                    mach_factor: narrow_long(mach_factor),
+                };
+                self.lock.unlock();
+
+                Ok(ProcessorSetInfo::Basic(info))
+            }
+            PROCESSOR_SET_SCHED_INFO => {
+                if count < PROCESSOR_SET_SCHED_INFO_COUNT {
+                    return Err(KernError::Failure);
+                }
+
+                self.lock.lock();
+                let info = ProcessorSetSchedInfo {
+                    policies: self.policies,
+                    max_priority: self.max_priority,
+                };
+                self.lock.unlock();
+
+                Ok(ProcessorSetInfo::Sched(info))
+            }
+            _ => Err(KernError::InvalidArgument),
+        }
+    }
 }
 
 impl Thread {
@@ -1216,6 +1471,109 @@ pub unsafe extern "C" fn processor_set_policy_disable(
     // SAFETY: the caller promises a live set.
     match unsafe { (*pset.as_ptr()).policy_disable(policy, change_threads) } {
         Ok(()) => 0,
+        Err(error) => c_int::from(error),
+    }
+}
+
+/// Report a processor's basic information.  `processor_info()` of
+/// kern/processor.c.
+///
+/// # Safety
+///
+/// `processor` must be null or point at a live `struct processor`;
+/// `host` and `count` must be valid out-parameters, and `info` must be
+/// writable for the `processor_basic_info` that `*count` reports.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn processor_info(
+    processor: *mut Processor,
+    flavor: c_int,
+    host: *mut *mut c_void,
+    info: *mut c_int,
+    count: *mut c_uint,
+) -> c_int {
+    let Some(processor) = ptr::NonNull::new(processor) else {
+        return c_int::from(KernError::InvalidArgument);
+    };
+
+    // SAFETY: the caller promises a valid `count` out-parameter.
+    let capacity = unsafe { *count };
+
+    // SAFETY: the caller promises a live processor.
+    match unsafe { (*processor.as_ptr()).info(flavor, capacity) } {
+        Ok(basic) => {
+            // SAFETY: the count check inside `info()` guarantees the
+            // caller's buffer is at least a `processor_basic_info`,
+            // and the caller promises the other two out-parameters.
+            unsafe {
+                ptr::write(info.cast::<ProcessorBasicInfo>(), basic);
+                *count = PROCESSOR_BASIC_INFO_COUNT;
+                *host = ptr::addr_of_mut!(glue::realhost);
+            }
+            0
+        }
+        Err(error) => c_int::from(error),
+    }
+}
+
+/// Report a processor set's basic or scheduling information.
+/// `processor_set_info()` of kern/processor.c.
+///
+/// # Safety
+///
+/// `pset` must be null or point at a live `struct processor_set`;
+/// `host` and `count` must be valid out-parameters, and `info` must be
+/// writable for the record the flavor and `*count` call for.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn processor_set_info(
+    pset: *mut ProcessorSet,
+    flavor: c_int,
+    host: *mut *mut c_void,
+    info: *mut c_int,
+    count: *mut c_uint,
+) -> c_int {
+    let Some(pset) = ptr::NonNull::new(pset) else {
+        return c_int::from(KernError::InvalidArgument);
+    };
+
+    // SAFETY: the caller promises a valid `count` out-parameter.
+    let capacity = unsafe { *count };
+
+    // SAFETY: the caller promises a live set.
+    match unsafe { (*pset.as_ptr()).info(flavor, capacity) } {
+        Ok(ProcessorSetInfo::Basic(basic)) => {
+            // SAFETY: the count check inside `info()` guarantees the
+            // caller's buffer is at least a
+            // `processor_set_basic_info`, and the caller promises the
+            // other two out-parameters.
+            unsafe {
+                ptr::write(info.cast::<ProcessorSetBasicInfo>(), basic);
+                *count = PROCESSOR_SET_BASIC_INFO_COUNT;
+                *host = ptr::addr_of_mut!(glue::realhost);
+            }
+            0
+        }
+        Ok(ProcessorSetInfo::Sched(sched)) => {
+            // SAFETY: the flavor's count check guarantees the caller's
+            // buffer is at least a `processor_set_sched_info`, and the
+            // caller promises the other two out-parameters.
+            unsafe {
+                ptr::write(info.cast::<ProcessorSetSchedInfo>(), sched);
+                *count = PROCESSOR_SET_SCHED_INFO_COUNT;
+                *host = ptr::addr_of_mut!(glue::realhost);
+            }
+            0
+        }
+        Err(KernError::InvalidArgument) => {
+            // An unknown flavor is the only way here; the null set and
+            // the count checks are past.  The C stores the null host
+            // on that path.
+            // SAFETY: the caller promises a valid `host`
+            // out-parameter.
+            unsafe {
+                *host = ptr::null_mut();
+            }
+            c_int::from(KernError::InvalidArgument)
+        }
         Err(error) => c_int::from(error),
     }
 }

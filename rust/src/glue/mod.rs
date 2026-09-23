@@ -17,7 +17,7 @@ pub mod time_value;
 
 use crate::arch::types::{VmOffset, VmSize};
 use crate::kern::lock::SimpleLock;
-use crate::kern::processor::{Processor, ProcessorSet};
+use crate::kern::processor::{MachineSlot, Processor, ProcessorSet};
 use crate::kern::queue::QueueEntry;
 use crate::kern::sched_prim::NUMQUEUES;
 use crate::kern::thread::Thread;
@@ -149,6 +149,13 @@ unsafe extern "C" {
         pset: *mut ProcessorSet,
     ) -> *mut c_int;
 
+    // <kern/processor_glue.c>: the tail's `mach_factor` and
+    // `load_average`, which the basic-information flavor reads.  They
+    // die when NCPUS is visible to Rust and the tail can be mirrored.
+    pub fn processor_glue_pset_mach_factor(pset: *mut ProcessorSet) -> c_long;
+    pub fn processor_glue_pset_load_average(pset: *mut ProcessorSet)
+    -> c_long;
+
     // <kern/processor.c>: the global processor-set list, its count and
     // its lock, which the C half goes on using.  `queue_head_t` is the
     // `QueueEntry` mirror.
@@ -156,11 +163,25 @@ unsafe extern "C" {
     pub static mut all_psets_lock: SimpleLock;
     pub static mut all_psets_count: c_int;
 
+    // <kern/processor.c>: the processor the machine boots on, which
+    // `pset_sys_bootstrap()` points at the master slot.
+    pub static mut master_processor: *mut Processor;
+
+    // <kern/machine.c>: the machine table.  The C declares
+    // `struct machine_slot machine_slot[NCPUS]`, and `NCPUS` is a C
+    // constant, so this names the first element and the Rust side
+    // strides it with `addr_of_mut!`.
+    pub static mut machine_slot: MachineSlot;
+
     // <kern/processor.c>: address-only.  The full `struct
     // processor_set` is longer than the Rust mirror and `struct
     // kmem_cache` has no mirror, so only the addresses are named.
     pub static mut default_pset: c_void;
     pub static mut pset_cache: c_void;
+
+    // <kern/host.c>: address-only like the two above.  `host_data_t`
+    // has no Rust mirror, so only the address is named.
+    pub static mut realhost: c_void;
 
     // <kern/machine.h>: the machine-dependent shutdown of a processor,
     // still C on both architectures.

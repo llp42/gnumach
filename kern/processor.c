@@ -166,45 +166,6 @@ void pset_add_task(
 	pset->task_count++;
 }
 
-kern_return_t
-processor_info(
-	processor_t		processor,
-	int			flavor,
-	host_t			*host,
-	processor_info_t	info,
-	natural_t		*count)
-{
-	int				slot_num, state;
-	processor_basic_info_t		basic_info;
-
-	if (processor == PROCESSOR_NULL)
-		return KERN_INVALID_ARGUMENT;
-
-	if (flavor != PROCESSOR_BASIC_INFO ||
-		*count < PROCESSOR_BASIC_INFO_COUNT)
-			return KERN_FAILURE;
-
-	basic_info = (processor_basic_info_t) info;
-
-	slot_num = processor->slot_num;
-	basic_info->cpu_type = machine_slot[slot_num].cpu_type;
-	basic_info->cpu_subtype = machine_slot[slot_num].cpu_subtype;
-	state = processor->state;
-	if (state == PROCESSOR_SHUTDOWN || state == PROCESSOR_OFF_LINE)
-		basic_info->running = FALSE;
-	else
-		basic_info->running = TRUE;
-	basic_info->slot_num = slot_num;
-	if (processor == master_processor)
-		basic_info->is_master = TRUE;
-	else
-		basic_info->is_master = FALSE;
-
-	*count = PROCESSOR_BASIC_INFO_COUNT;
-	*host = &realhost;
-	return KERN_SUCCESS;
-}
-
 #if	MACH_HOST
 /*
  *	processor_set_create:
@@ -342,59 +303,6 @@ kern_return_t processor_set_destroy(
 }
 
 #endif	/* MACH_HOST */
-
-kern_return_t
-processor_set_info(
-	processor_set_t		pset,
-	int			flavor,
-	host_t			*host,
-	processor_set_info_t	info,
-	natural_t		*count)
-{
-	if (pset == PROCESSOR_SET_NULL)
-		return KERN_INVALID_ARGUMENT;
-
-	if (flavor == PROCESSOR_SET_BASIC_INFO) {
-		processor_set_basic_info_t	basic_info;
-
-		if (*count < PROCESSOR_SET_BASIC_INFO_COUNT)
-			return KERN_FAILURE;
-
-		basic_info = (processor_set_basic_info_t) info;
-
-		simple_lock(&(pset)->lock);
-		basic_info->processor_count = pset->processor_count;
-		basic_info->task_count = pset->task_count;
-		basic_info->thread_count = pset->thread_count;
-		basic_info->mach_factor = pset->mach_factor;
-		basic_info->load_average = pset->load_average;
-		simple_unlock(&(pset)->lock);
-
-		*count = PROCESSOR_SET_BASIC_INFO_COUNT;
-		*host = &realhost;
-		return KERN_SUCCESS;
-	}
-	else if (flavor == PROCESSOR_SET_SCHED_INFO) {
-		processor_set_sched_info_t	sched_info;
-
-		if (*count < PROCESSOR_SET_SCHED_INFO_COUNT)
-			return KERN_FAILURE;
-
-		sched_info = (processor_set_sched_info_t) info;
-
-		simple_lock(&(pset)->lock);
-		sched_info->policies = pset->policies;
-		sched_info->max_priority = pset->max_priority;
-		simple_unlock(&(pset)->lock);
-
-		*count = PROCESSOR_SET_SCHED_INFO_COUNT;
-		*host = &realhost;
-		return KERN_SUCCESS;
-	}
-
-	*host = HOST_NULL;
-	return KERN_INVALID_ARGUMENT;
-}
 
 #define THING_TASK	0
 #define THING_THREAD	1

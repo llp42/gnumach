@@ -10,9 +10,10 @@
  * The shims the Rust port of kern/processor.c needs: the tail of
  * `struct processor_set`, from `machine_quantum` through `sched_load`,
  * whose offset depends on the configure-time NCPUS and so cannot be
- * named in Rust.  They die when NCPUS is visible to Rust and the
- * `ProcessorSet` mirror can carry the tail.  See
- * rust/src/kern/processor.rs and rust/src/glue/mod.rs.
+ * named in Rust, and the accessors that read its two load fields.
+ * They die when NCPUS is visible to Rust and the `ProcessorSet`
+ * mirror can carry the tail.  See rust/src/kern/processor.rs and
+ * rust/src/glue/mod.rs.
  */
 
 #include <kern/processor.h>
@@ -47,4 +48,26 @@ processor_glue_pset_machine_quantum(
 	processor_set_t	pset)
 {
 	return pset->machine_quantum;
+}
+
+long processor_glue_pset_mach_factor(processor_set_t pset);
+long processor_glue_pset_load_average(processor_set_t pset);
+
+/*
+ * The tail's `mach_factor` and `load_average`, which the
+ * basic-information flavor reads.  They die when NCPUS is visible to
+ * Rust and the `ProcessorSet` mirror can carry the tail.
+ */
+long
+processor_glue_pset_mach_factor(
+	processor_set_t	pset)
+{
+	return pset->mach_factor;
+}
+
+long
+processor_glue_pset_load_average(
+	processor_set_t	pset)
+{
+	return pset->load_average;
 }
