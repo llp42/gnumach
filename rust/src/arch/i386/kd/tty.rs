@@ -19,11 +19,11 @@ use super::*;
 use crate::arch::i386::io_req::{DevT, IoReq};
 use crate::arch::vm_param::PAGE_SHIFT;
 use crate::glue;
+use crate::kern::lock::SimpleLock;
 use crate::kern::queue::QueueEntry;
 use core::ffi::{c_char, c_int, c_short, c_uint, c_void};
 use core::mem::{offset_of, size_of};
 use core::ptr::NonNull;
-use core::sync::atomic::AtomicU32;
 
 /// `TS_*` of <device/tty.h>.
 const TS_WOPEN: c_int = 0x0000_0004;
@@ -54,15 +54,6 @@ use crate::arch::i386::io_req::{D_INVALID_OPERATION, D_SUCCESS};
 const MAP_LIMIT: usize = 128 * 1024;
 /// `kdmmap()`'s failure value, as `(vm_offset_t)-1`.
 const MAP_FAILED: usize = usize::MAX;
-
-/// `struct slock` of <kern/lock.h>: one natural word.
-///
-/// The `struct {} is_a_simple_lock` member occupies no space, so this
-/// is the whole `simple_lock_irq_data_t` as well.
-#[repr(C)]
-pub struct SimpleLock {
-    lock_data: AtomicU32,
-}
 
 /// `struct cirbuf` of <device/cirbuf.h>.
 #[repr(C)]
@@ -137,9 +128,7 @@ const _: () = {
 impl Tty {
     pub(crate) const fn new() -> Self {
         Self {
-            t_lock: SimpleLock {
-                lock_data: AtomicU32::new(0),
-            },
+            t_lock: SimpleLock::new(),
             t_inq: Cirbuf {
                 c_start: core::ptr::null_mut(),
                 c_end: core::ptr::null_mut(),

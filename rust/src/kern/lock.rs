@@ -81,6 +81,7 @@ impl SimpleLock {
     /// `simple_lock_try()` in C.
     ///
     /// Like `lock()`, the `swap` acquires on success.
+    #[must_use]
     pub fn try_lock(&self) -> bool {
         self.lock_data.swap(1, Ordering::AcqRel) == 0
     }
