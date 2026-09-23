@@ -1724,6 +1724,8 @@ its functions pass.
 | 3 | Does it avoid every array sized by a configure-time constant (`NCPUS`, `NINTR`, `NCOM`, `NIPL`)? | Blocked on §7 Phase 3. |
 | 4 | Is it non-variadic, and free of `va_list`? | Blocked.  See the `kern/printf.c` entry in §4. |
 | 5 | Is its inline assembly, if any, expressible with `core::arch::asm!`? | Blocked on the arch layer. |
+| 6 | Is it visible outside its own translation unit — non-`static`, with a prototype in a header? | Its callers move with it, or it waits.  A Rust definition of a `static` C function is unreachable, and adding the `extern` declaration that would reach it is writing C. |
+| 7 | Is the definition live in a buildable configuration, rather than a dead `#if` branch? | It is a deletion, not a port.  §8. |
 
 These exemptions are settled, and are not re-decided per port:
 
@@ -1755,6 +1757,11 @@ These exemptions are settled, and are not re-decided per port:
 Six exemptions, then, and the tiers below are just the number of "no"
 answers.
 
+Questions 6 and 7 were added after the second list: eleven of its
+thirteen refusals failed one of them, and every one of those eleven
+had passed questions 1 to 5.  Neither is about what a function does,
+which is why a reader looking only at bodies misses both.
+
 ### 6.1 Tier 0 — the free ports
 
 **Zero "no" answers: these need nothing that does not exist today.**
@@ -1762,77 +1769,54 @@ No new C, no new mirror, no new constant, no design conversation.
 Tier 0 is worked to exhaustion before any infrastructure is proposed
 (`AGENTS.md`, "Take the free ports first").
 
-The first list, forty-eight functions found by sampling, was worked to
-zero.  `device/cirbuf.c`, `kern/thread_swap.c`, `i386/i386at/rtc.c`,
-`i386/i386/pit.c` and `i386/i386/ast_check.c` are gone from C
-entirely; the six `ipc/` routines, the `device/subrs.c` and
-`dev_name.c` entries and the `kern/timer.c` and `debug.c` ones left
-their files behind.  `ipc/ipc_thread_glue.c` and
-`i386/i386/pio_glue.c` went with them (§9, §10).
+Both lists so far have been worked to zero.  The first, forty-eight
+functions found by sampling, emptied `device/cirbuf.c`,
+`kern/thread_swap.c`, `i386/i386at/rtc.c`, `i386/i386/pit.c` and
+`i386/i386/ast_check.c` of C entirely, and took
+`ipc/ipc_thread_glue.c` and `i386/i386/pio_glue.c` with it.  The
+second, forty found mechanically (§6.3), landed twenty-seven and
+refused thirteen; §9 records the commits.
 
-**Tier 0 is not empty, and emptying it once did not end it.**  The
-second pass (§6.3) was mechanical rather than sampled, and it found
-forty more, all re-verified against the tree after those ports
-landed.  They are grouped by shape, least work first.
+**What the second list's refusals taught.**  Eleven of the thirteen
+were not judgement calls at the edge; they were functions the test
+said were free and were not.  Each one exposed a question the test
+was not asking, and questions 6 and 7 in §6 exist because of them.
 
-**Constant-return stubs.**  Thirteen functions whose whole body is a
-`return` of a plain constant, or nothing at all.  Each is an exported
-symbol some caller or MIG table still needs, which is why it exists.
+| Refused | Why | Now |
+|---|---|---|
+| `kern/bootstrap.c itoa`, `kern/syscall_sw.c null_port` and `kern_invalid` | `static`, and no prototype in any header, so the Rust definition is unreachable without adding a C declaration | question 6; port the caller with them |
+| `processor_assign`, `task_assign`, `thread_assign`, `processor_set_create`, `processor_set_destroy` | the `#else` half of `#if MACH_HOST`, which cannot be 0 in this tree | question 7; they are deletions, §8 |
+| `i386/i386/smp.c smp_remote_ast`, `smp_pmap_update` | their callee `smp_send_ipi` is `static` (`smp.c:52`); this file said "real symbol" and was wrong | blocked; porting the callee needs an unmirrored bitfield and two `static __always_inline` helpers |
+| `i386/intel/pmap.c pmap_virtual_space` | subtracts `MAPWINDOW_SIZE`, which expands through `NCPUS`, an `AC_DEFINE` | §7 Phase 3 |
 
-| Function | Body |
-|---|---|
-| `kern/machine.c:309 processor_assign` | `return KERN_FAILURE;` |
-| `kern/task.c:1081 task_assign`, `:1097 task_assign_default` | the second forwards to the first |
-| `kern/thread.c:1832 thread_assign`, `:1847 thread_assign_default` | the same pair |
-| `kern/processor.c:291 processor_set_create`, `:299 processor_set_destroy` | the `#else` half of `MACH_HOST`, so the port is `#[cfg]`-selected from the same define |
-| `kern/mach_clock.c:702 timeopen`, `:706 timeclose` | `return 0;` and `return;` |
-| `kern/syscall_emulation.c:61 eml_init` | empty |
-| `ipc/ipc_target.c:36 ipc_target_terminate` | empty |
-| `kern/ipc_mig.c:267 mig_put_reply_port` | empty |
-| `i386/intel/pmap.c:2125 pmap_pageable` | empty, and already declared in `glue` |
+The other two refusals were deliberate scope calls rather than test
+failures.  `i386/i386/trap.c trap_name` moves a table its own file
+still reads, so porting it changes the kernel-trap report for an
+unknown vector; that is an observable behaviour change and wants its
+own commit.  `i386/i386/pcb.c user_stack_low` needs
+`VM_MAX_USER_ADDRESS`, which takes a third value on a 64-bit kernel
+built `--enable-user32`, so it needs a `--cfg` plumbed into
+`AM_RUSTFLAGS` first.  Both remain free ports behind one decision
+each.
 
-**Panic-only entry points.**  Nine functions whose body is one
-`panic`, which is `Panic` and already in `glue`.
+**The list is empty again as of `8dbc4e8e`.**  That is not a finding.
+It was empty after the first list too, and the mechanical pass
+immediately found forty more.  Re-derive with §6.3's method before
+concluding anything from an empty heading.
 
-`device/dev_pager.c:453 device_pager_copy`, `:464
-device_pager_supply_completed`, `:476 device_pager_data_return`, `:489
-device_pager_change_completed`, `:592 device_pager_data_unlock`, `:603
-device_pager_lock_completed`; `kern/ipc_mig.c:97
-mach_msg_rpc_from_kernel`, `:254 mig_dealloc_reply_port`;
-`kern/debug.c:126 __stack_chk_fail`.
+**Still open, in order of cheapness:**
 
-The last one keeps its exact name: the compiler emits the call.
-
-**Pure computation.**  Five functions that call nothing.
-
-| Function | What it is |
-|---|---|
-| `kern/ipc_mig.c:291 mig_strncpy` | a bounded string copy returning the length |
-| `kern/boot_script.c:699 boot_script_error_string` | a `switch` returning literals |
-| `i386/i386/trap.c:106 trap_name` | a bounds-checked lookup in a file-static table, which moves with it |
-| `i386/i386/pcb.c:894 user_stack_low` | one subtraction from `VM_MAX_USER_ADDRESS` |
-| `kern/bootstrap.c:297 itoa` | decimal formatting into a caller buffer |
-
-**One reachable call.**  Thirteen functions whose single callee is
-already Rust, already in `glue`, or a real symbol.
-
-| Function | Callee |
-|---|---|
-| `kern/host.c:207 host_get_kernel_version`, `:223 host_kernel_version` | `strncpy`, plus the opaque `extern char version[]` by address |
-| `kern/syscall_sw.c:63 null_port`, `:69 kern_invalid` | `SoftDebugger`, Rust since `6dcb3aa2` |
-| `kern/syscall_subr.c:364 mach_print` | `printf` |
-| `kern/bootstrap.c:696 boot_script_malloc`, `:702 boot_script_free` | `kalloc`, `kfree` |
-| `i386/i386/smp.c:67 smp_remote_ast`, `:72 smp_pmap_update` | `smp_send_ipi`, real |
-| `i386/i386/machine_task.c:39 machine_task_module_init` | `kmem_cache_init`; the size is `IOPB_BYTES`, a plain constant, not a `sizeof` |
-| `i386/i386at/model_dep.c:225 db_halt_cpu`, `:230 db_reset_cpu` | `halt_all_cpus`, a real symbol in the same file (`model_dep.c:210`) |
-| `i386/intel/pmap.c:773 pmap_virtual_space` | two opaque globals by address |
-
-**Medium, and why.**  `i386/i386at/acpi_parse_apic.c:62
-acpi_checksum`, `:151 acpi_check_rsdp_align` and `:85
-acpi_check_signature` are pure, but `static`, so moving one leaves an
-`extern` declaration above its caller in a file that stays C.  That is
-the normal shape of a partial-file port rather than glue, but it is a
-judgement someone should make deliberately before doing three of them.
+1. `i386/i386/trap.c:106 trap_name` — needs the behaviour decision above.
+2. `i386/i386/pcb.c:894 user_stack_low` — needs the `user32` cfg.
+3. `i386/i386at/acpi_parse_apic.c:62 acpi_checksum`, `:151
+   acpi_check_rsdp_align`, `:85 acpi_check_signature` — pure, but
+   `static`, so question 6 applies and their callers move with them.
+4. `kern/bootstrap.c:297 itoa` — port `get_compat_strings`, its only
+   caller, in the same commit and `itoa` becomes a private Rust
+   helper.
+5. `kern/syscall_sw.c:63 null_port`, `:69 kern_invalid` — the same
+   shape; `kern_invalid_debug` has no header declaration and no other
+   reader, so it becomes a private Rust static rather than an extern.
 
 ### 6.2 What the rejections teach
 
@@ -2017,6 +2001,16 @@ kernel may add host tests like the rbtree's; see §8.
   the surrounding code.  `rdxtree.h:49` has an `#if 0` block to check
   the same way.  `kern/boot_script.c`'s
   `boot_script_define_function` has no callers.
+* Dead `#else /* MACH_HOST */` halves.  `MACH_HOST` cannot be 0 in
+  this tree: `configfrag-first.ac:33` makes fewer than two CPUs a hard
+  configure error and `configfrag.ac:38` defines `MACH_HOST` to 1
+  above one CPU, so both `config.h` files carry 1.  The stub halves of
+  `kern/machine.c:309 processor_assign`, `kern/task.c:1081
+  task_assign`, `kern/thread.c:1832 thread_assign` and
+  `kern/processor.c:291,299 processor_set_create`/`_destroy` are
+  therefore never compiled; `nm` on `build-64/kern/processor.o` shows
+  the 166-byte `#if` implementation.  Delete the `#else` halves rather
+  than porting them.
 * Macro-shadowed definitions, found by the §6.3 mechanical pass:
   `i386/intel/pmap.c:1902 pmap_copy` and `:2068 pmap_kernel` are real
   function definitions that no caller can reach, because
@@ -2065,6 +2059,10 @@ kernel may add host tests like the rbtree's; see §8.
 | `i386/i386/lock.h` (simple lock) | `src/kern/lock.rs` | `102c4926` |
 | `kern/sched_prim.c` (wait/wake, `thread_dispatch`, `thread_setrun`) | `src/kern/sched_prim.rs` + `src/kern/thread.rs`, `src/kern/timer.rs`, `src/kern/processor.rs`, `src/arch/i386/percpu.rs` | `c4498541` |
 | `kern/ast.h` (`ast_on`, `ast_off`, `ast_needed`) | `src/kern/ast.rs` | `6a6281be` |
+| `kern/ipc_mig.c` (`mig_strncpy`, `mig_put_reply_port`, `mig_dealloc_reply_port`, `mach_msg_rpc_from_kernel`), `kern/host.c` (`host_get_kernel_version`, `host_kernel_version`), `kern/syscall_subr.c` (`mach_print`) | `src/kern/ipc_mig.rs`, `src/kern/host.rs`, `src/kern/syscall_subr.rs` | `c1cf99d4` |
+| `device/dev_pager.c` (six `device_pager_*` entries), `kern/debug.c` (`__stack_chk_fail`), `kern/boot_script.c` (`boot_script_error_string`), `kern/bootstrap.c` (`boot_script_malloc`, `boot_script_free`) | `src/device/dev_pager.rs`, `src/kern/debug.rs`, `src/kern/boot_script.rs`, `src/kern/bootstrap.rs` | `eecdf229` |
+| `kern/mach_clock.c` (`timeopen`, `timeclose`), `kern/syscall_emulation.c` (`eml_init`), `ipc/ipc_target.c` (`ipc_target_terminate`), `kern/task.c` (`task_assign_default`), `kern/thread.c` (`thread_assign_default`) | `src/kern/mach_clock.rs`, `src/kern/syscall_emulation.rs`, `src/ipc/ipc_target.rs`, `src/kern/task.rs`, `src/kern/thread.rs` | `5bc0c535` |
+| `i386/i386/machine_task.c` (`machine_task_module_init`), `i386/i386at/model_dep.c` (`db_halt_cpu`, `db_reset_cpu`), `i386/intel/pmap.c` (`pmap_pageable`) | `src/arch/i386/machine_task.rs`, `src/arch/i386/model_dep.rs`, `src/arch/i386/pmap.rs` | `8dbc4e8e` |
 | `kern/kmutex.c` | `src/kern/kmutex.rs` | `d4fe54dc` |
 | `ipc/ipc_table.c` | `src/ipc/ipc_table.rs` | `bd582ec6` |
 | `device/cirbuf.c` | `src/device/cirbuf.rs` | `pending` |
