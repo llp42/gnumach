@@ -121,7 +121,9 @@ MACH_RS_SRCS = \
 	rust/src/vm/vm_kern.rs \
 	rust/src/vm/vm_kern_ffi.rs \
 	rust/src/vm/vm_map.rs \
-	rust/src/vm/vm_map_ffi.rs
+	rust/src/vm/vm_map_ffi.rs \
+	rust/src/vm/vm_user.rs \
+	rust/src/vm/vm_user_ffi.rs
 
 EXTRA_DIST += \
 	$(MACH_RS_SRCS) \

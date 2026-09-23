@@ -559,6 +559,16 @@ unsafe extern "C" {
 
     pub fn vm_object_reference(object: *mut VmObject);
     pub fn vm_object_deallocate(object: *mut VmObject);
+    pub fn memory_object_lock_request(
+        object: *mut VmObject,
+        offset: VmOffset,
+        size: VmSize,
+        should_return: c_int,
+        should_flush: c_int,
+        prot: VmProt,
+        reply_to: *mut c_void,
+        reply_to_type: c_uint,
+    ) -> c_int;
     pub fn vm_object_page_remove(
         object: *mut VmObject,
         start: VmOffset,

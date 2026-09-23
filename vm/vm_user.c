@@ -24,6 +24,9 @@
  * the rights to redistribute these changes.
  */
 /*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
+/*
  *	File:	vm/vm_user.c
  *	Author:	Avadis Tevanian, Jr., Michael Wayne Young
  *
@@ -55,126 +58,6 @@
 
 
 vm_statistics_data_t	vm_stat;
-
-/*
- *	vm_allocate allocates "zero fill" memory in the specfied
- *	map.
- */
-kern_return_t vm_allocate(
-	vm_map_t	map,
-	vm_offset_t	*addr,
-	vm_size_t	size,
-	boolean_t	anywhere)
-{
-	kern_return_t	result;
-
-	if (map == VM_MAP_NULL)
-		return(KERN_INVALID_ARGUMENT);
-	if (size == 0) {
-		*addr = 0;
-		return(KERN_SUCCESS);
-	}
-
-	if (anywhere)
-		*addr = vm_map_min(map);
-	else
-		*addr = trunc_page(*addr);
-	size = round_page(size);
-
-	result = vm_map_enter(
-			map,
-			addr,
-			size,
-			(vm_offset_t)0,
-			anywhere,
-			VM_OBJECT_NULL,
-			(vm_offset_t)0,
-			FALSE,
-			VM_PROT_DEFAULT,
-			VM_PROT_ALL,
-			VM_INHERIT_DEFAULT);
-
-	return(result);
-}
-
-/*
- *	vm_deallocate deallocates the specified range of addresses in the
- *	specified address map.
- */
-kern_return_t vm_deallocate(
-	vm_map_t		map,
-	vm_offset_t		start,
-	vm_size_t		size)
-{
-	if (map == VM_MAP_NULL)
-		return(KERN_INVALID_ARGUMENT);
-
-	if (size == (vm_offset_t) 0)
-		return(KERN_SUCCESS);
-
-	return(vm_map_remove(map, trunc_page(start), round_page(start+size)));
-}
-
-/*
- *	vm_inherit sets the inheritance of the specified range in the
- *	specified map.
- */
-kern_return_t vm_inherit(
-	vm_map_t		map,
-	vm_offset_t		start,
-	vm_size_t		size,
-	vm_inherit_t		new_inheritance)
-{
-	if (map == VM_MAP_NULL)
-		return(KERN_INVALID_ARGUMENT);
-
-        switch (new_inheritance) {
-        case VM_INHERIT_NONE:
-        case VM_INHERIT_COPY:
-        case VM_INHERIT_SHARE:
-                break;
-        default:
-                return(KERN_INVALID_ARGUMENT);
-        }
-
-	/*Check if range includes projected buffer;
-	  user is not allowed direct manipulation in that case*/
-	if (projected_buffer_in_range(map, start, start+size))
-		return(KERN_INVALID_ARGUMENT);
-
-	return(vm_map_inherit(map,
-			      trunc_page(start),
-			      round_page(start+size),
-			      new_inheritance));
-}
-
-/*
- *	vm_protect sets the protection of the specified range in the
- *	specified map.
- */
-
-kern_return_t vm_protect(
-	vm_map_t		map,
-	vm_offset_t		start,
-	vm_size_t		size,
-	boolean_t		set_maximum,
-	vm_prot_t		new_protection)
-{
-	if ((map == VM_MAP_NULL) ||
-		(new_protection & ~(VM_PROT_ALL|VM_PROT_NOTIFY)))
-		return(KERN_INVALID_ARGUMENT);
-
-	/*Check if range includes projected buffer;
-	  user is not allowed direct manipulation in that case*/
-	if (projected_buffer_in_range(map, start, start+size))
-		return(KERN_INVALID_ARGUMENT);
-
-	return(vm_map_protect(map,
-			      trunc_page(start),
-			      round_page(start+size),
-			      new_protection,
-			      set_maximum));
-}
 
 kern_return_t vm_statistics(
 	vm_map_t		map,
@@ -216,93 +99,6 @@ kern_return_t vm_cache_statistics(
 	stats->slab_reclaim_count = 0;
 	return KERN_SUCCESS;
 }
-
-/*
- * Handle machine-specific attributes for a mapping, such
- * as cachability, migrability, etc.
- */
-kern_return_t vm_machine_attribute(
-	vm_map_t	map,
-	vm_address_t	address,
-	vm_size_t	size,
-	vm_machine_attribute_t	attribute,
-	vm_machine_attribute_val_t* value)		/* IN/OUT */
-{
-	if (map == VM_MAP_NULL)
-		return(KERN_INVALID_ARGUMENT);
-
-	/*Check if range includes projected buffer;
-	  user is not allowed direct manipulation in that case*/
-	if (projected_buffer_in_range(map, address, address+size))
-		return(KERN_INVALID_ARGUMENT);
-
-	return vm_map_machine_attribute(map, address, size, attribute, value);
-}
-
-kern_return_t vm_read(
-	vm_map_t	map,
-	vm_address_t	address,
-	vm_size_t	size,
-	pointer_t	*data,
-	mach_msg_type_number_t	*data_size)
-{
-	kern_return_t	error;
-	vm_map_copy_t	ipc_address;
-
-	if (map == VM_MAP_NULL)
-		return(KERN_INVALID_ARGUMENT);
-
-	if ((error = vm_map_copyin(map,
-				address,
-				size,
-				FALSE,	/* src_destroy */
-				&ipc_address)) == KERN_SUCCESS) {
-		*data = (pointer_t) ipc_address;
-		*data_size = size;
-	}
-	return(error);
-}
-
-kern_return_t vm_write(
-	vm_map_t	map,
-	vm_address_t	address,
-	pointer_t	data,
-	mach_msg_type_number_t	size)
-{
-	if (map == VM_MAP_NULL)
-		return KERN_INVALID_ARGUMENT;
-
-	return vm_map_copy_overwrite(map, address, (vm_map_copy_t) data,
-				     FALSE /* interruptible XXX */);
-}
-
-kern_return_t vm_copy(
-	vm_map_t	map,
-	vm_address_t	source_address,
-	vm_size_t	size,
-	vm_address_t	dest_address)
-{
-	vm_map_copy_t copy;
-	kern_return_t kr;
-
-	if (map == VM_MAP_NULL)
-		return KERN_INVALID_ARGUMENT;
-
-	kr = vm_map_copyin(map, source_address, size,
-			   FALSE, &copy);
-	if (kr != KERN_SUCCESS)
-		return kr;
-
-	kr = vm_map_copy_overwrite(map, dest_address, copy,
-				   FALSE /* interruptible XXX */);
-	if (kr != KERN_SUCCESS) {
-		vm_map_copy_discard(copy);
-		return kr;
-	}
-
-	return KERN_SUCCESS;
-}
-
 
 /*
  *	Routine:	vm_map
@@ -504,56 +300,6 @@ kern_return_t vm_wire_all(const ipc_port_t port, vm_map_t map, vm_wire_t flags)
 	}
 
 	return vm_map_pageable_all(map, flags);
-}
-
-/*
- *	vm_object_sync synchronizes out pages from the memory object to its
- *	memory manager, if any.
- */
-kern_return_t vm_object_sync(
-	vm_object_t		object,
-	vm_offset_t		offset,
-	vm_size_t		size,
-	boolean_t		should_flush,
-	boolean_t		should_return,
-	boolean_t		should_iosync)
-{
-	if (object == VM_OBJECT_NULL)
-		return KERN_INVALID_ARGUMENT;
-
-	/* FIXME: we should rather introduce an internal function, e.g.
-	   vm_object_update, rather than calling memory_object_lock_request.  */
-	vm_object_reference(object);
-
-	/* This is already always synchronous for now.  */
-	(void) should_iosync;
-
-	size = round_page(offset + size) - trunc_page(offset);
-	offset = trunc_page(offset);
-
-	return  memory_object_lock_request(object, offset, size,
-					   should_return ?
-						MEMORY_OBJECT_RETURN_ALL :
-						MEMORY_OBJECT_RETURN_NONE,
-					   should_flush,
-					   VM_PROT_NO_CHANGE,
-					   NULL, 0);
-}
-
-/*
- *	vm_msync synchronizes out pages from the map to their memory manager,
- *	if any.
- */
-kern_return_t vm_msync(
-	vm_map_t		map,
-	vm_address_t		address,
-	vm_size_t		size,
-	vm_sync_t		sync_flags)
-{
-	if (map == VM_MAP_NULL)
-		return KERN_INVALID_ARGUMENT;
-
-	return vm_map_msync(map, (vm_offset_t) address, size, sync_flags);
 }
 
 /*
@@ -856,27 +602,4 @@ vm_set_size_limit(
 	vm_map_unlock(map);
 
 	return KERN_SUCCESS;
-}
-
-/*
- *     vm_get_size_limit
- *
- *     Gets the current/maximum virtual adress space limits
- *     of the provided `map`.
- */
-kern_return_t
-vm_get_size_limit(
-       vm_map_t        map,
-       vm_size_t       *current_limit,
-       vm_size_t       *max_limit)
-{
-	if (map == VM_MAP_NULL)
-		return KERN_INVALID_TASK;
-
-       vm_map_lock_read(map);
-       *current_limit = map->size_cur_limit;
-       *max_limit = map->size_max_limit;
-       vm_map_unlock_read(map);
-
-       return KERN_SUCCESS;
 }

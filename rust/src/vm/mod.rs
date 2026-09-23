@@ -11,3 +11,5 @@ pub mod vm_kern;
 pub mod vm_kern_ffi;
 pub mod vm_map;
 pub mod vm_map_ffi;
+pub mod vm_user;
+pub mod vm_user_ffi;

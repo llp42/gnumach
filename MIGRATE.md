@@ -142,7 +142,7 @@ file, or `—` when the rest is ready too.
 | `vm_page.c` | 2214 | 1 | `struct vm_page` has no field mirror |
 | `vm_pageout.c` | 505 | 0 | `vm_object`/`vm_page` fields |
 | `vm_resident.c` | 1071 | 4 | `struct vm_page` mirror |
-| `vm_user.c` | 882 | 11 | `vm_object`/`vm_page` fields for the rest |
+| `vm_user.c` | 602 | 0 | `vm_object`/`vm_page` fields for the rest |
 
 ### `device/` (11 files, 7,057 LOC)
 
@@ -238,14 +238,14 @@ These exemptions are settled and are not re-decided per port:
   `&raw mut`.  Reading a *field* of one is a different thing and still
   fails.
 
-### 6.1 Free ports today (Tier 0) — 17 functions
+### 6.1 Free ports today (Tier 0) — 6 functions
 
 Zero "no" answers: needs nothing that does not exist today.  Port these
 before proposing any mirror, constant or allocator.  Each entry's "needs"
 is the glue declarations and Rust-side helpers the port adds; none
 requires C.
 
-#### `vm/` (17)
+#### `vm/` (6)
 
 | Function | Needs |
 |---|---|
@@ -255,17 +255,6 @@ requires C.
 | `vm/vm_resident.c:587 vm_page_rename` | `vm_page_remove`/`insert`; the page-queue lock |
 | `vm/vm_resident.c:929 vm_page_alloc_flags` | `vm_page_grab`/`insert`; the page-queue lock |
 | `vm/vm_resident.c:948 vm_page_alloc` | forwards to `vm_page_alloc_flags` |
-| `vm/vm_user.c:63 vm_allocate` | Rust `vm_map_enter`; `vm_map_min` is a mirrored field |
-| `vm/vm_user.c:104 vm_deallocate` | Rust `vm_map_remove`; page-rounding |
-| `vm/vm_user.c:122 vm_inherit` | `projected_buffer_in_range`; Rust `vm_map_inherit` |
-| `vm/vm_user.c:156 vm_protect` | `projected_buffer_in_range`; Rust `vm_map_protect` |
-| `vm/vm_user.c:224 vm_machine_attribute` | `projected_buffer_in_range`; Rust `vm_map_machine_attribute` |
-| `vm/vm_user.c:242 vm_read` | Rust `vm_map_copyin` |
-| `vm/vm_user.c:266 vm_write` | Rust `vm_map_copy_overwrite` |
-| `vm/vm_user.c:279 vm_copy` | Rust `vm_map_copyin`, `vm_map_copy_overwrite`, `vm_map_copy_discard` |
-| `vm/vm_user.c:513 vm_object_sync` | glue `vm_object_reference`, `memory_object_lock_request` |
-| `vm/vm_user.c:547 vm_msync` | Rust `vm_map_msync` |
-| `vm/vm_user.c:868 vm_get_size_limit` | `VmMap.lock`/`size_cur_limit`/`size_max_limit` |
 
 ### 6.2 Blocked with one unlock
 
@@ -456,6 +445,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `i386/i386/fpu.c` (`fpnoextflt`) | `src/arch/i386/fpu.rs` | pending |
 | `i386/i386/mp_desc.c` (`interrupt_processor`) | `src/arch/i386/mp_desc.rs` | pending |
 | `vm/vm_kern.c` (`projected_buffer_collect`, `projected_buffer_in_range`, `kmem_alloc_wired_flags`, `kmem_alloc_wired`, `kmem_map_aligned_table`, `kmem_alloc_pageable`, `kmem_free`, `kmem_submap`, `kmem_init`, `kmem_io_map_deallocate`) | `src/vm/vm_kern.rs`, `src/vm/vm_kern_ffi.rs` | pending |
+| `vm/vm_user.c` (`vm_allocate`, `vm_deallocate`, `vm_inherit`, `vm_protect`, `vm_machine_attribute`, `vm_read`, `vm_write`, `vm_copy`, `vm_object_sync`, `vm_msync`, `vm_get_size_limit`) | `src/vm/vm_user.rs`, `src/vm/vm_user_ffi.rs` | pending |
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `i386/i386at/kd_glue.c`

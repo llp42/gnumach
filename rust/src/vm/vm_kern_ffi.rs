@@ -45,10 +45,6 @@ pub unsafe extern "C" fn projected_buffer_in_range(
     let Some(map) = NonNull::new(map) else {
         return c_int::from(false);
     };
-    // SAFETY: `kernel_map` is the boot kernel map the C global holds.
-    if map.as_ptr().cast::<c_void>() == unsafe { kernel_map } {
-        return c_int::from(false);
-    }
     // SAFETY: the caller promises a valid map.
     c_int::from(vm_kern::projected_buffer_in_range(
         unsafe { &*map.as_ptr() },

@@ -83,6 +83,12 @@ pub(crate) fn projected_buffer_in_range(
     start: VmOffset,
     end: VmOffset,
 ) -> bool {
+    // SAFETY: `kernel_map` is the boot kernel map the C global holds.
+    if ptr::from_ref(map).cast_mut().cast::<c_void>() == unsafe { kernel_map }
+    {
+        return false;
+    }
+
     let sentinel = map.to_entry();
     let (found, entry) = map.lookup_entry(start);
     let mut entry = if found {
