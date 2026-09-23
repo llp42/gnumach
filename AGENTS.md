@@ -452,6 +452,43 @@ with no allocator.
 
 Rule numbers are stable. Add new rules at the end rather than renumbering.
 
+### The comment budget
+
+**Four kinds of comment are mandatory. Every other comment is a defect
+until it has earned its line.**
+
+Mandatory, and never trimmed:
+
+1. The SPDX header block (see "License headers").
+2. The module's `//!` doc comment, naming the C file it replaces.
+3. `# Safety` on every exported `unsafe extern "C" fn` — clippy fails the
+   build without it.
+4. `// SAFETY:` on every `unsafe { ... }` block, naming the invariant and
+   who guarantees it.
+
+Everything else is written to this standard: **the code carries its own
+meaning through names, types and small functions, and a comment appears
+only where a reader who understands Rust and has the C original in front
+of them would still be unable to work out *why*.**
+
+A comment earns its line only by recording something the code cannot
+state: a hardware quirk, a lock ordering, a deliberate divergence from
+the C, a constant's provenance, a wrapping that is intended. Restating
+the name, the signature, the control flow or the arithmetic is not one
+of those. Neither is announcing a step (`// Take the lock.`,
+`// Now walk the list.`, `// Convert back for C.`).
+
+**Output that carries explanatory comments is rejected.** When a step
+seems to need a narrative line, the answer is a named helper variable or
+a named function, not the line. Write the code so the line is not
+missed.
+
+This overrides the density of the file you are editing. About a third of
+the lines in `rust/src/` are comments today, and much of that is exactly
+what this section forbids: it is what is being cleaned up, not the house
+style to match. Rules 18, 36, 37 and 39 are the detail; this is the budget they spend
+against.
+
 ### What `no_std` costs
 
 `#![no_std]`, `core` only, **no `alloc`**. This is the constraint that shapes
@@ -803,10 +840,13 @@ pub fn lock(&self) {
 ### 18. Doc comments and visibility
 
 Every module's doc comment names the C file it replaces and the header it
-mirrors. Every `unsafe extern "C" fn` has `# Safety`. Outside those, a public
-item carries a doc line only where the item's contract is not evident from its
-name and signature; a doc that merely restates the name, the parameters or the
-body is removed. A doc that names a C function, macro or header keeps that name
+mirrors. Every `unsafe extern "C" fn` has `# Safety`. **Outside those two,
+an item has no doc comment by default.** It gains one only where the
+contract is not evident from the name and the signature: an error
+condition, an invariant the constructor establishes, a unit, a lock the
+caller must already hold, the C name when it differs. `/// Returns the
+port.` above `fn port(&self) -> &Port` is a defect; delete it rather than
+reword it. A doc that names a C function, macro or header keeps that name
 when it differs from the Rust name or is needed to find the original.
 Visibility is the smallest that works — internals stay private so that the
 module boundary *is* the safe API.
@@ -1063,9 +1103,17 @@ write down the context you are holding in your head.
 // only simple single segment paths allowed
 ```
 
-Comments say **why**. `// increment i by 1` above `i += 1` is noise. If a
-function needs a narrative comment per step, it wants named helper functions
-instead.
+Comments say **why**, and only where the why is not already on the page.
+`// increment i by 1` above `i += 1` is noise. So is a line that names the
+next step, restates a condition, or translates the code into English. If a
+function needs a narrative comment per step, it wants named helper
+functions and named helper variables instead, and the comments go away with
+the rewrite.
+
+Before finishing any change, re-read the diff and **delete every comment
+that is not one of the four mandatory kinds and does not record a why the
+code cannot carry**. This pass is part of writing the code, not a cleanup
+for later.
 
 Use `///` even on private items you are documenting: it keeps the style
 uniform and survives a visibility change.
@@ -1313,10 +1361,14 @@ bypass it; both are a deliberate statement that you ran the suite another way.
    no accessor or prototype added to a C header for Rust's benefit.
 4. Every new `.rs` file is in `MACH_RS_SRCS`.
 5. The rules hold for the new module, not only the parts clippy can check.
-6. New code is edition 2024 idiom: `unsafe extern "C"` blocks,
+6. The comment pass was run over the diff: every comment is an SPDX
+   header, a module `//!`, a `# Safety` section, a `// SAFETY:` block, or
+   a recorded why the code cannot carry. Anything else was deleted and
+   the code renamed instead.
+7. New code is edition 2024 idiom: `unsafe extern "C"` blocks,
    `#[unsafe(no_mangle)]`, no `static mut`.
-7. `mise run test` — x86_64 **and** i386 — is green.
-8. `MIGRATE.md` records what moved.
+8. `mise run test` — x86_64 **and** i386 — is green.
+9. `MIGRATE.md` records what moved.
 
 ### Review
 
@@ -1499,7 +1551,10 @@ The most important section. Keep it current.
   `Makefile.am`'s link order; changing observable kernel behaviour; adding to
   the `gnumach-undef` allowlist; renaming an exported symbol C still calls.
 
-- 🚫 **Never**: weaken, skip, shorten or delete a test to get green, in any of
+- 🚫 **Never**: write a comment that restates the code, narrates a step, or
+  documents an item whose name and signature already say it — the four
+  mandatory kinds are the whole budget (see "The comment budget");
+  weaken, skip, shorten or delete a test to get green, in any of
   the ways listed under Testing; add a Cargo manifest, a lock file, a build
   script, an external crate, or anything that fetches from the network; add
   `#[allow]` or `-A` to silence a lint that is telling the truth; drop
