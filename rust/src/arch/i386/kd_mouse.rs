@@ -26,6 +26,7 @@ use super::io_req::{
     DEV_GET_SIZE_DEVICE_SIZE, DEV_GET_SIZE_RECORD_SIZE, DevT, IoReq,
     KERN_SUCCESS, drain,
 };
+use crate::arch::i386::pio::Port;
 use crate::glue;
 use crate::kern::queue::QueueEntry;
 use crate::utils::kd_queue::{KdEvent, KdEventQueue, KevType, MouseMotion};
@@ -235,17 +236,14 @@ fn button_event(s: &mut State, which: KevType, direction: u8) {
 /// `init_mouse_hw()` in C: program the serial port.
 fn init_mouse_hw(s: &State, unit: c_int, mode: u8) {
     let base_addr = unsafe { glue::com_base_addr(unit) } as u16;
-    // SAFETY: `base_addr` is the unit's 8250 base; the register offsets
-    // come from <i386at/i8250.h>.
-    unsafe {
-        glue::pio_outb(base_addr + RIE, 0);
-        glue::pio_outb(base_addr + RLC, LCDLAB);
-        glue::pio_outb(base_addr + RDLSB, (s.mouse_baud & 0xff) as u8);
-        glue::pio_outb(base_addr + RDMSB, ((s.mouse_baud >> 8) & 0xff) as u8);
-        glue::pio_outb(base_addr + RLC, mode);
-        glue::pio_outb(base_addr + RMC, MCDTR | MCRTS | MCOUT2);
-        glue::pio_outb(base_addr + RIE, IERD | IELS);
-    }
+    // The register offsets come from <i386at/i8250.h>.
+    Port::new(base_addr + RIE).write_u8(0);
+    Port::new(base_addr + RLC).write_u8(LCDLAB);
+    Port::new(base_addr + RDLSB).write_u8((s.mouse_baud & 0xff) as u8);
+    Port::new(base_addr + RDMSB).write_u8(((s.mouse_baud >> 8) & 0xff) as u8);
+    Port::new(base_addr + RLC).write_u8(mode);
+    Port::new(base_addr + RMC).write_u8(MCDTR | MCRTS | MCOUT2);
+    Port::new(base_addr + RIE).write_u8(IERD | IELS);
 }
 
 /// `serial_mouse_open()` in C: take over the unit's interrupt vector.
@@ -281,11 +279,10 @@ fn serial_close(s: &mut State, dev: DevT) {
     let unit = (dev & 7) as c_int;
     let mouse_pic = unsafe { glue::com_irq(unit) };
     let base_addr = unsafe { glue::com_base_addr(unit) } as u16;
-    // SAFETY: as in `init_mouse_hw()`, and the old vector/unit were
-    // saved by the matching open.
+    Port::new(base_addr + RIE).write_u8(0);
+    Port::new(base_addr + RMC).write_u8(0);
+    // SAFETY: the old vector/unit were saved by the matching open.
     unsafe {
-        glue::pio_outb(base_addr + RIE, 0);
-        glue::pio_outb(base_addr + RMC, 0);
         glue::irq_set_handler(mouse_pic, s.oldvect);
         glue::irq_set_unit(mouse_pic, s.oldunit);
         glue::splx(sp);
@@ -305,14 +302,14 @@ fn kd_close(s: &mut State, mouse_pic: c_int) {
 
 /// `kd_mouse_write()` in C: send a byte to the PS/2 mouse.
 fn write_char(ch: u8) {
-    while unsafe { glue::pio_inb(K_STATUS) } & K_IBUF_FUL != 0 {
+    while Port::new(K_STATUS).read_u8() & K_IBUF_FUL != 0 {
         core::hint::spin_loop();
     }
-    unsafe { glue::pio_outb(K_CMD, 0xd4) };
-    while unsafe { glue::pio_inb(K_STATUS) } & K_IBUF_FUL != 0 {
+    Port::new(K_CMD).write_u8(0xd4);
+    while Port::new(K_STATUS).read_u8() & K_IBUF_FUL != 0 {
         core::hint::spin_loop();
     }
-    unsafe { glue::pio_outb(K_RDWR, ch) };
+    Port::new(K_RDWR).write_u8(ch);
 }
 
 /// `kd_mouse_read()` in C: wait for a byte the interrupt path delivers.
@@ -762,17 +759,16 @@ pub unsafe extern "C" fn mousegetstat(
 /// value.
 unsafe extern "C" fn mouseintr(unit: c_int) {
     let base_addr = unsafe { glue::com_base_addr(unit) } as u16;
-    // SAFETY: the port block is the unit's.
-    let id = unsafe { glue::pio_inb(base_addr + RID) };
-    let ls = unsafe { glue::pio_inb(base_addr + RLS) };
+    let id = Port::new(base_addr + RID).read_u8();
+    let ls = Port::new(base_addr + RLS).read_u8();
     if id == IDLS {
         if ls & LSDR != 0 {
-            let _ = unsafe { glue::pio_inb(base_addr + RDAT) };
+            let _ = Port::new(base_addr + RDAT).read_u8();
         }
         return;
     }
     if id & IDRD != 0 {
-        let ch = unsafe { glue::pio_inb(base_addr + RDAT) };
+        let ch = Port::new(base_addr + RDAT).read_u8();
         handle_byte(state(), ch);
     }
 }

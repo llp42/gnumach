@@ -24,6 +24,7 @@ use super::io_req::{
     D_WOULD_BLOCK, DEV_GET_SIZE, DEV_GET_SIZE_COUNT, DEV_GET_SIZE_DEVICE_SIZE,
     DEV_GET_SIZE_RECORD_SIZE, DevT, IoReq, KERN_SUCCESS, drain,
 };
+use crate::arch::i386::pio::Port;
 use crate::glue;
 use crate::kern::queue::QueueEntry;
 use crate::utils::kd_queue::{KdEvent, KdEventQueue, Scancode};
@@ -178,17 +179,17 @@ fn kdb_in_out(p0: c_uint, p1: c_uint) {
     let port = (p0 & K_X_PORT) as u16;
     match p0 & K_X_TYPE {
         K_X_IN_BYTE => {
-            let _ = unsafe { glue::pio_inb(port) };
+            let _ = Port::new(port).read_u8();
         }
         K_X_IN_WORD => {
-            let _ = unsafe { glue::pio_inw(port) };
+            let _ = Port::new(port).read_u16();
         }
         K_X_IN_LONG => {
-            let _ = unsafe { glue::pio_inl(port) };
+            let _ = Port::new(port).read_u32();
         }
-        K_X_OUT_BYTE => unsafe { glue::pio_outb(port, p1 as u8) },
-        K_X_OUT_WORD => unsafe { glue::pio_outw(port, p1 as u16) },
-        K_X_OUT_LONG => unsafe { glue::pio_outl(port, p1) },
+        K_X_OUT_BYTE => Port::new(port).write_u8(p1 as u8),
+        K_X_OUT_WORD => Port::new(port).write_u16(p1 as u16),
+        K_X_OUT_LONG => Port::new(port).write_u32(p1),
         _ => {}
     }
 }

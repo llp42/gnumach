@@ -26,6 +26,7 @@ pub mod keyboard;
 pub mod keymap;
 pub mod tty;
 
+use crate::arch::i386::pio::Port;
 use crate::glue;
 use crate::utils::delay::delay;
 use core::cell::UnsafeCell;
@@ -348,8 +349,8 @@ pub(crate) fn kdinit() {
     display::xga_init();
 
     // Get rid of any garbage in the output buffer.
-    if unsafe { glue::pio_inb(K_STATUS) } & K_OBUF_FUL != 0 {
-        let _ = unsafe { glue::pio_inb(K_RDWR) };
+    if Port::new(K_STATUS).read_u8() & K_OBUF_FUL != 0 {
+        let _ = Port::new(K_RDWR).read_u8();
     }
 
     unsafe {
@@ -420,24 +421,19 @@ pub unsafe extern "C" fn kdreboot() {
 ///
 /// Called from the timeout table; `_param` is unused.
 pub(crate) unsafe extern "C" fn kd_belloff(_param: *mut core::ffi::c_void) {
-    let status =
-        unsafe { glue::pio_inb(K_PORTB) } & !(K_SPKRDATA | K_ENABLETMR2);
-    unsafe { glue::pio_outb(K_PORTB, status) };
+    let status = Port::new(K_PORTB).read_u8() & !(K_SPKRDATA | K_ENABLETMR2);
+    Port::new(K_PORTB).write_u8(status);
     state().kd_bellstate = false;
 }
 
 /// `kd_bellon()` in C.  The caller must hold `SPLKD`.
 pub(crate) fn kd_bellon() {
     // Program timer 2.
-    unsafe {
-        glue::pio_outb(
-            K_TMRCTL,
-            K_SELTMR2 | K_RDLDTWORD | K_TSQRWAVE | K_TBINARY,
-        );
-        glue::pio_outb(K_TMR2, (1500 & 0xff) as u8);
-        glue::pio_outb(K_TMR2, (1500 >> 8) as u8);
-    }
+    Port::new(K_TMRCTL)
+        .write_u8(K_SELTMR2 | K_RDLDTWORD | K_TSQRWAVE | K_TBINARY);
+    Port::new(K_TMR2).write_u8((1500 & 0xff) as u8);
+    Port::new(K_TMR2).write_u8((1500 >> 8) as u8);
     // Start the speaker.
-    let status = unsafe { glue::pio_inb(K_PORTB) } | K_ENABLETMR2 | K_SPKRDATA;
-    unsafe { glue::pio_outb(K_PORTB, status) };
+    let status = Port::new(K_PORTB).read_u8() | K_ENABLETMR2 | K_SPKRDATA;
+    Port::new(K_PORTB).write_u8(status);
 }

@@ -257,14 +257,6 @@ unsafe extern "C" {
     pub static hz: c_int;
     pub static rebootflag: c_int;
 
-    // Shims for the C macros Rust cannot call: see i386/i386/pio_glue.c.
-    pub fn pio_inb(port: u16) -> u8;
-    pub fn pio_inw(port: u16) -> u16;
-    pub fn pio_inl(port: u16) -> u32;
-    pub fn pio_outb(port: u16, value: u8);
-    pub fn pio_outw(port: u16, value: u16);
-    pub fn pio_outl(port: u16, value: u32);
-
     // Shims for `mask_irq'/'unmask_irq' (static inline under APIC) and
     // for the NINTR-sized `ivect'/`iunit' arrays: see i386/i386/irq.c.
     pub fn irq_mask(irq: c_uint);

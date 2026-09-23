@@ -12,6 +12,7 @@
 
 use super::keymap::KEY_MAP;
 use super::*;
+use crate::arch::i386::pio::Port;
 use crate::glue;
 use core::ffi::{c_int, c_uint};
 
@@ -94,21 +95,19 @@ pub(crate) fn maygetc() -> c_int {
     state().kd_extended = false;
 
     loop {
-        if unsafe { glue::pio_inb(K_STATUS) } & K_OBUF_FUL == 0 {
+        if Port::new(K_STATUS).read_u8() & K_OBUF_FUL == 0 {
             return -1;
         }
 
         let mut up = false;
         // We would come here for mouse events in the debugger.
-        if unsafe { glue::pio_inb(K_STATUS) } & K_AUX_OBUF_FUL
-            == K_AUX_OBUF_FUL
-        {
-            let sc = unsafe { glue::pio_inb(K_RDWR) };
+        if Port::new(K_STATUS).read_u8() & K_AUX_OBUF_FUL == K_AUX_OBUF_FUL {
+            let sc = Port::new(K_RDWR).read_u8();
             // SAFETY: a literal format with one integer.
             unsafe { glue::printf(c"M%xP".as_ptr(), sc as c_int) };
             continue;
         }
-        let mut scancode = unsafe { glue::pio_inb(K_RDWR) };
+        let mut scancode = Port::new(K_RDWR).read_u8();
         // Handle the extend modifier and ack/resend, or a key may never
         // arrive.
         if scancode == K_EXTEND {

@@ -12,6 +12,7 @@
 //! no C callers, so it is gone, along with `kdsoft.h`'s pointer table.
 
 use super::*;
+use crate::arch::i386::pio::Port;
 use crate::glue;
 use core::ffi::{c_char, c_int, c_short};
 
@@ -90,13 +91,10 @@ unsafe fn text_put(pos: c_short, ch: c_char, chattr: c_char) {
 unsafe fn set_cursor(newpos: c_short) {
     let curpos = newpos / ONE_SPACE;
     let s = state();
-    // SAFETY: the CRTC index/data pair is the driver's.
-    unsafe {
-        glue::pio_outb(s.kd_index_reg as u16, C_HIGH);
-        glue::pio_outb(s.kd_io_reg as u16, (curpos >> 8) as u8);
-        glue::pio_outb(s.kd_index_reg as u16, C_LOW);
-        glue::pio_outb(s.kd_io_reg as u16, (curpos & 0xff) as u8);
-    }
+    Port::new(s.kd_index_reg as u16).write_u8(C_HIGH);
+    Port::new(s.kd_io_reg as u16).write_u8((curpos >> 8) as u8);
+    Port::new(s.kd_index_reg as u16).write_u8(C_LOW);
+    Port::new(s.kd_io_reg as u16).write_u8((curpos & 0xff) as u8);
     s.kd_curpos = newpos;
 }
 
@@ -157,15 +155,12 @@ fn phystokv(addr: usize) -> usize {
 /// The current hardware cursor position.  `get_cursor()` in C.
 fn get_cursor() -> c_short {
     let s = state();
-    // SAFETY: the CRTC index/data pair is the driver's.
-    unsafe {
-        glue::pio_outb(s.kd_index_reg as u16, C_HIGH);
-        let high = glue::pio_inb(s.kd_io_reg as u16);
-        glue::pio_outb(s.kd_index_reg as u16, C_LOW);
-        let low = glue::pio_inb(s.kd_io_reg as u16);
-        let pos = (low as u16) | ((high as u16) << 8);
-        ONE_SPACE * pos as c_short
-    }
+    Port::new(s.kd_index_reg as u16).write_u8(C_HIGH);
+    let high = Port::new(s.kd_io_reg as u16).read_u8();
+    Port::new(s.kd_index_reg as u16).write_u8(C_LOW);
+    let low = Port::new(s.kd_io_reg as u16).read_u8();
+    let pos = (low as u16) | ((high as u16) << 8);
+    ONE_SPACE * pos as c_short
 }
 
 /// Initialize the character-based graphics adapter.  `kd_xga_init()` in
@@ -184,30 +179,22 @@ pub(crate) fn xga_init() {
         unsafe { core::ptr::write_bytes(addr, 0, BITMAP_CLEAR_BYTES) };
     }
 
-    let mut start: u8;
-    let stop: u8;
-    // SAFETY: the CRTC index/data pair is the driver's.
-    unsafe {
-        let s = state();
-        glue::pio_outb(s.kd_index_reg as u16, C_START);
-        start = glue::pio_inb(s.kd_io_reg as u16);
-        // Make sure the cursor is enabled.
-        start &= !0x20;
-        glue::pio_outb(s.kd_io_reg as u16, start);
-        glue::pio_outb(s.kd_index_reg as u16, C_STOP);
-        stop = glue::pio_inb(s.kd_io_reg as u16);
-    }
+    let s = state();
+    Port::new(s.kd_index_reg as u16).write_u8(C_START);
+    let mut start = Port::new(s.kd_io_reg as u16).read_u8();
+    // Make sure the cursor is enabled.
+    start &= !0x20;
+    Port::new(s.kd_io_reg as u16).write_u8(start);
+    Port::new(s.kd_index_reg as u16).write_u8(C_STOP);
+    let stop = Port::new(s.kd_io_reg as u16).read_u8();
 
     if start == 0 && stop == 0 {
         // Some firmware leaves the cursor size unset; use standards.
-        // SAFETY: as above.
-        unsafe {
-            let s = state();
-            glue::pio_outb(s.kd_index_reg as u16, C_START);
-            glue::pio_outb(s.kd_io_reg as u16, CURSOR_START_SCANLINE);
-            glue::pio_outb(s.kd_index_reg as u16, C_STOP);
-            glue::pio_outb(s.kd_io_reg as u16, CURSOR_STOP_SCANLINE);
-        }
+        let s = state();
+        Port::new(s.kd_index_reg as u16).write_u8(C_START);
+        Port::new(s.kd_io_reg as u16).write_u8(CURSOR_START_SCANLINE);
+        Port::new(s.kd_index_reg as u16).write_u8(C_STOP);
+        Port::new(s.kd_io_reg as u16).write_u8(CURSOR_STOP_SCANLINE);
     }
 
     setpos(get_cursor());

@@ -1407,7 +1407,7 @@ entry below keeps the detail §4.1 gives the `kern/` files.
 | `ktss.c` | 86 | per-CPU TSS | 3 | GDT slots, seg.h |
 | `ldt.c` | 100 | LDT management | 3 | `lldt` asm, gdt/pmap |
 | `machine_task.c` | 80 | task iopb hooks | 3 | `kmem_cache_*`, lock |
-| `pic.c` | 270 | 8259 PIC | 3 | `cli` asm, spl, pio |
+| `pic.c` | 270 | 8259 PIC | 3 | `cli` asm, spl |
 | `apic.c` | 501 | local APIC | 4 | lapic MMIO, kalloc, idt |
 | `fpu.c` | 859 | FPU save/restore | 4 | inline asm, trap, percpu |
 | `gdt.c` | 141 | per-CPU GDT | 4 | `ljmp` asm, percpu |
@@ -1428,13 +1428,13 @@ entry below keeps the detail §4.1 gives the `kern/` files.
 | `cons_conf.c` | 48 | console table | 2 | `constab` entries |
 | `autoconf.c` | 127 | bus probe/attach | 2 | bus tables, spl |
 | `conf.c` | 144 | driver switch tables | 3 | kd/com/mem wiring |
-| `rtc.c` | 242 | CMOS clock | 3 | spl, pio, mach_clock |
+| `rtc.c` | 242 | CMOS clock | 3 | spl, mach_clock |
 | `biosmem.c` | 1027 | boot memory/direct map | 3 | multiboot, VM boot |
 | `acpi_parse_apic.c` | 651 | ACPI MADT parser | 3 | acpi tables, kernel VM |
 | `int_init.c` | 78 | IDT gate fill | 3 | asm stubs |
 | `ioapic.c` | 493 | IOAPIC | 3 | `cli` asm, irq routing |
 | `pic_isa.c` | 56 | ISA IRQ tables | 3 | pic/ipl |
-| `com.c` | 893 | 8250 serial | 4 | tty, spl, pio |
+| `com.c` | 893 | 8250 serial | 4 | tty, spl |
 | `model_dep.c` | 545 | machine init/bootstrap (anchor) | 5 | asm, pmap, percpu |
 
 `kd_queue.c`, `kd_event.c`, `kd_mouse.c`, `kd.c`, `mem.c` and
@@ -1494,10 +1494,11 @@ detail §4.1 gives the `kern/` files.
   `spltty`/`splx` (asm functions, not macros), `printf`, `wakeup`,
   `assert_wait`, `thread_block`, `iodone`, `device_read_alloc`,
   `ds_read_done`, `comgetc`, `kd_sendcmd`, `kd_cmdreg_write`,
-  `kd_mouse_drain`, `kdintr`.  The macros and config-shaped data got C
-  shims instead — pre-rule debt now, and §10 says what deletes each:
-  `pio_inb`/`pio_outb` in a new `i386/i386/pio_glue.c`
-  over the `inb`/`outb` statement expressions; `irq_mask`/`irq_unmask`
+  `kd_mouse_drain`, `kdintr`.  The `inb`/`outb` statement expressions
+  are `src/arch/i386/pio.rs` now; the `pio_glue.c` shims they needed
+  were deleted with that port.  The remaining macros and config-shaped
+  data got C shims instead — pre-rule debt now, and §10 says what
+  deletes each: `irq_mask`/`irq_unmask`
   and `ivect`/`iunit` accessors added to `i386/i386/irq.c` (`mask_irq`
   is inline under APIC and the arrays are `NINTR`-sized); and
   `com_base_addr`/`com_irq` added to `i386/i386at/com.c` for the
@@ -1524,9 +1525,9 @@ detail §4.1 gives the `kern/` files.
   unchanged.
 * **Shared pieces.** The `IoReq` prefix mirror, the request drain and
   the device return codes moved to `src/arch/i386/io_req.rs`, whose
-  future home is a `src/device/` module.  `pio_glue.c` gained the
-  16/32-bit shims the `X_kdb` interpreter needs; `kb_mode` moved into
-  the Rust kd module, so its `kbd_set_mode()` shim is gone.
+  future home is a `src/device/` module.  The 16/32-bit port access the
+  `X_kdb` interpreter needs is `src/arch/i386/pio.rs`; `kb_mode` moved
+  into the Rust kd module, so its `kbd_set_mode()` shim is gone.
 * **Notes.** The ioctl flavors are mirrored as computed values;
   `K_X_KDB_ENTER`/`EXIT` differ per target because their ioctl length
   field carries `sizeof(struct X_kdb)`.  The C bound
@@ -1980,8 +1981,7 @@ deletes it.
 | `i386/i386at/com.c` — `com_base_addr`, `com_irq` | `cominfo` is an `NCOM`-sized array | Phase 3 (`NCOM`), or porting `com.c` |
 | `i386/i386at/kd_glue.c` | `struct tty`'s lock macros, the line-discipline switch, `ttlowat[]` | Phase 2 (locks) for the first four; the `tty`/`ldisc` port for the rest |
 | `ipc/ipc_thread_glue.c` | A view of the `ith_next`/`ith_prev` pair in `struct thread` | **Deletable today.** The `struct thread` mirror landed with the scheduler port and carries both fields (`rust/src/kern/thread.rs:264`), so `src/ipc/ipc_thread.rs` can read them directly |
-| `i386/i386/pio_glue.c` | `inb`/`outb`/`inw`/`outw`/`inl`/`outl`, which are statement-expression macros in `i386/pio.h` | **Deletable today.** Port I/O is one instruction; `core::arch::asm!` is already used in `src/arch/i386/percpu.rs`, so a Rust `Port` type replaces the file with no new infrastructure |
 
-The two "deletable today" rows are the cheapest glue-debt work in the
-tree and need nothing from any phase.  Do them before adding more
+The one "deletable today" row is the cheapest glue-debt work in the
+tree and needs nothing from any phase.  Do it before adding more
 ports on top of the same C.

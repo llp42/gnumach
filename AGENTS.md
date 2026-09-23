@@ -41,7 +41,7 @@ routine at a time. The target is a Rust kernel, not a kernel with Rust in it.
 The build is GNU Autotools plus a hand-written `rustc` invocation — no Cargo,
 no lock file, no network. The Rust half compiles to `libmach-rs.a`, which is
 linked between two passes over `libkernel.a`, so Rust may call C and C may
-call Rust. As of 2026-09-23 the Rust half is 69 files and about 27,700 lines.
+call Rust. As of 2026-09-23 the Rust half is 70 files and about 27,800 lines.
 
 ### The idea
 
@@ -180,23 +180,23 @@ a per-CPU accessor), not a shim to add quietly.
 
 ### The glue already in the tree
 
-Six `*_glue.c` files predate this rule, and three ordinary C files carry
+Five `*_glue.c` files predate this rule, and three ordinary C files carry
 shim functions too. All of it is debt, not precedent:
 
 ```
-i386/i386/pio_glue.c        i386/i386at/kd_glue.c
-ipc/ipc_thread_glue.c       kern/processor_glue.c
-vm/vm_external_glue.c       vm/vm_map_glue.c
+i386/i386at/kd_glue.c       ipc/ipc_thread_glue.c
+kern/processor_glue.c       vm/vm_external_glue.c
+vm/vm_map_glue.c
 
 kern/sched_prim.c           thread_glue_pset_sched_load
 i386/i386/irq.c             irq_mask, irq_unmask, irq_{set,get}_{handler,unit}
 i386/i386at/com.c           com_base_addr, com_irq
 ```
 
-They may shrink and they may be deleted. They may never grow, and a seventh
+They may shrink and they may be deleted. They may never grow, and a sixth
 file is never created. Deleting the last caller of one deletes it in the
 same commit. `MIGRATE.md` §10 catalogues every piece and names what deletes
-it; two of them are deletable today.
+it; one of them is deletable today.
 
 `MIGRATE.md`'s ordering was rewritten around this rule: §6 is the test
 that decides whether a function can move, §7 the phases, §10 the debt.
@@ -362,7 +362,7 @@ the C file it came out of.
   macro is ported first, so that there is a real symbol to declare.
 - `rust/src/panic.rs` — `#[panic_handler]`, routed into the kernel's `Panic()`.
 
-The six `*_glue.c` files in the C tree are pre-rule debt, listed under "The
+The five `*_glue.c` files in the C tree are pre-rule debt, listed under "The
 no-glue law". Nothing adds to them and nothing joins them.
 
 The C half is unchanged Mach: `kern/`, `ipc/`, `vm/`, `device/`, `i386/`,

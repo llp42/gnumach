@@ -11,3 +11,4 @@ pub mod kd_mouse;
 pub mod mbinfo;
 pub mod mem;
 pub mod percpu;
+pub mod pio;

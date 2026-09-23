@@ -18,6 +18,7 @@ use super::keymap::KEY_MAP;
 use super::*;
 use crate::arch::i386::kd_event::kd_enqsc;
 use crate::arch::i386::kd_mouse;
+use crate::arch::i386::pio::Port;
 use crate::glue;
 use core::ffi::{c_int, c_uint};
 
@@ -111,21 +112,21 @@ pub(crate) fn state2idx(state_in: c_uint, extended: bool) -> usize {
 
 /// Wait for the input buffer and send a byte to the keyboard.
 pub(crate) fn senddata(ch: u8) {
-    while unsafe { glue::pio_inb(K_STATUS) } & K_IBUF_FUL != 0 {}
-    unsafe { glue::pio_outb(K_RDWR, ch) };
+    while Port::new(K_STATUS).read_u8() & K_IBUF_FUL != 0 {}
+    Port::new(K_RDWR).write_u8(ch);
     state().last_sent = ch;
 }
 
 /// Wait for the input buffer and send a command to the keyboard.
 pub(crate) fn sendcmd(ch: u8) {
-    while unsafe { glue::pio_inb(K_STATUS) } & K_IBUF_FUL != 0 {}
-    unsafe { glue::pio_outb(K_CMD, ch) };
+    while Port::new(K_STATUS).read_u8() & K_IBUF_FUL != 0 {}
+    Port::new(K_CMD).write_u8(ch);
 }
 
 /// Wait for a data byte from the keyboard.
 pub(crate) fn getdata() -> u8 {
-    while unsafe { glue::pio_inb(K_STATUS) } & K_OBUF_FUL == 0 {}
-    unsafe { glue::pio_inb(K_RDWR) }
+    while Port::new(K_STATUS).read_u8() & K_OBUF_FUL == 0 {}
+    Port::new(K_RDWR).read_u8()
 }
 
 /// Complete a pending keyboard command.
@@ -303,7 +304,7 @@ fn intr() {
     // Allow for keyboards that raise the interrupt before the character
     // reaches the buffer, but do not wait forever.
     let mut safety: c_int = 1000;
-    while unsafe { glue::pio_inb(K_STATUS) } & K_OBUF_FUL == 0 {
+    while Port::new(K_STATUS).read_u8() & K_OBUF_FUL == 0 {
         safety -= 1;
         if safety == 0 {
             break;
@@ -311,8 +312,8 @@ fn intr() {
     }
 
     // We may have seen a mouse event.
-    if unsafe { glue::pio_inb(K_STATUS) } & K_AUX_OBUF_FUL == K_AUX_OBUF_FUL {
-        let sc = unsafe { glue::pio_inb(K_RDWR) };
+    if Port::new(K_STATUS).read_u8() & K_AUX_OBUF_FUL == K_AUX_OBUF_FUL {
+        let sc = Port::new(K_RDWR).read_u8();
         if kd_mouse::mouse_in_use() != 0 {
             kd_mouse::mouse_handle_byte(sc);
         } else {
@@ -322,7 +323,7 @@ fn intr() {
         return;
     }
 
-    let mut scancode = unsafe { glue::pio_inb(K_RDWR) };
+    let mut scancode = Port::new(K_RDWR).read_u8();
     if scancode == K_EXTEND && mode() != KB_EVENT {
         state().kd_extended = true;
         return;
@@ -411,10 +412,10 @@ pub(crate) fn cmdreg_write(val: c_int) {
 /// Drain pending keyboard bytes, printing them; `kd_mouse.rs` closes a
 /// PS/2 mouse with this.
 pub(crate) fn mouse_drain() {
-    while unsafe { glue::pio_inb(K_STATUS) } & K_IBUF_FUL != 0 {}
-    let mut i = unsafe { glue::pio_inb(K_STATUS) };
+    while Port::new(K_STATUS).read_u8() & K_IBUF_FUL != 0 {}
+    let mut i = Port::new(K_STATUS).read_u8();
     while i & K_OBUF_FUL != 0 {
-        let data = unsafe { glue::pio_inb(K_RDWR) };
+        let data = Port::new(K_RDWR).read_u8();
         // SAFETY: a literal format with two integers.
         unsafe {
             glue::printf(
@@ -423,7 +424,7 @@ pub(crate) fn mouse_drain() {
                 data as c_int,
             )
         };
-        i = unsafe { glue::pio_inb(K_STATUS) };
+        i = Port::new(K_STATUS).read_u8();
     }
 }
 
