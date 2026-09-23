@@ -210,8 +210,10 @@ Where any older note there still names a shim as a step, the step is wrong.
 
 A **free port** is one that needs nothing which does not already exist:
 no new C, no new `#[repr(C)]` mirror, no configure-time constant brought
-into Rust, no design conversation. `MIGRATE.md` §6 is the five-question
-test that decides this mechanically, and §6.1 is the current list.
+into Rust, no design conversation. `MIGRATE.md` §6 is the seven-question
+test that decides this mechanically, and §6.1 is the current list, split
+into what is confirmed, what waits on one decision, and what is only a
+candidate until someone reads it.
 
 **An empty §6.1 does not mean there are no free ports left.** It was
 emptied once, and a mechanical re-derivation immediately found forty

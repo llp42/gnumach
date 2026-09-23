@@ -1713,9 +1713,11 @@ generated `.server.h`; the unmarshalling, `TypeCheck` and
 
 ## 6. What to port next — the objective test
 
-Choosing work is a five-question test, not a judgement call.  Apply it
-to a single C **function**, not to a file; a file is ready when all of
-its functions pass.
+Choosing work is a seven-question test, not a judgement call.  Apply
+it to a single C **function**, not to a file; a file is ready when all
+of its functions pass.  Questions 1 to 5 ask what the function does;
+6 and 7 ask whether it can be replaced at all, and §6.3 answers both
+from the built objects rather than the source.
 
 | # | Question | If the answer is "no" |
 |---|---|---|
@@ -1762,127 +1764,140 @@ thirteen refusals failed one of them, and every one of those eleven
 had passed questions 1 to 5.  Neither is about what a function does,
 which is why a reader looking only at bodies misses both.
 
-### 6.1 Tier 0 — the free ports
+### 6.1 Tier 0 — current status
 
-**Zero "no" answers: these need nothing that does not exist today.**
-No new C, no new mirror, no new constant, no design conversation.
-Tier 0 is worked to exhaustion before any infrastructure is proposed
+**Zero "no" answers: needs nothing that does not exist today.**  No new
+C, no new mirror, no new constant, no design conversation.  Tier 0 is
+worked to exhaustion before any infrastructure is proposed
 (`AGENTS.md`, "Take the free ports first").
 
-Both lists so far have been worked to zero.  The first, forty-eight
-functions found by sampling, emptied `device/cirbuf.c`,
-`kern/thread_swap.c`, `i386/i386at/rtc.c`, `i386/i386/pit.c` and
-`i386/i386/ast_check.c` of C entirely, and took
-`ipc/ipc_thread_glue.c` and `i386/i386/pio_glue.c` with it.  The
-second, forty found mechanically (§6.3), landed twenty-seven and
-refused thirteen; §9 records the commits.
+Tier 0 has three parts, and the difference between them matters more
+than the count.  **Confirmed** is verified by hand and ready to port.
+**Gated** is free but waits on one decision that is not the porter's.
+**Candidates** came out of the scan and are not yet checked; §6.3 says
+why the scan cannot finish the job.
 
-**What the second list's refusals taught.**  Eleven of the thirteen
-were not judgement calls at the edge; they were functions the test
-said were free and were not.  Each one exposed a question the test
-was not asking, and questions 6 and 7 in §6 exist because of them.
+#### Confirmed — port these now
 
-| Refused | Why | Now |
-|---|---|---|
-| `kern/bootstrap.c itoa`, `kern/syscall_sw.c null_port` and `kern_invalid` | `static`, and no prototype in any header, so the Rust definition is unreachable without adding a C declaration | question 6; port the caller with them |
-| `processor_assign`, `task_assign`, `thread_assign`, `processor_set_create`, `processor_set_destroy` | the `#else` half of `#if MACH_HOST`, which cannot be 0 in this tree | question 7; they are deletions, §8 |
-| `i386/i386/smp.c smp_remote_ast`, `smp_pmap_update` | their callee `smp_send_ipi` is `static` (`smp.c:52`); this file said "real symbol" and was wrong | blocked; porting the callee needs an unmirrored bitfield and two `static __always_inline` helpers |
-| `i386/intel/pmap.c pmap_virtual_space` | subtracts `MAPWINDOW_SIZE`, which expands through `NCPUS`, an `AC_DEFINE` | §7 Phase 3 |
+Eight functions, each read against the C, its callees' linkage and the
+mirrors that exist.
 
-The other two refusals were deliberate scope calls rather than test
-failures.  `i386/i386/trap.c trap_name` moves a table its own file
-still reads, so porting it changes the kernel-trap report for an
-unknown vector; that is an observable behaviour change and wants its
-own commit.  `i386/i386/pcb.c user_stack_low` needs
-`VM_MAX_USER_ADDRESS`, which takes a third value on a 64-bit kernel
-built `--enable-user32`, so it needs a `--cfg` plumbed into
-`AM_RUSTFLAGS` first.  Both remain free ports behind one decision
-each.
+| Function | Why it is free |
+|---|---|
+| `i386/i386at/model_dep.c:187 machine_idle` | one `asm volatile ("hlt")`; question 5 |
+| `i386/i386at/model_dep.c:192 machine_relax` | one `asm volatile ("rep; nop")`; question 5 |
+| `i386/i386/pcb.c:387 pcb_collect` | empty body |
+| `i386/i386/apic.c:498 hpclock_get_counter_period_nsec` | returns `hpet_period_nsec`, a `uint32_t` global read as a scalar |
+| `device/intr.c:26 irqgetstat` | a `switch` over the flavour, two out-parameters, and the `pic_mode` global.  Its `D_SUCCESS`/`D_INVALID_OPERATION` are now `DeviceError` (`rust/src/device/return.rs`), so it lands in the type the tree already has |
+| `i386/intel/pmap.c:2276 pmap_clear_modify`, `:2288 pmap_is_modified`, `:2299 pmap_clear_reference`, `:2311 pmap_is_referenced` | one call each to `phys_attribute_clear`/`_test`, both externally visible, plus a plain constant |
 
-**The list is empty again as of `8dbc4e8e`.**  That is not a finding.
-It was empty after the first list too, and the mechanical pass
-immediately found forty more.  Re-derive with §6.3's method before
-concluding anything from an empty heading.
+#### Gated — free, but one decision first
 
-**Still open, in order of cheapness:**
+| Function | The decision |
+|---|---|
+| `i386/i386/trap.c:106 trap_name` | `trap_type[]` has a second reader in the same file, so moving the table changes the kernel-trap report for an unknown vector from `Kernel trap 42` to `Kernel (unknown) trap`.  Observable behaviour, so it wants its own commit under the narrow exception in `AGENTS.md`, or the second reader moves with it |
+| `i386/i386/pcb.c:894 user_stack_low` | `VM_MAX_USER_ADDRESS` takes a third value on a 64-bit kernel built `--enable-user32`, so Rust needs a `--cfg user32` plumbed into `AM_RUSTFLAGS`.  That is an "ask first" build change |
 
-1. `i386/i386/trap.c:106 trap_name` — needs the behaviour decision above.
-2. `i386/i386/pcb.c:894 user_stack_low` — needs the `user32` cfg.
-3. `i386/i386at/acpi_parse_apic.c:62 acpi_checksum`, `:151
-   acpi_check_rsdp_align`, `:85 acpi_check_signature` — pure, but
-   `static`, so question 6 applies and their callers move with them.
-4. `kern/bootstrap.c:297 itoa` — port `get_compat_strings`, its only
-   caller, in the same commit and `itoa` becomes a private Rust
-   helper.
-5. `kern/syscall_sw.c:63 null_port`, `:69 kern_invalid` — the same
-   shape; `kern_invalid_debug` has no header declaration and no other
-   reader, so it becomes a private Rust static rather than an extern.
+#### Candidates — derived, not verified
 
-### 6.2 What the rejections teach
+The scan leaves about a hundred functions that pass every question it
+can decide mechanically.  **They are a shortlist to check, not a list
+to port.**  Two questions the scan cannot answer are exactly the ones
+that sink most candidates:
 
-Every candidate rejected by either pass failed on one of exactly three
-things, and each is a concrete piece of work rather than a vague
-difficulty:
+* **Question 2, struct fields.**  The scan sees `->` and stops there.
+  It cannot see `.` access, a struct passed by value, or a global of
+  unmirrored type.
+* **Question 3, configure-sized arrays.**  The size is in the
+  declaration, not the body.  `i386/i386at/com.c:703 fix_modem_state`
+  reads clean and indexes `commodem[NCOM]` (`com.c:75`); the four
+  `irq_*` accessors in `i386/i386/irq.c` index `ivect`/`iunit`, both
+  `NINTR`-sized.  Both look free to any body-only reader.
 
-1. **A configure-time array.**  `init_timers`, `thread_quantum_update`,
-   `compute_mach_factor`, `cpu_up`, `ast_init` and everything in
-   `i386/i386/irq.c` index `NCPUS`- or `NINTR`-sized storage.  §7
-   Phase 3 clears all of them at once.
-2. **An unmirrored struct field.**  Everything in `kern/eventcount.c`
-   (`struct eventcounter`), most of `vm/vm_pageout.c` and
-   `device/net_io.c` (`vm_page`, `vm_object`, `net_hash_entry`), and
-   `i386/i386/machine_task.c` (`task->machine`).  §7 Phase 4.
-3. **A lock macro over an unmirrored struct.**  This is what gates
-   `ipc/` almost entirely: `ip_lock`, `ip_unlock`, `is_write_unlock`
-   and `ips_lock` inline a dereference of `struct ipc_port` or
-   `ipc_space` into the caller, so the caller fails question 2 even
-   though the underlying lock is Rust.  Six functions in the whole
-   directory survive it.
+So the candidate pool is where to look next, in this order: the
+remaining `i386/intel/pmap.c` leaves, `device/intr.c` and
+`device/kmsg.c`'s device entries, and the `i386/i386/apic.c`
+accessors.  Check each against all seven questions before porting it.
 
-The two cheapest ways to grow Tier 0 are therefore Rust changes, not
-C ones:
+#### What emptying the list twice has taught
+
+The list has been emptied twice and refilled twice.  The first time it
+looked like completion; it was the limit of a sampling method.  The
+second time eleven of thirteen refusals were functions this file had
+called free, which is where questions 6 and 7 came from.  An empty
+Tier 0 is a statement about the last derivation, never about the tree.
+
+### 6.2 The five ways a candidate fails
+
+Every rejection so far falls into one of five classes, and each is a
+concrete piece of work rather than a vague difficulty.  The class is
+also the fix.
+
+1. **A configure-time array** (question 3).  `init_timers`,
+   `thread_quantum_update`, `compute_mach_factor`, `cpu_up`,
+   `ast_init`, `fix_modem_state` and everything in `i386/i386/irq.c`
+   index `NCPUS`-, `NINTR`- or `NCOM`-sized storage.  §7 Phase 3
+   clears the whole class at once.
+2. **An unmirrored struct field** (question 2).  Everything in
+   `kern/eventcount.c` (`struct eventcounter`), most of
+   `vm/vm_pageout.c` and `device/net_io.c` (`vm_page`, `vm_object`,
+   `net_hash_entry`), and `i386/i386/machine_task.c`'s remaining
+   entries (`task->machine`).  §7 Phase 4.
+3. **A lock macro over an unmirrored struct** (question 2, indirectly).
+   This is what gates `ipc/`: `ip_lock`, `ip_unlock`,
+   `is_write_unlock` and `ips_lock` inline a dereference of `struct
+   ipc_port` or `ipc_space` into the caller, so the caller fails
+   question 2 even though the lock underneath is Rust.  It is why a
+   directory of 18 files has yielded six functions.
+4. **Not externally visible** (question 6).  `itoa`, `null_port`,
+   `kern_invalid` and the three `acpi_parse_apic.c` helpers are
+   `static` with no prototype.  The fix is to port the caller in the
+   same commit so the function becomes a private Rust helper, never to
+   add the `extern` declaration.
+5. **Not compiled** (question 7).  The `#else /* MACH_HOST */` halves
+   and the macro-shadowed `pmap_copy`/`pmap_kernel`.  These are
+   deletions, §8.
+
+The two cheapest ways to grow Tier 0 are Rust changes, not C ones:
 
 * **Mirror `mach_msg_header_t` and `mach_msg_type_t`.**  That alone
-  qualifies all six `ipc_notify_init_*` functions in
+  clears class 2 for the six `ipc_notify_init_*` functions in
   `ipc/ipc_notify.c`.
-* **Bring `NCPUS` into Rust** (§7 Phase 3).  That clears rejection
-  class 1 and deletes `kern/processor_glue.c` at the same time (§10).
+* **Bring `NCPUS` into Rust** (§7 Phase 3).  That clears class 1 and
+  deletes `kern/processor_glue.c` at the same time (§10).
 
-### 6.3 How this list was produced, and when to redo it
+### 6.3 How to derive the list, and what the derivation cannot do
 
-Two passes, and the difference between them is the lesson.
+**The built objects are the oracle for questions 6 and 7.**  Run `nm
+--defined-only` over `build-64` and `build-32` and read the symbol:
 
-**First pass, sampling.**  Four parallel surveys on 2026-09-23, one
-each over `kern/`, `ipc/`, `vm/` + `device/` and `i386/` + `x86_64/` +
-`util/` + `chips/`, each asked for its best candidates.  Forty-eight
-functions, all correct, and all of them ported within the day.
+| `nm` says | Meaning | Verdict |
+|---|---|---|
+| `T` | externally visible and compiled | passes 6 and 7 |
+| `t` | compiled, but local to its unit | fails 6: its callers move with it or it waits |
+| absent | not compiled in this configuration | fails 7: it is a deletion, §8 |
 
-**Second pass, mechanical.**  Parse every function definition in the
-eight C directories, 1,338 of them, and score each one against the
-test instead of choosing which to look at.  Two buckets do most of the
-work: functions that call nothing at all, and functions whose every
-callee is in `glue`, is Rust, or is a settled exemption.  That found
-forty more that the sampling pass had simply not been pointed at,
-including four whole shapes it had missed: the `KERN_FAILURE` stubs,
-the `panic`-only entry points, the MIG support leaves in
-`kern/ipc_mig.c`, and the small change scattered through files whose
-overall friction rating is 5 (`bootstrap.c`, `thread.c`, `task.c`,
-`pmap.c`).
+That is exact and needs no parsing, and it is the check the first two
+derivations did not have.  Apply it to the function *and to every
+callee*: a same-file callee is only safe if it is `T` itself or moves
+in the same commit.  `i386/i386/smp.c:52 smp_send_ipi` is the case
+that taught this, and it cost two entries.
 
-**The rating on a file says nothing about its leaves.**  Sampling by
-file, which is what a friction column invites, is what hid those.
-Re-derive by function.
+**Then parse, to shortlist.**  Extract every function definition in
+the eight C directories and keep the ones whose callees are all in
+`glue`, already Rust, or a settled exemption.  This is a filter, not
+an answer.
 
-**It is a snapshot.**  Every mirror that lands and every constant that
-becomes visible to Rust moves functions from the rejection classes
-into Tier 0.  Re-run the mechanical pass after any Phase 3 or Phase 4
-work rather than trusting this table; emptying Tier 0 once is not the
-end of it, as the second pass showed.
+**Then read the survivors, because two questions stay manual.**
+Question 2 and question 3 both hide outside the function body: a `.`
+field access or a struct passed by value, and an array whose
+configure-time size is in its declaration.  `fix_modem_state` and the
+`irq_*` accessors pass every mechanical check and fail both.
 
-Already ported from the earlier lists: `kern/rbtree.c`,
-`i386/i386at/kd_queue.c`, `i386/i386at/mem.c`, `i386/i386at/mbinfo.c`,
-`ipc/ipc_thread.c`, `util/atoi.c`, `kern/kmutex.c` and
-`ipc/ipc_table.c` (see §9).
+**Redo it after any Phase 3 or Phase 4 work**, and after any batch of
+ports: every mirror that lands and every constant that becomes
+visible to Rust moves functions out of the rejection classes.  A
+derivation is a snapshot of one afternoon's tree.
 
 ### 6.4 Tiers 1 to 4
 
