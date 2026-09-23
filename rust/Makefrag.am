@@ -21,6 +21,8 @@ MACH_RS_SRCS = \
 	rust/src/arch/i386/pio.rs \
 	rust/src/arch/types.rs \
 	rust/src/arch/vm_param.rs \
+	rust/src/device/cirbuf.rs \
+	rust/src/device/mod.rs \
 	rust/src/glue/mig.rs \
 	rust/src/glue/mod.rs \
 	rust/src/glue/time_value.rs \

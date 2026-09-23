@@ -111,8 +111,7 @@ endif
 
 libkernel_a_SOURCES += \
 	chips/busses.c \
-	chips/busses.h \
-	device/cirbuf.c
+	chips/busses.h
 
 #
 # Automatically generated source files.

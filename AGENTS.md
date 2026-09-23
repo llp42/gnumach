@@ -41,7 +41,7 @@ routine at a time. The target is a Rust kernel, not a kernel with Rust in it.
 The build is GNU Autotools plus a hand-written `rustc` invocation — no Cargo,
 no lock file, no network. The Rust half compiles to `libmach-rs.a`, which is
 linked between two passes over `libkernel.a`, so Rust may call C and C may
-call Rust. As of 2026-09-23 the Rust half is 70 files and about 27,800 lines.
+call Rust. As of 2026-09-23 the Rust half is 72 files and about 28,200 lines.
 
 ### The idea
 
@@ -115,6 +115,7 @@ link error, not a fallback.
 | `i386/i386/lock.h` (simple lock, bit ops) | `src/kern/lock.rs`, `src/arch/i386/atomic_bits.rs` |
 | `kern/kmutex.c` | `src/kern/kmutex.rs` |
 | `ipc/ipc_table.c` | `src/ipc/ipc_table.rs` |
+| `device/cirbuf.c` | `src/device/cirbuf.rs` |
 
 Also deleted as dead: `device/blkio.c` and the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`).
@@ -207,7 +208,7 @@ A **free port** is one that needs nothing which does not already exist:
 no new C, no new `#[repr(C)]` mirror, no configure-time constant brought
 into Rust, no design conversation. `MIGRATE.md` §6 is the five-question
 test that decides this mechanically, and §6.1 is the current list of
-forty-eight such functions.
+forty such functions.
 
 **Free ports are worked to exhaustion before any infrastructure is
 proposed.** They are the only kind of port that cannot be blocked, they

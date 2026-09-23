@@ -1378,7 +1378,7 @@ entry below keeps the detail §4.1 gives the `kern/` files.
 |---|---:|---|---:|---|
 | `cons.c` | 176 | console dispatch | 2 | `constab`, `kmsg_putchar` |
 | `subrs.c` | 85 | `ether_sprintf`, `sleep`, `wakeup` | 2 | thread primitives |
-| `cirbuf.c` | 277 | circular char buffer | 2 | kalloc/kfree |
+| `cirbuf.c` | 277 | circular char buffer | 2 | ported; see §9 |
 | `dev_name.c` | 242 | name/indirection tables | 2 | static tables + strcmp |
 | `device_init.c` | 63 | device bring-up | 3 | kernel ports, io/net threads |
 | `dev_lookup.c` | 365 | device registry | 3 | ipc kobject, slab |
@@ -1717,7 +1717,7 @@ No new C, no new mirror, no new constant, no design conversation.
 Tier 0 is worked to exhaustion before any infrastructure is proposed
 (`AGENTS.md`, "Take the free ports first").
 
-Forty-eight functions, fifty-nine counting the stub batch.  Clusters
+Forty functions, fifty-one counting the stub batch.  Clusters
 first, because a whole file leaving C in one commit is worth more than
 the same functions leaving one at a time.
 
@@ -1725,7 +1725,6 @@ the same functions leaving one at a time.
 
 | File | Functions | Why it is free |
 |---|---:|---|
-| `device/cirbuf.c` | 8 — `putc:81`, `getc:106`, `q_to_b:133`, `b_to_q:169`, `ndflush:208`, `cb_clear:237`, `cb_alloc:247`, `cb_free:269` | `struct cirbuf` is already mirrored field-for-field as `Cirbuf` (`rust/src/arch/i386/kd/tty.rs:61`); `CB_CHECK` expands to nothing in this build (`cirbuf.c:75`); the only calls are `memcpy`, `kalloc` and `kfree`, all real and the last two already in `glue`.  The mirror moves from `kd/tty.rs` to a new `rust/src/device/cirbuf.rs` with the port, since the file is machine-independent. |
 | `kern/thread_swap.c` | 5 — `swapper_init:69`, `thread_swapin:85`, `thread_doswapin:122`, `swapin_thread_continue:155`, `swapin_thread:189` | Locks are `mach_simple_lock`; `queue_init`, `enqueue_tail`, `dequeue_head`, `thread_setrun`, `assert_wait` and `thread_wakeup_prim` are Rust; `stack_alloc`, `stack_privilege`, `splsched`, `splx` and `thread_block` are real symbols.  Every field it touches (`state`, `links`, `lock`, `vm_privilege`) is in the `Thread` mirror. |
 | `i386/i386at/rtc.c` | 7 — `rtcinit:62`, `rtcget:72`, `rtcput:89`, `hexdectodec:111`, `yeartoday:134`, `dectohexdec:140`, `readtodc:146` | The three arithmetic helpers call nothing at all.  The rest is port I/O plus `printf` and `splclock`/`splx`, all real.  `struct rtc_st` is used only inside `rtc.c`/`rtc.h`, so it moves with the file rather than needing a mirror. |
 | `i386/i386/pit.c` | 4 — `pit_prepare_sleep:69`, `pit_sleep:89`, `pit_udelay:105`, `pit_mdelay:117` | Port I/O and plain constants only; the two `*delay` entries call their siblings in the same file. |
@@ -1819,7 +1818,7 @@ or Rust already.  Each phase exists to make the next one legal, and no
 phase contains a shim.  Where the old phasing said "add the shim", the
 replacement says which file to port instead.
 
-* **Phase 0 — Tier 0 (now).**  The forty-eight free functions of
+* **Phase 0 — Tier 0 (now).**  The forty free functions of
   §6.1, worked to exhaustion.  Each needs nothing that does not exist
   today, so this phase can start and finish without a single decision
   from any later one.  Nothing below is begun while Tier 0 has
@@ -1953,6 +1952,7 @@ kernel may add host tests like the rbtree's; see §8.
 | `kern/ast.h` (`ast_on`, `ast_off`, `ast_needed`) | `src/kern/ast.rs` | `6a6281be` |
 | `kern/kmutex.c` | `src/kern/kmutex.rs` | `d4fe54dc` |
 | `ipc/ipc_table.c` | `src/ipc/ipc_table.rs` | `bd582ec6` |
+| `device/cirbuf.c` | `src/device/cirbuf.rs` | `pending` |
 | `kern/thread.c` (`thread_init`) | `src/kern/thread.rs` | `pending` |
 | `kern/sched.h` (`thread_timer_delta`) | `src/kern/thread.rs`, `src/kern/timer.rs` | `pending` |
 | `kern/processor.c` (`processor_init`, `pset_init`, `processor_start/exit/control`, `processor_get_assignment`, `processor_info`, `processor_set_info`, `pset_reference`, `pset_deallocate`, `pset_add/remove_thread`, `thread_change_psets`, `processor_set_max_priority`, `processor_set_policy_enable/disable`) | `src/kern/processor.rs` | `pending` |

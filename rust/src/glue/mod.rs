@@ -209,7 +209,7 @@ unsafe extern "C" {
     // <i386at/com.h>
     pub fn comgetc(unit: c_int) -> c_int;
 
-    // <device/tty.h> and <device/cirbuf.h>
+    // <device/tty.h>
     pub fn ttychars(tp: *mut c_void);
     pub fn char_open(
         dev: c_int,
@@ -232,7 +232,6 @@ unsafe extern "C" {
     ) -> c_int;
     pub fn tty_portdeath(tp: *mut c_void, port: *mut c_void) -> c_int;
     pub fn tty_queue_completion(queue: *mut c_void);
-    pub fn getc(buf: *mut c_void) -> c_int;
 
     // Shims in i386/i386at/kd_glue.c, for the tty lock macros, the
     // line discipline switch, `ttlowat[]` and `phystokv()`.

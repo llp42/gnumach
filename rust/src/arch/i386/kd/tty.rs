@@ -18,10 +18,11 @@
 use super::*;
 use crate::arch::i386::io_req::{DevT, IoReq};
 use crate::arch::vm_param::PAGE_SHIFT;
+use crate::device::cirbuf::Cirbuf;
 use crate::glue;
 use crate::kern::lock::SimpleLock;
 use crate::kern::queue::QueueEntry;
-use core::ffi::{c_char, c_int, c_short, c_uint, c_void};
+use core::ffi::{c_char, c_int, c_uint, c_void};
 use core::mem::{offset_of, size_of};
 use core::ptr::NonNull;
 
@@ -54,18 +55,6 @@ use crate::arch::i386::io_req::{D_INVALID_OPERATION, D_SUCCESS};
 const MAP_LIMIT: usize = 128 * 1024;
 /// `kdmmap()`'s failure value, as `(vm_offset_t)-1`.
 const MAP_FAILED: usize = usize::MAX;
-
-/// `struct cirbuf` of <device/cirbuf.h>.
-#[repr(C)]
-#[allow(dead_code)]
-pub struct Cirbuf {
-    c_start: *mut c_char,
-    c_end: *mut c_char,
-    c_cf: *mut c_char,
-    c_cl: *mut c_char,
-    c_cc: c_short,
-    c_hog: c_short,
-}
 
 /// `struct tty` of <device/tty.h>, field for field.
 #[repr(C)]
@@ -129,22 +118,8 @@ impl Tty {
     pub(crate) const fn new() -> Self {
         Self {
             t_lock: SimpleLock::new(),
-            t_inq: Cirbuf {
-                c_start: core::ptr::null_mut(),
-                c_end: core::ptr::null_mut(),
-                c_cf: core::ptr::null_mut(),
-                c_cl: core::ptr::null_mut(),
-                c_cc: 0,
-                c_hog: 0,
-            },
-            t_outq: Cirbuf {
-                c_start: core::ptr::null_mut(),
-                c_end: core::ptr::null_mut(),
-                c_cf: core::ptr::null_mut(),
-                c_cl: core::ptr::null_mut(),
-                c_cc: 0,
-                c_hog: 0,
-            },
+            t_inq: Cirbuf::new(),
+            t_outq: Cirbuf::new(),
             t_addr: None,
             t_dev: 0,
             t_start: None,
@@ -174,10 +149,6 @@ fn tty() -> &'static mut Tty {
 
 fn lock() -> *mut c_void {
     core::ptr::addr_of_mut!(tty().t_lock).cast()
-}
-
-fn outq() -> *mut c_void {
-    core::ptr::addr_of_mut!(tty().t_outq).cast()
 }
 
 /// Feed one character to the line discipline: the `linesw` shim.
@@ -380,24 +351,18 @@ unsafe extern "C" fn kdstart(tp: *mut Tty) {
         if tp.t_state & TS_TTSTOP != 0 {
             break;
         }
-        let ch = if tp.t_outq.c_cc <= 0 {
-            -1
-        } else {
-            // SAFETY: `t_outq` is the tty's output buffer.
-            unsafe { glue::getc(outq()) }
-        };
-        if ch == -1 {
+        let Some(ch) = tp.t_outq.get() else {
             break;
-        }
+        };
         // Drop priority for long screen updates.
         // SAFETY: the clock's soft interrupt level is the driver's.
         let o_pri = unsafe { glue::splsoftclock() };
-        super::esc::putc_esc(ch as u8);
+        super::esc::putc_esc(ch);
         unsafe { glue::splx(o_pri) };
     }
     // SAFETY: `ttlowat[]` is the tty layer's.
     let lowat = unsafe { glue::kd_ttlowat(tp.t_ospeed as c_int) };
-    if tp.t_outq.c_cc <= lowat {
+    if tp.t_outq.count() <= lowat {
         // tt_write_wakeup(tp)
         // SAFETY: the delayed write queue is the tty's.
         unsafe {
