@@ -324,7 +324,7 @@ Run `rustfmt` before you think about anything else. Note that rustfmt checks
 neither comments nor documentation, so everything below about doc comments and
 `// SAFETY:` is enforced by review, not tooling.
 
-Rules 1–20 are the port's idiom rules. Rules 21–44 are the standing Rust
+Rules 1–20 are the port's idiom rules. Rules 21–45 are the standing Rust
 practice this target needs, drawn from the Linux kernel Rust coding
 guidelines, the rust-analyzer style guide, the Rust API guidelines and
 Apollo's Rust best practices, and filtered down to what holds in `#![no_std]`
@@ -998,7 +998,7 @@ A `FIXME` about the code goes between the doc block and the item.
 pub fn f(x: c_int) -> Foo { /* ... */ }
 ```
 
-**Control flow and organization — rules 40 to 44.**
+**Control flow and organization — rules 40 to 45.**
 
 ### 40. Early returns, and do not hide control flow
 
@@ -1090,6 +1090,22 @@ Converting one is a welcome drive-by when you are already in the file.
 Never add a suppression to silence a lint that is telling the truth. See the
 hard rule under Testing.
 
+### 45. New locks come from `rust/src/spin`, and guards are `#[must_use]`
+
+New lock requirements use the vendored primitives in `rust/src/spin` —
+`crate::spin::{Mutex, RwLock}` and their guards — never a fresh
+hand-rolled spinlock over `core::sync::atomic`, and never an unguarded
+spin on a C `simple_lock` this tree has not ported.  Every guard carries
+`#[must_use]`, so taking a lock and dropping it on the same statement is
+a warning: bind it (`let guard = lock.lock();`) or discard it
+deliberately (`let _ = lock.lock();`).
+
+This is the rule for new lock sites, not a migration order.  `kern/lock.c`
+and its layout mirror `rust/src/kern/lock.rs` stay as they are until
+their own port, and the C callers keep calling the `lock_*` symbols.  A
+lock site inside a C file moves to the vendored primitives when that
+file moves, not before.
+
 ---
 
 ## Deliberately not adopted
@@ -1104,6 +1120,9 @@ follow, so that nobody "fixes" the tree toward them.
   merge-conflict benefit this repo does not have.
 - **`thiserror`, `anyhow`, `bitflags`, `smallvec`, any crate at all.** No
   Cargo, no network. Rule 8 is why the bitflags macro is written in tree.
+  `rust/src/spin` is the one exception, and not a dependency: it is
+  MIT-licensed source vendored in the tree, and rule 45 requires new locks
+  to use it.
 - **`std::error::Error`, `Send + Sync` bounds on errors, serde, async.** No
   `std`, no allocator, no executor.
 - **`Cargo.toml` `[lints]` tables.** Lints are set in `src/lib.rs` and on the
