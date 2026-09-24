@@ -97,7 +97,6 @@ file, or `—` when the rest is ready too.
 | `syscall_emulation.c` | 446 | 4 | 0 | `struct eml_dispatch` and task fields |
 | `syscall_subr.c` | 251 | 4 | 0 | static continuations (`swtch_continue`, ...) |
 | `syscall_sw.c` | 220 | 3 | 0 | trap table ABI; static stubs |
-| `thread.c` | 1737 | 5 | 0 | reaper/collect scans, static helpers, task fields |
 | `timer.c` | 93 | 3 | 0 | `db_thread_read_times` and its static helpers |
 
 ## 5. Outside `kern/`
@@ -328,7 +327,7 @@ classes.  A derivation is a snapshot of one afternoon's tree.
 
 * **Phase C — the coupled files.**  `eventcount`, `priority`, `gsync`,
   `ipc_tt`, `ipc_host`, `host`, `processor`, `machine`, `mach_clock` once
-  their struct stories exist; then the anchors (`sched_prim`, `thread`,
+  their struct stories exist; then the anchors (`sched_prim`,
   `ipc_mig`, `exception`, `startup`, `bootstrap`, `trap`, `pcb`,
   `ipc_kmsg`, `mach_msg`).
 
@@ -348,9 +347,9 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 * `#if 0` blocks in `kern/{boot_script,bootstrap,exception,ipc_kobject}.c`,
   `device/intr.c`, `i386/i386/{fpu,smp,pcb,trap}.c`,
   `i386/i386at/{kd,com}.c`.  Delete before porting the surrounding code.
-* Dead `#else /* MACH_HOST */` halves of `kern/machine.c:309` and
-  `kern/thread.c:1832`; `MACH_HOST` is 1 in both configured builds.
-  `kern/task.c`'s half went with the file.
+* Dead `#else /* MACH_HOST */` halves of `kern/machine.c:309`;
+  `MACH_HOST` is 1 in both configured builds.  The `kern/task.c` and
+  `kern/thread.c` halves went with their files.
 * Macro-shadowed definitions: `i386/intel/pmap.c`'s `pmap_copy` and
   `pmap_kernel` were unreachable behind `i386/intel/pmap.h`'s macros and
   went with the file's port.
@@ -443,6 +442,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `kern/task.c` whole, with the file-private statics it owned and the `struct task` mirror | `src/kern/task.rs`, `src/kern/task_ffi.rs` | pending |
 | `i386/intel/pmap.c` whole, with the file-private statics it owned and the `struct pmap`, `struct pv_entry`, `pmap_update_list` and `pmap_mapwindow_t` mirrors | `src/arch/i386/pmap.rs` | pending |
 | `i386/i386at/biosmem.c` whole, with the file-private statics it owned | `src/arch/i386/biosmem.rs` | pending |
+| `kern/thread.c` whole, with the file-private `walking_zombie`, `reaper_thread_continue`, `thread_collect_scan`, `stack_usage` and `stack_statistics`, and the globals it owned | `src/kern/thread.rs`, `src/kern/thread_ffi.rs` | pending |
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `i386/i386at/kd_glue.c`
@@ -471,7 +471,11 @@ The `i386/intel/pmap.c` port declared the C routines it still calls
 (`splvm`, `kmem_alloc_wired`, `cpu_features`, `_start`, `etext`) in
 `rust/src/glue/`, which writes no C and is not debt.  The
 `i386/i386at/biosmem.c` port moved `biosmem_directmap_end` out of that
-list and into `src/arch/i386/biosmem.rs`.
+list and into `src/arch/i386/biosmem.rs`.  The `kern/thread.c` port
+declared the C routines it still calls (`pcb_init`, `pcb_terminate`,
+`ipc_thread_init`, `mach_port_deallocate`, `mach_port_destroy`,
+`mach_msg_continue`, `mach_msg_receive_continue` and
+`mach_msg_interrupt`) in the same block, which is not debt either.
 
 `--enable-user32` is out of scope for the Rust half: the build targets
 the i686 and x86_64 configurations the ABI pack gates.  The removed

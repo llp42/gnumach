@@ -29,7 +29,6 @@ use crate::glue;
 use crate::kern::lock::{LockData, SimpleLock};
 use crate::kern::machine::slot as machine_slot;
 use crate::kern::slab::{CacheInitFlags, KmemCache};
-use crate::kern::task::Task;
 use crate::kern::thread::Thread;
 use crate::vm::error::KERN_SUCCESS;
 use crate::vm::types::{VmObject, VmProt};
@@ -2985,7 +2984,7 @@ pub unsafe extern "C" fn process_pmap_updates(my_pmap: *mut Pmap) {
 unsafe fn current_pmap(thread: *mut Thread) -> *mut Pmap {
     // SAFETY: the caller promises a live thread and its task chain.
     unsafe {
-        let task = (*thread).task.cast::<Task>();
+        let task = (*thread).task;
         let map = (*task).map.cast::<VmMap>();
         (*map).pmap
     }

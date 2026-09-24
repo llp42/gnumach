@@ -135,7 +135,6 @@ libkernel_a_SOURCES += \
 	kern/syscall_sw.c \
 	kern/syscall_sw.h \
 	kern/task.h \
-	kern/thread.c \
 	kern/thread.h \
 	kern/thread_swap.h \
 	kern/timer.c \

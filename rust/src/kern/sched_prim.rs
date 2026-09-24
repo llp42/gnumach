@@ -542,7 +542,7 @@ pub unsafe extern "C" fn thread_dispatch(thread: *mut Thread) {
 
         if (*thread).swap_func.is_some() {
             (*thread).set_state((*thread).state() | TH_SWAPPED);
-            crate::kern::thread::stack_free(thread);
+            (*thread).stack_free();
         }
 
         match (*thread).state() & !TH_SWAP_STATE {

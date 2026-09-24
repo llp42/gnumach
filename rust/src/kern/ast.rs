@@ -16,6 +16,11 @@ use crate::config::NCPUS;
 use crate::kern::smp::smp_get_numcpus;
 use core::ffi::c_int;
 
+/// `AST_HALT` in <kern/ast.h>: the thread has been asked to halt at a clean
+/// point.
+pub const AST_HALT: c_int = 0x1;
+/// `AST_TERMINATE` in <kern/ast.h>: the thread is terminating.
+pub const AST_TERMINATE: c_int = 0x2;
 /// `AST_BLOCK` in <kern/ast.h>: the scheduling AST reason.
 pub const AST_BLOCK: usize = 0x4;
 

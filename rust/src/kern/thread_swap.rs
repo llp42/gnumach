@@ -125,15 +125,10 @@ pub unsafe extern "C" fn thread_swapin(thread: *mut Thread) {
 /// `thread` must be a live thread with `TH_SWAP_STATE` set that no lock
 /// protects, because the stack allocation can block; the caller must hold no
 /// spin lock.
-unsafe fn doswapin(thread: *mut Thread) -> c_int {
+pub(crate) unsafe fn doswapin(thread: *mut Thread) -> c_int {
     // SAFETY: the caller's contract; the Rust `stack_alloc()` may block and
     // resumes the thread through `thread_continue` once it has a stack.
-    let kr = unsafe {
-        crate::kern::thread::stack_alloc(thread, Some(thread_continue))
-    };
-    if kr != KERN_SUCCESS {
-        return kr;
-    }
+    unsafe { (*thread).stack_alloc(Some(thread_continue)) };
 
     // SAFETY: `thread` is live and not locked; the spl level and the thread
     // lock guard the state and the run queue, in the C order.
@@ -232,7 +227,7 @@ pub unsafe extern "C" fn swapin_thread() -> ! {
     unsafe {
         let thread = current_thread();
         (*thread).vm_privilege = 1;
-        crate::kern::thread::stack_privilege(thread);
+        (*thread).stack_privilege();
         swapin_thread_continue()
     }
 }

@@ -209,11 +209,11 @@ const _: () = {
 };
 
 impl Task {
-    fn active(&self) -> bool {
+    pub(crate) fn active(&self) -> bool {
         self.flags & TASK_ACTIVE != 0
     }
 
-    fn set_active(&mut self, active: bool) {
+    pub(crate) fn set_active(&mut self, active: bool) {
         if active {
             self.flags |= TASK_ACTIVE;
         } else {
@@ -408,9 +408,9 @@ static mut TASK_COLLECT_MAX_RATE: c_uint = 0;
 ///
 /// Must be called from a thread context: every running CPU has a live
 /// current thread with a live task.
-unsafe fn current_task() -> *mut Task {
+pub(crate) unsafe fn current_task() -> *mut Task {
     // SAFETY: the caller's contract.
-    unsafe { (*current_thread()).task.cast() }
+    unsafe { (*current_thread()).task }
 }
 
 /// `pmap_resident_count()` of <i386/intel/pmap.h>: the pages the pmap has
@@ -426,7 +426,7 @@ unsafe fn resident_count(pmap: *mut Pmap) -> c_int {
 }
 
 /// The `time_value64_add()` macro of <mach/time_value.h>.
-fn add_time64(result: &mut TimeValue64, addend: TimeValue64) {
+pub(crate) fn add_time64(result: &mut TimeValue64, addend: TimeValue64) {
     result.seconds = result.seconds.wrapping_add(addend.seconds);
     result.nanoseconds = result.nanoseconds.wrapping_add(addend.nanoseconds);
     if result.nanoseconds >= TIME_NANOS_MAX {
@@ -814,7 +814,7 @@ pub(crate) unsafe fn terminate(task: *mut Task) -> Result<(), KernError> {
                 (*cur_thread).lock.unlock();
                 glue::splx(s);
                 (*task).lock.unlock();
-                glue::thread_terminate(cur_thread);
+                let _ = Thread::terminate(cur_thread);
                 return Err(KernError::Failure);
             }
             hold_locked(task);
@@ -851,7 +851,7 @@ pub(crate) unsafe fn terminate(task: *mut Task) -> Result<(), KernError> {
                 glue::splx(s);
                 (*task).lock.unlock();
                 (*cur_task).lock.unlock();
-                glue::thread_terminate(cur_thread);
+                let _ = Thread::terminate(cur_thread);
                 return Err(KernError::Failure);
             }
             (*cur_thread).lock.unlock();
@@ -893,7 +893,7 @@ pub(crate) unsafe fn terminate(task: *mut Task) -> Result<(), KernError> {
 
                 (*task).lock.unlock();
                 Thread::force_terminate(thread);
-                glue::thread_deallocate(thread);
+                Thread::deallocate(thread);
                 glue::thread_block(None);
                 thread = next;
                 (*task).lock.lock();
@@ -915,7 +915,7 @@ pub(crate) unsafe fn terminate(task: *mut Task) -> Result<(), KernError> {
     // task, the thread still holds a reference, so the task was not freed
     // above.
     unsafe {
-        if (*cur_thread).task.cast::<Task>() == task {
+        if (*cur_thread).task == task {
             (*task).lock.lock();
             let s = glue::splsched();
             queue_enter_tail(
@@ -925,7 +925,7 @@ pub(crate) unsafe fn terminate(task: *mut Task) -> Result<(), KernError> {
             );
             glue::splx(s);
             (*task).lock.unlock();
-            glue::thread_terminate(cur_thread);
+            let _ = Thread::terminate(cur_thread);
         }
     }
 
@@ -1010,9 +1010,9 @@ pub(crate) unsafe fn dowait(
                 Thread::reference(thread);
                 (*task).lock.unlock();
                 if !prev_thread.is_null() {
-                    glue::thread_deallocate(prev_thread);
+                    Thread::deallocate(prev_thread);
                 }
-                glue::thread_dowait(thread, c_int::from(true));
+                let _ = Thread::dowait(thread, true);
                 prev_thread = thread;
                 (*task).lock.lock();
             }
@@ -1022,7 +1022,7 @@ pub(crate) unsafe fn dowait(
         (*task).lock.unlock();
 
         if !prev_thread.is_null() {
-            glue::thread_deallocate(prev_thread);
+            Thread::deallocate(prev_thread);
         }
     }
 
@@ -1158,7 +1158,7 @@ pub(crate) unsafe fn threads(
             // is the live allocation of `size` bytes.
             unsafe {
                 for i in 0..actual as usize {
-                    glue::thread_deallocate(with_exposed_provenance_mut(
+                    Thread::deallocate(with_exposed_provenance_mut(
                         threads.add(i).read(),
                     ));
                 }
@@ -1540,7 +1540,7 @@ pub(crate) unsafe fn assign(
     unsafe {
         if current_task() == task {
             (*task).lock.unlock();
-            glue::thread_freeze(current_thread());
+            Thread::freeze(current_thread());
             (*task).lock.lock();
         }
     }
@@ -1564,9 +1564,9 @@ pub(crate) unsafe fn assign(
                 Thread::reference(thread);
                 (*task).lock.unlock();
                 if !prev_thread.is_null() {
-                    glue::thread_deallocate(prev_thread);
+                    Thread::deallocate(prev_thread);
                 }
-                glue::thread_assign(thread, new_pset);
+                let _ = Thread::assign(thread, new_pset);
                 prev_thread = thread;
                 (*task).lock.lock();
             }
@@ -1586,15 +1586,11 @@ pub(crate) unsafe fn assign(
         (*task).lock.unlock();
 
         if !prev_thread.is_null() {
-            glue::thread_deallocate(prev_thread);
+            Thread::deallocate(prev_thread);
         }
 
         if current_task() == task {
-            glue::thread_doassign(
-                current_thread(),
-                new_pset,
-                c_int::from(true),
-            );
+            Thread::doassign(current_thread(), new_pset, true);
         }
 
         result

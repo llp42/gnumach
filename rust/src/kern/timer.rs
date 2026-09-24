@@ -17,7 +17,7 @@ use core::sync::atomic::{Ordering, fence};
 
 /// `TIMER_RATE` in <kern/timer.h>: the timer's tick rate, in microseconds per
 /// second.
-const TIMER_RATE: c_uint = 1_000_000;
+pub(crate) const TIMER_RATE: c_uint = 1_000_000;
 
 /// `struct timer` of <kern/timer.h>: the statistical CPU timer.
 #[repr(C)]

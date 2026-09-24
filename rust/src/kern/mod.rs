@@ -37,6 +37,7 @@ pub mod syscall_subr;
 pub mod task;
 pub mod task_ffi;
 pub mod thread;
+pub mod thread_ffi;
 pub mod thread_swap;
 pub mod timer;
 pub mod types;

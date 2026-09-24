@@ -10,14 +10,9 @@
 
 use crate::arch::i386::percpu::current_thread;
 use crate::glue;
+use crate::kern::ast::{AST_HALT, AST_TERMINATE};
 use crate::kern::thread::Thread;
 use core::ffi::c_int;
-
-/// `AST_HALT` in <kern/ast.h>: the thread has been asked to halt at a clean
-/// point.
-const AST_HALT: c_int = 0x1;
-/// `AST_TERMINATE` in <kern/ast.h>: the thread is terminating.
-const AST_TERMINATE: c_int = 0x2;
 
 /// The `thread_should_halt()` macro of <kern/thread.h>: the thread's pending
 /// ASTs include a halt or a termination.
@@ -50,19 +45,19 @@ pub unsafe extern "C" fn exception_no_server() -> ! {
         // continuation the C passed, and `thread_halt_self()` only comes back
         // when the thread is released to halt cleanly.
         unsafe {
-            glue::thread_halt_self(Some(exception_return));
+            Thread::halt_self(Some(exception_return));
         }
     }
 
     // SAFETY: the running thread is inside a live task.
     let task = unsafe { (*thread).task };
     // SAFETY: the caller holds no locks, as `task_terminate()` needs.
-    let _ = unsafe { crate::kern::task::terminate(task.cast()) };
+    let _ = unsafe { crate::kern::task::terminate(task) };
 
     // SAFETY: as in the loop above; the task of a live thread cannot have gone
     // away under it.
     unsafe {
-        glue::thread_halt_self(Some(exception_return));
+        Thread::halt_self(Some(exception_return));
     }
 
     // SAFETY: `Panic` does not return; the file, function and message tags are

@@ -26,7 +26,6 @@ use crate::kern::list::{List, entry};
 use crate::kern::lock::SimpleLock;
 use crate::kern::queue::QueueEntry;
 use crate::kern::sched_prim::{THREAD_AWAKENED, thread_wakeup_prim};
-use crate::kern::task::Task;
 use crate::utils::cell::SyncCell;
 use crate::vm::types::{VmObject, VmProt};
 use crate::vm::vm_resident;
@@ -2889,7 +2888,7 @@ unsafe fn evict_one(external: bool, active: bool, alloc_paused: bool) -> bool {
                     // SAFETY: the C's `current_task()->reactivations++`; the
                     // running thread's task is live for as long as the
                     // thread.
-                    let task = (*thread).task.cast::<Task>();
+                    let task = (*thread).task;
                     (*task).reactivations =
                         (*task).reactivations.wrapping_add(1);
                 }

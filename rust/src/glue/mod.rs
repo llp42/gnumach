@@ -17,7 +17,7 @@ use crate::kern::sched::RunQueue;
 use crate::kern::sched_prim::NUMQUEUES;
 use crate::kern::slab::KmemCache;
 use crate::kern::task::Task;
-use crate::kern::thread::{Continuation, StackResume, Thread};
+use crate::kern::thread::{StackResume, Thread};
 use crate::kern::timer::Timer;
 use crate::vm::types::{Pmap, VmObject, VmPage, VmProt, VmStatistics};
 use crate::vm::vm_map::{VmMap, VmMapEntry};
@@ -113,13 +113,12 @@ unsafe extern "C" {
     pub fn thread_block(continuation: Option<unsafe extern "C" fn()>);
     pub fn update_priority(thread: *mut Thread);
     pub fn rem_runq(th: *mut Thread) -> *mut RunQueue;
-    pub fn thread_exception_return() -> !;
+    pub fn thread_exception_return();
     pub fn stack_attach(
         thread: *mut Thread,
         stack: VmOffset,
         continuation: StackResume,
     );
-    pub fn stack_finalize(stack: VmOffset);
 
     pub fn thread_set_syscall_return(thread: *mut Thread, retval: c_int);
     pub fn thread_setstatus(
@@ -141,25 +140,18 @@ unsafe extern "C" {
         cn: usize,
     ) -> c_int;
 
-    pub fn thread_assign(
-        thread: *mut Thread,
-        new_pset: *mut ProcessorSet,
-    ) -> c_int;
-
-    pub fn thread_halt_self(continuation: Continuation);
-
-    pub fn thread_freeze(thread: *mut Thread);
-    pub fn thread_doassign(
-        thread: *mut Thread,
-        new_pset: *mut ProcessorSet,
-        release_freeze: c_int,
-    );
-    pub fn thread_halt(thread: *mut Thread, must_halt: c_int) -> c_int;
-    pub fn thread_deallocate(thread: *mut Thread);
-    pub fn thread_dowait(thread: *mut Thread, must_halt: c_int) -> c_int;
-    pub fn thread_terminate(thread: *mut Thread) -> c_int;
-
+    pub fn ipc_thread_init(thread: *mut Thread);
     pub fn ipc_thread_terminate(thread: *mut Thread);
+
+    pub fn pcb_init(task: *mut Task, thread: *mut Thread);
+    pub fn pcb_terminate(thread: *mut Thread);
+
+    pub fn mach_port_deallocate(space: *mut c_void, name: c_uint) -> c_int;
+    pub fn mach_port_destroy(space: *mut c_void, name: c_uint) -> c_int;
+
+    pub fn mach_msg_continue();
+    pub fn mach_msg_receive_continue();
+    pub fn mach_msg_interrupt(thread: *mut Thread) -> c_int;
 
     pub fn ipc_task_init(task: *mut Task, parent: *mut Task);
     pub fn ipc_task_enable(task: *mut Task);
@@ -204,17 +196,6 @@ unsafe extern "C" {
     pub static mut wait_queue: [QueueEntry; NUMQUEUES];
     pub static mut wait_lock: [SimpleLock; NUMQUEUES];
 
-    pub static mut thread_cache: KmemCache;
-    pub static mut thread_stack_cache: KmemCache;
-    pub static mut thread_template: Thread;
-    pub static mut reaper_queue: QueueEntry;
-    pub static mut reaper_lock: SimpleLock;
-    pub static mut stack_lock_data: SimpleLock;
-    pub static mut stack_usage_lock: SimpleLock;
-    pub static mut stack_free_list: VmOffset;
-    pub static mut stack_free_count: c_uint;
-    pub static mut stack_free_limit: c_uint;
-    pub static mut stack_check_usage: c_int;
     pub fn thread_bootstrap_return();
     pub fn pcb_module_init();
     pub fn switch_ktss(pcb: *mut c_void);
@@ -259,12 +240,6 @@ unsafe extern "C" {
     pub fn device_pager_init();
     pub fn io_done_thread();
     pub fn net_thread();
-    pub fn kernel_thread(
-        task: *mut c_void,
-        name: *const c_char,
-        start: Option<unsafe extern "C" fn()>,
-        arg: *mut c_void,
-    ) -> *mut c_void;
     pub fn ds_device_open(
         open_port: *mut c_void,
         reply_port: *mut c_void,

@@ -97,6 +97,7 @@ MACH_RS_SRCS = \
 	rust/src/kern/task_ffi.rs \
 	rust/src/kern/timer.rs \
 	rust/src/kern/thread.rs \
+	rust/src/kern/thread_ffi.rs \
 	rust/src/kern/thread_swap.rs \
 	rust/src/kern/types.rs \
 	rust/src/lib.rs \
