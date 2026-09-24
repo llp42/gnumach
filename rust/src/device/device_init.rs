@@ -58,14 +58,16 @@ pub unsafe extern "C" fn device_service_create() {
     // SAFETY: `kernel_task` is the kernel's own task, live since startup, and
     // both start routines take no argument.
     unsafe {
+        let kernel_task =
+            crate::kern::task::kernel_task.cast::<core::ffi::c_void>();
         glue::kernel_thread(
-            glue::kernel_task,
+            kernel_task,
             c"io_done".as_ptr(),
             Some(glue::io_done_thread),
             ptr::null_mut(),
         );
         glue::kernel_thread(
-            glue::kernel_task,
+            kernel_task,
             c"net".as_ptr(),
             Some(glue::net_thread),
             ptr::null_mut(),

@@ -97,7 +97,6 @@ file, or `—` when the rest is ready too.
 | `syscall_emulation.c` | 446 | 4 | 0 | `struct eml_dispatch` and task fields |
 | `syscall_subr.c` | 251 | 4 | 0 | static continuations (`swtch_continue`, ...) |
 | `syscall_sw.c` | 220 | 3 | 0 | trap table ABI; static stubs |
-| `task.c` | 1354 | 5 | 0 | `struct task` is opaque by design |
 | `thread.c` | 1737 | 5 | 0 | reaper/collect scans, static helpers, task fields |
 | `timer.c` | 93 | 3 | 0 | `db_thread_read_times` and its static helpers |
 
@@ -134,7 +133,7 @@ file, or `—` when the rest is ready too.
 | `vm_external_glue.c` | 21 | 0 | three `kmem_cache` storage symbols; the `KmemCache` mirror exists now, so a follow-up moves the definitions to Rust statics and deletes the file |
 | `vm_fault.c` | 2024 | 0 | `vm_page`/task fields |
 | `vm_kern.c` | 812 | 0 | — |
-| `vm_map_glue.c` | 197 | 0 | the page/task field shims; the object shims went with `vm_object.c` |
+| `vm_map_glue.c` | 197 | 0 | the page field shims; the task shims went with `kern/task.c`, the object shims with `vm_object.c` |
 | `vm_pageout.c` | 505 | 0 | `vm_page` fields |
 | `vm_resident.c` | 948 | 0 | the `vm_page_bucket_t` table, the fictitious-page statics and `vm_page_order` |
 | `vm_user.c` | 602 | 0 | `vm_page` fields for the rest |
@@ -351,9 +350,9 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
   `device/intr.c`, `i386/i386/{fpu,smp,pcb,trap}.c`,
   `i386/i386at/{kd,com}.c` and `i386/intel/pmap.c`.  Delete before porting
   the surrounding code.
-* Dead `#else /* MACH_HOST */` halves of `kern/machine.c:309`,
-  `kern/task.c:1081` and `kern/thread.c:1832`; `MACH_HOST` is 1 in both
-  configured builds.
+* Dead `#else /* MACH_HOST */` halves of `kern/machine.c:309` and
+  `kern/thread.c:1832`; `MACH_HOST` is 1 in both configured builds.
+  `kern/task.c`'s half went with the file.
 * Macro-shadowed definitions: `i386/intel/pmap.c`'s `pmap_copy` and
   `pmap_kernel` are unreachable behind `i386/intel/pmap.h`'s macros.
 * `i386/i386/pic.c` and `i386/i386at/pic_isa.c` are not compiled in the
@@ -442,6 +441,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `vm/vm_page.c` whole, with the `struct vm_page_seg`, `struct vm_page_boot_seg` and file-private statics it owned, and the `struct vm_object` field mirror its evictor reads | `src/vm/vm_page.rs`, `src/vm/vm_page_ffi.rs`, `src/vm/types.rs` | pending |
 | `kern/slab.c` with the `struct kmem_cache` mirror | `src/kern/slab.rs`, `src/kern/slab_ffi.rs` | pending |
 | `vm/vm_object.c` whole, with the file-private statics it owned and the `vm_submap_object` placeholder | `src/vm/vm_object.rs`, `src/vm/vm_object_ffi.rs` | pending |
+| `kern/task.c` whole, with the file-private statics it owned and the `struct task` mirror | `src/kern/task.rs`, `src/kern/task_ffi.rs` | pending |
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `i386/i386at/kd_glue.c`
@@ -457,15 +457,15 @@ and nothing may be added.  Each row says what deletes it.
 | Glue | What it provides | Deleted by |
 |---|---|---|
 | `vm/vm_map_glue.c` — page field shims | `vm_page` bit probes and the `PMAP_ENTER`/`PAGE_WAKEUP_DONE` macros | the page-list copyin macros moving to Rust |
-| `vm/vm_map_glue.c` — task field shims | `vm_map_glue_task_map`, `_task_space` | `kern/task.c` moving, or a Rust-side edit now that the mirror exists |
 | `vm/vm_external_glue.c` | three `kmem_cache` storage symbols | Follow-up to the `kern/slab.c` port: `struct kmem_cache` is `src/kern/slab.rs`'s `KmemCache` now, so the definitions move to Rust statics in a pass of their own |
 | `i386/i386/irq.c` — `irq_mask`, `irq_unmask`, `irq_{set,get}_{handler,unit}` | `mask_irq`/`unmask_irq` static inlines and the NINTR-sized `ivect`/`iunit` | Phase B: `NINTR`, plus a Rust `mask_irq` |
 | `i386/i386at/com.c` — `com_base_addr`, `com_irq` | `cominfo` is NCOM-sized | Phase B (`NCOM`) or porting `com.c` |
 
 `i386/i386at/kd_glue.c`, `kern/processor_glue.c`, the
-`thread_glue_pset_sched_load` shim in `kern/sched_prim.c`, and
+`thread_glue_pset_sched_load` shim in `kern/sched_prim.c`,
 `vm/vm_map_glue.c`'s `vm_map_glue_object_*` shims with the
-`vm_submap_object` placeholder are deleted; nothing joined the list since.
+`vm_submap_object` placeholder, and its `vm_map_glue_task_map`/
+`vm_map_glue_task_space` pair are deleted; nothing joined the list since.
 
 `--enable-user32` is out of scope for the Rust half: the build targets
 the i686 and x86_64 configurations the ABI pack gates.  The removed

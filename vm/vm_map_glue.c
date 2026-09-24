@@ -14,8 +14,8 @@
  * VM_PAGE_QUEUES_REMOVE and the page-locked `pmap_page_protect` of the
  * page-list copyin; the map module's C edges still take them.
  *
- * The region shims read `struct task`'s `map` and `itk_space` fields;
- * they die with kern/task.c.
+ * The task field shims went with kern/task.c: the adapter reads the
+ * `struct task` mirror's fields itself.
  *
  * The object shims and the `vm_submap_object` placeholder that used to
  * live here went with vm/vm_object.c; the object fields and the
@@ -55,8 +55,6 @@ void vm_map_glue_pmap_enter(
 	vm_page_t page,
 	vm_prot_t protection,
 	boolean_t wired);
-struct vm_map *vm_map_glue_task_map(struct task *task);
-ipc_space_t vm_map_glue_task_space(struct task *task);
 
 /*
  * The map module's slab caches.
@@ -183,16 +181,4 @@ vm_map_glue_pmap_enter(
 	boolean_t wired)
 {
 	PMAP_ENTER(pmap, addr, page, protection, wired);
-}
-
-struct vm_map *
-vm_map_glue_task_map(struct task *task)
-{
-	return task->map;
-}
-
-ipc_space_t
-vm_map_glue_task_space(struct task *task)
-{
-	return task->itk_space;
 }

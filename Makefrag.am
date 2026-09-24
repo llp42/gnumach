@@ -134,7 +134,6 @@ libkernel_a_SOURCES += \
 	kern/syscall_subr.h \
 	kern/syscall_sw.c \
 	kern/syscall_sw.h \
-	kern/task.c \
 	kern/task.h \
 	kern/thread.c \
 	kern/thread.h \

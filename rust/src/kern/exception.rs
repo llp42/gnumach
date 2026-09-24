@@ -57,7 +57,7 @@ pub unsafe extern "C" fn exception_no_server() -> ! {
     // SAFETY: the running thread is inside a live task.
     let task = unsafe { (*thread).task };
     // SAFETY: the caller holds no locks, as `task_terminate()` needs.
-    unsafe { glue::task_terminate(task) };
+    let _ = unsafe { crate::kern::task::terminate(task.cast()) };
 
     // SAFETY: as in the loop above; the task of a live thread cannot have gone
     // away under it.

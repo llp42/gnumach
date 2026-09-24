@@ -9,8 +9,8 @@
 //! `vm/vm_map.c` used to define and `vm/vm_map.h` declares.
 
 use crate::arch::types::{VmOffset, VmSize};
-use crate::glue::{vm_map_glue_task_map, vm_map_glue_task_space};
 use crate::ipc::{IpcPort, IpcSpace};
+use crate::kern::task::Task;
 use crate::vm::error::{KERN_INVALID_ARGUMENT, KERN_SUCCESS, kern_return};
 use crate::vm::types::{Pmap, VmInherit, VmObject, VmProt};
 use crate::vm::vm_map::{
@@ -773,12 +773,13 @@ pub unsafe extern "C" fn vm_region_create_proxy(
         return KERN_INVALID_ARGUMENT;
     }
 
-    // SAFETY: the caller promises a valid task; the two shims read the map and
-    // the IPC space the C body reads from it.
+    // SAFETY: the caller promises a valid task; its `map` and `itk_space`
+    // fields are the ones the C body read.
     let (map, space) = unsafe {
+        let task = task.cast::<Task>();
         (
-            NonNull::new(vm_map_glue_task_map(task).cast::<VmMap>()),
-            IpcSpace::new(vm_map_glue_task_space(task)),
+            NonNull::new((*task).map.cast::<VmMap>()),
+            IpcSpace::new((*task).itk_space),
         )
     };
     let Some(map) = map else {

@@ -60,8 +60,8 @@ const IOPB_CACHE_NAME: &CStr = c"i386_task_iopb";
 ///
 /// # Safety
 ///
-/// Called once at startup, from `task_init()` in kern/task.c, before any task
-/// exists and so before anything can allocate from
+/// Called once at startup, from `task_init()` of `kern/task.h`, before any
+/// task exists and so before anything can allocate from
 /// [`glue::machine_task_iopb_cache`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn machine_task_module_init() {

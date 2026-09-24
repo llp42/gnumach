@@ -14,7 +14,6 @@
 //! `kern/bootstrap.c` used to define for <kern/boot_script.h>.
 
 use crate::arch::types::VmSize;
-use crate::glue;
 use crate::kern::slab::{kalloc, kfree};
 use core::ffi::{c_int, c_uint, c_void};
 use core::ptr::{self, NonNull};
@@ -68,8 +67,8 @@ pub unsafe extern "C" fn boot_script_free_task(
     // allowed.
     unsafe {
         if aborting != 0 {
-            glue::task_terminate(task);
+            let _ = crate::kern::task::terminate(task.cast());
         }
-        glue::task_deallocate(task);
+        crate::kern::task::deallocate(task.cast());
     }
 }

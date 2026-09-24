@@ -16,6 +16,7 @@ use crate::kern::queue::QueueEntry;
 use crate::kern::sched::RunQueue;
 use crate::kern::sched_prim::NUMQUEUES;
 use crate::kern::slab::KmemCache;
+use crate::kern::task::Task;
 use crate::kern::thread::{Continuation, StackResume, Thread};
 use crate::kern::timer::Timer;
 use crate::vm::types::{Pmap, VmObject, VmPage, VmProt, VmStatistics};
@@ -67,6 +68,13 @@ unsafe extern "C" {
 
     pub fn printf(fmt: *const c_char, ...) -> c_int;
 
+    pub fn snprintf(
+        str: *mut c_char,
+        size: usize,
+        format: *const c_char,
+        ...
+    ) -> c_int;
+
     pub fn cngetc() -> c_int;
 
     pub fn timeout(
@@ -87,6 +95,8 @@ unsafe extern "C" {
         host: *mut c_void,
         new_time: time_value::TimeValue64,
     ) -> c_int;
+
+    pub fn record_time_stamp(stamp: *mut time_value::TimeValue64);
 
     pub static mtime: *mut time_value::MappedTimeValue;
 
@@ -135,20 +145,6 @@ unsafe extern "C" {
         thread: *mut Thread,
         new_pset: *mut ProcessorSet,
     ) -> c_int;
-    pub fn task_assign(
-        task: *mut c_void,
-        new_pset: *mut ProcessorSet,
-        assign_threads: c_int,
-    ) -> c_int;
-
-    pub fn task_create_kernel(
-        parent_task: *mut c_void,
-        inherit_memory: c_int,
-        child_task: *mut *mut c_void,
-    ) -> c_int;
-    pub fn task_terminate(task: *mut c_void) -> c_int;
-    pub fn task_deallocate(task: *mut c_void);
-    pub static mut new_task_notification: *mut c_void;
 
     pub fn thread_halt_self(continuation: Continuation);
 
@@ -161,8 +157,33 @@ unsafe extern "C" {
     pub fn thread_halt(thread: *mut Thread, must_halt: c_int) -> c_int;
     pub fn thread_deallocate(thread: *mut Thread);
     pub fn thread_dowait(thread: *mut Thread, must_halt: c_int) -> c_int;
+    pub fn thread_terminate(thread: *mut Thread) -> c_int;
 
     pub fn ipc_thread_terminate(thread: *mut Thread);
+
+    pub fn ipc_task_init(task: *mut Task, parent: *mut Task);
+    pub fn ipc_task_enable(task: *mut Task);
+    pub fn ipc_task_disable(task: *mut Task);
+    pub fn ipc_task_terminate(task: *mut Task);
+    pub fn ipc_space_release(space: *mut c_void);
+
+    pub fn eml_task_reference(task: *mut Task, parent: *mut Task);
+    pub fn eml_task_deallocate(task: *mut Task);
+
+    pub fn machine_task_init(task: *mut Task);
+    pub fn machine_task_terminate(task: *mut Task);
+    pub fn machine_task_collect(task: *mut Task);
+
+    pub fn pset_add_task(pset: *mut ProcessorSet, task: *mut Task);
+    pub fn pset_remove_task(pset: *mut ProcessorSet, task: *mut Task);
+
+    pub fn convert_task_to_port(task: *mut Task) -> *mut c_void;
+    pub fn convert_thread_to_port(thread: *mut Thread) -> *mut c_void;
+    pub fn mach_notify_new_task(
+        notify: *mut c_void,
+        task: *mut c_void,
+        parent: *mut c_void,
+    ) -> c_int;
 
     pub fn evc_notify_abort(thread: *mut Thread);
 
@@ -248,7 +269,6 @@ unsafe extern "C" {
     ) -> c_int;
 
     pub static mut master_device_port: *mut c_void;
-    pub static kernel_task: *mut c_void;
     pub static ipc_space_kernel: *mut c_void;
 
     pub fn spl0() -> c_int;
@@ -456,6 +476,7 @@ unsafe extern "C" {
     );
 
     pub fn pmap_destroy(pmap: *mut Pmap);
+    pub fn pmap_collect(pmap: *mut Pmap);
     pub fn pmap_reference(pmap: *mut Pmap);
     pub static kernel_pmap: *mut Pmap;
     pub fn pmap_pte(pmap: *mut Pmap, addr: VmOffset) -> *mut VmOffset;
@@ -586,8 +607,6 @@ unsafe extern "C" {
     );
 
     pub fn vm_map_glue_object_pager(object: *mut VmObject) -> *mut c_void;
-    pub fn vm_map_glue_task_map(task: *mut c_void) -> *mut c_void;
-    pub fn vm_map_glue_task_space(task: *mut c_void) -> *mut c_void;
 
     pub fn memory_object_create_proxy(
         task: *mut c_void,
