@@ -15,6 +15,8 @@ use core::ptr::{self, NonNull};
 pub mod ipc_entry;
 pub mod ipc_entry_ffi;
 pub mod ipc_init;
+pub mod ipc_kmsg;
+pub mod ipc_kmsg_ffi;
 pub mod ipc_object;
 pub mod ipc_object_ffi;
 pub mod ipc_port;
@@ -450,13 +452,13 @@ const _: () = {
 /// `mach_msg_header_t` of <mach/message.h>: its two pointer-wide unions carry
 /// the remote and local ports.
 #[repr(C)]
-struct MachMsgHeader {
+pub(crate) struct MachMsgHeader {
     bits: u32,
     size: u32,
     remote_port: usize,
     local_port: usize,
     seqno: u32,
-    id: u32,
+    id: c_int,
 }
 
 #[cfg(target_pointer_width = "64")]
@@ -483,10 +485,10 @@ const _: () = {
     assert!(offset_of!(MachMsgHeader, id) == 20);
 };
 
-/// `struct ipc_kmsg` of <ipc/ipc_kmsg.h>: only as much of a kernel message as
-/// `ipc_port_destroy()` writes.
+/// `struct ipc_kmsg` of <ipc/ipc_kmsg.h>: the header of a kernel message
+/// buffer, whose body follows the header in the same allocation.
 #[repr(C)]
-struct IpcKmsg {
+pub(crate) struct IpcKmsg {
     next: *mut c_void,
     prev: *mut c_void,
     size: usize,
@@ -819,6 +821,16 @@ impl IpcPort {
         unsafe { (*self.record()).data.destination = destination };
     }
 
+    /// `ip_timestamp` of <ipc/ipc_port.h>: the `data.timestamp` union member.
+    ///
+    /// # Safety
+    ///
+    /// The port must be live.
+    pub(crate) unsafe fn timestamp(self) -> c_uint {
+        // SAFETY: the caller promises a live port.
+        unsafe { (*self.record()).data.timestamp }
+    }
+
     /// The `port->ip_timestamp = timestamp` assignment of
     /// `ipc_port_destroy()`.
     ///
@@ -968,6 +980,27 @@ impl IpcPort {
     pub(crate) unsafe fn set_protected_payload(self, payload: usize) {
         // SAFETY: the caller promises a live port and the queue lock.
         unsafe { (*self.record()).protected_payload = payload };
+    }
+
+    /// `ip_protected_payload` of <ipc/ipc_port.h>.
+    ///
+    /// # Safety
+    ///
+    /// The port must be live.
+    pub(crate) unsafe fn protected_payload(self) -> usize {
+        // SAFETY: the caller promises a live port.
+        unsafe { (*self.record()).protected_payload }
+    }
+
+    /// `ipc_port_flag_protected_payload()` of <ipc/ipc_port.h>.
+    ///
+    /// # Safety
+    ///
+    /// The port must be live.
+    pub(crate) unsafe fn protected_payload_flag(self) -> bool {
+        // SAFETY: the caller promises a live port.
+        let bits = unsafe { (*self.record()).target.object.bits };
+        bits & IO_BITS_PROTECTED_PAYLOAD != 0
     }
 
     /// `ipc_port_flag_protected_payload_set()` of <ipc/ipc_port.h>.

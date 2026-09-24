@@ -9,12 +9,13 @@
 //! `ipc/ipc_port.h` declares.
 
 use crate::glue;
+use crate::ipc::ipc_kmsg;
 use crate::ipc::ipc_object;
 use crate::ipc::ipc_table::{self, IPC_PORT_REQUEST_SIZE, IpcTableSize};
 use crate::ipc::ipc_target;
 use crate::ipc::ipc_thread;
 use crate::ipc::{
-    IOT_PORT, IpcKmsg, IpcMqueue, IpcPort, IpcPortRequest, IpcSpace, IpcTarget,
+    IOT_PORT, IpcMqueue, IpcPort, IpcPortRequest, IpcSpace, IpcTarget,
 };
 use crate::kern::ipc_sched;
 use crate::kern::lock::SimpleLock;
@@ -616,16 +617,18 @@ pub(crate) unsafe fn destroy(port: IpcPort) {
         let mqueue = port.messages();
         (*mqueue).lock();
         loop {
-            let kmsg = glue::ipc_kmsg_dequeue((*mqueue).messages());
-            if kmsg.is_null() {
+            let kmsg = ipc_kmsg::dequeue((*mqueue).messages().cast());
+            let Some(kmsg) = kmsg else {
                 break;
-            }
+            };
 
             (*mqueue).unlock();
 
             port.release();
-            (*kmsg.cast::<IpcKmsg>()).header.remote_port = 0;
-            glue::ipc_kmsg_destroy(kmsg);
+            // The destination right was just released, so clearing the field
+            // keeps the destroy from consuming it twice.
+            kmsg.clear_remote();
+            ipc_kmsg::destroy(kmsg);
 
             (*mqueue).lock();
         }
@@ -877,13 +880,35 @@ pub(crate) unsafe fn copyout_send(
     }
 }
 
+/// `invalid_name_to_port()` of <ipc/port.h>.
+///
+/// # Panics
+///
+/// Halts through [`glue::Panic`] when `name` is a valid port name, as the C
+/// `panic()` did.
+pub(crate) unsafe fn invalid_name_to_port(name: c_uint) -> *mut c_void {
+    match name {
+        MACH_PORT_NULL => ptr::null_mut(),
+        MACH_PORT_NAME_DEAD => IP_DEAD,
+        // SAFETY: `Panic` does not return; the tags are the C inline's.
+        _ => unsafe {
+            glue::Panic(
+                c"ipc/port.h".as_ptr(),
+                line!() as c_int,
+                c"invalid_name_to_port".as_ptr(),
+                c"invalid_name_to_port() called with a valid port".as_ptr(),
+            )
+        },
+    }
+}
+
 /// `invalid_port_to_name()` of <ipc/port.h>.
 ///
 /// # Panics
 ///
 /// Halts through [`glue::Panic`] when `port` is a valid name, as the C
 /// `panic()` did.
-unsafe fn invalid_port_to_name(port: *mut c_void) -> c_uint {
+pub(crate) unsafe fn invalid_port_to_name(port: *mut c_void) -> c_uint {
     match port.addr() {
         0 => MACH_PORT_NULL,
         usize::MAX => MACH_PORT_NAME_DEAD,

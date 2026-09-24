@@ -68,6 +68,8 @@ unsafe extern "C" {
 
     pub fn printf(fmt: *const c_char, ...) -> c_int;
 
+    pub fn SoftDebugger(message: *const c_char);
+
     pub fn snprintf(
         str: *mut c_char,
         size: usize,
@@ -138,6 +140,33 @@ unsafe extern "C" {
         userbuf: *const c_void,
         kernelbuf: *mut c_void,
         cn: usize,
+    ) -> c_int;
+
+    pub fn copyout(
+        kernelbuf: *const c_void,
+        userbuf: *mut c_void,
+        cn: usize,
+    ) -> c_int;
+
+    pub fn copyinmsg(
+        userbuf: *const c_void,
+        kernelbuf: *mut c_void,
+        cn: usize,
+        kn: usize,
+    ) -> c_int;
+
+    pub fn copyinmap(
+        map: *mut VmMap,
+        fromaddr: *const c_char,
+        toaddr: *mut c_char,
+        length: c_int,
+    ) -> c_int;
+
+    pub fn copyoutmap(
+        map: *mut VmMap,
+        fromaddr: *const c_char,
+        toaddr: *mut c_char,
+        length: c_int,
     ) -> c_int;
 
     pub fn pcb_init(task: *mut Task, thread: *mut Thread);
@@ -326,6 +355,11 @@ unsafe extern "C" {
     pub fn ipc_notify_init();
     pub fn ipc_notify_port_deleted(port: *mut c_void, name: c_uint);
     pub fn ipc_marequest_init();
+    pub fn ipc_marequest_destroy(marequest: *mut c_void);
+
+    pub fn net_kmsg_put(kmsg: *mut c_void);
+
+    pub static mut mach_port_deallocate_debug: c_int;
 
     pub fn ipc_host_init();
 
@@ -359,6 +393,27 @@ unsafe extern "C" {
         objectp: *mut *mut c_void,
         sorightp: *mut *mut c_void,
     ) -> c_int;
+    pub fn ipc_right_copyin_check(
+        space: *mut c_void,
+        name: c_uint,
+        entry: *mut c_void,
+        msgt_name: c_uint,
+    ) -> c_int;
+    pub fn ipc_right_copyin_two(
+        space: *mut c_void,
+        name: c_uint,
+        entry: *mut c_void,
+        objectp: *mut *mut c_void,
+        sorightp: *mut *mut c_void,
+    ) -> c_int;
+    pub fn ipc_right_copyin_undo(
+        space: *mut c_void,
+        name: c_uint,
+        entry: *mut c_void,
+        msgt_name: c_uint,
+        object: *mut c_void,
+        soright: *mut c_void,
+    );
     pub fn ipc_right_copyout(
         space: *mut c_void,
         name: c_uint,
@@ -379,8 +434,6 @@ unsafe extern "C" {
     pub fn ipc_mqueue_changed(mqueue: *mut c_void, mr: c_int);
     pub fn ipc_pset_remove(pset: *mut c_void, port: *mut c_void);
 
-    pub fn ipc_kmsg_dequeue(queue: *mut c_void) -> *mut c_void;
-    pub fn ipc_kmsg_destroy(kmsg: *mut c_void);
     pub fn ipc_kobject_destroy(port: *mut c_void);
 
     pub fn convert_processor_name_to_port(

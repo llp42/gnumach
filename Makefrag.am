@@ -23,7 +23,6 @@ libkernel_a_SOURCES += \
 	ipc/copy_user.h \
 	ipc/ipc_entry.h \
 	ipc/ipc_init.h \
-	ipc/ipc_kmsg.c \
 	ipc/ipc_kmsg.h \
 	ipc/ipc_kmsg_queue.h \
 	ipc/ipc_machdep.h \

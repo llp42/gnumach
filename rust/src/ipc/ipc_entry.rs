@@ -83,6 +83,13 @@ impl IpcEntry {
         self.index = entry.cast();
     }
 
+    /// `ie_request` of <ipc/ipc_entry.h>: the `index.request` union member.
+    pub(crate) fn request(&self) -> c_uint {
+        // SAFETY: the union's low word is the `request` member; the whole
+        // field is readable.
+        unsafe { ptr::addr_of!(self.index).cast::<c_uint>().read() }
+    }
+
     /// The `entry->ie_request = request` assignment.
     pub(crate) fn set_request(&mut self, request: c_uint) {
         // SAFETY: the union's low word is the `request` member; a `u32` write
@@ -133,7 +140,9 @@ pub(crate) unsafe fn free(entry: *mut IpcEntry) {
 /// # Safety
 ///
 /// The space must be live, active, and write-locked.
-unsafe fn entry_get(space: IpcSpace) -> Option<(c_uint, *mut IpcEntry)> {
+pub(crate) unsafe fn entry_get(
+    space: IpcSpace,
+) -> Option<(c_uint, *mut IpcEntry)> {
     // SAFETY: the caller promises the locked, live space.
     unsafe {
         let record = space.record();

@@ -100,12 +100,11 @@ file, or `—` when the rest is ready too.
 
 ## 5. Outside `kern/`
 
-### `ipc/` (10 files, 9,969 LOC)
+### `ipc/` (9 files, 7,369 LOC)
 
 | File | LOC | Free | Holds the rest |
 |---|---:|---:|---|
 | `copy_user.c` | 540 | 0 | `mach_msg_header` fields; `copyoutmsg` absent from both builds |
-| `ipc_kmsg.c` | 2600 | 0 | `struct ipc_kmsg` fields |
 | `ipc_marequest.c` | 415 | 0 | `struct ipc_marequest` fields |
 | `ipc_mqueue.c` | 659 | 0 | `struct ipc_mqueue` fields |
 | `ipc_notify.c` | 448 | 0 | `ipc_kmsg` and message fields |
@@ -438,6 +437,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `i386/i386at/biosmem.c` whole, with the file-private statics it owned | `src/arch/i386/biosmem.rs` | pending |
 | `kern/thread.c` whole, with the file-private `walking_zombie`, `reaper_thread_continue`, `thread_collect_scan`, `stack_usage` and `stack_statistics`, and the globals it owned | `src/kern/thread.rs`, `src/kern/thread_ffi.rs` | pending |
 | `ipc/ipc_init.c`, `ipc/ipc_target.c`, `ipc/ipc_space.c`, `ipc/ipc_entry.c` and `ipc/ipc_object.c` whole, with the `ipc_space_cache`, `ipc_entry_cache`, `ipc_object_caches`, `ipc_space_kernel`, `ipc_space_reply`, `ipc_kernel_map` and `ipc_kernel_map_size` globals | `src/ipc/ipc_init.rs`, `ipc_target.rs`, `ipc_space.rs`, `ipc_space_ffi.rs`, `ipc_entry.rs`, `ipc_entry_ffi.rs`, `ipc_object.rs`, `ipc_object_ffi.rs` | pending |
+| `ipc/ipc_kmsg.c` whole, with the `ipc_kmsg_cache` per-CPU array it owned and the `mach_msg_type_t`/`mach_msg_type_long_t` descriptor view its body walks use | `src/ipc/ipc_kmsg.rs`, `ipc_kmsg_ffi.rs`, `src/ipc/mod.rs` | pending |
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `i386/i386at/kd_glue.c`

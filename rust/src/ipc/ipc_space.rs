@@ -12,10 +12,11 @@ use crate::glue;
 use crate::ipc::ipc_entry;
 use crate::ipc::{IE_BITS_TYPE_MASK, IpcEntry, IpcSpace, IpcSpaceRecord};
 use crate::kern::lock::LockData;
-use crate::kern::rdxtree::{RdxtreeIter, RdxtreeKey};
+use crate::kern::rdxtree::{Lookup, RdxtreeIter, RdxtreeKey};
 use crate::kern::slab::KmemCache;
 use crate::kern::slab_ffi::kmem_cache_init;
 use crate::kern::types::KernError;
+use crate::vm::vm_kern::VM_MIN_KERNEL_ADDRESS;
 use core::ffi::{c_uint, c_void};
 use core::mem::size_of;
 use core::ptr::{self, NonNull};
@@ -57,6 +58,16 @@ impl IpcSpace {
         unsafe { (*self.record()).lock.write() };
     }
 
+    /// `is_read_lock()` of <ipc/ipc_space.h>.
+    ///
+    /// # Safety
+    ///
+    /// The space must be live, and this call must not already hold its lock.
+    pub(crate) unsafe fn lock_read(self) {
+        // SAFETY: the caller promises a live space.
+        unsafe { (*self.record()).lock.read() };
+    }
+
     /// `is_write_unlock()` and `is_read_unlock()` of <ipc/ipc_space.h>, both
     /// the C's `lock_done()`.
     ///
@@ -76,6 +87,31 @@ impl IpcSpace {
     pub(crate) unsafe fn is_active(self) -> bool {
         // SAFETY: the caller promises a live space.
         unsafe { (*self.record()).active != 0 }
+    }
+
+    /// `ipc_reverse_lookup()` of <ipc/ipc_space.h>: the entry the reverse map
+    /// holds for `object`, or `None`.
+    ///
+    /// # Safety
+    ///
+    /// The space must be live and read- or write-locked.
+    pub(crate) unsafe fn reverse_lookup(
+        self,
+        object: *mut c_void,
+    ) -> Option<*mut IpcEntry> {
+        // The C's `KEY()` shifts the kernel address down and hands the
+        // 64-bit result to the 32-bit `rdxtree_key_t` parameter, so the high
+        // bits truncate.
+        let key =
+            (object.addr().wrapping_sub(VM_MIN_KERNEL_ADDRESS) >> 3) as u32;
+
+        // SAFETY: the caller holds the space lock, which serializes the map.
+        let found = unsafe {
+            (*self.record())
+                .reverse_map
+                .lookup(RdxtreeKey::from_raw(key), Lookup::Value)
+        }?;
+        Some(found.address().cast::<IpcEntry>())
     }
 }
 
