@@ -19,7 +19,7 @@ use crate::kern::thread::{Continuation, StackResume, Thread};
 use crate::kern::timer::Timer;
 use crate::vm::types::{Pmap, VmObject, VmPage, VmProt};
 use crate::vm::vm_map::{VmMap, VmMapEntry};
-use core::ffi::{c_char, c_int, c_short, c_uint, c_ulong, c_void};
+use core::ffi::{c_char, c_int, c_short, c_uint, c_ulong, c_ushort, c_void};
 use core::mem::offset_of;
 
 /// `NSPEEDS` of <device/tty_status.h>: how many baud-rate slots `ttlowat[]`
@@ -486,7 +486,14 @@ unsafe extern "C" {
 
     pub fn vm_page_mem_size() -> VmSize;
     pub fn vm_page_bootalloc(size: VmSize) -> VmOffset;
-    pub fn vm_page_grab(flags: c_uint) -> *mut VmPage;
+    pub fn vm_page_check(page: *const VmPage);
+    pub fn vm_page_queues_remove(page: *mut VmPage);
+    pub fn vm_page_alloc_pa(
+        order: c_uint,
+        selector: c_uint,
+        type_: c_ushort,
+    ) -> *mut VmPage;
+    pub fn vm_page_free_pa(page: *mut VmPage, order: c_uint);
     pub fn vm_page_insert(
         page: *mut VmPage,
         object: *mut VmObject,
@@ -495,7 +502,6 @@ unsafe extern "C" {
     pub fn vm_page_remove(page: *mut VmPage);
     pub static mut virtual_space_start: VmOffset;
     pub static mut virtual_space_end: VmOffset;
-    pub fn vm_page_copy(src: *mut VmPage, dst: *mut VmPage);
     pub fn vm_page_wait(continuation: Option<unsafe extern "C" fn()>);
     pub fn vm_page_more_fictitious();
     pub fn vm_page_replace(
@@ -503,11 +509,17 @@ unsafe extern "C" {
         object: *mut VmObject,
         offset: VmOffset,
     );
-    pub fn vm_page_wire(page: *mut VmPage);
     pub fn vm_page_activate(page: *mut VmPage);
 
     pub static mut vm_page_queue_lock: SimpleLock;
+    pub static mut vm_page_queue_free_lock: SimpleLock;
     pub fn vm_page_free(page: *mut VmPage);
+
+    pub static mut vm_page_wire_count: c_int;
+    pub static mut vm_page_laundry_count: c_int;
+    pub static mut vm_page_external_laundry_count: c_int;
+
+    pub fn vm_pageout_resume();
 
     pub fn vm_map_glue_object_lock(object: *mut VmObject);
     pub fn vm_map_glue_object_unlock(object: *mut VmObject);
@@ -619,6 +631,8 @@ unsafe extern "C" {
         end: VmOffset,
         prot: c_int,
     );
+    pub fn pmap_zero_page(pa: VmOffset);
+    pub fn pmap_copy_page(src: VmOffset, dst: VmOffset);
     pub fn vm_fault_unwire(map: *mut c_void, entry: *mut c_void);
     pub fn vm_fault(
         map: *mut VmMap,
@@ -700,8 +714,9 @@ unsafe extern "C" {
     pub fn pmap_create(size: VmSize) -> *mut Pmap;
 
     pub fn vm_page_bootstrap(startp: *mut VmOffset, endp: *mut VmOffset);
-    pub fn vm_page_module_init();
     pub fn vm_page_info_all();
+
+    pub static mut vm_page_cache: c_void;
 
     pub fn slab_bootstrap();
     pub fn slab_init();

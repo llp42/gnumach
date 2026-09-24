@@ -298,17 +298,6 @@ vm_page_init_pa(struct vm_page *page, unsigned short seg_index, phys_addr_t pa)
     page->phys_addr = pa;
 }
 
-void
-vm_page_set_type(struct vm_page *page, unsigned int order, unsigned short type)
-{
-    unsigned int i, nr_pages;
-
-    nr_pages = 1 << order;
-
-    for (i = 0; i < nr_pages; i++)
-        page[i].type = type;
-}
-
 static boolean_t
 vm_page_pageable(const struct vm_page *page)
 {
@@ -1826,29 +1815,6 @@ vm_page_mem_free(void)
     }
 
     return total;
-}
-
-/*
- * Mark this page as wired down by yet another map, removing it
- * from paging queues as necessary.
- *
- * The page's object and the page queues must be locked.
- */
-void
-vm_page_wire(struct vm_page *page)
-{
-
-    VM_PAGE_CHECK(page);
-
-    if (page->wire_count == 0) {
-        vm_page_queues_remove(page);
-
-        if (!page->private && !page->fictitious) {
-            vm_page_wire_count++;
-        }
-    }
-
-    page->wire_count++;
 }
 
 /*

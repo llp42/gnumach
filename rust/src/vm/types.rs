@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: CMU-Mach
 // Derived from include/mach/vm_prot.h and include/mach/vm_inherit.h,
-// with the opaque handles of vm/pmap.h, vm/vm_object.h and vm/vm_page.h:
+// with the opaque handles of vm/pmap.h and vm/vm_object.h:
 //   Copyright (c) 1991,1990,1989,1988,1987 Carnegie Mellon University.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
@@ -111,8 +111,4 @@ pub struct VmObject {
     _private: [u8; 0],
 }
 
-/// `vm_page_t`: a physical page in a page list.
-#[repr(C)]
-pub struct VmPage {
-    _private: [u8; 0],
-}
+pub use crate::vm::vm_page::VmPage;

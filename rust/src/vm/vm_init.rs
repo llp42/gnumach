@@ -12,10 +12,11 @@ use crate::arch::types::VmOffset;
 use crate::glue::{
     kalloc_init, memory_manager_default_init, memory_object_proxy_init,
     pmap_init, slab_bootstrap, slab_init, vm_fault_init, vm_object_bootstrap,
-    vm_object_init, vm_page_bootstrap, vm_page_info_all, vm_page_module_init,
+    vm_object_init, vm_page_bootstrap, vm_page_info_all,
 };
 use crate::vm::vm_kern_ffi::kmem_init;
 use crate::vm::vm_map::VmMap;
+use crate::vm::vm_resident;
 
 /// `vm_mem_bootstrap()` in C.
 fn bootstrap() {
@@ -38,7 +39,7 @@ fn bootstrap() {
         slab_init();
         kalloc_init();
         vm_fault_init();
-        vm_page_module_init();
+        vm_resident::module_init();
         memory_manager_default_init();
     }
 }

@@ -38,10 +38,9 @@ use crate::glue::{
     vm_object_copy_strategically, vm_object_copy_temporary,
     vm_object_deallocate, vm_object_name, vm_object_page_remove,
     vm_object_pager_create, vm_object_pmap_protect, vm_object_pmap_remove,
-    vm_object_reference, vm_object_shadow, vm_page_activate, vm_page_copy,
-    vm_page_free, vm_page_grab, vm_page_lookup, vm_page_mem_size,
-    vm_page_more_fictitious, vm_page_queue_lock, vm_page_replace,
-    vm_page_wait, vm_page_wire, vm_submap_object,
+    vm_object_reference, vm_object_shadow, vm_page_activate, vm_page_free,
+    vm_page_lookup, vm_page_mem_size, vm_page_more_fictitious,
+    vm_page_queue_lock, vm_page_replace, vm_page_wait, vm_submap_object,
 };
 use crate::ipc::{IpcPort, IpcSpace};
 use crate::kern::list::{List, entry as list_entry};
@@ -57,6 +56,8 @@ use crate::vm::types::{
 use crate::vm::vm_fault;
 use crate::vm::vm_kern::projected_buffer_collect;
 use crate::vm::vm_map_ffi::is_discard_cont;
+use crate::vm::vm_page;
+use crate::vm::vm_resident;
 use core::cell::UnsafeCell;
 use core::ffi::{c_char, c_int, c_uint, c_void};
 use core::mem::{ManuallyDrop, offset_of, size_of};
@@ -1386,18 +1387,25 @@ impl VmMapCopy {
             // SAFETY: a tabled page belongs to a live object that the copy
             // holds a paging reference on.
             if unsafe { vm_map_glue_page_is_tabled(m) } != 0 {
-                // SAFETY: `vm_page_grab` and `vm_page_wait` own the page
+                // SAFETY: the allocator and `vm_page_wait` own the page
                 // queues.
-                let mut new_m = unsafe { vm_page_grab(VM_PAGE_HIGHMEM) };
+                let mut new_m = unsafe { vm_resident::grab(VM_PAGE_HIGHMEM) }
+                    .map_or(ptr::null_mut(), NonNull::as_ptr);
                 while new_m.is_null() {
                     // SAFETY: as above.
                     unsafe { vm_page_wait(None) };
                     // SAFETY: as above.
-                    new_m = unsafe { vm_page_grab(VM_PAGE_HIGHMEM) };
+                    new_m = unsafe { vm_resident::grab(VM_PAGE_HIGHMEM) }
+                        .map_or(ptr::null_mut(), NonNull::as_ptr);
                 }
 
                 // SAFETY: both pages are live.
-                unsafe { vm_page_copy(m, new_m) };
+                unsafe {
+                    vm_resident::copy(
+                        NonNull::new_unchecked(m),
+                        NonNull::new_unchecked(new_m),
+                    )
+                };
 
                 // SAFETY: the page is tabled, so it belongs to a live object
                 // the copy holds a paging reference on.
@@ -5447,7 +5455,7 @@ impl VmMap {
                 if must_wire {
                     // SAFETY: the page queue lock is held and `m` is live.
                     unsafe {
-                        vm_page_wire(m);
+                        vm_page::wire(NonNull::new_unchecked(m));
                         let entry_start = (*last.as_ptr()).links.start;
                         let entry_offset = (*last.as_ptr()).offset;
                         let page_offset = vm_map_glue_page_offset(m);

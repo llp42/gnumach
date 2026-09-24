@@ -138,9 +138,9 @@ file, or `—` when the rest is ready too.
 | `vm_kern.c` | 812 | 0 | `vm_object` fields for the rest |
 | `vm_map_glue.c` | 341 | 0 | the object/page/task field shims; they need mirrors |
 | `vm_object.c` | 2887 | 0 | `struct vm_object` has no field mirror |
-| `vm_page.c` | 2198 | 0 | `struct vm_page` has no field mirror |
+| `vm_page.c` | 2198 | 0 | `vm_page_seg`, its free lists and its `static` helpers |
 | `vm_pageout.c` | 505 | 0 | `vm_object`/`vm_page` fields |
-| `vm_resident.c` | 948 | 0 | `struct vm_page` mirror |
+| `vm_resident.c` | 948 | 0 | the `vm_page_bucket_t` table, the fictitious-page statics and `vm_page_order` |
 | `vm_user.c` | 602 | 0 | `vm_object`/`vm_page` fields for the rest |
 
 ### `device/` (11 files, 7,057 LOC)
@@ -259,8 +259,7 @@ accessors and the eight `i386/i386at/com.c` entries.
 
 **Mirror gaps.**
 `host_ipc_marequest_info` and `host_virtual_physical_table_info` need a
-`hash_info_bucket_t` mirror.  `vm_page_module_init` needs a
-`struct vm_page` field mirror.  `pmap_clear_modify`, `pmap_is_modified`,
+`hash_info_bucket_t` mirror.  `pmap_clear_modify`, `pmap_is_modified`,
 `pmap_clear_reference` and `pmap_is_referenced` call `static`
 `phys_attribute_*` helpers, so they are not free: they move only when a
 `struct pmap` story exists or the helpers move with them.
@@ -439,6 +438,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `vm/vm_fault.c` (`vm_fault_wire`), `vm/vm_page.c` (`vm_page_seg_name`), `vm/vm_resident.c` (`pmap_steal_memory`, `vm_page_rename`, `vm_page_alloc_flags`, `vm_page_alloc`) | `src/vm/vm_fault.rs`, `vm_fault_ffi.rs`, `vm_page.rs`, `vm_page_ffi.rs`, `vm_resident.rs`, `vm_resident_ffi.rs` | pending |
 | `kern/processor_glue.c` (4 shims), `kern/sched_prim.c` (`thread_glue_pset_sched_load`) | `src/config.rs` (`NCPUS`, `NCOM`, `NINTR`), `src/kern/processor.rs`, `src/kern/thread.rs` | pending |
 | `kern/ast.c` (`ast_init`), `kern/timer.c` (`init_timers`), `kern/host.c` (`host_processors`), `kern/processor.c` (`pset_sys_init`), `device/chario.c` (`chario_init`) | `src/kern/ast.rs`, `src/kern/timer.rs`, `src/kern/host.rs`, `src/kern/processor.rs`, `src/device/chario.rs` | pending |
+| `vm/vm_page.c` (`vm_page_set_type`, `vm_page_wire`), `vm/vm_resident.c` (`vm_page_init`, `vm_page_module_init`, `vm_page_grab`, `vm_page_grab_phys_addr`, `vm_page_release`, `vm_page_zero_fill`, `vm_page_copy`) with the `struct vm_page` mirror | `src/vm/vm_page.rs`, `vm_page_ffi.rs`, `vm_resident.rs`, `vm_resident_ffi.rs` | pending |
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `i386/i386at/kd_glue.c`

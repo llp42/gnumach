@@ -217,18 +217,6 @@ void vm_page_bootstrap(
 }
 
 /*
- *	Routine:	vm_page_module_init
- *	Purpose:
- *		Second initialization pass, to be done after
- *		the basic VM system is ready.
- */
-void		vm_page_module_init(void)
-{
-	kmem_cache_init(&vm_page_cache, "vm_page", sizeof(struct vm_page), 0,
-			NULL, 0);
-}
-
-/*
  *	vm_page_hash:
  *
  *	Distributes the object/offset key pair among hash buckets.
@@ -513,47 +501,6 @@ vm_page_t vm_page_lookup(
 	return mem;
 }
 
-static void vm_page_init_template(vm_page_t m)
-{
-	m->object = VM_OBJECT_NULL;	/* reset later */
-	m->offset = 0;			/* reset later */
-	m->wire_count = 0;
-
-	m->inactive = FALSE;
-	m->active = FALSE;
-	m->laundry = FALSE;
-	m->external_laundry = FALSE;
-	m->free = FALSE;
-	m->external = FALSE;
-
-	m->busy = TRUE;
-	m->wanted = FALSE;
-	m->tabled = FALSE;
-	m->fictitious = FALSE;
-	m->private = FALSE;
-	m->absent = FALSE;
-	m->error = FALSE;
-	m->dirty = FALSE;
-	m->precious = FALSE;
-	m->reference = FALSE;
-
-	m->page_lock = VM_PROT_NONE;
-	m->unlock_request = VM_PROT_NONE;
-}
-
-/*
- *	vm_page_init:
- *
- *	Initialize the fields in a new page.
- *	This takes a structure with random values and initializes it
- *	so that it can be given to vm_page_release or vm_page_insert.
- */
-void vm_page_init(
-	vm_page_t	mem)
-{
-	vm_page_init_template(mem);
-}
-
 /*
  *	vm_page_grab_fictitious:
  *
@@ -665,110 +612,6 @@ boolean_t vm_page_convert(struct vm_page **mp)
 }
 
 /*
- *	vm_page_grab:
- *
- *	Remove a page from the free list.
- *	Returns VM_PAGE_NULL if the free list is too small.
- *
- *	FLAGS specify which constraint should be enforced for the allocated
- *	addresses.
- */
-
-vm_page_t vm_page_grab(unsigned flags)
-{
-	unsigned selector;
-	vm_page_t	mem;
-
-	if (flags & VM_PAGE_HIGHMEM)
-		selector = VM_PAGE_SEL_HIGHMEM;
-#if defined(VM_PAGE_DMA32_LIMIT) && VM_PAGE_DMA32_LIMIT > VM_PAGE_DIRECTMAP_LIMIT
-       else if (flags & VM_PAGE_DMA32)
-               selector = VM_PAGE_SEL_DMA32;
-#endif
-	else if (flags & VM_PAGE_DIRECTMAP)
-		selector = VM_PAGE_SEL_DIRECTMAP;
-#if defined(VM_PAGE_DMA32_LIMIT) && VM_PAGE_DMA32_LIMIT <= VM_PAGE_DIRECTMAP_LIMIT
-	else if (flags & VM_PAGE_DMA32)
-		selector = VM_PAGE_SEL_DMA32;
-#endif
-	else
-		selector = VM_PAGE_SEL_DMA;
-
-	/*
-	 * XXX Mach has many modules that merely assume memory is
-	 * directly mapped in kernel space. Instead of updating all
-	 * users, we assume those which need specific physical memory
-	 * properties will wire down their pages, either because
-	 * they can't be paged (not part of an object), or with
-	 * explicit VM calls. The strategy is then to let memory
-	 * pressure balance the physical segments with pageable pages.
-	 */
-	mem = vm_page_alloc_pa(0, selector, VM_PT_KERNEL);
-
-	if (mem == NULL) {
-		simple_unlock(&vm_page_queue_free_lock);
-		return NULL;
-	}
-
-	mem->free = FALSE;
-	simple_unlock(&vm_page_queue_free_lock);
-
-	return mem;
-}
-
-phys_addr_t vm_page_grab_phys_addr(void)
-{
-	vm_page_t p = vm_page_grab(VM_PAGE_DIRECTMAP);
-	if (p == VM_PAGE_NULL)
-		return -1;
-	else
-		return p->phys_addr;
-}
-
-/*
- *	vm_page_release:
- *
- *	Return a page to the free list.
- */
-
-void vm_page_release(
-	vm_page_t	mem,
-	boolean_t 	laundry,
-	boolean_t 	external_laundry)
-{
-	simple_lock(&vm_page_queue_free_lock);
-	if (mem->free)
-		panic("vm_page_release");
-	mem->free = TRUE;
-	vm_page_free_pa(mem, 0);
-	if (laundry) {
-		vm_page_laundry_count--;
-
-		if (vm_page_laundry_count == 0) {
-			vm_pageout_resume();
-		}
-	}
-	if (external_laundry) {
-
-		/*
-		 *	If vm_page_external_laundry_count is negative,
-		 *	the pageout daemon isn't expecting to be
-		 *	notified.
-		 */
-
-		if (vm_page_external_laundry_count > 0) {
-			vm_page_external_laundry_count--;
-
-			if (vm_page_external_laundry_count == 0) {
-				vm_pageout_resume();
-			}
-		}
-	}
-
-	simple_unlock(&vm_page_queue_free_lock);
-}
-
-/*
  *	vm_page_grab_contig:
  *
  *	Remove a block of contiguous pages from the free list.
@@ -876,35 +719,6 @@ void vm_page_free(
 		vm_page_init(mem);
 		vm_page_release(mem, laundry, external_laundry);
 	}
-}
-
-/*
- *	vm_page_zero_fill:
- *
- *	Zero-fill the specified page.
- */
-void vm_page_zero_fill(
-	vm_page_t	m)
-{
-	VM_PAGE_CHECK(m);
-
-	pmap_zero_page(m->phys_addr);
-}
-
-/*
- *	vm_page_copy:
- *
- *	Copy one page to another
- */
-
-void vm_page_copy(
-	vm_page_t	src_m,
-	vm_page_t	dest_m)
-{
-	VM_PAGE_CHECK(src_m);
-	VM_PAGE_CHECK(dest_m);
-
-	pmap_copy_page(src_m->phys_addr, dest_m->phys_addr);
 }
 
 /*

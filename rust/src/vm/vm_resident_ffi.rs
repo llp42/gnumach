@@ -99,3 +99,101 @@ pub unsafe extern "C" fn vm_page_alloc(
         unsafe { vm_resident::alloc(NonNull::new_unchecked(object), offset) };
     page.map_or(ptr::null_mut(), NonNull::as_ptr)
 }
+
+/// `vm_page_init()` in C.
+///
+/// # Safety
+///
+/// `page` must point at writable storage for a live page that no other
+/// thread can see yet.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_page_init(page: *mut VmPage) {
+    // SAFETY: the caller promises writable, unshared storage.
+    unsafe { vm_resident::init(&mut *page) };
+}
+
+/// `vm_page_module_init()` in C.
+///
+/// # Safety
+///
+/// Must be called once during the VM bootstrap, after the slab package is
+/// initialized.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_page_module_init() {
+    // SAFETY: the caller promises the bootstrap ordering.
+    unsafe { vm_resident::module_init() };
+}
+
+/// `vm_page_grab()` in C.
+///
+/// # Safety
+///
+/// The caller must not hold `vm_page_queue_free_lock`, must be in a context
+/// where the allocator may spin, and must be the page queues' only user of
+/// the returned page.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_page_grab(flags: c_uint) -> *mut VmPage {
+    // SAFETY: the caller promises `grab()`'s contract.
+    let page = unsafe { vm_resident::grab(flags) };
+    page.map_or(ptr::null_mut(), NonNull::as_ptr)
+}
+
+/// `vm_page_grab_phys_addr()` in C.
+///
+/// # Safety
+///
+/// Same contract as [`vm_page_grab()`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_page_grab_phys_addr() -> VmOffset {
+    // SAFETY: the caller promises `grab()`'s contract.
+    unsafe { vm_resident::grab_phys_addr() }
+}
+
+/// `vm_page_release()` in C.
+///
+/// # Safety
+///
+/// `page` must be a live page that no one else holds, and the caller must
+/// not hold `vm_page_queue_free_lock`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_page_release(
+    page: *mut VmPage,
+    laundry: c_int,
+    external_laundry: c_int,
+) {
+    // SAFETY: the caller promises a live page with no other holder.
+    unsafe {
+        vm_resident::release(
+            NonNull::new_unchecked(page),
+            laundry != 0,
+            external_laundry != 0,
+        )
+    };
+}
+
+/// `vm_page_zero_fill()` in C.
+///
+/// # Safety
+///
+/// `page` must be a live page.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_page_zero_fill(page: *mut VmPage) {
+    // SAFETY: the caller promises a live page.
+    unsafe { vm_resident::zero_fill(NonNull::new_unchecked(page)) };
+}
+
+/// `vm_page_copy()` in C.
+///
+/// # Safety
+///
+/// `src` and `dest` must be live pages.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_page_copy(src: *mut VmPage, dest: *mut VmPage) {
+    // SAFETY: the caller promises two live pages.
+    unsafe {
+        vm_resident::copy(
+            NonNull::new_unchecked(src),
+            NonNull::new_unchecked(dest),
+        )
+    };
+}
