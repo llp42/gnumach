@@ -9,6 +9,7 @@
 use crate::arch::i386::percpu::current_thread;
 use crate::arch::types::{VmOffset, VmSize};
 use crate::glue;
+use crate::kern::ipc_tt::mach_reply_port;
 use crate::kern::thread::Thread;
 use crate::kern::types::KernError;
 use crate::vm::vm_map::VmMapCopy;
@@ -181,7 +182,7 @@ pub unsafe extern "C" fn mig_get_reply_port() -> c_uint {
     unsafe {
         let thread = current_thread();
         if (*thread).ith_mig_reply == MACH_PORT_NULL {
-            (*thread).ith_mig_reply = glue::mach_reply_port();
+            (*thread).ith_mig_reply = mach_reply_port();
         }
         (*thread).ith_mig_reply
     }

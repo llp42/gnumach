@@ -140,9 +140,6 @@ unsafe extern "C" {
         cn: usize,
     ) -> c_int;
 
-    pub fn ipc_thread_init(thread: *mut Thread);
-    pub fn ipc_thread_terminate(thread: *mut Thread);
-
     pub fn pcb_init(task: *mut Task, thread: *mut Thread);
     pub fn pcb_terminate(thread: *mut Thread);
 
@@ -153,10 +150,9 @@ unsafe extern "C" {
     pub fn mach_msg_receive_continue();
     pub fn mach_msg_interrupt(thread: *mut Thread) -> c_int;
 
-    pub fn ipc_task_init(task: *mut Task, parent: *mut Task);
-    pub fn ipc_task_enable(task: *mut Task);
-    pub fn ipc_task_disable(task: *mut Task);
-    pub fn ipc_task_terminate(task: *mut Task);
+    pub fn ipc_space_create(spacep: *mut *mut c_void) -> c_int;
+    pub fn ipc_space_destroy(space: *mut c_void);
+    pub fn ipc_space_reference(space: *mut c_void);
     pub fn ipc_space_release(space: *mut c_void);
 
     pub fn eml_task_reference(task: *mut Task, parent: *mut Task);
@@ -169,8 +165,6 @@ unsafe extern "C" {
     pub fn pset_add_task(pset: *mut ProcessorSet, task: *mut Task);
     pub fn pset_remove_task(pset: *mut ProcessorSet, task: *mut Task);
 
-    pub fn convert_task_to_port(task: *mut Task) -> *mut c_void;
-    pub fn convert_thread_to_port(thread: *mut Thread) -> *mut c_void;
     pub fn mach_notify_new_task(
         notify: *mut c_void,
         task: *mut c_void,
@@ -335,6 +329,10 @@ unsafe extern "C" {
     pub fn ipc_port_copy_send(port: *mut c_void) -> *mut c_void;
     pub fn ipc_port_release_send(port: *mut c_void);
     pub fn ipc_port_make_send(port: *mut c_void) -> *mut c_void;
+    pub fn ipc_port_copyout_send(
+        sright: *mut c_void,
+        space: *mut c_void,
+    ) -> c_uint;
 
     pub fn ipc_object_reference(io: *mut c_void) -> c_uint;
     pub fn ipc_object_release(io: *mut c_void) -> c_uint;
@@ -360,8 +358,6 @@ unsafe extern "C" {
     pub fn ipc_port_dealloc_special(port: *mut c_void, space: *mut c_void);
 
     pub static ipc_space_reply: *mut c_void;
-
-    pub fn mach_reply_port() -> c_uint;
 
     pub fn ipc_object_rename(
         space: *mut c_void,

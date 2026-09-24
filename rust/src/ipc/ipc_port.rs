@@ -58,7 +58,7 @@ fn kern_error(code: c_int) -> Result<(), KernError> {
 }
 
 /// `ipc_port_alloc()` in C.
-fn alloc(space: IpcSpace) -> Result<(c_uint, IpcPort), KernError> {
+pub(crate) fn alloc(space: IpcSpace) -> Result<(c_uint, IpcPort), KernError> {
     let mut name: c_uint = 0;
     let mut port: *mut c_void = ptr::null_mut();
 

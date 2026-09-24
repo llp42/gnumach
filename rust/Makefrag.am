@@ -72,6 +72,7 @@ MACH_RS_SRCS = \
 	rust/src/kern/ipc_mig.rs \
 	rust/src/kern/ipc_sched.rs \
 	rust/src/kern/ipc_tt.rs \
+	rust/src/kern/ipc_tt_ffi.rs \
 	rust/src/kern/kmutex.rs \
 	rust/src/kern/list.rs \
 	rust/src/kern/lock.rs \

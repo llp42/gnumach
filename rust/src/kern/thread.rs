@@ -18,7 +18,10 @@ use crate::glue;
 use crate::glue::time_value::{RpcTimeValue, TimeValue, TimeValue64};
 use crate::kern::ast::{AST_BLOCK, AST_HALT, AST_TERMINATE, ast_on};
 use crate::kern::ipc_mig::mach_msg_abort_rpc;
-use crate::kern::ipc_tt::ipc_thread_disable;
+use crate::kern::ipc_tt::{
+    ipc_thread_disable, ipc_thread_enable, ipc_thread_init,
+    ipc_thread_terminate,
+};
 use crate::kern::lock::SimpleLock;
 use crate::kern::mach_clock::{Timeout, read_time_stamp, reset_timeout_check};
 use crate::kern::policy::{POLICY_FIXEDPRI, POLICY_TIMESHARE, invalid_policy};
@@ -599,7 +602,7 @@ impl Thread {
         let _ = unsafe { Thread::halt(thread, true) };
         // SAFETY: as above; `ipc_thread_terminate()` takes the thread's IPC
         // lock itself.
-        unsafe { glue::ipc_thread_terminate(thread) };
+        unsafe { ipc_thread_terminate(thread) };
         // SAFETY: as above; the Rust `unfreeze()` takes the thread lock.
         unsafe { Thread::unfreeze(thread) };
 
@@ -1599,7 +1602,7 @@ impl Thread {
             (*new_thread).sched_stamp = glue::sched_tick;
             thread_timeout_setup(new_thread);
             glue::pcb_init(parent_task, new_thread);
-            glue::ipc_thread_init(new_thread);
+            ipc_thread_init(new_thread);
         }
 
         // SAFETY: the caller promises a live task; the lock covers the set
@@ -1702,7 +1705,7 @@ impl Thread {
         }
 
         // SAFETY: the thread is live and active, and its IPC state is built.
-        unsafe { crate::kern::ipc_tt::ipc_thread_enable(new_thread) };
+        unsafe { ipc_thread_enable(new_thread) };
 
         Ok(new_thread)
     }
@@ -1930,7 +1933,7 @@ impl Thread {
             }
             let _ = Thread::halt(thread, true);
             Thread::unfreeze(thread);
-            glue::ipc_thread_terminate(thread);
+            ipc_thread_terminate(thread);
             Thread::deallocate(thread);
         }
         Ok(())
@@ -2176,7 +2179,7 @@ impl Thread {
         // and only the IPC teardown and the reaper touch it from here on.
         unsafe {
             if (*thread).ast & AST_TERMINATE != 0 {
-                glue::ipc_thread_terminate(thread);
+                ipc_thread_terminate(thread);
 
                 Thread::hold(thread);
 

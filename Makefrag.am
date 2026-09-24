@@ -93,7 +93,6 @@ libkernel_a_SOURCES += \
 	kern/ipc_mig.h \
 	kern/ipc_sched.c \
 	kern/ipc_sched.h \
-	kern/ipc_tt.c \
 	kern/ipc_tt.h \
 	kern/kalloc.h \
 	kern/kern_types.h \

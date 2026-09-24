@@ -18,7 +18,11 @@ use crate::glue::time_value::{
 };
 use crate::ipc::IpcPort;
 use crate::kern::ast::{AST_BLOCK, ast_on};
-use crate::kern::ipc_tt::ipc_thread_disable;
+use crate::kern::ipc_tt::{
+    convert_task_to_port, convert_thread_to_port, ipc_task_disable,
+    ipc_task_enable, ipc_task_init, ipc_task_terminate, ipc_thread_disable,
+    ipc_thread_terminate,
+};
 use crate::kern::lock::SimpleLock;
 use crate::kern::mach_clock::read_time_stamp;
 use crate::kern::processor::{ProcessorSet, pset_deallocate, pset_reference};
@@ -45,7 +49,7 @@ use core::ptr::{
 
 /// `TASK_PORT_REGISTER_MAX` of <mach/mach_param.h>: the registered send
 /// rights a task holds.
-const TASK_PORT_REGISTER_MAX: usize = 4;
+pub(crate) const TASK_PORT_REGISTER_MAX: usize = 4;
 
 /// `TASK_NAME_SIZE` of <kern/task.h>.
 const TASK_NAME_SIZE: usize = 32;
@@ -608,7 +612,7 @@ pub(crate) unsafe fn create_kernel_task(
     // parent and initialize the task's own fields.
     unsafe {
         glue::eml_task_reference(task, parent);
-        glue::ipc_task_init(task, parent);
+        ipc_task_init(task, parent);
         glue::machine_task_init(task);
 
         addr_of_mut!((*task).total_user_time).write(TimeValue64::default());
@@ -691,15 +695,16 @@ pub(crate) unsafe fn create_kernel_task(
             reference(parent);
             glue::mach_notify_new_task(
                 new_task_notification,
-                glue::convert_task_to_port(task),
+                convert_task_to_port(task).map_or(null_mut(), IpcPort::as_ptr),
                 if parent.is_null() {
                     null_mut()
                 } else {
-                    glue::convert_task_to_port(parent)
+                    convert_task_to_port(parent)
+                        .map_or(null_mut(), IpcPort::as_ptr)
                 },
             );
         }
-        glue::ipc_task_enable(task);
+        ipc_task_enable(task);
     }
 
     Ok(task)
@@ -830,7 +835,7 @@ pub(crate) unsafe fn terminate(task: *mut Task) -> Result<(), KernError> {
 
             // The current thread must be left alone to terminate the task.
             ipc_thread_disable(cur_thread);
-            glue::ipc_thread_terminate(cur_thread);
+            ipc_thread_terminate(cur_thread);
         }
     } else {
         // SAFETY: the caller promises a live task; the current thread and
@@ -873,7 +878,7 @@ pub(crate) unsafe fn terminate(task: *mut Task) -> Result<(), KernError> {
     let _ = unsafe { dowait(task, true) };
 
     // SAFETY: the caller promises a live task, and its IPC state is up.
-    unsafe { glue::ipc_task_disable(task) };
+    unsafe { ipc_task_disable(task) };
 
     // SAFETY: the task is live and unlocked here, as the C's loop needs;
     // each removed thread holds a reference while it is walked.
@@ -906,7 +911,7 @@ pub(crate) unsafe fn terminate(task: *mut Task) -> Result<(), KernError> {
     }
 
     // SAFETY: as above; the C tore the IPC state down here.
-    unsafe { glue::ipc_task_terminate(task) };
+    unsafe { ipc_task_terminate(task) };
 
     // SAFETY: the caller promises the task's own reference moves here.
     unsafe { deallocate(task) };
@@ -1180,10 +1185,12 @@ pub(crate) unsafe fn threads(
     // hands the reference on; the buffer has room for all of them.
     unsafe {
         for i in 0..actual as usize {
-            let port = glue::convert_thread_to_port(
-                with_exposed_provenance_mut(threads.add(i).read()),
-            );
-            threads.add(i).write(port.addr());
+            let port = convert_thread_to_port(with_exposed_provenance_mut(
+                threads.add(i).read(),
+            ));
+            threads
+                .add(i)
+                .write(port.map_or(0, |port| port.as_ptr().addr()));
         }
 
         Ok((Some(NonNull::new_unchecked(threads)), actual))

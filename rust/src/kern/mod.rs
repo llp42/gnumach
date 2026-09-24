@@ -14,6 +14,7 @@ pub mod ipc_host;
 pub mod ipc_mig;
 pub mod ipc_sched;
 pub mod ipc_tt;
+pub mod ipc_tt_ffi;
 pub mod kmutex;
 pub mod list;
 pub mod lock;

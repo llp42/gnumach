@@ -51,7 +51,7 @@ column is what exists in the tree today, not a plan.
 | Layer | What it is | State today |
 |---|---|---|
 | **L0 pure** | strings, byte order, atoi, parser tables | done |
-| **L1 types** | structs read field-by-field, sometimes by asm | `Thread`, `Processor`, `ProcessorSet`, `RunQueue`, `Timer`, `Timeout`, `QueueEntry`, `SimpleLock`, `TimeValue`/`TimeValue64`, `VmMap`/`VmMapEntry`/`VmMapHeader`/`VmMapLinks`, `VmPage`, `VmObject`, `Task`/`MachineTask`, `KmemCache`, `MachineSlot` are `#[repr(C)]` mirrors with size, alignment and offset asserts.  `struct ipc_port`, `struct ipc_space`, `struct ipc_kmsg`, `struct pcb`, the APIC structs and the driver structs have no field mirror. |
+| **L1 types** | structs read field-by-field, sometimes by asm | `Thread`, `Processor`, `ProcessorSet`, `RunQueue`, `Timer`, `Timeout`, `QueueEntry`, `SimpleLock`, `TimeValue`/`TimeValue64`, `VmMap`/`VmMapEntry`/`VmMapHeader`/`VmMapLinks`, `VmPage`, `VmObject`, `Task`/`MachineTask`, `KmemCache`, `MachineSlot` and `struct ipc_port` (with its `ipc_target` and `ipc_mqueue`) are `#[repr(C)]` mirrors with size, alignment and offset asserts.  `struct ipc_space`, `struct ipc_kmsg`, `struct pcb`, the APIC structs and the driver structs have no field mirror. |
 | **L2 locks/IRQ/percpu** | `simple_lock`, `spl*`, `percpu_get`, `current_thread()` | done: `kern/lock.c` and `i386/i386/lock.h` are gone, `SimpleLock` is `src/kern/lock.rs`, `spl*` are real asm functions in `glue`, and `current_thread()`, `cpu_number()` and `percpu_get` live in `src/arch/i386/percpu.rs`.  An RAII `IrqGuard` is a Rust-side type to write when wanted. |
 | **L3 memory** | `kalloc`/`kfree`, `kmem_cache_*` | done: `kern/slab.c` is gone, `src/kern/slab.rs` owns the allocator and `src/kern/slab_ffi.rs` exports its C symbols.  A `GlobalAlloc` over `kalloc` remains a design conversation. |
 | **L4 runnable** | `thread_block`, `assert_wait`, `set_timeout`, continuations | the wait/wake primitives are Rust; `thread_block`, `assert_wait` and `set_timeout` are real C symbols in `glue`; `switch_context`, `call_continuation` and `stack_handoff` stay C. |
@@ -85,7 +85,6 @@ file, or `—` when the rest is ready too.
 | `ipc_kobject.c` | 362 | 4 | 0 | `ipc_port` fields |
 | `ipc_mig.c` | 856 | 5 | 0 | `port_name_to_*` are static; wire-type structs |
 | `ipc_sched.c` | 163 | 4 | 0 | — |
-| `ipc_tt.c` | 1064 | 3 | 0 | `task`, `ipc_port`, `ipc_space` fields |
 | `mach_clock.c` | 648 | 4 | 0 | `__sync_synchronize` wrappers, static `time_value64_add_hpc`, `clock_boottime_update` |
 | `mach_factor.c` | 150 | 2 | 0 | `mach_factor[]`/`load_average[]` are NCPUS-sized |
 | `machine.c` | 630 | 4 | 0 | `machine_info` and NCPUS loops |
@@ -113,7 +112,7 @@ file, or `—` when the rest is ready too.
 | `ipc_mqueue.c` | 659 | 0 | `struct ipc_mqueue` fields |
 | `ipc_notify.c` | 448 | 0 | `ipc_kmsg` and message fields |
 | `ipc_object.c` | 788 | 0 | `ipc_object`/`ipc_entry` fields |
-| `ipc_port.c` | 1078 | 0 | `ipc_port` fields |
+| `ipc_port.c` | 1078 | 0 | the mqueue, notify and right layers; the `struct ipc_port` mirror exists now |
 | `ipc_pset.c` | 309 | 0 | `ipc_pset`/`ipc_mqueue` fields |
 | `ipc_right.c` | 1844 | 0 | `ipc_entry`/`ipc_port` fields |
 | `ipc_space.c` | 213 | 0 | `ipc_space` fields |
@@ -347,6 +346,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 * `#if 0` blocks in `kern/{boot_script,bootstrap,exception,ipc_kobject}.c`,
   `device/intr.c`, `i386/i386/{fpu,smp,pcb,trap}.c`,
   `i386/i386at/{kd,com}.c`.  Delete before porting the surrounding code.
+  `kern/ipc_tt.c`'s four `#if 0` `retrieve_*` bodies went with the file.
 * Dead `#else /* MACH_HOST */` halves of `kern/machine.c:309`;
   `MACH_HOST` is 1 in both configured builds.  The `kern/task.c` and
   `kern/thread.c` halves went with their files.
@@ -415,7 +415,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `kern/ipc_host.c` (`ipc_processor_init`, `ipc_pset_init`, `ipc_pset_enable`, `ipc_pset_disable`, `ipc_pset_terminate`, `processor_set_default`) | `src/kern/ipc_host.rs` | pending |
 | `kern/ipc_mig.c` (`mach_msg_abort_rpc`, `mig_get_reply_port`, `mig_deallocate`, `thread_set_self_state`) | `src/kern/ipc_mig.rs` | pending |
 | `kern/ipc_sched.c` (`thread_go`, `thread_will_wait`, `thread_will_wait_with_timeout`) | `src/kern/ipc_sched.rs` | pending |
-| `kern/ipc_tt.c` (`ipc_thread_enable`, `ipc_thread_disable`) | `src/kern/ipc_tt.rs` | pending |
+| `kern/ipc_tt.c` whole, with the `struct ipc_port`/`ipc_target`/`ipc_mqueue` field mirror its `ip_srights` bump reads | `src/kern/ipc_tt.rs`, `src/kern/ipc_tt_ffi.rs`, `src/ipc/mod.rs` | pending |
 | `kern/mach_clock.c` (`read_time_stamp`, `host_set_time`, `host_adjust_time`, `host_adjust_time64`) | `src/kern/mach_clock.rs` | pending |
 | `kern/machine.c` (`action_thread`) | `src/kern/machine.rs` | pending |
 | `kern/task.c` (`task_create`, `task_ras_control`, `register_new_task_notification`) | `src/kern/task.rs` | pending |
