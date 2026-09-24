@@ -9,6 +9,7 @@
 use crate::arch::i386::percpu::current_thread;
 use crate::arch::types::{VmOffset, VmSize};
 use crate::glue;
+use crate::ipc::{IpcPort, ipc_port};
 use crate::kern::ipc_tt::mach_reply_port;
 use crate::kern::thread::Thread;
 use crate::kern::types::KernError;
@@ -151,9 +152,7 @@ unsafe fn abort_rpc(thread: *mut Thread) {
     if !reply.is_null() {
         // SAFETY: `reply` was the thread's live reply port and the thread no
         // longer holds it, so this call owns the reference.
-        unsafe {
-            glue::ipc_port_dealloc_special(reply, glue::ipc_space_reply);
-        }
+        unsafe { ipc_port::dealloc_special(IpcPort::from_raw(reply)) };
     }
 }
 

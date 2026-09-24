@@ -129,6 +129,7 @@ link error, not a fallback.
 | `i386/i386at/biosmem.c` | `src/arch/i386/biosmem.rs` |
 | `kern/thread.c` | `src/kern/thread.rs`, `src/kern/thread_ffi.rs` |
 | `kern/ipc_tt.c` | `src/kern/ipc_tt.rs`, `src/kern/ipc_tt_ffi.rs` |
+| `ipc/ipc_port.c` | `src/ipc/ipc_port.rs`, `src/ipc/ipc_port_ffi.rs` |
 
 Also deleted as dead: `device/blkio.c` and the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`).

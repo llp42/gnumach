@@ -326,20 +326,34 @@ unsafe extern "C" {
 
     pub static mut machine_task_iopb_cache: KmemCache;
 
-    pub fn ipc_port_copy_send(port: *mut c_void) -> *mut c_void;
-    pub fn ipc_port_release_send(port: *mut c_void);
-    pub fn ipc_port_make_send(port: *mut c_void) -> *mut c_void;
-    pub fn ipc_port_copyout_send(
-        sright: *mut c_void,
-        space: *mut c_void,
-    ) -> c_uint;
-
     pub fn ipc_object_reference(io: *mut c_void) -> c_uint;
     pub fn ipc_object_release(io: *mut c_void) -> c_uint;
 
-    pub fn ipc_port_release_receive(port: *mut c_void);
-    pub fn ipc_port_init(port: *mut c_void, space: *mut c_void, name: c_uint);
     pub fn ipc_notify_send_once(port: *mut c_void);
+    pub fn ipc_notify_no_senders(port: *mut c_void, mscount: c_uint);
+    pub fn ipc_notify_port_destroyed(port: *mut c_void, backup: *mut c_void);
+    pub fn ipc_notify_dead_name(port: *mut c_void, name: c_uint);
+
+    pub fn ipc_target_init(target: *mut c_void, name: c_uint);
+    pub fn ipc_mqueue_init(mqueue: *mut c_void);
+    pub fn ipc_mqueue_changed(mqueue: *mut c_void, mr: c_int);
+    pub fn ipc_pset_remove(pset: *mut c_void, port: *mut c_void);
+
+    pub fn ipc_kmsg_dequeue(queue: *mut c_void) -> *mut c_void;
+    pub fn ipc_kmsg_destroy(kmsg: *mut c_void);
+    pub fn ipc_kobject_destroy(port: *mut c_void);
+
+    pub fn ipc_object_copyout(
+        space: *mut c_void,
+        object: *mut c_void,
+        msgt_name: c_uint,
+        overflow: c_int,
+        namep: *mut c_uint,
+    ) -> c_int;
+
+    /// `ipc_object_caches` of ipc/ipc_object.c: the port and port-set caches
+    /// `io_alloc()` and `io_free()` index.
+    pub static mut ipc_object_caches: [KmemCache; 2];
 
     pub fn convert_processor_name_to_port(
         processor: *mut Processor,
@@ -353,9 +367,6 @@ unsafe extern "C" {
         kobject: VmOffset,
         type_: c_uint,
     );
-
-    pub fn ipc_port_alloc_special(space: *mut c_void) -> *mut c_void;
-    pub fn ipc_port_dealloc_special(port: *mut c_void, space: *mut c_void);
 
     pub static ipc_space_reply: *mut c_void;
 
@@ -405,18 +416,6 @@ unsafe extern "C" {
     pub static mut ipc_kernel_map: *mut c_void;
     pub static ipc_kernel_map_size: VmSize;
     pub fn ipc_host_init();
-
-    pub fn ipc_port_pdrequest(
-        port: *mut c_void,
-        notify: *mut c_void,
-        previousp: *mut *mut c_void,
-    );
-    pub fn ipc_port_nsrequest(
-        port: *mut c_void,
-        sync: c_uint,
-        notify: *mut c_void,
-        previousp: *mut *mut c_void,
-    );
 
     pub fn ipc_right_dnrequest(
         space: *mut c_void,

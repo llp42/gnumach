@@ -9,6 +9,7 @@
 use crate::arch::i386::percpu::current_thread;
 use crate::arch::types::VmOffset;
 use crate::glue;
+use crate::ipc::ipc_port;
 use crate::ipc::ipc_thread::ipc_thread_links_init;
 use crate::ipc::{IpcPort, IpcSpace};
 use crate::kern::slab::{kalloc, kfree};
@@ -128,7 +129,7 @@ unsafe fn release_send_if_valid(port: *mut c_void) {
     if let Some(port) = IpcPort::valid(port) {
         // SAFETY: the caller's contract; `valid()` is `IP_VALID()`'s test
         // and the right is the one `port` holds.
-        unsafe { glue::ipc_port_release_send(port.as_ptr()) };
+        unsafe { ipc_port::release_send(port) };
     }
 }
 
@@ -149,9 +150,10 @@ pub(crate) unsafe fn ipc_task_init(task: *mut Task, parent: *mut Task) {
 
     // SAFETY: `ipc_space_kernel` is live for the life of the kernel; this is
     // the C's `ipc_port_alloc_kernel()`.
-    let Some(kport) = IpcPort::new(unsafe {
-        glue::ipc_port_alloc_special(glue::ipc_space_kernel)
-    }) else {
+    let kport = unsafe {
+        ipc_port::alloc_special(IpcSpace::from_raw(glue::ipc_space_kernel))
+    };
+    let Some(kport) = kport else {
         init_panic(c"ipc_task_init")
     };
 
@@ -160,7 +162,7 @@ pub(crate) unsafe fn ipc_task_init(task: *mut Task, parent: *mut Task) {
     unsafe {
         (*task).itk_lock_data.init();
         (*task).itk_self = kport.as_ptr();
-        (*task).itk_sself = glue::ipc_port_make_send(kport.as_ptr());
+        (*task).itk_sself = ipc_port::make_send(kport).as_ptr();
         (*task).itk_space = space;
 
         if parent.is_null() {
@@ -174,12 +176,12 @@ pub(crate) unsafe fn ipc_task_init(task: *mut Task, parent: *mut Task) {
                 .iter_mut()
                 .zip((*parent).itk_registered.iter())
             {
-                *slot = glue::ipc_port_copy_send(*parent_port);
+                *slot = ipc_port::copy_send(*parent_port);
             }
             (*task).itk_exception =
-                glue::ipc_port_copy_send((*parent).itk_exception);
+                ipc_port::copy_send((*parent).itk_exception);
             (*task).itk_bootstrap =
-                glue::ipc_port_copy_send((*parent).itk_bootstrap);
+                ipc_port::copy_send((*parent).itk_bootstrap);
             (*parent).itk_lock_data.unlock();
         }
     }
@@ -255,7 +257,7 @@ pub(crate) unsafe fn ipc_task_terminate(task: *mut Task) {
             release_send_if_valid(*port);
         }
         glue::ipc_space_destroy((*task).itk_space);
-        glue::ipc_port_dealloc_special(kport, glue::ipc_space_kernel);
+        ipc_port::dealloc_special(IpcPort::from_raw(kport));
     }
 }
 
@@ -268,9 +270,10 @@ pub(crate) unsafe fn ipc_task_terminate(task: *mut Task) {
 pub(crate) unsafe fn ipc_thread_init(thread: *mut Thread) {
     // SAFETY: `ipc_space_kernel` is live for the life of the kernel; this is
     // the C's `ipc_port_alloc_kernel()`.
-    let Some(kport) = IpcPort::new(unsafe {
-        glue::ipc_port_alloc_special(glue::ipc_space_kernel)
-    }) else {
+    let kport = unsafe {
+        ipc_port::alloc_special(IpcSpace::from_raw(glue::ipc_space_kernel))
+    };
+    let Some(kport) = kport else {
         init_panic(c"ipc_thread_init")
     };
 
@@ -283,7 +286,7 @@ pub(crate) unsafe fn ipc_thread_init(thread: *mut Thread) {
         };
         (*thread).ith_lock_data.init();
         (*thread).ith_self = kport.as_ptr();
-        (*thread).ith_sself = glue::ipc_port_make_send(kport.as_ptr());
+        (*thread).ith_sself = ipc_port::make_send(kport).as_ptr();
         (*thread).ith_exception = ptr::null_mut();
         (*thread).ith_mig_reply = MACH_PORT_NULL;
         (*thread).ith_rpc_reply = ptr::null_mut();
@@ -355,7 +358,7 @@ pub(crate) unsafe fn ipc_thread_terminate(thread: *mut Thread) {
     unsafe {
         release_send_if_valid((*thread).ith_sself);
         release_send_if_valid((*thread).ith_exception);
-        glue::ipc_port_dealloc_special(kport, glue::ipc_space_kernel);
+        ipc_port::dealloc_special(IpcPort::from_raw(kport));
     }
 }
 
@@ -385,7 +388,7 @@ pub(crate) unsafe fn retrieve_task_self_fast(
             port.unlock();
             Some(port)
         } else {
-            IpcPort::new(glue::ipc_port_copy_send(sself))
+            IpcPort::new(ipc_port::copy_send(sself))
         };
 
         (*task).itk_lock_data.unlock();
@@ -419,7 +422,7 @@ pub(crate) unsafe fn retrieve_thread_self_fast(
             port.unlock();
             Some(port)
         } else {
-            IpcPort::new(glue::ipc_port_copy_send(sself))
+            IpcPort::new(ipc_port::copy_send(sself))
         };
 
         (*thread).ith_lock_data.unlock();
@@ -439,12 +442,12 @@ pub(crate) unsafe fn mach_task_self() -> c_uint {
     // SAFETY: as above; the task is live.
     let sright = unsafe { retrieve_task_self_fast(task) };
 
-    // SAFETY: the current task's space is live, and `ipc_port_copyout_send`
-    // handles a null or dead send right itself.
+    // SAFETY: the current task's space is live, and `copyout_send` handles
+    // a null or dead send right itself.
     unsafe {
-        glue::ipc_port_copyout_send(
+        ipc_port::copyout_send(
             sright.map_or(ptr::null_mut(), IpcPort::as_ptr),
-            (*task).itk_space,
+            IpcSpace::from_raw((*task).itk_space),
         )
     }
 }
@@ -462,12 +465,12 @@ pub(crate) unsafe fn mach_thread_self() -> c_uint {
     // SAFETY: as above; the current thread is live.
     let sright = unsafe { retrieve_thread_self_fast(thread) };
 
-    // SAFETY: the task's space is live, and `ipc_port_copyout_send` handles
-    // a null or dead send right itself.
+    // SAFETY: the task's space is live, and `copyout_send` handles a null or
+    // dead send right itself.
     unsafe {
-        glue::ipc_port_copyout_send(
+        ipc_port::copyout_send(
             sright.map_or(ptr::null_mut(), IpcPort::as_ptr),
-            (*task).itk_space,
+            IpcSpace::from_raw((*task).itk_space),
         )
     }
 }
@@ -567,9 +570,8 @@ pub(crate) unsafe fn task_get_special_port(
             return Err(KernError::Failure);
         }
 
-        let port = IpcPort::new(glue::ipc_port_copy_send(*task_port_field(
-            task, which,
-        )));
+        let port =
+            IpcPort::new(ipc_port::copy_send(*task_port_field(task, which)));
         (*task).itk_lock_data.unlock();
         Ok(port)
     }
@@ -632,7 +634,7 @@ pub(crate) unsafe fn thread_get_special_port(
             return Err(KernError::Failure);
         }
 
-        let port = IpcPort::new(glue::ipc_port_copy_send(*thread_port_field(
+        let port = IpcPort::new(ipc_port::copy_send(*thread_port_field(
             thread, which,
         )));
         (*thread).ith_lock_data.unlock();
@@ -753,7 +755,7 @@ pub(crate) unsafe fn ports_lookup(
 
         let ports = memory.as_ptr().cast::<VmOffset>();
         for (i, port) in (*task).itk_registered.iter().enumerate() {
-            let clone = glue::ipc_port_copy_send(*port);
+            let clone = ipc_port::copy_send(*port);
             ptr::write(ports.add(i), clone.addr());
         }
         (*task).itk_lock_data.unlock();
@@ -892,7 +894,10 @@ pub(crate) unsafe fn convert_task_to_port(task: *mut Task) -> Option<IpcPort> {
         let port = if (*task).itk_self.is_null() {
             None
         } else {
-            IpcPort::new(glue::ipc_port_make_send((*task).itk_self))
+            IpcPort::new(
+                ipc_port::make_send(IpcPort::from_raw((*task).itk_self))
+                    .as_ptr(),
+            )
         };
         (*task).itk_lock_data.unlock();
         port
@@ -919,7 +924,10 @@ pub(crate) unsafe fn convert_thread_to_port(
         let port = if (*thread).ith_self.is_null() {
             None
         } else {
-            IpcPort::new(glue::ipc_port_make_send((*thread).ith_self))
+            IpcPort::new(
+                ipc_port::make_send(IpcPort::from_raw((*thread).ith_self))
+                    .as_ptr(),
+            )
         };
         (*thread).ith_lock_data.unlock();
         port

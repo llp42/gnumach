@@ -12,29 +12,28 @@ use crate::arch::i386::percpu::current_thread;
 use crate::arch::i386::pmap::pmap_pageable;
 use crate::arch::types::{VmOffset, VmSize};
 use crate::glue::{
-    Panic, assert_wait, ipc_port_copy_send, ipc_port_release_send, kernel_map,
-    kernel_object, kernel_pmap, kernel_virtual_end, kernel_virtual_start,
-    memory_object_create_proxy, pmap_create, pmap_destroy, pmap_protect,
-    pmap_remove, printf, thread_block, vm_fault_copy, vm_fault_page,
-    vm_fault_unwire, vm_map_cache, vm_map_copy_cache, vm_map_entry_cache,
-    vm_map_glue_page_activate_if_idle, vm_map_glue_page_clear_busy,
-    vm_map_glue_page_is_absent, vm_map_glue_page_is_busy,
-    vm_map_glue_page_is_error, vm_map_glue_page_is_fictitious,
-    vm_map_glue_page_is_precious, vm_map_glue_page_is_tabled,
-    vm_map_glue_page_object, vm_map_glue_page_offset,
-    vm_map_glue_page_protect, vm_map_glue_page_set_busy,
-    vm_map_glue_page_set_dirty, vm_map_glue_page_steal,
-    vm_map_glue_page_wakeup_done, vm_map_glue_page_wire_count,
-    vm_map_glue_pmap_enter, vm_object_allocate, vm_object_coalesce,
-    vm_object_collapse, vm_object_copy_slowly, vm_object_copy_strategically,
-    vm_object_copy_temporary, vm_object_deallocate, vm_object_name,
-    vm_object_page_remove, vm_object_pager_create, vm_object_pmap_protect,
-    vm_object_pmap_remove, vm_object_reference, vm_object_shadow,
-    vm_page_activate, vm_page_free, vm_page_lookup, vm_page_mem_size,
-    vm_page_more_fictitious, vm_page_queue_lock, vm_page_replace,
-    vm_page_wait,
+    Panic, assert_wait, kernel_map, kernel_object, kernel_pmap,
+    kernel_virtual_end, kernel_virtual_start, memory_object_create_proxy,
+    pmap_create, pmap_destroy, pmap_protect, pmap_remove, printf,
+    thread_block, vm_fault_copy, vm_fault_page, vm_fault_unwire, vm_map_cache,
+    vm_map_copy_cache, vm_map_entry_cache, vm_map_glue_page_activate_if_idle,
+    vm_map_glue_page_clear_busy, vm_map_glue_page_is_absent,
+    vm_map_glue_page_is_busy, vm_map_glue_page_is_error,
+    vm_map_glue_page_is_fictitious, vm_map_glue_page_is_precious,
+    vm_map_glue_page_is_tabled, vm_map_glue_page_object,
+    vm_map_glue_page_offset, vm_map_glue_page_protect,
+    vm_map_glue_page_set_busy, vm_map_glue_page_set_dirty,
+    vm_map_glue_page_steal, vm_map_glue_page_wakeup_done,
+    vm_map_glue_page_wire_count, vm_map_glue_pmap_enter, vm_object_allocate,
+    vm_object_coalesce, vm_object_collapse, vm_object_copy_slowly,
+    vm_object_copy_strategically, vm_object_copy_temporary,
+    vm_object_deallocate, vm_object_name, vm_object_page_remove,
+    vm_object_pager_create, vm_object_pmap_protect, vm_object_pmap_remove,
+    vm_object_reference, vm_object_shadow, vm_page_activate, vm_page_free,
+    vm_page_lookup, vm_page_mem_size, vm_page_more_fictitious,
+    vm_page_queue_lock, vm_page_replace, vm_page_wait,
 };
-use crate::ipc::{IpcPort, IpcSpace};
+use crate::ipc::{IpcPort, IpcSpace, ipc_port};
 use crate::kern::list::{List, entry as list_entry};
 use crate::kern::lock::{LockData, SimpleLock};
 use crate::kern::rbtree::{RBTREE_LEFT, RBTREE_RIGHT, Rbtree, RbtreeNode};
@@ -6028,7 +6027,7 @@ impl VmMap {
         let pager = unsafe {
             (*object).lock.lock();
             vm_object_pager_create(object);
-            let pager = IpcPort::new(ipc_port_copy_send((*object).pager));
+            let pager = IpcPort::new(ipc_port::copy_send((*object).pager));
             (*object).lock.unlock();
             pager
         };
@@ -6095,7 +6094,7 @@ impl VmMap {
                 if let Some(pager) = pager {
                     // SAFETY: `pager` is the send right copied above and still
                     // owned here.
-                    unsafe { ipc_port_release_send(pager.as_ptr()) };
+                    unsafe { ipc_port::release_send(pager) };
                 }
                 Err(error)
             }

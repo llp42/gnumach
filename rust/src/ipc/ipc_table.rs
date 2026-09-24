@@ -9,6 +9,7 @@
 use crate::arch::types::{VmOffset, VmSize};
 use crate::arch::vm_param::PAGE_SIZE;
 use crate::glue;
+use crate::ipc::IpcPortRequest;
 use crate::kern::slab::{kalloc, kfree};
 use core::ffi::{c_int, c_uint};
 use core::mem::offset_of;
@@ -26,51 +27,12 @@ const _: () = assert!(size_of::<IpcTableSize>() == 4);
 const _: () = assert!(align_of::<IpcTableSize>() == 4);
 const _: () = assert!(offset_of!(IpcTableSize, its_size) == 0);
 
-/// The `notify` union of `struct ipc_port_request`: a port pointer or an index
-/// into the table.
-#[repr(C)]
-union RequestNotify {
-    port: *mut core::ffi::c_void,
-    index: c_uint,
-}
-
-/// The `name` union of `struct ipc_port_request`: a port name or the size
-/// record the table is growing to.
-#[repr(C)]
-union RequestName {
-    name: c_uint,
-    size: *mut IpcTableSize,
-}
-
-/// `struct ipc_port_request` of <ipc/ipc_port.h>, mirrored only so that
-/// [`IPC_PORT_REQUEST_SIZE`] is the C size.
-#[repr(C)]
-struct IpcPortRequest {
-    notify: RequestNotify,
-    name: RequestName,
-}
-
-#[cfg(target_pointer_width = "64")]
-const _: () = {
-    assert!(size_of::<IpcPortRequest>() == 16);
-    assert!(align_of::<IpcPortRequest>() == 8);
-    assert!(offset_of!(IpcPortRequest, notify) == 0);
-    assert!(offset_of!(IpcPortRequest, name) == 8);
-};
-#[cfg(target_pointer_width = "32")]
-const _: () = {
-    assert!(size_of::<IpcPortRequest>() == 8);
-    assert!(align_of::<IpcPortRequest>() == 4);
-    assert!(offset_of!(IpcPortRequest, notify) == 0);
-    assert!(offset_of!(IpcPortRequest, name) == 4);
-};
-
 /// `ipc_table_dnrequests_size` in ipc/ipc_table.c: how many sizes
 /// [`ipc_table_init()`] allocates for.
 const IPC_TABLE_DNREQUESTS_SIZE: usize = 64;
 
 /// The byte size of `struct ipc_port_request`, which every table size counts.
-const IPC_PORT_REQUEST_SIZE: VmSize = size_of::<IpcPortRequest>();
+pub(crate) const IPC_PORT_REQUEST_SIZE: VmSize = size_of::<IpcPortRequest>();
 
 /// `ipc_port_dngrow()` in `ipc/ipc_port.c` reads the C symbol and walks the
 /// table it points at; nothing else touches it.

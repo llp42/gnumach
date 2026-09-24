@@ -8,6 +8,7 @@
 
 use crate::glue;
 use crate::ipc::IpcPort;
+use crate::ipc::ipc_port;
 use core::ffi::{CStr, c_int, c_uint, c_void};
 use core::ptr::NonNull;
 
@@ -99,12 +100,12 @@ fn destroy(port: IpcPort, name: MsgTypeName) {
         MsgTypeName::MoveReceive => {
             // SAFETY: the caller owns the one reference the port holds, which
             // `ipc_port_release_receive` consumes.
-            unsafe { glue::ipc_port_release_receive(port.as_ptr()) }
+            unsafe { ipc_port::release_receive(port) }
         }
         MsgTypeName::MoveSend => {
             // SAFETY: the caller owns the one reference the port holds, which
             // `ipc_port_release_send` consumes.
-            unsafe { glue::ipc_port_release_send(port.as_ptr()) }
+            unsafe { ipc_port::release_send(port) }
         }
         MsgTypeName::MoveSendOnce => {
             // SAFETY: the caller owns the one send-once right the port holds,

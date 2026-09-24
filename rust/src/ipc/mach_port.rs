@@ -10,6 +10,7 @@
 
 use crate::glue;
 use crate::ipc::ipc_object::ipc_object_copyin_type;
+use crate::ipc::ipc_port;
 use crate::ipc::{IpcPort, IpcSpace};
 use crate::kern::types::KernError;
 use core::ffi::{c_int, c_uint, c_void};
@@ -179,23 +180,23 @@ fn request_notification(
 
             let port = translate_receive(space, name)?;
 
-            let mut previous: *mut c_void = core::ptr::null_mut();
-            // SAFETY: `translate_receive` returned the live, locked port;
-            // `ipc_port_pdrequest` owns the unlock and writes the previous
-            // send-once right to this live local.
-            unsafe { glue::ipc_port_pdrequest(port, notify, &mut previous) };
+            // SAFETY: `translate_receive` returned the live, locked port, and
+            // `pdrequest` owns the unlock; `notify` is the caller's
+            // send-once right.
+            let previous = unsafe {
+                ipc_port::pdrequest(IpcPort::from_raw(port), notify)
+            };
 
             Ok(IpcPort::new(previous))
         }
         MACH_NOTIFY_NO_SENDERS => {
             let port = translate_receive(space, name)?;
 
-            let mut previous: *mut c_void = core::ptr::null_mut();
-            // SAFETY: `translate_receive` returned the live, locked port;
-            // `ipc_port_nsrequest` owns the unlock and writes the previous
-            // send-once right to this live local.
-            unsafe {
-                glue::ipc_port_nsrequest(port, sync, notify, &mut previous)
+            // SAFETY: `translate_receive` returned the live, locked port, and
+            // `nsrequest` owns the unlock; `notify` is the caller's
+            // send-once right.
+            let previous = unsafe {
+                ipc_port::nsrequest(IpcPort::from_raw(port), sync, notify)
             };
 
             Ok(IpcPort::new(previous))

@@ -51,7 +51,7 @@ column is what exists in the tree today, not a plan.
 | Layer | What it is | State today |
 |---|---|---|
 | **L0 pure** | strings, byte order, atoi, parser tables | done |
-| **L1 types** | structs read field-by-field, sometimes by asm | `Thread`, `Processor`, `ProcessorSet`, `RunQueue`, `Timer`, `Timeout`, `QueueEntry`, `SimpleLock`, `TimeValue`/`TimeValue64`, `VmMap`/`VmMapEntry`/`VmMapHeader`/`VmMapLinks`, `VmPage`, `VmObject`, `Task`/`MachineTask`, `KmemCache`, `MachineSlot` and `struct ipc_port` (with its `ipc_target` and `ipc_mqueue`) are `#[repr(C)]` mirrors with size, alignment and offset asserts.  `struct ipc_space`, `struct ipc_kmsg`, `struct pcb`, the APIC structs and the driver structs have no field mirror. |
+| **L1 types** | structs read field-by-field, sometimes by asm | `Thread`, `Processor`, `ProcessorSet`, `RunQueue`, `Timer`, `Timeout`, `QueueEntry`, `SimpleLock`, `TimeValue`/`TimeValue64`, `VmMap`/`VmMapEntry`/`VmMapHeader`/`VmMapLinks`, `VmPage`, `VmObject`, `Task`/`MachineTask`, `KmemCache`, `MachineSlot`, `struct ipc_port` (with its `ipc_target` and `ipc_mqueue`), `struct ipc_space`, `struct ipc_kmsg` and `struct ipc_entry` are `#[repr(C)]` mirrors with size, alignment and offset asserts.  `struct pcb`, the APIC structs and the driver structs have no field mirror. |
 | **L2 locks/IRQ/percpu** | `simple_lock`, `spl*`, `percpu_get`, `current_thread()` | done: `kern/lock.c` and `i386/i386/lock.h` are gone, `SimpleLock` is `src/kern/lock.rs`, `spl*` are real asm functions in `glue`, and `current_thread()`, `cpu_number()` and `percpu_get` live in `src/arch/i386/percpu.rs`.  An RAII `IrqGuard` is a Rust-side type to write when wanted. |
 | **L3 memory** | `kalloc`/`kfree`, `kmem_cache_*` | done: `kern/slab.c` is gone, `src/kern/slab.rs` owns the allocator and `src/kern/slab_ffi.rs` exports its C symbols.  A `GlobalAlloc` over `kalloc` remains a design conversation. |
 | **L4 runnable** | `thread_block`, `assert_wait`, `set_timeout`, continuations | the wait/wake primitives are Rust; `thread_block`, `assert_wait` and `set_timeout` are real C symbols in `glue`; `switch_context`, `call_continuation` and `stack_handoff` stay C. |
@@ -100,7 +100,7 @@ file, or `—` when the rest is ready too.
 
 ## 5. Outside `kern/`
 
-### `ipc/` (16 files, 12,369 LOC)
+### `ipc/` (15 files, 11,291 LOC)
 
 | File | LOC | Free | Holds the rest |
 |---|---:|---:|---|
@@ -112,7 +112,6 @@ file, or `—` when the rest is ready too.
 | `ipc_mqueue.c` | 659 | 0 | `struct ipc_mqueue` fields |
 | `ipc_notify.c` | 448 | 0 | `ipc_kmsg` and message fields |
 | `ipc_object.c` | 788 | 0 | `ipc_object`/`ipc_entry` fields |
-| `ipc_port.c` | 1078 | 0 | the mqueue, notify and right layers; the `struct ipc_port` mirror exists now |
 | `ipc_pset.c` | 309 | 0 | `ipc_pset`/`ipc_mqueue` fields |
 | `ipc_right.c` | 1844 | 0 | `ipc_entry`/`ipc_port` fields |
 | `ipc_space.c` | 213 | 0 | `ipc_space` fields |
@@ -399,6 +398,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `device/net_io.c` (`bpf_hash`) | `src/device/net_io.rs` | `c2d49b23` |
 | `ipc/ipc_object.c` (`ipc_object_copyin_type`) | `src/ipc/ipc_object.rs` | `8c8c697f` |
 | `ipc/ipc_port.c` (`ipc_port_timestamp`) | `src/ipc/ipc_port.rs` | `54dfe7cd` |
+| `ipc/ipc_port.c` whole, with the `ipc_port_multiple_lock_data` static and the `ipc_port_request`, `ipc_entry`, `ipc_space` and `ipc_kmsg` field mirrors it reads | `src/ipc/ipc_port.rs`, `src/ipc/ipc_port_ffi.rs`, `src/ipc/mod.rs` | pending |
 | `ipc/mach_port.c` (four right routines) | `src/ipc/mach_port.rs` | `6c47e6b4`, `1690113f` |
 | `kern/thread.c` (`thread_init`), `kern/sched.h` (`thread_timer_delta`) | `src/kern/thread.rs`, `src/kern/timer.rs` | `16581252` |
 | `kern/timer.c` (read/normalize/delta) | `src/kern/timer.rs` | `6858b08c` |

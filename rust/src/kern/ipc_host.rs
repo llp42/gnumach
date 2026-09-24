@@ -10,6 +10,7 @@
 
 use crate::arch::types::VmOffset;
 use crate::glue;
+use crate::ipc::{IpcPort, IpcSpace, ipc_port};
 use crate::kern::processor::{Processor, ProcessorSet};
 use crate::kern::types::KernError;
 use core::ffi::{CStr, c_int, c_uint, c_void};
@@ -35,8 +36,10 @@ const IKO_NULL: VmOffset = 0;
 fn alloc_kernel_port(function: &CStr) -> NonNull<c_void> {
     // SAFETY: `ipc_space_kernel` is the live space `ipc_init()` built, and the
     // allocator takes its own locks.
-    let port = unsafe { glue::ipc_port_alloc_special(glue::ipc_space_kernel) };
-    let Some(port) = NonNull::new(port) else {
+    let port = unsafe {
+        ipc_port::alloc_special(IpcSpace::from_raw(glue::ipc_space_kernel))
+    };
+    let Some(port) = port else {
         // SAFETY: `Panic` does not return; the tags reproduce the C `panic()`
         // call's file, function and message.
         unsafe {
@@ -48,7 +51,8 @@ fn alloc_kernel_port(function: &CStr) -> NonNull<c_void> {
             )
         }
     };
-    port
+    // SAFETY: `IpcPort` always holds a non-null pointer.
+    unsafe { NonNull::new_unchecked(port.as_ptr()) }
 }
 
 /// `ipc_processor_init()` of kern/ipc_host.c.
@@ -121,14 +125,11 @@ fn pset_disable(pset: &mut ProcessorSet) {
 
 /// `ipc_pset_terminate()` of kern/ipc_host.c.
 fn pset_terminate(pset: &mut ProcessorSet) {
-    // SAFETY: the set is dead, so nothing else may use the two ports, and
-    // `ipc_space_kernel` is the live space `ipc_init()` built.
+    // SAFETY: the set is dead, so nothing else may use the two ports, which
+    // are live special-space ports.
     unsafe {
-        glue::ipc_port_dealloc_special(pset.pset_self, glue::ipc_space_kernel);
-        glue::ipc_port_dealloc_special(
-            pset.pset_name_self,
-            glue::ipc_space_kernel,
-        );
+        ipc_port::dealloc_special(IpcPort::from_raw(pset.pset_self));
+        ipc_port::dealloc_special(IpcPort::from_raw(pset.pset_name_self));
     }
 }
 
