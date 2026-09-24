@@ -18,7 +18,7 @@ use crate::kern::sched_prim::NUMQUEUES;
 use crate::kern::slab::KmemCache;
 use crate::kern::thread::{Continuation, StackResume, Thread};
 use crate::kern::timer::Timer;
-use crate::vm::types::{Pmap, VmObject, VmPage, VmProt};
+use crate::vm::types::{Pmap, VmObject, VmPage, VmProt, VmStatistics};
 use crate::vm::vm_map::{VmMap, VmMapEntry};
 use core::ffi::{c_char, c_int, c_short, c_uint, c_ulong, c_ushort, c_void};
 use core::mem::offset_of;
@@ -483,6 +483,25 @@ unsafe extern "C" {
     ) -> *mut VmPage;
     pub fn vm_page_free_pa(page: *mut VmPage, order: c_uint);
     pub fn vm_page_lookup_pa(pa: VmOffset) -> *mut VmPage;
+
+    pub fn pmap_page_protect(pa: VmOffset, prot: c_int);
+    pub fn pmap_clear_modify(pa: VmOffset);
+    pub fn pmap_is_modified(pa: VmOffset) -> c_int;
+    pub fn pmap_clear_reference(pa: VmOffset);
+    pub fn pmap_is_referenced(pa: VmOffset) -> c_int;
+
+    pub fn vm_pageout_start();
+    pub fn vm_pageout_page(page: *mut VmPage, initial: c_int, flush: c_int);
+
+    pub fn vm_object_collect(object: *mut VmObject);
+
+    pub fn memory_manager_default_port(port: *mut c_void) -> c_int;
+    pub static mut memory_manager_default: *mut c_void;
+
+    pub static mut vm_page_active_count: c_int;
+    pub static mut vm_page_inactive_count: c_int;
+    pub static mut vm_page_fictitious_addr: VmOffset;
+    pub static mut vm_stat: VmStatistics;
     pub fn vm_page_insert(
         page: *mut VmPage,
         object: *mut VmObject,

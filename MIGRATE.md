@@ -51,7 +51,7 @@ column is what exists in the tree today, not a plan.
 | Layer | What it is | State today |
 |---|---|---|
 | **L0 pure** | strings, byte order, atoi, parser tables | done |
-| **L1 types** | structs read field-by-field, sometimes by asm | `Thread`, `Processor`, `ProcessorSet`, `RunQueue`, `Timer`, `Timeout`, `QueueEntry`, `SimpleLock`, `TimeValue`/`TimeValue64`, `VmMap`/`VmMapEntry`/`VmMapHeader`/`VmMapLinks`, `VmPage`, `KmemCache`, `MachineSlot` are `#[repr(C)]` mirrors with size, alignment and offset asserts.  `struct task` is opaque on purpose (it embeds `ipc_space`, `vm_map` and the emulation vector); `struct vm_object`, `struct ipc_port`, `struct ipc_space`, `struct ipc_kmsg`, `struct pcb`, the APIC structs and the driver structs have no field mirror. |
+| **L1 types** | structs read field-by-field, sometimes by asm | `Thread`, `Processor`, `ProcessorSet`, `RunQueue`, `Timer`, `Timeout`, `QueueEntry`, `SimpleLock`, `TimeValue`/`TimeValue64`, `VmMap`/`VmMapEntry`/`VmMapHeader`/`VmMapLinks`, `VmPage`, `VmObject`, `Task`/`MachineTask`, `KmemCache`, `MachineSlot` are `#[repr(C)]` mirrors with size, alignment and offset asserts.  `struct ipc_port`, `struct ipc_space`, `struct ipc_kmsg`, `struct pcb`, the APIC structs and the driver structs have no field mirror. |
 | **L2 locks/IRQ/percpu** | `simple_lock`, `spl*`, `percpu_get`, `current_thread()` | done: `kern/lock.c` and `i386/i386/lock.h` are gone, `SimpleLock` is `src/kern/lock.rs`, `spl*` are real asm functions in `glue`, and `current_thread()`, `cpu_number()` and `percpu_get` live in `src/arch/i386/percpu.rs`.  An RAII `IrqGuard` is a Rust-side type to write when wanted. |
 | **L3 memory** | `kalloc`/`kfree`, `kmem_cache_*` | done: `kern/slab.c` is gone, `src/kern/slab.rs` owns the allocator and `src/kern/slab_ffi.rs` exports its C symbols.  A `GlobalAlloc` over `kalloc` remains a design conversation. |
 | **L4 runnable** | `thread_block`, `assert_wait`, `set_timeout`, continuations | the wait/wake primitives are Rust; `thread_block`, `assert_wait` and `set_timeout` are real C symbols in `glue`; `switch_context`, `call_continuation` and `stack_handoff` stay C. |
@@ -136,7 +136,6 @@ file, or `—` when the rest is ready too.
 | `vm_kern.c` | 812 | 0 | `vm_object` fields for the rest |
 | `vm_map_glue.c` | 341 | 0 | the object/page/task field shims; they need mirrors |
 | `vm_object.c` | 2887 | 0 | `struct vm_object` has no field mirror |
-| `vm_page.c` | 2198 | 0 | `vm_page_seg`, its free lists and its `static` helpers |
 | `vm_pageout.c` | 505 | 0 | `vm_object`/`vm_page` fields |
 | `vm_resident.c` | 948 | 0 | the `vm_page_bucket_t` table, the fictitious-page statics and `vm_page_order` |
 | `vm_user.c` | 602 | 0 | `vm_object`/`vm_page` fields for the rest |
@@ -261,6 +260,14 @@ accessors and the eight `i386/i386at/com.c` entries.
 `pmap_clear_reference` and `pmap_is_referenced` call `static`
 `phys_attribute_*` helpers, so they are not free: they move only when a
 `struct pmap` story exists or the helpers move with them.
+The `vm/vm_page.c` port added the `struct vm_object` field mirror its
+evictor needs (`src/vm/types.rs`), so the object's lock and its
+`internal`, `pager_initialized` and `alive` bits are readable from Rust;
+`vm/vm_object.c` still waits for its own story.  A follow-up added the
+`struct task` mirror (`src/kern/task.rs`, with `struct machine_task` in
+`src/arch/i386/machine_task.rs`) with the offsets read from both built
+kernels, so the eviction path bumps `current_task()->reactivations` as
+the C did.
 
 **Gated decisions.**
 `i386/i386/pcb.c:857 user_stack_low` needs the `--enable-user32`
@@ -433,6 +440,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `kern/processor_glue.c` (4 shims), `kern/sched_prim.c` (`thread_glue_pset_sched_load`) | `src/config.rs` (`NCPUS`, `NCOM`, `NINTR`), `src/kern/processor.rs`, `src/kern/thread.rs` | pending |
 | `kern/ast.c` (`ast_init`), `kern/timer.c` (`init_timers`), `kern/host.c` (`host_processors`), `kern/processor.c` (`pset_sys_init`), `device/chario.c` (`chario_init`) | `src/kern/ast.rs`, `src/kern/timer.rs`, `src/kern/host.rs`, `src/kern/processor.rs`, `src/device/chario.rs` | pending |
 | `vm/vm_page.c` (`vm_page_set_type`, `vm_page_wire`), `vm/vm_resident.c` (`vm_page_init`, `vm_page_module_init`, `vm_page_grab`, `vm_page_grab_phys_addr`, `vm_page_release`, `vm_page_zero_fill`, `vm_page_copy`) with the `struct vm_page` mirror | `src/vm/vm_page.rs`, `vm_page_ffi.rs`, `vm_resident.rs`, `vm_resident_ffi.rs` | pending |
+| `vm/vm_page.c` whole, with the `struct vm_page_seg`, `struct vm_page_boot_seg` and file-private statics it owned, and the `struct vm_object` field mirror its evictor reads | `src/vm/vm_page.rs`, `src/vm/vm_page_ffi.rs`, `src/vm/types.rs` | pending |
 | `kern/slab.c` with the `struct kmem_cache` mirror | `src/kern/slab.rs`, `src/kern/slab_ffi.rs` | pending |
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
