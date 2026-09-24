@@ -28,6 +28,8 @@ pub mod rbtree;
 pub mod rdxtree;
 pub mod sched;
 pub mod sched_prim;
+pub mod slab;
+pub mod slab_ffi;
 pub mod smp;
 pub mod syscall_emulation;
 pub mod syscall_subr;

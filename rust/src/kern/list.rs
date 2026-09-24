@@ -3,7 +3,7 @@
 
 //! Simple doubly-linked list, which `kern/list.h` declares.
 
-use core::marker::PhantomPinned;
+use core::marker::{PhantomData, PhantomPinned};
 use core::pin::Pin;
 use core::ptr::NonNull;
 
@@ -95,6 +95,18 @@ impl List {
     /// `list_first()` in C.
     pub fn first(&self) -> Option<NonNull<List>> {
         self.next.filter(|node| *node != NonNull::from(self))
+    }
+
+    /// `list_for_each()` in C, over this head's nodes.
+    ///
+    /// Every linked node must outlive the head, and nothing may mutate the
+    /// list while the iterator runs.
+    pub fn iter(&self) -> Iter<'_> {
+        Iter {
+            head: NonNull::from(self),
+            next: self.next,
+            _marker: PhantomData,
+        }
     }
 
     /// `list_last()` in C.
@@ -279,6 +291,31 @@ impl List {
             (*list2.as_ptr()).next = Some(node);
             (*node.as_ptr()).prev = Some(list2);
         }
+    }
+}
+
+/// The nodes of a list, excluding the head.
+pub struct Iter<'a> {
+    head: NonNull<List>,
+    next: Option<NonNull<List>>,
+    _marker: PhantomData<&'a List>,
+}
+
+impl Iterator for Iter<'_> {
+    type Item = NonNull<List>;
+
+    fn next(&mut self) -> Option<NonNull<List>> {
+        let node = self.next?;
+
+        if node == self.head {
+            self.next = None;
+            return None;
+        }
+
+        // SAFETY: every link of a list built through these methods points at
+        // a node that stays at its address while linked.
+        self.next = unsafe { (*node.as_ptr()).next };
+        Some(node)
     }
 }
 

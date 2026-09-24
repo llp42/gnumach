@@ -13,6 +13,7 @@ use crate::glue;
 use crate::kern::machine;
 use crate::kern::processor::{Processor, ProcessorSet};
 use crate::kern::queue::{queue_end, queue_first, queue_next};
+use crate::kern::slab::kalloc;
 use crate::kern::types::KernError;
 use core::ffi::{c_int, c_uint, c_void};
 use core::ptr;
@@ -58,12 +59,9 @@ pub(crate) fn processor_ports(
     let count_slots = count as usize;
     let size = count_slots * size_of::<VmOffset>();
 
-    // SAFETY: `kalloc_init()` ran during the boot this MIG entry follows, and
-    // the size is the C expression's.
-    let base = unsafe { glue::kalloc(size) };
-    let Some(ports) =
-        NonNull::new(ptr::with_exposed_provenance_mut::<*mut c_void>(base))
-    else {
+    // `kalloc_init()` ran during the boot this MIG entry follows, and the
+    // size is the C expression's.
+    let Some(ports) = kalloc(size).map(|buf| buf.cast::<*mut c_void>()) else {
         pset.lock.unlock();
         return Err(KernError::ResourceShortage);
     };
@@ -127,11 +125,8 @@ fn processors(
     let slots = count as usize;
     let size = slots * size_of::<VmOffset>();
 
-    // SAFETY: `kalloc_init()` ran during the boot this MIG entry follows.
-    let base = unsafe { glue::kalloc(size) };
-    let Some(ports) =
-        NonNull::new(ptr::with_exposed_provenance_mut::<VmOffset>(base))
-    else {
+    // `kalloc_init()` ran during the boot this MIG entry follows.
+    let Some(ports) = kalloc(size).map(|buf| buf.cast::<VmOffset>()) else {
         return Err(KernError::ResourceShortage);
     };
 

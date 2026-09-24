@@ -121,7 +121,7 @@ impl RbtreeNode {
 
 impl Rbtree {
     /// An empty tree; `rbtree_init()` uses this.
-    const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self { root: None }
     }
 

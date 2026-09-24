@@ -120,6 +120,7 @@ link error, not a fallback.
 | `i386/i386/ast_check.c` | `src/arch/i386/ast_check.rs` |
 | `i386/i386at/rtc.c` | `src/arch/i386/rtc.rs` |
 | `i386/i386/pit.c` | `src/arch/i386/pit.rs` |
+| `kern/slab.c` | `src/kern/slab.rs`, `src/kern/slab_ffi.rs` |
 
 Also deleted as dead: `device/blkio.c` and the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`).

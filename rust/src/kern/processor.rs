@@ -31,6 +31,7 @@ use crate::kern::queue::{
 use crate::kern::sched::{
     BASEPRI_SYSTEM, NRQS, RunQueue, SCHED_SCALE, invalid_pri,
 };
+use crate::kern::slab::CacheInitFlags;
 use crate::kern::thread::Thread;
 use crate::kern::types::KernError;
 use core::ffi::{c_int, c_long, c_uint, c_void};
@@ -487,10 +488,8 @@ impl ProcessorSet {
         // SAFETY: the set came from `pset_cache` and nothing references it any
         // more; `.addr()` is the address the allocator handed out.
         unsafe {
-            glue::kmem_cache_free(
-                ptr::addr_of_mut!(glue::pset_cache),
-                ptr::from_mut(self).addr(),
-            )
+            (*ptr::addr_of_mut!(glue::pset_cache))
+                .free(ptr::NonNull::from_mut(self).cast::<u8>())
         };
     }
 
@@ -841,13 +840,12 @@ fn system_init() {
     // SAFETY: `pset_cache` is the C cache storage this boot step owns, and the
     // initializer only writes the cache's own fields.
     unsafe {
-        glue::kmem_cache_init(
-            ptr::addr_of_mut!(glue::pset_cache),
-            c"processor_set".as_ptr(),
+        (*ptr::addr_of_mut!(glue::pset_cache)).init(
+            b"processor_set",
             size_of::<ProcessorSet>(),
             0,
             None,
-            0,
+            CacheInitFlags::EMPTY,
         );
     }
 

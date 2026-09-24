@@ -121,7 +121,6 @@ libkernel_a_SOURCES += \
 	kern/rdxtree.h \
 	kern/rdxtree_i.h \
 	kern/refcount.h \
-	kern/slab.c \
 	kern/slab.h \
 	kern/smp.h \
 	kern/sched.h \

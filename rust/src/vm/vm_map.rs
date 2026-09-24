@@ -12,41 +12,41 @@ use crate::arch::i386::percpu::current_thread;
 use crate::arch::i386::pmap::pmap_pageable;
 use crate::arch::types::{VmOffset, VmSize};
 use crate::glue::{
-    Panic, assert_wait, ipc_port_copy_send, ipc_port_release_send, kalloc,
-    kernel_map, kernel_object, kernel_pmap, kernel_virtual_end,
-    kernel_virtual_start, kfree, kmem_cache_alloc, kmem_cache_free,
-    kmem_cache_init, memory_object_create_proxy, pmap_create, pmap_destroy,
-    pmap_protect, pmap_remove, printf, thread_block, vm_fault_copy,
-    vm_fault_page, vm_fault_unwire, vm_map_cache, vm_map_copy_cache,
-    vm_map_entry_cache, vm_map_glue_object_can_coalesce,
-    vm_map_glue_object_can_release, vm_map_glue_object_extend_size,
-    vm_map_glue_object_is_pristine_submap, vm_map_glue_object_is_shadowed,
-    vm_map_glue_object_is_temporary, vm_map_glue_object_lock,
-    vm_map_glue_object_make_shared, vm_map_glue_object_needs_shadow,
-    vm_map_glue_object_pager, vm_map_glue_object_paging_begin,
-    vm_map_glue_object_paging_end, vm_map_glue_object_unlock,
-    vm_map_glue_object_use_shared_copy, vm_map_glue_page_activate_if_idle,
-    vm_map_glue_page_clear_busy, vm_map_glue_page_is_absent,
-    vm_map_glue_page_is_busy, vm_map_glue_page_is_error,
-    vm_map_glue_page_is_fictitious, vm_map_glue_page_is_precious,
-    vm_map_glue_page_is_tabled, vm_map_glue_page_object,
-    vm_map_glue_page_offset, vm_map_glue_page_protect,
-    vm_map_glue_page_set_busy, vm_map_glue_page_set_dirty,
-    vm_map_glue_page_steal, vm_map_glue_page_wakeup_done,
-    vm_map_glue_page_wire_count, vm_map_glue_pmap_enter, vm_object_allocate,
-    vm_object_coalesce, vm_object_collapse, vm_object_copy_slowly,
-    vm_object_copy_strategically, vm_object_copy_temporary,
-    vm_object_deallocate, vm_object_name, vm_object_page_remove,
-    vm_object_pager_create, vm_object_pmap_protect, vm_object_pmap_remove,
-    vm_object_reference, vm_object_shadow, vm_page_activate, vm_page_free,
-    vm_page_lookup, vm_page_mem_size, vm_page_more_fictitious,
-    vm_page_queue_lock, vm_page_replace, vm_page_wait, vm_submap_object,
+    Panic, assert_wait, ipc_port_copy_send, ipc_port_release_send, kernel_map,
+    kernel_object, kernel_pmap, kernel_virtual_end, kernel_virtual_start,
+    memory_object_create_proxy, pmap_create, pmap_destroy, pmap_protect,
+    pmap_remove, printf, thread_block, vm_fault_copy, vm_fault_page,
+    vm_fault_unwire, vm_map_cache, vm_map_copy_cache, vm_map_entry_cache,
+    vm_map_glue_object_can_coalesce, vm_map_glue_object_can_release,
+    vm_map_glue_object_extend_size, vm_map_glue_object_is_pristine_submap,
+    vm_map_glue_object_is_shadowed, vm_map_glue_object_is_temporary,
+    vm_map_glue_object_lock, vm_map_glue_object_make_shared,
+    vm_map_glue_object_needs_shadow, vm_map_glue_object_pager,
+    vm_map_glue_object_paging_begin, vm_map_glue_object_paging_end,
+    vm_map_glue_object_unlock, vm_map_glue_object_use_shared_copy,
+    vm_map_glue_page_activate_if_idle, vm_map_glue_page_clear_busy,
+    vm_map_glue_page_is_absent, vm_map_glue_page_is_busy,
+    vm_map_glue_page_is_error, vm_map_glue_page_is_fictitious,
+    vm_map_glue_page_is_precious, vm_map_glue_page_is_tabled,
+    vm_map_glue_page_object, vm_map_glue_page_offset,
+    vm_map_glue_page_protect, vm_map_glue_page_set_busy,
+    vm_map_glue_page_set_dirty, vm_map_glue_page_steal,
+    vm_map_glue_page_wakeup_done, vm_map_glue_page_wire_count,
+    vm_map_glue_pmap_enter, vm_object_allocate, vm_object_coalesce,
+    vm_object_collapse, vm_object_copy_slowly, vm_object_copy_strategically,
+    vm_object_copy_temporary, vm_object_deallocate, vm_object_name,
+    vm_object_page_remove, vm_object_pager_create, vm_object_pmap_protect,
+    vm_object_pmap_remove, vm_object_reference, vm_object_shadow,
+    vm_page_activate, vm_page_free, vm_page_lookup, vm_page_mem_size,
+    vm_page_more_fictitious, vm_page_queue_lock, vm_page_replace,
+    vm_page_wait, vm_submap_object,
 };
 use crate::ipc::{IpcPort, IpcSpace};
 use crate::kern::list::{List, entry as list_entry};
 use crate::kern::lock::{LockData, SimpleLock};
 use crate::kern::rbtree::{RBTREE_LEFT, RBTREE_RIGHT, Rbtree, RbtreeNode};
 use crate::kern::sched_prim::{THREAD_AWAKENED, thread_wakeup_prim};
+use crate::kern::slab::{CacheInitFlags, kalloc, kfree};
 use crate::vm::error::{
     Error, KERN_SUCCESS, error_from_kern_return, kern_return,
 };
@@ -61,7 +61,7 @@ use crate::vm::vm_resident;
 use core::cell::UnsafeCell;
 use core::ffi::{c_char, c_int, c_uint, c_void};
 use core::mem::{ManuallyDrop, offset_of, size_of};
-use core::ptr::{self, NonNull, addr_of_mut, with_exposed_provenance_mut};
+use core::ptr::{self, NonNull, addr_of_mut};
 use core::sync::atomic::{AtomicU32, Ordering};
 
 /// `VM_MAP_COPY_PAGE_LIST_MAX`: pages a page-list copy carries inline.
@@ -601,9 +601,7 @@ impl VmMap {
         unsafe { pmap_destroy(pmap) };
         // SAFETY: the map came from `vm_map_cache`, and nothing references it
         // now.
-        unsafe {
-            kmem_cache_free(addr_of_mut!(vm_map_cache), map.as_ptr().addr())
-        };
+        unsafe { (*addr_of_mut!(vm_map_cache)).free(map.cast::<u8>()) };
     }
 
     /// `vm_map_init()` in C.
@@ -613,38 +611,29 @@ impl VmMap {
     /// Must run once, before any other routine of this module, so the caches
     /// are ready before the first allocation from them.
     pub(crate) unsafe fn init_module() {
-        /// `KMEM_CACHE_NOOFFSLAB` in <kern/slab.h>.
-        const KMEM_CACHE_NOOFFSLAB: c_int = 0x1;
-        /// `KMEM_CACHE_PHYSMEM` in <kern/slab.h>.
-        const KMEM_CACHE_PHYSMEM: c_int = 0x2;
-
         // SAFETY: the caches live in vm/vm_map_glue.c and outlive the kernel;
-        // the names are static strings; the bootstrap calls this before
-        // anything allocates from them.
+        // the bootstrap calls this before anything allocates from them.
         unsafe {
-            kmem_cache_init(
-                addr_of_mut!(vm_map_cache),
-                c"vm_map".as_ptr(),
+            (*addr_of_mut!(vm_map_cache)).init(
+                b"vm_map",
                 size_of::<VmMap>(),
                 0,
                 None,
-                0,
+                CacheInitFlags::EMPTY,
             );
-            kmem_cache_init(
-                addr_of_mut!(vm_map_entry_cache),
-                c"vm_map_entry".as_ptr(),
+            (*addr_of_mut!(vm_map_entry_cache)).init(
+                b"vm_map_entry",
                 size_of::<VmMapEntry>(),
                 0,
                 None,
-                KMEM_CACHE_NOOFFSLAB | KMEM_CACHE_PHYSMEM,
+                CacheInitFlags::NOOFFSLAB | CacheInitFlags::PHYSMEM,
             );
-            kmem_cache_init(
-                addr_of_mut!(vm_map_copy_cache),
-                c"vm_map_copy".as_ptr(),
+            (*addr_of_mut!(vm_map_copy_cache)).init(
+                b"vm_map_copy",
                 size_of::<VmMapCopy>(),
                 0,
                 None,
-                0,
+                CacheInitFlags::EMPTY,
             );
         }
     }
@@ -705,8 +694,8 @@ impl VmMap {
     ) -> Option<NonNull<VmMap>> {
         // SAFETY: `vm_map_cache` is initialized by `vm_map_init()` before any
         // map is created.
-        let address = unsafe { kmem_cache_alloc(addr_of_mut!(vm_map_cache)) };
-        let map = NonNull::new(with_exposed_provenance_mut::<VmMap>(address))?;
+        let map =
+            unsafe { (*addr_of_mut!(vm_map_cache)).alloc() }?.cast::<VmMap>();
 
         // SAFETY: the object is freshly allocated and unshared.
         VmMap::setup(unsafe { &mut *map.as_ptr() }, pmap, min, max);
@@ -1260,12 +1249,7 @@ impl VmMapCopy {
     /// `copy` must be a live copy from this cache that nothing uses any more.
     unsafe fn free(copy: NonNull<VmMapCopy>) {
         // SAFETY: the caller promises a live, unused cache object.
-        unsafe {
-            kmem_cache_free(
-                addr_of_mut!(vm_map_copy_cache),
-                copy.as_ptr().addr(),
-            )
-        };
+        unsafe { (*addr_of_mut!(vm_map_copy_cache)).free(copy.cast::<u8>()) };
     }
 
     /// The `cpy_hdr` accessors in C.
@@ -1639,10 +1623,9 @@ impl VmMapCopy {
     ) -> NonNull<VmMapCopy> {
         // SAFETY: the copy cache is initialized by `vm_map_init()` before any
         // copy exists.
-        let address =
-            unsafe { kmem_cache_alloc(addr_of_mut!(vm_map_copy_cache)) };
         let Some(new_copy) =
-            NonNull::new(with_exposed_provenance_mut::<VmMapCopy>(address))
+            unsafe { (*addr_of_mut!(vm_map_copy_cache)).alloc() }
+                .map(|buf| buf.cast::<VmMapCopy>())
         else {
             // SAFETY: the C dereferences the null allocation; halt as
             // `VmMapEntry::create()` does.
@@ -1698,10 +1681,8 @@ impl VmMapCopy {
     ) -> NonNull<VmMapCopy> {
         // SAFETY: `vm_map_copy_cache` is initialized by `vm_map_init()` before
         // any copy is created.
-        let address =
-            unsafe { kmem_cache_alloc(addr_of_mut!(vm_map_copy_cache)) };
-        let Some(copy) =
-            NonNull::new(with_exposed_provenance_mut::<VmMapCopy>(address))
+        let Some(copy) = unsafe { (*addr_of_mut!(vm_map_copy_cache)).alloc() }
+            .map(|buf| buf.cast::<VmMapCopy>())
         else {
             // SAFETY: the C dereferences the null allocation, which halts the
             // kernel.
@@ -1748,10 +1729,8 @@ impl VmMapCopy {
     ) -> NonNull<VmMapCopy> {
         // SAFETY: `vm_map_copy_cache` is initialized by `vm_map_init()` before
         // any copy is created.
-        let address =
-            unsafe { kmem_cache_alloc(addr_of_mut!(vm_map_copy_cache)) };
-        let Some(copy) =
-            NonNull::new(with_exposed_provenance_mut::<VmMapCopy>(address))
+        let Some(copy) = unsafe { (*addr_of_mut!(vm_map_copy_cache)).alloc() }
+            .map(|buf| buf.cast::<VmMapCopy>())
         else {
             // SAFETY: the C dereferences the null allocation, which halts the
             // kernel.
@@ -1791,10 +1770,8 @@ impl VmMapCopy {
     ) -> NonNull<VmMapCopy> {
         // SAFETY: `vm_map_copy_cache` is initialized by `vm_map_init()` before
         // any copy is created.
-        let address =
-            unsafe { kmem_cache_alloc(addr_of_mut!(vm_map_copy_cache)) };
-        let Some(copy) =
-            NonNull::new(with_exposed_provenance_mut::<VmMapCopy>(address))
+        let Some(copy) = unsafe { (*addr_of_mut!(vm_map_copy_cache)).alloc() }
+            .map(|buf| buf.cast::<VmMapCopy>())
         else {
             // SAFETY: the C dereferences the null allocation, which halts the
             // kernel.
@@ -1888,9 +1865,8 @@ impl VmMapEntry {
     pub(crate) unsafe fn create() -> NonNull<VmMapEntry> {
         // SAFETY: `vm_map_entry_cache` is initialized by `vm_map_init()`
         // before any entry is created.
-        let address =
-            unsafe { kmem_cache_alloc(addr_of_mut!(vm_map_entry_cache)) };
-        match NonNull::new(with_exposed_provenance_mut::<VmMapEntry>(address))
+        match unsafe { (*addr_of_mut!(vm_map_entry_cache)).alloc() }
+            .map(|buf| buf.cast::<VmMapEntry>())
         {
             Some(entry) => entry,
             // SAFETY: the C code panics on allocation failure, which halts the
@@ -2354,10 +2330,7 @@ impl VmMapEntry {
     pub(crate) unsafe fn dispose(entry: NonNull<VmMapEntry>) {
         // SAFETY: the caller promises the entry is free.
         unsafe {
-            kmem_cache_free(
-                addr_of_mut!(vm_map_entry_cache),
-                entry.as_ptr().addr(),
-            )
+            (*addr_of_mut!(vm_map_entry_cache)).free(entry.cast::<u8>())
         };
     }
 
@@ -4430,10 +4403,9 @@ fn set_page_list_cont(
     destroy_len: VmSize,
     steal_pages: bool,
 ) {
-    // SAFETY: `vm_map_init()` initialized the allocator.
-    let address = unsafe { kalloc(size_of::<VmMapCopyinArgs>()) };
-    let Some(args) =
-        NonNull::new(with_exposed_provenance_mut::<VmMapCopyinArgs>(address))
+    // `vm_map_init()` initialized the allocator.
+    let Some(args) = kalloc(size_of::<VmMapCopyinArgs>())
+        .map(|buf| buf.cast::<VmMapCopyinArgs>())
     else {
         // SAFETY: `Panic` only halts the kernel.
         unsafe {
@@ -4565,7 +4537,12 @@ unsafe extern "C" fn vm_map_copyin_page_list_cont(
     VmMap::deallocate(map);
     // SAFETY: `cont_args` came from `kalloc` in `set_page_list_cont` and is no
     // longer used.
-    unsafe { kfree(cont_args.addr(), size_of::<VmMapCopyinArgs>()) };
+    unsafe {
+        kfree(
+            NonNull::new_unchecked(cont_args.cast::<u8>()),
+            size_of::<VmMapCopyinArgs>(),
+        )
+    };
 
     result
 }

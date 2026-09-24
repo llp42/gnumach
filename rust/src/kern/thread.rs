@@ -27,13 +27,14 @@ use crate::kern::sched::{
 use crate::kern::sched_prim::{
     THREAD_AWAKENED, compute_priority, thread_setrun, thread_wakeup_prim,
 };
+use crate::kern::slab::CacheInitFlags;
 use crate::kern::syscall_subr::thread_depress_abort;
 use crate::kern::timer::{Timer, TimerSave};
 use crate::kern::types::KernError;
 use crate::utils::string::strncpy;
 use core::ffi::{c_char, c_int, c_long, c_uint, c_void};
 use core::mem::{MaybeUninit, offset_of};
-use core::ptr;
+use core::ptr::{self, NonNull, with_exposed_provenance_mut};
 
 #[cfg(target_pointer_width = "64")]
 const THREAD_SIZE: usize = 560;
@@ -332,21 +333,19 @@ impl Thread {
         // and the C globals below are exactly the ones the C `thread_init()`
         // initialized, in the same order.
         unsafe {
-            glue::kmem_cache_init(
-                &raw mut glue::thread_cache,
-                c"thread".as_ptr(),
+            (*ptr::addr_of_mut!(glue::thread_cache)).init(
+                b"thread",
                 size_of::<Thread>(),
                 0,
                 None,
-                0,
+                CacheInitFlags::EMPTY,
             );
-            glue::kmem_cache_init(
-                &raw mut glue::thread_stack_cache,
-                c"thread_stack".as_ptr(),
+            (*ptr::addr_of_mut!(glue::thread_stack_cache)).init(
+                b"thread_stack",
                 KERNEL_STACK_SIZE,
                 KERNEL_STACK_SIZE,
                 None,
-                0,
+                CacheInitFlags::EMPTY,
             );
             glue::thread_template = Self::new();
             queue_init(&raw mut glue::reaper_queue);
@@ -1106,8 +1105,9 @@ impl Thread {
             // and the allocation may block: this function's contract is that
             // no lock is held.
             let fresh = unsafe {
-                glue::kmem_cache_alloc(&raw mut glue::thread_stack_cache)
+                (*ptr::addr_of_mut!(glue::thread_stack_cache)).alloc()
             };
+            let fresh = fresh.map_or(0, |buf| buf.as_ptr().addr());
             // SAFETY: `stack_init()` marks the fresh object when the usage
             // check is on, exactly as the C called it.
             unsafe { stack_init(fresh) };
@@ -1168,10 +1168,13 @@ impl Thread {
                 glue::splx(s);
 
                 glue::stack_finalize(stack);
-                glue::kmem_cache_free(
-                    &raw mut glue::thread_stack_cache,
-                    stack,
-                );
+                // SAFETY: `thread_stack_cache` is the cache the stack came
+                // from, and nothing references it after the finalize.
+                if let Some(stack) =
+                    NonNull::new(with_exposed_provenance_mut::<u8>(stack))
+                {
+                    (*ptr::addr_of_mut!(glue::thread_stack_cache)).free(stack);
+                }
 
                 s = glue::splsched();
                 (*lock).lock();

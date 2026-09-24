@@ -10,13 +10,14 @@
 use crate::arch::types::{VmOffset, VmSize};
 use crate::arch::vm_param::PAGE_SIZE;
 use crate::glue::{
-    Panic, kernel_pmap, kmem_cache_init, pmap_copy_page, pmap_enter,
-    pmap_virtual_space, pmap_zero_page, virtual_space_end,
-    virtual_space_start, vm_page_alloc_pa, vm_page_bootalloc, vm_page_cache,
-    vm_page_check, vm_page_external_laundry_count, vm_page_free_pa,
-    vm_page_insert, vm_page_laundry_count, vm_page_queue_free_lock,
-    vm_page_queue_lock, vm_page_remove, vm_pageout_resume,
+    Panic, kernel_pmap, pmap_copy_page, pmap_enter, pmap_virtual_space,
+    pmap_zero_page, virtual_space_end, virtual_space_start, vm_page_alloc_pa,
+    vm_page_bootalloc, vm_page_cache, vm_page_check,
+    vm_page_external_laundry_count, vm_page_free_pa, vm_page_insert,
+    vm_page_laundry_count, vm_page_queue_free_lock, vm_page_queue_lock,
+    vm_page_remove, vm_pageout_resume,
 };
+use crate::kern::slab::CacheInitFlags;
 use crate::vm::types::{VmObject, VmPage, VmProt};
 use crate::vm::vm_map::{round_page, trunc_page};
 use core::ffi::{c_int, c_uint, c_ushort};
@@ -32,11 +33,11 @@ const VM_PAGE_HIGHMEM: c_uint = 0x08;
 /// 64-bit and the non-PAE 32-bit builds fix differently; the latter has no
 /// DMA32 segment for `vm_page_grab()` to select.
 #[cfg(target_arch = "x86_64")]
-const VM_PAGE_DMA32: c_uint = 0x04;
+pub(crate) const VM_PAGE_DMA32: c_uint = 0x04;
 #[cfg(target_arch = "x86_64")]
-const VM_PAGE_DIRECTMAP: c_uint = 0x02;
+pub(crate) const VM_PAGE_DIRECTMAP: c_uint = 0x02;
 #[cfg(target_arch = "x86")]
-const VM_PAGE_DIRECTMAP: c_uint = 0x04;
+pub(crate) const VM_PAGE_DIRECTMAP: c_uint = 0x04;
 
 /// `VM_PAGE_SEL_*` of <vm/vm_page.h>: the segment selectors
 /// `vm_page_alloc_pa()` takes.  The DMA32 and DIRECTMAP indices swap with
@@ -202,16 +203,15 @@ pub(crate) fn init(page: &mut VmPage) {
 /// Must run once, in the bootstrap sequence, after the slab package is up.
 pub(crate) unsafe fn module_init() {
     // SAFETY: the caller runs the sequence once; `vm_page_cache` is the live
-    // cache the C keeps, and `kmem_cache_init()` is its initializer.
+    // cache the C keeps, and its `init()` is the C `kmem_cache_init()`.
     // `size_of::<VmPage>()` is the C `sizeof(struct vm_page)`.
     unsafe {
-        kmem_cache_init(
-            addr_of_mut!(vm_page_cache),
-            c"vm_page".as_ptr(),
+        (*addr_of_mut!(vm_page_cache)).init(
+            b"vm_page",
             size_of::<VmPage>(),
             0,
             None,
-            0,
+            CacheInitFlags::EMPTY,
         )
     };
 }

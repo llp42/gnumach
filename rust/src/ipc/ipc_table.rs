@@ -9,10 +9,11 @@
 use crate::arch::types::{VmOffset, VmSize};
 use crate::arch::vm_param::PAGE_SIZE;
 use crate::glue;
+use crate::kern::slab::{kalloc, kfree};
 use core::ffi::{c_int, c_uint};
 use core::mem::offset_of;
 use core::num::NonZeroUsize;
-use core::ptr::{self, with_exposed_provenance_mut};
+use core::ptr::{self, NonNull, with_exposed_provenance_mut};
 use core::slice;
 
 /// `struct ipc_table_size` of <ipc/ipc_table.h>: one table size.
@@ -179,11 +180,10 @@ pub unsafe extern "C" fn ipc_table_fill(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ipc_table_init() {
     let bytes = size_of::<IpcTableSize>() * IPC_TABLE_DNREQUESTS_SIZE;
-    // SAFETY: the caller promises the allocator is up, and the size is a small
+    // The caller promises the allocator is up, and the size is a small
     // multiple of the record.
-    let address = unsafe { glue::kalloc(bytes) };
-    let table = with_exposed_provenance_mut::<IpcTableSize>(address);
-    let Some(table) = ptr::NonNull::new(table) else {
+    let Some(table) = kalloc(bytes).map(|buf| buf.cast::<IpcTableSize>())
+    else {
         // SAFETY: `Panic` does not return.
         unsafe {
             glue::Panic(
@@ -222,8 +222,8 @@ pub unsafe extern "C" fn ipc_table_init() {
 /// releases it with [`ipc_table_free()`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ipc_table_alloc(size: VmSize) -> VmOffset {
-    // SAFETY: the caller promises the allocator is up.
-    unsafe { glue::kalloc(size) }
+    // The caller promises the allocator is up.
+    kalloc(size).map_or(0, |buf| buf.as_ptr().addr())
 }
 
 /// `ipc_table_free()` in C.
@@ -234,6 +234,9 @@ pub unsafe extern "C" fn ipc_table_alloc(size: VmSize) -> VmOffset {
 /// [`ipc_table_alloc()`] that nothing references afterwards.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ipc_table_free(size: VmSize, table: VmOffset) {
-    // SAFETY: the caller promises a live allocation from `kalloc`.
-    unsafe { glue::kfree(table, size) };
+    if let Some(table) = NonNull::new(with_exposed_provenance_mut::<u8>(table))
+    {
+        // SAFETY: the caller promises a live allocation from `kalloc`.
+        unsafe { kfree(table, size) };
+    }
 }

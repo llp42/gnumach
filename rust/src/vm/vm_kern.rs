@@ -29,11 +29,11 @@ const VM_PAGE_HIGHMEM: c_uint = 0x08;
 /// `VM_MIN_KERNEL_ADDRESS` of <machine/vm_param.h>: `KERNEL_MAP_BASE` on
 /// x86_64 and `0xC0000000` on i686.  A `kernel_object` offset is linear in
 /// the kernel virtual address, so a kernel mapping is stored at
-/// `addr - VM_MIN_KERNEL_ADDRESS`.
+/// `addr - VM_MIN_KERNEL_ADDRESS`, and `phystokv()` adds it back.
 #[cfg(target_arch = "x86_64")]
-const VM_MIN_KERNEL_ADDRESS: VmOffset = 0xffff_ffff_8000_0000;
+pub(crate) const VM_MIN_KERNEL_ADDRESS: VmOffset = 0xffff_ffff_8000_0000;
 #[cfg(target_arch = "x86")]
-const VM_MIN_KERNEL_ADDRESS: VmOffset = 0xC000_0000;
+pub(crate) const VM_MIN_KERNEL_ADDRESS: VmOffset = 0xC000_0000;
 
 /// `projected_buffer_collect()` in C: unmap every projected buffer of `map`.
 pub(crate) fn projected_buffer_collect(

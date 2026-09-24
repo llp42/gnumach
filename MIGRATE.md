@@ -51,9 +51,9 @@ column is what exists in the tree today, not a plan.
 | Layer | What it is | State today |
 |---|---|---|
 | **L0 pure** | strings, byte order, atoi, parser tables | done |
-| **L1 types** | structs read field-by-field, sometimes by asm | `Thread`, `Processor`, `ProcessorSet`, `RunQueue`, `Timer`, `Timeout`, `QueueEntry`, `SimpleLock`, `TimeValue`/`TimeValue64`, `VmMap`/`VmMapEntry`/`VmMapHeader`/`VmMapLinks`, `MachineSlot` are `#[repr(C)]` mirrors with size, alignment and offset asserts.  `struct task` is opaque on purpose (it embeds `ipc_space`, `vm_map` and the emulation vector); `struct vm_object`, `struct vm_page`, `struct ipc_port`, `struct ipc_space`, `struct ipc_kmsg`, `struct pcb`, the APIC structs and the driver structs have no field mirror. |
+| **L1 types** | structs read field-by-field, sometimes by asm | `Thread`, `Processor`, `ProcessorSet`, `RunQueue`, `Timer`, `Timeout`, `QueueEntry`, `SimpleLock`, `TimeValue`/`TimeValue64`, `VmMap`/`VmMapEntry`/`VmMapHeader`/`VmMapLinks`, `VmPage`, `KmemCache`, `MachineSlot` are `#[repr(C)]` mirrors with size, alignment and offset asserts.  `struct task` is opaque on purpose (it embeds `ipc_space`, `vm_map` and the emulation vector); `struct vm_object`, `struct ipc_port`, `struct ipc_space`, `struct ipc_kmsg`, `struct pcb`, the APIC structs and the driver structs have no field mirror. |
 | **L2 locks/IRQ/percpu** | `simple_lock`, `spl*`, `percpu_get`, `current_thread()` | done: `kern/lock.c` and `i386/i386/lock.h` are gone, `SimpleLock` is `src/kern/lock.rs`, `spl*` are real asm functions in `glue`, and `current_thread()`, `cpu_number()` and `percpu_get` live in `src/arch/i386/percpu.rs`.  An RAII `IrqGuard` is a Rust-side type to write when wanted. |
-| **L3 memory** | `kalloc`/`kfree`, `kmem_cache_*` | real symbols `glue` declares; `kern/slab.c` still owns them.  A `GlobalAlloc` over `kalloc` remains a design conversation. |
+| **L3 memory** | `kalloc`/`kfree`, `kmem_cache_*` | done: `kern/slab.c` is gone, `src/kern/slab.rs` owns the allocator and `src/kern/slab_ffi.rs` exports its C symbols.  A `GlobalAlloc` over `kalloc` remains a design conversation. |
 | **L4 runnable** | `thread_block`, `assert_wait`, `set_timeout`, continuations | the wait/wake primitives are Rust; `thread_block`, `assert_wait` and `set_timeout` are real C symbols in `glue`; `switch_context`, `call_continuation` and `stack_handoff` stay C. |
 | **L5 IPC/VM** | ports, spaces, kmsgs, maps, objects, pages | `vm_map` is Rust-native; the rest have no field mirrors, and `vm/vm_map_glue.c` exists for the object, page and task fields the map's C edges still read. |
 | **L6 arch/MIG** | MIG output, trap table, pmap, locore | stays C.  MIG routines are not generated: the generated server calls the hand-written definition, so a Rust port replaces only that definition. |
@@ -94,7 +94,6 @@ file, or `—` when the rest is ready too.
 | `processor.c` | 465 | 4 | 0 | `processor_set_things`'s allocation and port conversions |
 | `rdxtree.c` | 791 | 3 | 0 | static node helpers |
 | `sched_prim.c` | 1238 | 5 | 0 | static `thread_select`/`do_runq_scan`; continuations |
-| `slab.c` | 1280 | 5 | 0 | `struct kmem_cache` and `struct vm_page` mirrors |
 | `startup.c` | 290 | 5 | 0 | `machine_info`, NCPUS loops, boot |
 | `syscall_emulation.c` | 446 | 4 | 0 | `struct eml_dispatch` and task fields |
 | `syscall_subr.c` | 251 | 4 | 0 | static continuations (`swtch_continue`, ...) |
@@ -133,7 +132,7 @@ file, or `—` when the rest is ready too.
 | `memory_object.c` | 1079 | 0 | `vm_object` fields |
 | `memory_object_proxy.c` | 227 | 0 | cache statics |
 | `vm_debug.c` | 541 | 0 | `hash_info_bucket_t` mirror |
-| `vm_external_glue.c` | 21 | 0 | three `kmem_cache` symbols; deletes with `slab.c` |
+| `vm_external_glue.c` | 21 | 0 | three `kmem_cache` storage symbols; the `KmemCache` mirror exists now, so a follow-up moves the definitions to Rust statics and deletes the file |
 | `vm_fault.c` | 2024 | 0 | `vm_object`/`vm_page`/task fields |
 | `vm_kern.c` | 812 | 0 | `vm_object` fields for the rest |
 | `vm_map_glue.c` | 341 | 0 | the object/page/task field shims; they need mirrors |
@@ -439,6 +438,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `kern/processor_glue.c` (4 shims), `kern/sched_prim.c` (`thread_glue_pset_sched_load`) | `src/config.rs` (`NCPUS`, `NCOM`, `NINTR`), `src/kern/processor.rs`, `src/kern/thread.rs` | pending |
 | `kern/ast.c` (`ast_init`), `kern/timer.c` (`init_timers`), `kern/host.c` (`host_processors`), `kern/processor.c` (`pset_sys_init`), `device/chario.c` (`chario_init`) | `src/kern/ast.rs`, `src/kern/timer.rs`, `src/kern/host.rs`, `src/kern/processor.rs`, `src/device/chario.rs` | pending |
 | `vm/vm_page.c` (`vm_page_set_type`, `vm_page_wire`), `vm/vm_resident.c` (`vm_page_init`, `vm_page_module_init`, `vm_page_grab`, `vm_page_grab_phys_addr`, `vm_page_release`, `vm_page_zero_fill`, `vm_page_copy`) with the `struct vm_page` mirror | `src/vm/vm_page.rs`, `vm_page_ffi.rs`, `vm_resident.rs`, `vm_resident_ffi.rs` | pending |
+| `kern/slab.c` with the `struct kmem_cache` mirror | `src/kern/slab.rs`, `src/kern/slab_ffi.rs` | pending |
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `i386/i386at/kd_glue.c`
@@ -454,7 +454,7 @@ and nothing may be added.  Each row says what deletes it.
 |---|---|---|
 | `vm/vm_map_glue.c` — object and page field shims | `vm_object` and `vm_page` bit probes | Phase B: the `vm_page` mirror and the `vm_object` story |
 | `vm/vm_map_glue.c` — task field shims | `vm_map_glue_task_map`, `_task_space` | when `struct task` gets a mirror |
-| `vm/vm_external_glue.c` | three `kmem_cache` storage symbols | Phase B/C: when `kern/slab.c` moves |
+| `vm/vm_external_glue.c` | three `kmem_cache` storage symbols | Follow-up to the `kern/slab.c` port: `struct kmem_cache` is `src/kern/slab.rs`'s `KmemCache` now, so the definitions move to Rust statics in a pass of their own |
 | `i386/i386/irq.c` — `irq_mask`, `irq_unmask`, `irq_{set,get}_{handler,unit}` | `mask_irq`/`unmask_irq` static inlines and the NINTR-sized `ivect`/`iunit` | Phase B: `NINTR`, plus a Rust `mask_irq` |
 | `i386/i386at/com.c` — `com_base_addr`, `com_irq` | `cominfo` is NCOM-sized | Phase B (`NCOM`) or porting `com.c` |
 

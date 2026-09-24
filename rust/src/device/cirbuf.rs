@@ -7,10 +7,10 @@
 //! <device/cirbuf.h>.
 
 use crate::arch::types::VmSize;
-use crate::glue;
+use crate::kern::slab::{kalloc, kfree};
 use core::ffi::{c_char, c_int, c_short};
 use core::mem::{align_of, offset_of, size_of};
-use core::ptr;
+use core::ptr::{self, NonNull};
 use core::slice;
 
 /// `struct cirbuf` of <device/cirbuf.h>, field for field.
@@ -222,9 +222,8 @@ impl Cirbuf {
     ///
     /// `kalloc_init()` must have run.
     pub unsafe fn alloc(&mut self, size: VmSize) {
-        // SAFETY: the caller promises the allocator is up.
-        let address = unsafe { glue::kalloc(size) };
-        let start = ptr::with_exposed_provenance_mut::<c_char>(address);
+        let start = kalloc(size)
+            .map_or(ptr::null_mut(), |buf| buf.as_ptr().cast::<c_char>());
         self.c_start = start;
         self.c_end = start.wrapping_add(size);
         self.c_cf = start;
@@ -244,9 +243,11 @@ impl Cirbuf {
     /// one.
     pub unsafe fn free(&mut self) {
         let size = self.c_end.addr().wrapping_sub(self.c_start.addr());
-        // SAFETY: the caller promises a live allocation of `size` bytes based
-        // at `c_start`.
-        unsafe { glue::kfree(self.c_start.addr(), size) };
+        if let Some(start) = NonNull::new(self.c_start.cast::<u8>()) {
+            // SAFETY: the caller promises a live allocation of `size` bytes
+            // based at `c_start`.
+            unsafe { kfree(start, size) };
+        }
     }
 }
 

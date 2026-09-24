@@ -8,6 +8,7 @@
 
 use crate::arch::types::VmSize;
 use crate::glue;
+use crate::kern::slab::CacheInitFlags;
 use core::ffi::CStr;
 
 /// `IOPB_MAX` of <i386/io_perm.h>: the highest I/O port a task's permission
@@ -36,13 +37,12 @@ pub unsafe extern "C" fn machine_task_module_init() {
     // so nothing else can be touching the cache object while the slab layer
     // builds it in place.
     unsafe {
-        glue::kmem_cache_init(
-            cache,
-            IOPB_CACHE_NAME.as_ptr(),
+        (*cache).init(
+            IOPB_CACHE_NAME.to_bytes(),
             IOPB_BYTES,
             0,
             None,
-            0,
+            CacheInitFlags::EMPTY,
         );
     }
 }

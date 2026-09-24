@@ -15,6 +15,7 @@ use crate::kern::processor::{Processor, ProcessorSet};
 use crate::kern::queue::QueueEntry;
 use crate::kern::sched::RunQueue;
 use crate::kern::sched_prim::NUMQUEUES;
+use crate::kern::slab::KmemCache;
 use crate::kern::thread::{Continuation, StackResume, Thread};
 use crate::kern::timer::Timer;
 use crate::vm::types::{Pmap, VmObject, VmPage, VmProt};
@@ -182,8 +183,8 @@ unsafe extern "C" {
     pub static mut wait_queue: [QueueEntry; NUMQUEUES];
     pub static mut wait_lock: [SimpleLock; NUMQUEUES];
 
-    pub static mut thread_cache: c_void;
-    pub static mut thread_stack_cache: c_void;
+    pub static mut thread_cache: KmemCache;
+    pub static mut thread_stack_cache: KmemCache;
     pub static mut thread_template: Thread;
     pub static mut reaper_queue: QueueEntry;
     pub static mut reaper_lock: SimpleLock;
@@ -209,7 +210,7 @@ unsafe extern "C" {
     pub static mut machine_slot: [MachineSlot; NCPUS];
 
     pub static mut default_pset: c_void;
-    pub static mut pset_cache: c_void;
+    pub static mut pset_cache: KmemCache;
     pub static mut slave_pset: *mut ProcessorSet;
 
     pub static mut realhost: c_void;
@@ -293,6 +294,7 @@ unsafe extern "C" {
     pub static mut pdma_water_mark: [c_int; NSPEEDS];
 
     pub static hz: c_int;
+    pub static elapsed_ticks: c_ulong;
     pub static rebootflag: c_int;
     pub static tick: c_int;
 
@@ -322,25 +324,11 @@ unsafe extern "C" {
 
     pub fn biosmem_bootalloc(nr_pages: c_uint) -> c_ulong;
 
-    pub fn kmem_cache_alloc(cache: *mut c_void) -> VmOffset;
-    pub fn kmem_cache_free(cache: *mut c_void, obj: VmOffset);
-    pub fn kmem_cache_init(
-        cache: *mut c_void,
-        name: *const c_char,
-        size: VmSize,
-        align: VmSize,
-        ctor: Option<unsafe extern "C" fn(*mut c_void)>,
-        flags: c_int,
-    );
-
-    pub static mut ifps_cache: c_void;
+    pub static mut ifps_cache: KmemCache;
 
     pub fn fp_load(thread: *mut Thread);
 
-    pub static mut machine_task_iopb_cache: c_void;
-
-    pub fn kalloc(size: VmSize) -> VmOffset;
-    pub fn kfree(data: VmOffset, size: VmSize);
+    pub static mut machine_task_iopb_cache: KmemCache;
 
     pub fn ipc_port_copy_send(port: *mut c_void) -> *mut c_void;
     pub fn ipc_port_release_send(port: *mut c_void);
@@ -436,14 +424,14 @@ unsafe extern "C" {
         previousp: *mut *mut c_void,
     ) -> c_int;
 
-    pub static mut vm_map_cache: c_void;
-    pub static mut vm_map_entry_cache: c_void;
-    pub static mut vm_map_copy_cache: c_void;
+    pub static mut vm_map_cache: KmemCache;
+    pub static mut vm_map_entry_cache: KmemCache;
+    pub static mut vm_map_copy_cache: KmemCache;
     pub static mut vm_submap_object: *mut VmObject;
 
-    pub static mut vm_external_cache: c_void;
-    pub static mut vm_object_small_existence_map_cache: c_void;
-    pub static mut vm_object_large_existence_map_cache: c_void;
+    pub static mut vm_external_cache: KmemCache;
+    pub static mut vm_object_small_existence_map_cache: KmemCache;
+    pub static mut vm_object_large_existence_map_cache: KmemCache;
 
     pub fn projected_buffer_deallocate(
         map: *mut VmMap,
@@ -494,6 +482,7 @@ unsafe extern "C" {
         type_: c_ushort,
     ) -> *mut VmPage;
     pub fn vm_page_free_pa(page: *mut VmPage, order: c_uint);
+    pub fn vm_page_lookup_pa(pa: VmOffset) -> *mut VmPage;
     pub fn vm_page_insert(
         page: *mut VmPage,
         object: *mut VmObject,
@@ -622,6 +611,11 @@ unsafe extern "C" {
     ) -> c_int;
     pub static kernel_object: *mut VmObject;
     pub static kernel_map: *mut c_void;
+    pub fn kmem_alloc_aligned(
+        map: *mut c_void,
+        addrp: *mut VmOffset,
+        size: VmSize,
+    ) -> c_int;
     pub static kernel_virtual_start: VmOffset;
     pub static kernel_virtual_end: VmOffset;
     pub fn pmap_remove(pmap: *mut Pmap, start: VmOffset, end: VmOffset);
@@ -716,17 +710,12 @@ unsafe extern "C" {
     pub fn vm_page_bootstrap(startp: *mut VmOffset, endp: *mut VmOffset);
     pub fn vm_page_info_all();
 
-    pub static mut vm_page_cache: c_void;
-
-    pub fn slab_bootstrap();
-    pub fn slab_init();
+    pub static mut vm_page_cache: KmemCache;
 
     pub fn vm_object_bootstrap();
     pub fn vm_object_init();
 
     pub fn pmap_init();
-
-    pub fn kalloc_init();
 
     pub fn vm_fault_init();
 

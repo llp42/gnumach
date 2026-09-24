@@ -39,9 +39,12 @@ pub extern "C" fn fpnoextflt() {
 /// dereferenced here.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fp_free(fps: *mut c_void) {
+    let Some(fps) = core::ptr::NonNull::new(fps.cast::<u8>()) else {
+        return;
+    };
     let cache = &raw mut glue::ifps_cache;
     // SAFETY: the caller promises `fps` is a live object from the cache, and
     // `fpu_module_init()` built `ifps_cache` before any thread could reach
     // this free.
-    unsafe { glue::kmem_cache_free(cache, fps.addr()) };
+    unsafe { (*cache).free(fps) };
 }

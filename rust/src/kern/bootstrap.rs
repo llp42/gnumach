@@ -15,8 +15,9 @@
 
 use crate::arch::types::VmSize;
 use crate::glue;
+use crate::kern::slab::{kalloc, kfree};
 use core::ffi::{c_int, c_uint, c_void};
-use core::ptr;
+use core::ptr::{self, NonNull};
 
 /// `boot_script_malloc()` in C.
 ///
@@ -29,10 +30,9 @@ pub unsafe extern "C" fn boot_script_malloc(size: c_uint) -> *mut c_void {
     // conversion is the widening the C call did implicitly and cannot lose a
     // bit.
     let size = size as VmSize;
-    // SAFETY: the caller promises the allocator is up; `kalloc` reports
-    // failure as address zero, which becomes a null pointer.
-    let address = unsafe { glue::kalloc(size) };
-    ptr::with_exposed_provenance_mut(address)
+    // `kalloc` reports failure as address zero, which becomes a null
+    // pointer; the caller promises the allocator is up.
+    kalloc(size).map_or(ptr::null_mut(), |buf| buf.as_ptr().cast::<c_void>())
 }
 
 /// `boot_script_free()` in C.
@@ -45,9 +45,11 @@ pub unsafe extern "C" fn boot_script_malloc(size: c_uint) -> *mut c_void {
 pub unsafe extern "C" fn boot_script_free(ptr: *mut c_void, size: c_uint) {
     // The same widening as above.
     let size = size as VmSize;
-    // SAFETY: the caller promises a live allocation of `size` bytes based at
-    // `ptr`.
-    unsafe { glue::kfree(ptr.addr(), size) };
+    if let Some(ptr) = NonNull::new(ptr.cast::<u8>()) {
+        // SAFETY: the caller promises a live allocation of `size` bytes based
+        // at `ptr`.
+        unsafe { kfree(ptr, size) };
+    }
 }
 
 /// `boot_script_free_task()` in C.
