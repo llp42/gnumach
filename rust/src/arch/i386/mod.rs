@@ -7,6 +7,7 @@ pub mod acpi_parse_apic;
 pub mod apic;
 pub mod ast_check;
 pub mod atomic_bits;
+pub mod biosmem;
 pub mod fpu;
 pub mod io_req;
 pub mod ioapic;

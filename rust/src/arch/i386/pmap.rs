@@ -15,6 +15,7 @@
 //! build would need a `--cfg` in `rust/configfrag.ac` and its own branches.
 
 use crate::arch::i386::atomic_bits::{bit_lock, bit_unlock};
+use crate::arch::i386::biosmem;
 #[cfg(target_arch = "x86_64")]
 use crate::arch::i386::model_dep::init_alloc_aligned;
 use crate::arch::i386::model_dep::pmap_grab_page;
@@ -136,16 +137,16 @@ const LINEAR_MAX_KERNEL_ADDRESS: VmOffset = usize::MAX;
 const LINEAR_MAX_KERNEL_ADDRESS: VmOffset = 0xffff_ffff;
 
 /// `VM_MAX_KERNEL_ADDRESS` of <i386/vm_param.h>.
-const VM_MAX_KERNEL_ADDRESS: VmOffset = LINEAR_MAX_KERNEL_ADDRESS
+pub(crate) const VM_MAX_KERNEL_ADDRESS: VmOffset = LINEAR_MAX_KERNEL_ADDRESS
     - LINEAR_MIN_KERNEL_ADDRESS
     + VM_MIN_KERNEL_ADDRESS;
 
 /// `VM_KERNEL_MAP_SIZE` of <i386/vm_param.h>: the room reserved for the
 /// kernel map.
 #[cfg(target_arch = "x86_64")]
-const VM_KERNEL_MAP_SIZE: VmOffset = 1000 * 1024 * 1024;
+pub(crate) const VM_KERNEL_MAP_SIZE: VmOffset = 1000 * 1024 * 1024;
 #[cfg(target_arch = "x86")]
-const VM_KERNEL_MAP_SIZE: VmOffset = 170 * 1024 * 1024;
+pub(crate) const VM_KERNEL_MAP_SIZE: VmOffset = 170 * 1024 * 1024;
 
 /// `VM_MAX_USER_ADDRESS` of <machine/vm_param.h>.
 #[cfg(target_arch = "x86_64")]
@@ -1158,9 +1159,8 @@ pub extern "C" fn pmap_bootstrap() {
         (*kernel_pmap_ptr()).ref_count = 1;
     }
 
-    // SAFETY: the direct-map end is a boot global biosmem.c filled, and the
-    // kernel virtual range is written here for the first time.
-    let virtual_start = phystokv(unsafe { glue::biosmem_directmap_end() });
+    let virtual_start = phystokv(biosmem::directmap_end());
+    // SAFETY: the kernel virtual range is written here for the first time.
     unsafe {
         kernel_virtual_start = virtual_start;
         kernel_virtual_end = virtual_start.wrapping_add(VM_KERNEL_MAP_SIZE);
@@ -1210,7 +1210,7 @@ pub extern "C" fn pmap_bootstrap() {
     };
     let image_start = ptr::addr_of!(glue::_start).addr();
     let image_end = ptr::addr_of!(glue::etext).addr();
-    let directmap_end = phystokv(unsafe { glue::biosmem_directmap_end() });
+    let directmap_end = phystokv(biosmem::directmap_end());
     // SAFETY: the kernel directory is live from the branch above, and the
     // physical memory it maps is the machine's RAM.
     unsafe {
@@ -2328,7 +2328,7 @@ unsafe fn enter(
         let is_physmem = if vm_page::is_ready() {
             vm_page::lookup_pa(pa).is_some()
         } else {
-            pa < unsafe { glue::biosmem_directmap_end() }
+            pa < biosmem::directmap_end()
         };
 
         let old_pa = pte_to_pa(unsafe { *pte });

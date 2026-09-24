@@ -5,10 +5,10 @@
 
 //! `/dev/mem`: `memmmap()` of `i386/i386at/mem.c`.
 
+use crate::arch::i386::biosmem;
 use crate::arch::i386::io_req::DevT;
 use crate::arch::types::VmOffset;
 use crate::arch::vm_param::PAGE_SHIFT;
-use crate::glue;
 use core::ffi::c_int;
 
 /// `memmmap()` in C.
@@ -22,8 +22,7 @@ pub unsafe extern "C" fn memmmap(
     off: VmOffset,
     _prot: c_int,
 ) -> VmOffset {
-    // SAFETY: a plain predicate over the boot memory map.
-    if unsafe { glue::biosmem_addr_available(off) } != 0 {
+    if !biosmem::addr_available(off) {
         return VmOffset::MAX;
     }
     off >> PAGE_SHIFT

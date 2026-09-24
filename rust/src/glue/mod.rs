@@ -347,11 +347,9 @@ unsafe extern "C" {
     pub static mut hpet_addr: *mut u32;
     pub static mut hpet_period_nsec: u32;
 
-    pub fn biosmem_addr_available(addr: VmOffset) -> c_int;
-
-    pub fn biosmem_bootalloc(nr_pages: c_uint) -> c_ulong;
-
-    pub fn biosmem_directmap_end() -> VmOffset;
+    /// `apboot_addr` of <i386/model_dep.h>: the physical page the AP boot
+    /// code lives in, claimed by `biosmem_bootstrap()`.
+    pub static mut apboot_addr: VmOffset;
 
     pub static mut ifps_cache: KmemCache;
 

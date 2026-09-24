@@ -7,6 +7,7 @@ MACH_RS_SRCS = \
 	rust/src/arch/i386/apic.rs \
 	rust/src/arch/i386/ast_check.rs \
 	rust/src/arch/i386/atomic_bits.rs \
+	rust/src/arch/i386/biosmem.rs \
 	rust/src/arch/i386/fpu.rs \
 	rust/src/arch/i386/io_req.rs \
 	rust/src/arch/i386/ioapic.rs \

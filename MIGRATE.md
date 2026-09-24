@@ -154,7 +154,7 @@ file, or `—` when the rest is ready too.
 | `net_io.c` | 2168 | 0 | `ifnet`/`net_hash_entry` fields |
 | `subrs.c` | 53 | 0 | `ifnet` fields |
 
-### `i386/` (31 files, 9,440 LOC)
+### `i386/` (30 files, 8,413 LOC)
 
 | File | LOC | Free | Holds the rest |
 |---|---:|---:|---|
@@ -180,7 +180,6 @@ file, or `—` when the rest is ready too.
 | `i386/user_ldt.c` | 422 | 0 | `struct pcb` and descriptor structs |
 | `i386at/acpi_parse_apic.c` | 635 | 0 | static ACPI helpers |
 | `i386at/autoconf.c` | 127 | 0 | `bus_device`/`bus_ctlr` fields |
-| `i386at/biosmem.c` | 1027 | 0 | static helpers over `biosmem_map` |
 | `i386at/com.c` | 909 | 0 | `com_*` arrays are NCOM-sized |
 | `i386at/conf.c` | 144 | 0 | static tables |
 | `i386at/cons_conf.c` | 48 | 0 | static tables |
@@ -443,6 +442,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `vm/vm_object.c` whole, with the file-private statics it owned and the `vm_submap_object` placeholder | `src/vm/vm_object.rs`, `src/vm/vm_object_ffi.rs` | pending |
 | `kern/task.c` whole, with the file-private statics it owned and the `struct task` mirror | `src/kern/task.rs`, `src/kern/task_ffi.rs` | pending |
 | `i386/intel/pmap.c` whole, with the file-private statics it owned and the `struct pmap`, `struct pv_entry`, `pmap_update_list` and `pmap_mapwindow_t` mirrors | `src/arch/i386/pmap.rs` | pending |
+| `i386/i386at/biosmem.c` whole, with the file-private statics it owned | `src/arch/i386/biosmem.rs` | pending |
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `i386/i386at/kd_glue.c`
@@ -468,9 +468,10 @@ and nothing may be added.  Each row says what deletes it.
 `vm_submap_object` placeholder, and its `vm_map_glue_task_map`/
 `vm_map_glue_task_space` pair are deleted; nothing joined the list since.
 The `i386/intel/pmap.c` port declared the C routines it still calls
-(`splvm`, `biosmem_directmap_end`, `kmem_alloc_wired`, `cpu_features`,
-`_start`, `etext`) in `rust/src/glue/`, which writes no C and is not
-debt.
+(`splvm`, `kmem_alloc_wired`, `cpu_features`, `_start`, `etext`) in
+`rust/src/glue/`, which writes no C and is not debt.  The
+`i386/i386at/biosmem.c` port moved `biosmem_directmap_end` out of that
+list and into `src/arch/i386/biosmem.rs`.
 
 `--enable-user32` is out of scope for the Rust half: the build targets
 the i686 and x86_64 configurations the ABI pack gates.  The removed

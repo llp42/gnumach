@@ -10,6 +10,7 @@
 //! processor-wait instructions, the `/dev/time` mmap hook, the wall clock, the
 //! bootstrap allocator, and the debugger's halt and reboot entry points.
 
+use crate::arch::i386::biosmem;
 use crate::arch::i386::io_req::DevT;
 use crate::arch::i386::rtc;
 use crate::arch::types::{VmOffset, VmSize};
@@ -122,9 +123,7 @@ fn alloc_aligned(size: VmSize) -> Option<VmOffset> {
     // vm_page_atop(): the page count, whose C parameter is an `unsigned int`,
     // so only the low 32 bits reach the allocator.
     let pages = (rounded >> PAGE_SHIFT) as u32;
-    // SAFETY: `biosmem_bootalloc` is the real C symbol <i386at/biosmem.h>
-    // declares; it halts the boot itself when the bootstrap heap is exhausted.
-    let address = unsafe { glue::biosmem_bootalloc(pages) } as VmOffset;
+    let address = biosmem::bootalloc(pages);
     if address == 0 { None } else { Some(address) }
 }
 

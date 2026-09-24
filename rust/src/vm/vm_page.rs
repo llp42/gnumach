@@ -407,30 +407,30 @@ pub(crate) unsafe fn wire(page: NonNull<VmPage>) {
 
 /// `VM_PAGE_SEG_DMA` of <machine/vm_param.h>.
 #[cfg(target_arch = "x86_64")]
-const SEG_DMA: c_uint = 0;
+pub(crate) const SEG_DMA: c_uint = 0;
 /// `VM_PAGE_SEG_DIRECTMAP` of <machine/vm_param.h>.
 #[cfg(target_arch = "x86_64")]
-const SEG_DIRECTMAP: c_uint = 1;
+pub(crate) const SEG_DIRECTMAP: c_uint = 1;
 /// `VM_PAGE_SEG_DMA32` of <machine/vm_param.h>.
 #[cfg(target_arch = "x86_64")]
-const SEG_DMA32: c_uint = 2;
+pub(crate) const SEG_DMA32: c_uint = 2;
 /// `VM_PAGE_SEG_HIGHMEM` of <machine/vm_param.h>.
 #[cfg(target_arch = "x86_64")]
-const SEG_HIGHMEM: c_uint = 3;
+pub(crate) const SEG_HIGHMEM: c_uint = 3;
 
 /// `VM_PAGE_SEG_DMA` of <machine/vm_param.h>.
 #[cfg(target_arch = "x86")]
-const SEG_DMA: c_uint = 0;
+pub(crate) const SEG_DMA: c_uint = 0;
 /// `VM_PAGE_SEG_DIRECTMAP` of <machine/vm_param.h>.
 #[cfg(target_arch = "x86")]
-const SEG_DIRECTMAP: c_uint = 1;
+pub(crate) const SEG_DIRECTMAP: c_uint = 1;
 /// `VM_PAGE_SEG_DMA32`: the direct-map index, as the non-PAE i686 build
 /// aliases it.
 #[cfg(target_arch = "x86")]
-const SEG_DMA32: c_uint = SEG_DIRECTMAP;
+pub(crate) const SEG_DMA32: c_uint = SEG_DIRECTMAP;
 /// `VM_PAGE_SEG_HIGHMEM` of <machine/vm_param.h>.
 #[cfg(target_arch = "x86")]
-const SEG_HIGHMEM: c_uint = 2;
+pub(crate) const SEG_HIGHMEM: c_uint = 2;
 
 /// `vm_page_seg_name()` in C: the name of a physical segment index.
 pub(crate) fn seg_name(seg_index: c_uint) -> Option<&'static CStr> {
@@ -452,9 +452,9 @@ pub(crate) fn seg_name(seg_index: c_uint) -> Option<&'static CStr> {
 /// `VM_PAGE_MAX_SEGS` of <machine/vm_param.h>: the non-PAE i686 build has
 /// no DMA32 segment and carries one fewer.
 #[cfg(target_arch = "x86_64")]
-const VM_PAGE_MAX_SEGS: usize = 4;
+pub(crate) const VM_PAGE_MAX_SEGS: usize = 4;
 #[cfg(target_arch = "x86")]
-const VM_PAGE_MAX_SEGS: usize = 3;
+pub(crate) const VM_PAGE_MAX_SEGS: usize = 3;
 
 /// `VM_PAGE_SEL_*` of <vm/vm_page.h>: the selectors `vm_page_grab()` and
 /// `vm_page_alloc_pa()` take.  The DMA32 and DIRECTMAP indices swap with

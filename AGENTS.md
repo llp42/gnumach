@@ -41,7 +41,7 @@ routine at a time. The target is a Rust kernel, not a kernel with Rust in it.
 The build is GNU Autotools plus a hand-written `rustc` invocation — no Cargo,
 no lock file, no network. The Rust half compiles to `libmach-rs.a`, which is
 linked between two passes over `libkernel.a`, so Rust may call C and C may
-call Rust. As of 2026-09-24 the Rust half is 134 files and about 51,300 lines.
+call Rust. As of 2026-09-24 the Rust half is 135 files and about 52,400 lines.
 
 ### The idea
 
@@ -126,6 +126,7 @@ link error, not a fallback.
 | `vm/vm_object.c` | `src/vm/vm_object.rs`, `src/vm/vm_object_ffi.rs` |
 | `kern/task.c` | `src/kern/task.rs`, `src/kern/task_ffi.rs` |
 | `i386/intel/pmap.c` | `src/arch/i386/pmap.rs` |
+| `i386/i386at/biosmem.c` | `src/arch/i386/biosmem.rs` |
 
 Also deleted as dead: `device/blkio.c` and the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`).
