@@ -9,7 +9,7 @@
 //! and `ipc/mach_port.h` belongs to.
 
 use crate::glue;
-use crate::ipc::ipc_object::ipc_object_copyin_type;
+use crate::ipc::ipc_object::{self, copyin_type};
 use crate::ipc::ipc_port;
 use crate::ipc::{IpcPort, IpcSpace};
 use crate::kern::types::KernError;
@@ -77,9 +77,7 @@ fn rename(
 
     // SAFETY: the adapter's caller promises a live space, and the two names
     // are plain values; `ipc_object_rename` takes no reference.
-    kern_error(unsafe {
-        glue::ipc_object_rename(space.as_ptr(), oname, nname)
-    })
+    unsafe { ipc_object::rename(space, oname, nname) }
 }
 
 /// `mach_port_insert_right()` in C.
@@ -106,9 +104,7 @@ fn insert_right(
     // SAFETY: the adapter's caller promises a live space; `poly` is valid by
     // the check above, and on success `ipc_object_copyout_name` consumes one
     // reference to it, which the caller owns.
-    kern_error(unsafe {
-        glue::ipc_object_copyout_name(space.as_ptr(), poly, poly_poly, 0, name)
-    })
+    unsafe { ipc_object::copyout_name(space, poly, poly_poly, false, name) }
 }
 
 /// `mach_port_extract_right()` in C.
@@ -125,14 +121,12 @@ fn extract_right(
         return Err(KernError::InvalidValue);
     }
 
-    let mut object: *mut c_void = core::ptr::null_mut();
-    // SAFETY: the adapter's caller promises a live space; the name is a plain
-    // value and the out-pointer is this live local.
-    kern_error(unsafe {
-        glue::ipc_object_copyin(space.as_ptr(), name, msgt_name, &mut object)
-    })?;
+    // SAFETY: the adapter's caller promises a live space; the name is a
+    // plain value, and a successful copyin returns an object holding one
+    // reference for the caller.
+    let object = unsafe { ipc_object::copyin(space, name, msgt_name) }?;
 
-    Ok((object, ipc_object_copyin_type(msgt_name)))
+    Ok((object, copyin_type(msgt_name)))
 }
 
 /// The `ipc_port_translate_receive()` macro of <ipc/ipc_port.h> in C.
@@ -140,20 +134,9 @@ fn translate_receive(
     space: IpcSpace,
     name: c_uint,
 ) -> Result<*mut c_void, KernError> {
-    let mut port: *mut c_void = core::ptr::null_mut();
-
-    // SAFETY: the caller promises a live space; `name` is a plain value and
-    // the out-pointer is this live local.
-    kern_error(unsafe {
-        glue::ipc_object_translate(
-            space.as_ptr(),
-            name,
-            MACH_PORT_RIGHT_RECEIVE,
-            &mut port,
-        )
-    })?;
-
-    Ok(port)
+    // SAFETY: the adapter's caller promises a live space; the name is a
+    // plain value, and the call returns the live, locked port.
+    unsafe { ipc_object::translate(space, name, MACH_PORT_RIGHT_RECEIVE) }
 }
 
 /// `mach_port_request_notification()` in C.

@@ -8,7 +8,7 @@
 
 use crate::device::chario;
 use crate::glue;
-use crate::ipc::{IpcPort, IpcSpace, ipc_port};
+use crate::ipc::{IpcPort, ipc_port, ipc_space};
 use core::ffi::c_int;
 use core::ptr;
 
@@ -25,11 +25,9 @@ use core::ptr;
 /// allocated, as the C `panic()` did.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn device_service_create() {
-    // SAFETY: the kernel space is the global `ipc_init()` built earlier in the
-    // boot; the allocator only reads it and takes its own locks.
-    let master = unsafe {
-        ipc_port::alloc_special(IpcSpace::from_raw(glue::ipc_space_kernel))
-    };
+    // SAFETY: the kernel space is the global `ipc_init()` built earlier in
+    // the boot; the allocator only reads it and takes its own locks.
+    let master = unsafe { ipc_port::alloc_special(ipc_space::kernel()) };
     // SAFETY: this boot step is the global's only writer, and it runs once.
     unsafe {
         glue::master_device_port =

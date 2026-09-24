@@ -16,7 +16,8 @@ use crate::glue;
 use crate::glue::time_value::{
     RpcTimeValue, TIME_NANOS_MAX, TimeValue, TimeValue64,
 };
-use crate::ipc::IpcPort;
+use crate::ipc::ipc_space;
+use crate::ipc::{IpcPort, IpcSpace};
 use crate::kern::ast::{AST_BLOCK, ast_on};
 use crate::kern::ipc_tt::{
     convert_task_to_port, convert_thread_to_port, ipc_task_disable,
@@ -759,7 +760,7 @@ pub(crate) unsafe fn deallocate(task: *mut Task) {
         if let Some(map) = NonNull::new((*task).map.cast::<VmMap>()) {
             VmMap::deallocate(map);
         }
-        glue::ipc_space_release((*task).itk_space);
+        ipc_space::release(IpcSpace::from_raw((*task).itk_space));
     }
 
     // SAFETY: the task came from the cache and nothing references it now.

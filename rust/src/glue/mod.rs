@@ -150,11 +150,6 @@ unsafe extern "C" {
     pub fn mach_msg_receive_continue();
     pub fn mach_msg_interrupt(thread: *mut Thread) -> c_int;
 
-    pub fn ipc_space_create(spacep: *mut *mut c_void) -> c_int;
-    pub fn ipc_space_destroy(space: *mut c_void);
-    pub fn ipc_space_reference(space: *mut c_void);
-    pub fn ipc_space_release(space: *mut c_void);
-
     pub fn eml_task_reference(task: *mut Task, parent: *mut Task);
     pub fn eml_task_deallocate(task: *mut Task);
 
@@ -244,8 +239,6 @@ unsafe extern "C" {
     ) -> c_int;
 
     pub static mut master_device_port: *mut c_void;
-    pub static ipc_space_kernel: *mut c_void;
-
     pub fn spl0() -> c_int;
     pub fn splhi() -> c_int;
     pub fn splsched() -> c_int;
@@ -326,15 +319,62 @@ unsafe extern "C" {
 
     pub static mut machine_task_iopb_cache: KmemCache;
 
-    pub fn ipc_object_reference(io: *mut c_void) -> c_uint;
-    pub fn ipc_object_release(io: *mut c_void) -> c_uint;
-
     pub fn ipc_notify_send_once(port: *mut c_void);
     pub fn ipc_notify_no_senders(port: *mut c_void, mscount: c_uint);
     pub fn ipc_notify_port_destroyed(port: *mut c_void, backup: *mut c_void);
     pub fn ipc_notify_dead_name(port: *mut c_void, name: c_uint);
+    pub fn ipc_notify_init();
+    pub fn ipc_notify_port_deleted(port: *mut c_void, name: c_uint);
+    pub fn ipc_marequest_init();
 
-    pub fn ipc_target_init(target: *mut c_void, name: c_uint);
+    pub fn ipc_host_init();
+
+    pub fn ipc_right_lookup_write(
+        space: *mut c_void,
+        name: c_uint,
+        entryp: *mut *mut c_void,
+    ) -> c_int;
+    pub fn ipc_right_reverse(
+        space: *mut c_void,
+        object: *mut c_void,
+        namep: *mut c_uint,
+        entryp: *mut *mut c_void,
+    ) -> c_int;
+    pub fn ipc_right_inuse(
+        space: *mut c_void,
+        name: c_uint,
+        entry: *mut c_void,
+    ) -> c_int;
+    pub fn ipc_right_clean(
+        space: *mut c_void,
+        name: c_uint,
+        entry: *mut c_void,
+    );
+    pub fn ipc_right_copyin(
+        space: *mut c_void,
+        name: c_uint,
+        entry: *mut c_void,
+        msgt_name: c_uint,
+        immediate: c_int,
+        objectp: *mut *mut c_void,
+        sorightp: *mut *mut c_void,
+    ) -> c_int;
+    pub fn ipc_right_copyout(
+        space: *mut c_void,
+        name: c_uint,
+        entry: *mut c_void,
+        msgt_name: c_uint,
+        overflow: c_int,
+        object: *mut c_void,
+    ) -> c_int;
+    pub fn ipc_right_rename(
+        space: *mut c_void,
+        oname: c_uint,
+        oentry: *mut c_void,
+        nname: c_uint,
+        nentry: *mut c_void,
+    ) -> c_int;
+
     pub fn ipc_mqueue_init(mqueue: *mut c_void);
     pub fn ipc_mqueue_changed(mqueue: *mut c_void, mr: c_int);
     pub fn ipc_pset_remove(pset: *mut c_void, port: *mut c_void);
@@ -342,18 +382,6 @@ unsafe extern "C" {
     pub fn ipc_kmsg_dequeue(queue: *mut c_void) -> *mut c_void;
     pub fn ipc_kmsg_destroy(kmsg: *mut c_void);
     pub fn ipc_kobject_destroy(port: *mut c_void);
-
-    pub fn ipc_object_copyout(
-        space: *mut c_void,
-        object: *mut c_void,
-        msgt_name: c_uint,
-        overflow: c_int,
-        namep: *mut c_uint,
-    ) -> c_int;
-
-    /// `ipc_object_caches` of ipc/ipc_object.c: the port and port-set caches
-    /// `io_alloc()` and `io_free()` index.
-    pub static mut ipc_object_caches: [KmemCache; 2];
 
     pub fn convert_processor_name_to_port(
         processor: *mut Processor,
@@ -367,55 +395,6 @@ unsafe extern "C" {
         kobject: VmOffset,
         type_: c_uint,
     );
-
-    pub static ipc_space_reply: *mut c_void;
-
-    pub fn ipc_object_rename(
-        space: *mut c_void,
-        old_name: c_uint,
-        new_name: c_uint,
-    ) -> c_int;
-
-    pub fn ipc_object_alloc(
-        space: *mut c_void,
-        otype: c_uint,
-        type_: c_uint,
-        urefs: c_uint,
-        namep: *mut c_uint,
-        objectp: *mut *mut c_void,
-    ) -> c_int;
-    pub fn ipc_object_alloc_name(
-        space: *mut c_void,
-        otype: c_uint,
-        type_: c_uint,
-        urefs: c_uint,
-        name: c_uint,
-        objectp: *mut *mut c_void,
-    ) -> c_int;
-    pub fn ipc_object_copyout_name(
-        space: *mut c_void,
-        object: *mut c_void,
-        msgt_name: c_uint,
-        overflow: c_int,
-        name: c_uint,
-    ) -> c_int;
-    pub fn ipc_object_copyin(
-        space: *mut c_void,
-        name: c_uint,
-        msgt_name: c_uint,
-        objectp: *mut *mut c_void,
-    ) -> c_int;
-
-    pub fn ipc_object_translate(
-        space: *mut c_void,
-        name: c_uint,
-        right: c_uint,
-        objectp: *mut *mut c_void,
-    ) -> c_int;
-
-    pub static mut ipc_kernel_map: *mut c_void;
-    pub static ipc_kernel_map_size: VmSize;
-    pub fn ipc_host_init();
 
     pub fn ipc_right_dnrequest(
         space: *mut c_void,

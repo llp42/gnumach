@@ -10,6 +10,7 @@ use crate::arch::i386::percpu::current_thread;
 use crate::arch::types::VmOffset;
 use crate::glue;
 use crate::ipc::ipc_port;
+use crate::ipc::ipc_space;
 use crate::ipc::ipc_thread::ipc_thread_links_init;
 use crate::ipc::{IpcPort, IpcSpace};
 use crate::kern::slab::{kalloc, kfree};
@@ -93,16 +94,7 @@ impl ThreadSpecialPort {
 
 /// `ipc_space_create()` of <ipc/ipc_space.h>.
 fn create_space() -> Result<*mut c_void, KernError> {
-    let mut space: *mut c_void = ptr::null_mut();
-
-    // SAFETY: the out-pointer is this function's live local, written only on
-    // success.
-    let code = unsafe { glue::ipc_space_create(&mut space) };
-
-    match u8::try_from(code) {
-        Ok(code) => KernError::from_u8(code).map(|()| space),
-        Err(_) => Err(KernError::Failure),
-    }
+    Ok(ipc_space::create()?.as_ptr())
 }
 
 /// The C `panic()` of `ipc_task_init()` and `ipc_thread_init()`.
@@ -148,11 +140,9 @@ pub(crate) unsafe fn ipc_task_init(task: *mut Task, parent: *mut Task) {
         init_panic(c"ipc_task_init")
     };
 
-    // SAFETY: `ipc_space_kernel` is live for the life of the kernel; this is
-    // the C's `ipc_port_alloc_kernel()`.
-    let kport = unsafe {
-        ipc_port::alloc_special(IpcSpace::from_raw(glue::ipc_space_kernel))
-    };
+    // SAFETY: the kernel's space is live for the life of the kernel; this
+    // is the C's `ipc_port_alloc_kernel()`.
+    let kport = unsafe { ipc_port::alloc_special(ipc_space::kernel()) };
     let Some(kport) = kport else {
         init_panic(c"ipc_task_init")
     };
@@ -256,7 +246,7 @@ pub(crate) unsafe fn ipc_task_terminate(task: *mut Task) {
         for port in (*task).itk_registered.iter() {
             release_send_if_valid(*port);
         }
-        glue::ipc_space_destroy((*task).itk_space);
+        ipc_space::destroy(IpcSpace::from_raw((*task).itk_space));
         ipc_port::dealloc_special(IpcPort::from_raw(kport));
     }
 }
@@ -268,11 +258,9 @@ pub(crate) unsafe fn ipc_task_terminate(task: *mut Task) {
 /// `thread` must be a fresh thread whose IPC fields this call is the first to
 /// write, and the caller must hold no locks: the allocation may block.
 pub(crate) unsafe fn ipc_thread_init(thread: *mut Thread) {
-    // SAFETY: `ipc_space_kernel` is live for the life of the kernel; this is
-    // the C's `ipc_port_alloc_kernel()`.
-    let kport = unsafe {
-        ipc_port::alloc_special(IpcSpace::from_raw(glue::ipc_space_kernel))
-    };
+    // SAFETY: the kernel's space is live for the life of the kernel; this
+    // is the C's `ipc_port_alloc_kernel()`.
+    let kport = unsafe { ipc_port::alloc_special(ipc_space::kernel()) };
     let Some(kport) = kport else {
         init_panic(c"ipc_thread_init")
     };
@@ -810,9 +798,10 @@ pub(crate) unsafe fn convert_port_to_space(
         let space = if port.is_active() && port.kotype() == IKOT_TASK {
             let task = port.kobject().cast::<Task>();
             match NonNull::new((*task).itk_space) {
-                Some(space) => {
-                    glue::ipc_space_reference(space.as_ptr());
-                    IpcSpace::new(space.as_ptr())
+                Some(found) => {
+                    let space = IpcSpace::from_raw(found.as_ptr());
+                    ipc_space::reference(space);
+                    Some(space)
                 }
                 None => None,
             }
@@ -948,6 +937,6 @@ pub(crate) unsafe fn space_deallocate(space: *mut c_void) {
     // SAFETY: the caller's contract; `ipc_space_release` is the C's
     // `is_release()`.
     if let Some(space) = IpcSpace::new(space) {
-        unsafe { glue::ipc_space_release(space.as_ptr()) };
+        unsafe { ipc_space::release(space) };
     }
 }

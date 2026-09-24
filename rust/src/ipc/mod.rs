@@ -12,10 +12,15 @@ use core::ffi::{c_int, c_uint, c_void};
 use core::mem::{align_of, offset_of, size_of};
 use core::ptr::{self, NonNull};
 
+pub mod ipc_entry;
+pub mod ipc_entry_ffi;
 pub mod ipc_init;
 pub mod ipc_object;
+pub mod ipc_object_ffi;
 pub mod ipc_port;
 pub mod ipc_port_ffi;
+pub mod ipc_space;
+pub mod ipc_space_ffi;
 pub mod ipc_table;
 pub mod ipc_target;
 pub mod ipc_thread;
@@ -24,6 +29,10 @@ pub mod mach_port;
 /// `IOT_PORT` of <ipc/ipc_object.h>: the index of the port cache
 /// `io_alloc()` and `io_free()` select.
 pub(crate) const IOT_PORT: usize = 0;
+/// `IOT_PORT_SET` of <ipc/ipc_object.h>: the index of the port-set cache.
+pub(crate) const IOT_PORT_SET: usize = 1;
+/// `IOT_NUMBER` of <ipc/ipc_object.h>: how many object caches there are.
+pub(crate) const IOT_NUMBER: usize = 2;
 
 /// `IO_BITS_KOTYPE` of <ipc/ipc_object.h>: the low half of `io_bits` names
 /// the kobject type.
@@ -85,7 +94,8 @@ impl IpcObject {
         // SAFETY: the caches are initialized before any object is allocated
         // from them.
         let cache = unsafe {
-            (*ptr::addr_of_mut!(glue::ipc_object_caches)).get_mut(index)
+            (*ptr::addr_of_mut!(crate::ipc::ipc_object::IPC_OBJECT_CACHES))
+                .get_mut(index)
         };
         let Some(cache) = cache else {
             // SAFETY: `Panic` does not return; the C `io_free()` would index
@@ -395,7 +405,7 @@ const _: () = {
 
 /// `struct ipc_space` of <ipc/ipc_space.h>: the capability namespace.
 #[repr(C)]
-struct IpcSpaceRecord {
+pub(crate) struct IpcSpaceRecord {
     ref_lock: SimpleLock,
     references: u32,
     lock: LockData,
@@ -768,6 +778,16 @@ impl IpcPort {
         unsafe { (*self.record()).target.name = name };
     }
 
+    /// `ip_receiver` of <ipc/ipc_port.h>: the `data.receiver` union member.
+    ///
+    /// # Safety
+    ///
+    /// The port must be live.
+    pub(crate) unsafe fn receiver(self) -> *mut c_void {
+        // SAFETY: the caller promises a live port.
+        unsafe { (*self.record()).data.receiver }
+    }
+
     /// The `port->ip_receiver = space` assignment.
     ///
     /// # Safety
@@ -1095,7 +1115,7 @@ impl IpcPort {
     pub(crate) unsafe fn reference(self) {
         // SAFETY: the caller promises a live port; `ip_object` is at offset
         // zero, so the port pointer is the object pointer.
-        unsafe { glue::ipc_object_reference(self.as_ptr()) };
+        unsafe { crate::ipc::ipc_object::reference(self.as_ptr()) };
     }
 
     /// `ip_release()` of <ipc/ipc_port.h>, the real `ipc_object_release()`
@@ -1107,7 +1127,7 @@ impl IpcPort {
     pub(crate) unsafe fn release(self) {
         // SAFETY: the caller promises a live port holding a reference;
         // `ip_object` is at offset zero.
-        unsafe { glue::ipc_object_release(self.as_ptr()) };
+        unsafe { crate::ipc::ipc_object::release(self.as_ptr()) };
     }
 }
 
@@ -1136,6 +1156,11 @@ impl IpcSpace {
         self.0.as_ptr()
     }
 
+    /// The full `struct ipc_space` behind the handle.
+    pub(crate) fn record(self) -> *mut IpcSpaceRecord {
+        self.0.as_ptr().cast()
+    }
+
     /// `ipc_entry_lookup()` of <ipc/ipc_space.h>: the named capability, or
     /// `None` when the name denotes nothing.
     ///
@@ -1146,8 +1171,8 @@ impl IpcSpace {
         self,
         name: c_uint,
     ) -> Option<*mut IpcEntry> {
-        // The caller promises a live space.
-        let record = self.0.as_ptr().cast::<IpcSpaceRecord>();
+        // SAFETY: the caller promises a live space.
+        let record = self.record();
         // SAFETY: the caller holds the space lock, which serializes the map.
         let found = unsafe {
             (*record)

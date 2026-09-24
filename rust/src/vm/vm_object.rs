@@ -13,16 +13,15 @@ use crate::arch::i386::percpu::current_thread;
 use crate::arch::types::{VmOffset, VmSize};
 use crate::arch::vm_param::{PAGE_SHIFT, PAGE_SIZE};
 use crate::glue::{
-    self, Panic, ipc_kobject_set, ipc_space_kernel,
-    memory_manager_default_reference, memory_object_copy,
-    memory_object_create, memory_object_init, memory_object_terminate,
-    pmap_is_modified, pmap_page_protect, printf, thread_block,
-    vm_fault_cleanup, vm_fault_page, vm_object_external_count,
+    self, Panic, ipc_kobject_set, memory_manager_default_reference,
+    memory_object_copy, memory_object_create, memory_object_init,
+    memory_object_terminate, pmap_is_modified, pmap_page_protect, printf,
+    thread_block, vm_fault_cleanup, vm_fault_page, vm_object_external_count,
     vm_page_fictitious_addr, vm_page_free, vm_page_grab_fictitious,
     vm_page_insert, vm_page_lookup, vm_page_more_fictitious,
     vm_page_queue_lock, vm_pageout_page, vm_stat,
 };
-use crate::ipc::{IpcPort, IpcSpace, ipc_port};
+use crate::ipc::{IpcPort, ipc_port, ipc_space};
 use crate::kern::debug::SoftDebugger;
 use crate::kern::queue::{
     QueueEntry, queue_enter_tail, queue_init, queue_next, queue_remove_generic,
@@ -485,9 +484,8 @@ pub(crate) unsafe fn allocate(size: VmSize) -> Option<NonNull<VmObject>> {
     // SAFETY: the caller runs after the IPC package is up; the port is the
     // object's name port, as in the C.
     unsafe {
-        let port =
-            ipc_port::alloc_special(IpcSpace::from_raw(ipc_space_kernel))
-                .map_or(ptr::null_mut(), IpcPort::as_ptr);
+        let port = ipc_port::alloc_special(ipc_space::kernel())
+            .map_or(ptr::null_mut(), IpcPort::as_ptr);
         if port.is_null() {
             die(c"vm_object_allocate", c"vm_object_allocate");
         }
@@ -563,9 +561,8 @@ pub(crate) fn init() {
     // this point in the sequence.
     unsafe {
         let object = addr_of_mut!(KERNEL_OBJECT_STORE);
-        let port =
-            ipc_port::alloc_special(IpcSpace::from_raw(ipc_space_kernel))
-                .map_or(ptr::null_mut(), IpcPort::as_ptr);
+        let port = ipc_port::alloc_special(ipc_space::kernel())
+            .map_or(ptr::null_mut(), IpcPort::as_ptr);
         (*object).pager_name = port;
         ipc_kobject_set(port, object.addr(), IKOT_PAGING_NAME);
     }
@@ -1222,7 +1219,7 @@ unsafe fn copy_call(
 
     // SAFETY: the kernel space is live for the kernel's lifetime.
     let new_memory_object = unsafe {
-        ipc_port::alloc_special(IpcSpace::from_raw(ipc_space_kernel))
+        ipc_port::alloc_special(ipc_space::kernel())
             .map_or(ptr::null_mut(), IpcPort::as_ptr)
     };
     if new_memory_object.is_null() {
@@ -1683,10 +1680,8 @@ pub(crate) unsafe fn enter(
                 (*object).set_pager_created(true);
                 (*object).pager = pager;
 
-                let request = ipc_port::alloc_special(IpcSpace::from_raw(
-                    ipc_space_kernel,
-                ))
-                .map_or(ptr::null_mut(), IpcPort::as_ptr);
+                let request = ipc_port::alloc_special(ipc_space::kernel())
+                    .map_or(ptr::null_mut(), IpcPort::as_ptr);
                 if request.is_null() {
                     die(
                         c"vm_object_enter",
@@ -1764,9 +1759,8 @@ pub(crate) unsafe fn pager_create(object: *mut VmObject) {
         )
         .cast();
 
-        let pager =
-            ipc_port::alloc_special(IpcSpace::from_raw(ipc_space_kernel))
-                .map_or(ptr::null_mut(), IpcPort::as_ptr);
+        let pager = ipc_port::alloc_special(ipc_space::kernel())
+            .map_or(ptr::null_mut(), IpcPort::as_ptr);
         if pager.is_null() {
             die(
                 c"vm_object_pager_create",

@@ -8,14 +8,12 @@
 //! `kern/slab.c` used to define and `kern/slab.h` declares.
 
 use crate::arch::types::{VmOffset, VmSize};
-use crate::glue;
 use crate::kern::slab::{
     self, CacheInfo, CacheInitFlags, KmemCache, KmemCacheCtor,
 };
 use crate::kern::types::KernError;
 use crate::vm::error::KERN_SUCCESS;
 use crate::vm::vm_kern;
-use crate::vm::vm_map::VmMap;
 use crate::vm::vm_map::round_page;
 use core::ffi::{CStr, c_char, c_int, c_uint, c_void};
 use core::mem::size_of;
@@ -234,7 +232,7 @@ pub unsafe extern "C" fn host_slab_info(
             }
         } else {
             // SAFETY: `ipc_kernel_map` is the live kernel IPC map.
-            let map = unsafe { &mut *glue::ipc_kernel_map.cast::<VmMap>() };
+            let map = unsafe { &mut *crate::ipc::ipc_init::kernel_map() };
 
             let info_addr = match vm_kern::kmem_alloc_pageable(map, info_size)
             {

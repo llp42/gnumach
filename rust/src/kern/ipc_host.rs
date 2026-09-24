@@ -10,7 +10,7 @@
 
 use crate::arch::types::VmOffset;
 use crate::glue;
-use crate::ipc::{IpcPort, IpcSpace, ipc_port};
+use crate::ipc::{IpcPort, ipc_port, ipc_space};
 use crate::kern::processor::{Processor, ProcessorSet};
 use crate::kern::types::KernError;
 use core::ffi::{CStr, c_int, c_uint, c_void};
@@ -34,11 +34,9 @@ const IKO_NULL: VmOffset = 0;
 /// Allocate a special port in the kernel's IPC space, halting when the
 /// allocator fails as the C callers did.
 fn alloc_kernel_port(function: &CStr) -> NonNull<c_void> {
-    // SAFETY: `ipc_space_kernel` is the live space `ipc_init()` built, and the
+    // SAFETY: the kernel's space is live from `ipc_init()` on, and the
     // allocator takes its own locks.
-    let port = unsafe {
-        ipc_port::alloc_special(IpcSpace::from_raw(glue::ipc_space_kernel))
-    };
+    let port = unsafe { ipc_port::alloc_special(ipc_space::kernel()) };
     let Some(port) = port else {
         // SAFETY: `Panic` does not return; the tags reproduce the C `panic()`
         // call's file, function and message.

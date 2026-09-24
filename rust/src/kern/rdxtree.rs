@@ -490,7 +490,7 @@ impl Found {
 impl RdxtreeIter {
     /// `rdxtree_iter_init()` of <kern/rdxtree_i.h>, whose static inline the
     /// header keeps for its C callers.
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             node: ptr::null_mut(),
             key: RdxtreeKey::LAST,
@@ -500,7 +500,7 @@ impl RdxtreeIter {
 
 impl Rdxtree {
     /// `rdxtree_init()` of <kern/rdxtree.h>.
-    fn init(&mut self) {
+    pub(crate) fn init(&mut self) {
         self.height = 0;
         self.root = ptr::null_mut();
     }

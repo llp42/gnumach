@@ -53,10 +53,15 @@ MACH_RS_SRCS = \
 	rust/src/glue/mig.rs \
 	rust/src/glue/mod.rs \
 	rust/src/glue/time_value.rs \
+	rust/src/ipc/ipc_entry.rs \
+	rust/src/ipc/ipc_entry_ffi.rs \
 	rust/src/ipc/ipc_init.rs \
 	rust/src/ipc/ipc_object.rs \
+	rust/src/ipc/ipc_object_ffi.rs \
 	rust/src/ipc/ipc_port.rs \
 	rust/src/ipc/ipc_port_ffi.rs \
+	rust/src/ipc/ipc_space.rs \
+	rust/src/ipc/ipc_space_ffi.rs \
 	rust/src/ipc/ipc_table.rs \
 	rust/src/ipc/ipc_target.rs \
 	rust/src/ipc/ipc_thread.rs \

@@ -100,22 +100,17 @@ file, or `—` when the rest is ready too.
 
 ## 5. Outside `kern/`
 
-### `ipc/` (15 files, 11,291 LOC)
+### `ipc/` (10 files, 9,969 LOC)
 
 | File | LOC | Free | Holds the rest |
 |---|---:|---:|---|
 | `copy_user.c` | 540 | 0 | `mach_msg_header` fields; `copyoutmsg` absent from both builds |
-| `ipc_entry.c` | 187 | 0 | `ipc_entry`/`ipc_space` fields |
-| `ipc_init.c` | 101 | 0 | — |
 | `ipc_kmsg.c` | 2600 | 0 | `struct ipc_kmsg` fields |
 | `ipc_marequest.c` | 415 | 0 | `struct ipc_marequest` fields |
 | `ipc_mqueue.c` | 659 | 0 | `struct ipc_mqueue` fields |
 | `ipc_notify.c` | 448 | 0 | `ipc_kmsg` and message fields |
-| `ipc_object.c` | 788 | 0 | `ipc_object`/`ipc_entry` fields |
 | `ipc_pset.c` | 309 | 0 | `ipc_pset`/`ipc_mqueue` fields |
 | `ipc_right.c` | 1844 | 0 | `ipc_entry`/`ipc_port` fields |
-| `ipc_space.c` | 213 | 0 | `ipc_space` fields |
-| `ipc_target.c` | 33 | 0 | `struct ipc_target` fields |
 | `mach_debug.c` | 286 | 0 | `hash_info_bucket_t` has no mirror |
 | `mach_msg.c` | 1648 | 0 | `ipc_kmsg` fields |
 | `mach_port.c` | 1220 | 0 | `ipc_space`/`ipc_port` fields |
@@ -410,7 +405,6 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `i386/i386/apic.c` (`apic_lapic_init`, `apic_get_cpu_kernel_id`, `apic_get_lapic`, `apic_get_current_cpu`, `hpet_init`, `hpet_udelay`, `hpet_mdelay`, `hpclock_read_counter`, `hpclock_get_counter_period_nsec`) | `src/arch/i386/apic.rs` | pending |
 | `i386/i386at/acpi_parse_apic.c` (`acpi_print_info`), `i386/i386at/ioapic.c` (`intnull`) | `src/arch/i386/acpi_parse_apic.rs`, `ioapic.rs` | pending |
 | `device/chario.c` (`tty_queue_completion`), `device/device_init.c` (`device_service_create`), `device/ds_routines.c` (`ds_device_open_new`), `device/intr.c` (`irqgetstat`), `device/kmsg.c` (`kmsggetstat`) | `src/device/chario.rs`, `device_init.rs`, `ds_routines.rs`, `intr.rs`, `kmsg.rs` | pending |
-| `ipc/ipc_init.c` (`ipc_init`), `ipc/ipc_object.c` (`ipc_object_destroy`), `ipc/ipc_port.c` (`ipc_port_alloc`, `ipc_port_alloc_name`) | `src/ipc/ipc_init.rs`, `ipc_object.rs`, `ipc_port.rs` | pending |
 | `kern/host.c` (`host_processor_set_priv`, `processor_set_processors`) | `src/kern/host.rs` | pending |
 | `kern/ipc_host.c` (`ipc_processor_init`, `ipc_pset_init`, `ipc_pset_enable`, `ipc_pset_disable`, `ipc_pset_terminate`, `processor_set_default`) | `src/kern/ipc_host.rs` | pending |
 | `kern/ipc_mig.c` (`mach_msg_abort_rpc`, `mig_get_reply_port`, `mig_deallocate`, `thread_set_self_state`) | `src/kern/ipc_mig.rs` | pending |
@@ -443,6 +437,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `i386/intel/pmap.c` whole, with the file-private statics it owned and the `struct pmap`, `struct pv_entry`, `pmap_update_list` and `pmap_mapwindow_t` mirrors | `src/arch/i386/pmap.rs` | pending |
 | `i386/i386at/biosmem.c` whole, with the file-private statics it owned | `src/arch/i386/biosmem.rs` | pending |
 | `kern/thread.c` whole, with the file-private `walking_zombie`, `reaper_thread_continue`, `thread_collect_scan`, `stack_usage` and `stack_statistics`, and the globals it owned | `src/kern/thread.rs`, `src/kern/thread_ffi.rs` | pending |
+| `ipc/ipc_init.c`, `ipc/ipc_target.c`, `ipc/ipc_space.c`, `ipc/ipc_entry.c` and `ipc/ipc_object.c` whole, with the `ipc_space_cache`, `ipc_entry_cache`, `ipc_object_caches`, `ipc_space_kernel`, `ipc_space_reply`, `ipc_kernel_map` and `ipc_kernel_map_size` globals | `src/ipc/ipc_init.rs`, `ipc_target.rs`, `ipc_space.rs`, `ipc_space_ffi.rs`, `ipc_entry.rs`, `ipc_entry_ffi.rs`, `ipc_object.rs`, `ipc_object_ffi.rs` | pending |
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `i386/i386at/kd_glue.c`

@@ -9,7 +9,9 @@
 //! `ipc/ipc_port.h` declares.
 
 use crate::glue;
+use crate::ipc::ipc_object;
 use crate::ipc::ipc_table::{self, IPC_PORT_REQUEST_SIZE, IpcTableSize};
+use crate::ipc::ipc_target;
 use crate::ipc::ipc_thread;
 use crate::ipc::{
     IOT_PORT, IpcKmsg, IpcMqueue, IpcPort, IpcPortRequest, IpcSpace, IpcTarget,
@@ -49,7 +51,7 @@ const IO_BITS_ACTIVE: c_uint = 0x8000_0000;
 const MACH_PORT_TYPE_RECEIVE: c_uint = 1 << 17;
 /// `MACH_PORT_QLIMIT_DEFAULT` of <mach/port.h>.
 const MACH_PORT_QLIMIT_DEFAULT: c_uint = 5;
-/// `MACH_PORT_NULL` and `MACH_PORT_NAME_NULL` of <mach/port.h>.
+/// `MACH_PORT_NULL` and `MACH_PORT_NULL` of <mach/port.h>.
 const MACH_PORT_NULL: c_uint = 0;
 /// `MACH_PORT_NAME_DEAD` of <mach/port.h>.
 const MACH_PORT_NAME_DEAD: c_uint = c_uint::MAX;
@@ -78,41 +80,26 @@ pub(crate) fn timestamp() -> c_uint {
     timestamp
 }
 
-/// The [`KernError`] a C `kern_return_t` stands for.
-fn kern_error(code: c_int) -> Result<(), KernError> {
-    match u8::try_from(code) {
-        Ok(code) => KernError::from_u8(code),
-        Err(_) => Err(KernError::Failure),
-    }
+/// The `simple_lock_init()` calls `ipc_bootstrap()` makes on this file's
+/// statics.
+pub(crate) fn init_static_locks() {
+    MULTIPLE_LOCK.init();
+    TIMESTAMP_LOCK.init();
 }
 
 /// `ipc_port_alloc()` in C.
 pub(crate) fn alloc(space: IpcSpace) -> Result<(c_uint, IpcPort), KernError> {
-    let mut name: c_uint = 0;
-    let mut port: *mut c_void = ptr::null_mut();
+    // SAFETY: the caller promises a live space; a successful allocation
+    // returns the object locked, which `init` needs and keeps.
+    let (name, port) = unsafe {
+        ipc_object::alloc(space, IOT_PORT_TYPE, MACH_PORT_TYPE_RECEIVE, 0)
+    }?;
 
-    // SAFETY: the caller promises a live space; both out-pointers are this
-    // function's live locals, and `ipc_object_alloc` writes them only on
-    // success.
-    kern_error(unsafe {
-        glue::ipc_object_alloc(
-            space.as_ptr(),
-            IOT_PORT_TYPE,
-            MACH_PORT_TYPE_RECEIVE,
-            0,
-            &mut name,
-            &mut port,
-        )
-    })?;
-
-    // SAFETY: `ipc_object_alloc` reports success only after `io_alloc`
-    // returned a live object, so the pointer is non-null; the C dereferenced
-    // it in the same place.
+    // SAFETY: a successful allocation returned a live object.
     let port = IpcPort(unsafe { NonNull::new_unchecked(port) });
 
-    // SAFETY: `ipc_object_alloc` returns the port live and locked, and
-    // `init` initializes its fields in place without unlocking; the caller
-    // keeps the unlock.
+    // SAFETY: the object is live and locked, and `init` initializes its
+    // fields in place without unlocking; the caller keeps the unlock.
     unsafe { init(port, space.as_ptr(), name) };
 
     Ok((name, port))
@@ -123,28 +110,23 @@ pub(crate) fn alloc_name(
     space: IpcSpace,
     name: c_uint,
 ) -> Result<IpcPort, KernError> {
-    let mut port: *mut c_void = ptr::null_mut();
-
-    // SAFETY: the caller promises a live space; `name` is a plain value and
-    // the out-pointer is this function's live local, written only on success.
-    kern_error(unsafe {
-        glue::ipc_object_alloc_name(
-            space.as_ptr(),
+    // SAFETY: the caller promises a live space; a successful allocation
+    // returns the object locked, which `init` needs and keeps.
+    let port = unsafe {
+        ipc_object::alloc_name(
+            space,
             IOT_PORT_TYPE,
             MACH_PORT_TYPE_RECEIVE,
             0,
             name,
-            &mut port,
         )
-    })?;
+    }?;
 
-    // SAFETY: `ipc_object_alloc_name` reports success only after `io_alloc`
-    // returned a live object, as `alloc` explains.
+    // SAFETY: a successful allocation returned a live object.
     let port = IpcPort(unsafe { NonNull::new_unchecked(port) });
 
-    // SAFETY: `ipc_object_alloc_name` returns the port live and locked, and
-    // `init` initializes its fields in place without unlocking; the caller
-    // keeps the unlock.
+    // SAFETY: the object is live and locked, and `init` initializes its
+    // fields in place without unlocking; the caller keeps the unlock.
     unsafe { init(port, space.as_ptr(), name) };
 
     Ok(port)
@@ -559,10 +541,7 @@ pub(crate) unsafe fn init(port: IpcPort, space: *mut c_void, name: c_uint) {
     // SAFETY: the caller promises a fresh live port.
     unsafe {
         let record = port.record();
-        glue::ipc_target_init(
-            ptr::addr_of_mut!((*record).target).cast(),
-            name,
-        );
+        ipc_target::init(ptr::addr_of_mut!((*record).target), name);
 
         port.set_receiver(space);
         port.set_mscount(0);
@@ -868,33 +847,29 @@ pub(crate) unsafe fn copyout_send(
     space: IpcSpace,
 ) -> c_uint {
     if let Some(sright) = IpcPort::valid(sright) {
-        let mut name: c_uint = 0;
-
         // SAFETY: the caller promises a live space, the right is live, and
-        // `name` is a live local the C wrote only on success.
-        let kr = unsafe {
-            glue::ipc_object_copyout(
-                space.as_ptr(),
+        // the successful copyout consumes its reference.
+        match unsafe {
+            ipc_object::copyout(
+                space,
                 sright.as_ptr(),
                 MACH_MSG_TYPE_PORT_SEND,
-                1,
-                &mut name,
+                true,
             )
-        };
+        } {
+            Ok(name) => name,
+            Err(error) => {
+                // SAFETY: the failed copyout leaves the C owning the right,
+                // which it released.
+                unsafe { release_send(sright) };
 
-        if kr != 0 {
-            // SAFETY: the failed copyout leaves the C owning the right,
-            // which it released.
-            unsafe { release_send(sright) };
-
-            name = if kr == c_int::from(KernError::InvalidCapability) {
-                MACH_PORT_NAME_DEAD
-            } else {
-                MACH_PORT_NULL
-            };
+                if error == KernError::InvalidCapability {
+                    MACH_PORT_NAME_DEAD
+                } else {
+                    MACH_PORT_NULL
+                }
+            }
         }
-
-        name
     } else {
         // SAFETY: the C's `invalid_port_to_name()` only accepts a null or
         // dead port and halts otherwise.
@@ -1032,7 +1007,7 @@ pub(crate) unsafe fn release_receive(port: IpcPort) {
 pub(crate) unsafe fn alloc_special(space: IpcSpace) -> Option<IpcPort> {
     // SAFETY: the caller promises the initialized port cache.
     let object = unsafe {
-        (*ptr::addr_of_mut!(glue::ipc_object_caches))
+        (*ptr::addr_of_mut!(ipc_object::IPC_OBJECT_CACHES))
             .get_mut(IOT_PORT)?
             .alloc()?
     };
