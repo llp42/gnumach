@@ -154,7 +154,7 @@ file, or `—` when the rest is ready too.
 | `net_io.c` | 2168 | 0 | `ifnet`/`net_hash_entry` fields |
 | `subrs.c` | 53 | 0 | `ifnet` fields |
 
-### `i386/` (32 files, 12,071 LOC)
+### `i386/` (31 files, 9,440 LOC)
 
 | File | LOC | Free | Holds the rest |
 |---|---:|---:|---|
@@ -188,7 +188,6 @@ file, or `—` when the rest is ready too.
 | `i386at/ioapic.c` | 487 | 0 | `curr_ipl` is NCPUS-sized; `ioapic_*` statics |
 | `i386at/model_dep.c` | 468 | 0 | init/boot state |
 | `i386at/pic_isa.c` | 56 | 0 | not compiled in the APIC configuration |
-| `intel/pmap.c` | 2564 | 0 | `struct pmap` has no mirror; static `phys_attribute_*` |
 | `intel/read_fault.c` | 178 | 0 | dead: body is `#if`-ed out on every supported CPU |
 
 `chips/busses.c` (232 LOC) is wholly blocked on `bus_device`/`bus_ctlr`
@@ -247,17 +246,16 @@ final.
 the four `processor_glue.c` shims plus `thread_glue_pset_sched_load` are
 deleted (§9, §10).  Five of the 20 moved in a follow-up pass:
 `init_timers`, `ast_init`, `host_processors`, `pset_sys_init` and
-`chario_init` (§9).  The other 15 this unlock frees are still C:
-`pmap_virtual_space`,
+`chario_init` (§9).  Of the 15 this unlock freed, `pmap_virtual_space`
+went with the `pmap.c` port and the other 14 are still C:
 `interrupt_stack_alloc`, `picdisable`, the four `i386/i386/irq.c`
 accessors and the eight `i386/i386at/com.c` entries.
 
 **Mirror gaps.**
 `host_ipc_marequest_info` and `host_virtual_physical_table_info` need a
-`hash_info_bucket_t` mirror.  `pmap_clear_modify`, `pmap_is_modified`,
-`pmap_clear_reference` and `pmap_is_referenced` call `static`
-`phys_attribute_*` helpers, so they are not free: they move only when a
-`struct pmap` story exists or the helpers move with them.
+`hash_info_bucket_t` mirror.  The `struct pmap` story now exists: the
+whole of `i386/intel/pmap.c`, its `static` `phys_attribute_*` helpers
+included, moved to `src/arch/i386/pmap.rs` (§9).
 The `vm/vm_object.c` port completed the `struct vm_object` field mirror
 (`src/vm/types.rs`) and moved the module to `src/vm/vm_object.rs`, so the
 object's lock, flags and page list are Rust; the C files that still call
@@ -270,9 +268,10 @@ the C did.
 **Gated decisions.**
 `i386/i386/pcb.c:857 user_stack_low` needs the `--enable-user32`
 `--cfg`, because `VM_MAX_USER_ADDRESS` takes a third value there.
-`pmap_make_temporary_mapping` and `pmap_remove_temporary_mapping` depend
-on `--enable-pae` constants the i386 build can change; treat them as
-gated until that configure flag is addressed.
+`pmap_make_temporary_mapping` and `pmap_remove_temporary_mapping` moved
+with the whole-file `pmap.c` port for the non-PAE i386 and PAE x86_64
+builds; a PAE i386 build would still need a `--cfg` plumbed through
+`rust/configfrag.ac` before `src/arch/i386/pmap.rs` covers it.
 
 ### 6.3 How the list was derived
 
@@ -325,13 +324,14 @@ classes.  A derivation is a snapshot of one afternoon's tree.
 
 * **Phase B — unlock work.**  The constants are in `rust/src/config.rs`;
   the 20 functions they freed are next, then mirror `hash_info_bucket_t`
-  and `struct vm_page`, then `struct pmap`.
+  and `struct vm_page`; `struct pmap` followed with the whole-file
+  `pmap.c` port.
 
 * **Phase C — the coupled files.**  `eventcount`, `priority`, `gsync`,
   `ipc_tt`, `ipc_host`, `host`, `processor`, `machine`, `mach_clock` once
-  their struct stories exist; then the anchors (`task`, `sched_prim`,
-  `thread`, `ipc_mig`, `exception`, `startup`, `bootstrap`, `pmap`,
-  `trap`, `pcb`, `ipc_kmsg`, `mach_msg`).
+  their struct stories exist; then the anchors (`sched_prim`, `thread`,
+  `ipc_mig`, `exception`, `startup`, `bootstrap`, `trap`, `pcb`,
+  `ipc_kmsg`, `mach_msg`).
 
 Exit criterion for every step: both qemu architectures green, `rustfmt`
 and clippy clean, no new undefined symbols, and no new C.
@@ -348,13 +348,13 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
   on every supported CPU.  Delete, do not port.
 * `#if 0` blocks in `kern/{boot_script,bootstrap,exception,ipc_kobject}.c`,
   `device/intr.c`, `i386/i386/{fpu,smp,pcb,trap}.c`,
-  `i386/i386at/{kd,com}.c` and `i386/intel/pmap.c`.  Delete before porting
-  the surrounding code.
+  `i386/i386at/{kd,com}.c`.  Delete before porting the surrounding code.
 * Dead `#else /* MACH_HOST */` halves of `kern/machine.c:309` and
   `kern/thread.c:1832`; `MACH_HOST` is 1 in both configured builds.
   `kern/task.c`'s half went with the file.
 * Macro-shadowed definitions: `i386/intel/pmap.c`'s `pmap_copy` and
-  `pmap_kernel` are unreachable behind `i386/intel/pmap.h`'s macros.
+  `pmap_kernel` were unreachable behind `i386/intel/pmap.h`'s macros and
+  went with the file's port.
 * `i386/i386/pic.c` and `i386/i386at/pic_isa.c` are not compiled in the
   APIC configuration.  They stay until the non-APIC configuration is
   either built or dropped; they are not port targets.
@@ -410,7 +410,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `i386/i386at/pit.c` | `src/arch/i386/pit.rs` | `896ae703` |
 | `i386/i386/pcb.c` (`stack_detach`, `load_context`, `pcb_collect`), `i386/i386/phys.c` (`kvtophys`) | `src/arch/i386/pcb.rs`, `phys.rs` | pending |
 | `i386/i386/apic.c` (`apic_lapic_init`, `apic_get_cpu_kernel_id`, `apic_get_lapic`, `apic_get_current_cpu`, `hpet_init`, `hpet_udelay`, `hpet_mdelay`, `hpclock_read_counter`, `hpclock_get_counter_period_nsec`) | `src/arch/i386/apic.rs` | pending |
-| `i386/i386at/acpi_parse_apic.c` (`acpi_print_info`), `i386/i386at/ioapic.c` (`intnull`), `i386/intel/pmap.c` (`pmap_unmap_page_zero`) | `src/arch/i386/acpi_parse_apic.rs`, `ioapic.rs`, `pmap.rs` | pending |
+| `i386/i386at/acpi_parse_apic.c` (`acpi_print_info`), `i386/i386at/ioapic.c` (`intnull`) | `src/arch/i386/acpi_parse_apic.rs`, `ioapic.rs` | pending |
 | `device/chario.c` (`tty_queue_completion`), `device/device_init.c` (`device_service_create`), `device/ds_routines.c` (`ds_device_open_new`), `device/intr.c` (`irqgetstat`), `device/kmsg.c` (`kmsggetstat`) | `src/device/chario.rs`, `device_init.rs`, `ds_routines.rs`, `intr.rs`, `kmsg.rs` | pending |
 | `ipc/ipc_init.c` (`ipc_init`), `ipc/ipc_object.c` (`ipc_object_destroy`), `ipc/ipc_port.c` (`ipc_port_alloc`, `ipc_port_alloc_name`) | `src/ipc/ipc_init.rs`, `ipc_object.rs`, `ipc_port.rs` | pending |
 | `kern/host.c` (`host_processor_set_priv`, `processor_set_processors`) | `src/kern/host.rs` | pending |
@@ -442,6 +442,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `kern/slab.c` with the `struct kmem_cache` mirror | `src/kern/slab.rs`, `src/kern/slab_ffi.rs` | pending |
 | `vm/vm_object.c` whole, with the file-private statics it owned and the `vm_submap_object` placeholder | `src/vm/vm_object.rs`, `src/vm/vm_object_ffi.rs` | pending |
 | `kern/task.c` whole, with the file-private statics it owned and the `struct task` mirror | `src/kern/task.rs`, `src/kern/task_ffi.rs` | pending |
+| `i386/intel/pmap.c` whole, with the file-private statics it owned and the `struct pmap`, `struct pv_entry`, `pmap_update_list` and `pmap_mapwindow_t` mirrors | `src/arch/i386/pmap.rs` | pending |
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `i386/i386at/kd_glue.c`
@@ -466,6 +467,10 @@ and nothing may be added.  Each row says what deletes it.
 `vm/vm_map_glue.c`'s `vm_map_glue_object_*` shims with the
 `vm_submap_object` placeholder, and its `vm_map_glue_task_map`/
 `vm_map_glue_task_space` pair are deleted; nothing joined the list since.
+The `i386/intel/pmap.c` port declared the C routines it still calls
+(`splvm`, `biosmem_directmap_end`, `kmem_alloc_wired`, `cpu_features`,
+`_start`, `etext`) in `rust/src/glue/`, which writes no C and is not
+debt.
 
 `--enable-user32` is out of scope for the Rust half: the build targets
 the i686 and x86_64 configurations the ABI pack gates.  The removed

@@ -104,11 +104,9 @@ impl VmInherit {
     }
 }
 
-/// `pmap_t`: the machine-dependent physical map of a VM map.
-#[repr(C)]
-pub struct Pmap {
-    _private: [u8; 0],
-}
+/// `pmap_t`: the machine-dependent physical map of a VM map, whose mirror
+/// lives in the arch tree.
+pub use crate::arch::i386::pmap::Pmap;
 
 /// The `unsigned int` run of flags in `struct vm_object`, in the C
 /// declaration order the compiler packs: `paging_in_progress` in bits 0 to

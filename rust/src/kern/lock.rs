@@ -125,6 +125,16 @@ const RECURSION_DEPTH_SHIFT: u32 = 20;
 const RECURSION_DEPTH_MASK: u32 = 0x0000_0fff;
 
 impl LockData {
+    /// The zero image a C `static` of `struct lock` began with; [`LockData::init`]
+    /// completes it.
+    pub(crate) const fn zeroed() -> Self {
+        Self {
+            thread: UnsafeCell::new(ptr::null_mut()),
+            state: UnsafeCell::new(0),
+            interlock: SimpleLock::new(),
+        }
+    }
+
     /// `lock_init()` in C.
     ///
     /// # Safety

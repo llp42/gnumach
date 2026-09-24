@@ -230,6 +230,12 @@ unsafe extern "C" {
 
     pub static mut machine_slot: [MachineSlot; NCPUS];
 
+    pub static cpu_features: [c_uint; 2];
+
+    /// The load image bounds `pmap_bootstrap()` maps read-only.
+    pub static _start: c_char;
+    pub static etext: c_char;
+
     pub static mut default_pset: c_void;
     pub static mut pset_cache: KmemCache;
     pub static mut slave_pset: *mut ProcessorSet;
@@ -278,6 +284,7 @@ unsafe extern "C" {
     pub fn splsoftclock() -> c_int;
     pub fn splclock() -> c_int;
     pub fn splhigh() -> c_int;
+    pub fn splvm() -> c_int;
     pub fn splx(level: c_int) -> c_int;
     pub fn sploff() -> c_ulong;
     pub fn splon(n: c_ulong);
@@ -343,6 +350,8 @@ unsafe extern "C" {
     pub fn biosmem_addr_available(addr: VmOffset) -> c_int;
 
     pub fn biosmem_bootalloc(nr_pages: c_uint) -> c_ulong;
+
+    pub fn biosmem_directmap_end() -> VmOffset;
 
     pub static mut ifps_cache: KmemCache;
 
@@ -663,6 +672,11 @@ unsafe extern "C" {
     pub static kernel_map: *mut c_void;
     pub fn kmem_alloc_aligned(
         map: *mut c_void,
+        addrp: *mut VmOffset,
+        size: VmSize,
+    ) -> c_int;
+    pub fn kmem_alloc_wired(
+        map: *mut VmMap,
         addrp: *mut VmOffset,
         size: VmSize,
     ) -> c_int;
