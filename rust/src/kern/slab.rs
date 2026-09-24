@@ -405,7 +405,7 @@ const fn round_up(value: usize, align: usize) -> usize {
 impl KmemCache {
     /// The zero image a C `static` began with; [`KmemCache::init`] completes
     /// it.
-    const fn zeroed() -> Self {
+    pub(crate) const fn zeroed() -> Self {
         Self {
             lock: SimpleLock::new(),
             node: List::unlinked(),

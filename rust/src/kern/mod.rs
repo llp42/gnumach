@@ -26,6 +26,7 @@ pub mod processor_info;
 pub mod queue;
 pub mod rbtree;
 pub mod rdxtree;
+pub mod rdxtree_ffi;
 pub mod sched;
 pub mod sched_prim;
 pub mod slab;

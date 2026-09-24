@@ -84,6 +84,7 @@ MACH_RS_SRCS = \
 	rust/src/kern/queue.rs \
 	rust/src/kern/rbtree.rs \
 	rust/src/kern/rdxtree.rs \
+	rust/src/kern/rdxtree_ffi.rs \
 	rust/src/kern/sched.rs \
 	rust/src/kern/sched_prim.rs \
 	rust/src/kern/slab.rs \

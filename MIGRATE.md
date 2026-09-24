@@ -92,7 +92,6 @@ file, or `—` when the rest is ready too.
 | `printf.c` | 592 | 5 | 0 | C-variadic definitions; blocked (see §8) |
 | `priority.c` | 196 | 4 | 0 | pset tail and `struct slock_irq` |
 | `processor.c` | 465 | 4 | 0 | `processor_set_things`'s allocation and port conversions |
-| `rdxtree.c` | 791 | 3 | 0 | static node helpers |
 | `sched_prim.c` | 1238 | 5 | 0 | static `thread_select`/`do_runq_scan`; continuations |
 | `startup.c` | 290 | 5 | 0 | `machine_info`, NCPUS loops, boot |
 | `syscall_emulation.c` | 446 | 4 | 0 | `struct eml_dispatch` and task fields |
@@ -354,10 +353,6 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 * `i386/i386/pic.c` and `i386/i386at/pic_isa.c` are not compiled in the
   APIC configuration.  They stay until the non-APIC configuration is
   either built or dropped; they are not port targets.
-* `kern/rdxtree.c`'s unused helper definitions flagged absent from both
-  builds by the §6.3 oracle (e.g. `rdxtree_check_alignment`) are
-  candidates to delete with the file's port, after a read confirms they
-  are dead rather than inlined.
 
 ## 9. Already moved (for reference)
 
@@ -424,7 +419,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `kern/bootstrap.c` (`boot_script_free_task`) | `src/kern/bootstrap.rs` | pending |
 | `kern/exception.c` (`exception_no_server`) | `src/kern/exception.rs` | pending |
 | `kern/printf.c` (`printnum`, `safe_gets`) | `src/kern/printf.rs` | pending |
-| `kern/rdxtree.c` (`rdxtree_replace_slot`) | `src/kern/rdxtree.rs` | pending |
+| `kern/rdxtree.c` with the `struct rdxtree`/`rdxtree_iter` mirrors | `src/kern/rdxtree.rs`, `rdxtree_ffi.rs` | pending |
 | `kern/timer.c` (`thread_read_times`) | `src/kern/timer.rs` | pending |
 | `kern/sched_prim.c` (`thread_set_timeout`, `thread_bind`, `thread_continue`, `compute_priority`, `compute_my_priority`, `recompute_priorities`, `set_pri`, `choose_pset_thread`) and `kern/syscall_subr.c` (`thread_depress_priority`, `thread_depress_timeout`, `thread_depress_abort`) | `src/kern/sched_prim.rs`, `src/kern/syscall_subr.rs` | pending |
 | `kern/thread.c` (`stack_alloc_try`, `stack_alloc`, `stack_free`, `stack_collect`, `stack_privilege`) | `src/kern/thread.rs` | pending |
@@ -442,7 +437,8 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `i386/i386at/kd_glue.c`
-(`018c9cd8`).
+(`018c9cd8`).  `kern/rdxtree.c`'s `rdxtree_check_alignment`, never called
+by either build, went with that file's port.
 
 ## 10. The glue debt
 

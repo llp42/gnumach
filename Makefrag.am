@@ -117,7 +117,6 @@ libkernel_a_SOURCES += \
 	kern/queue.h \
 	kern/rbtree.h \
 	kern/rbtree_i.h \
-	kern/rdxtree.c \
 	kern/rdxtree.h \
 	kern/rdxtree_i.h \
 	kern/refcount.h \
