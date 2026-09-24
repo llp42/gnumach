@@ -172,9 +172,6 @@ unsafe extern "C" {
     pub fn pcb_init(task: *mut Task, thread: *mut Thread);
     pub fn pcb_terminate(thread: *mut Thread);
 
-    pub fn mach_port_deallocate(space: *mut c_void, name: c_uint) -> c_int;
-    pub fn mach_port_destroy(space: *mut c_void, name: c_uint) -> c_int;
-
     pub fn mach_msg_continue();
     pub fn mach_msg_receive_continue();
     pub fn mach_msg_interrupt(thread: *mut Thread) -> c_int;
@@ -359,8 +356,6 @@ unsafe extern "C" {
 
     pub fn net_kmsg_put(kmsg: *mut c_void);
 
-    pub static mut mach_port_deallocate_debug: c_int;
-
     pub fn ipc_host_init();
 
     pub fn ipc_right_lookup_write(
@@ -429,12 +424,56 @@ unsafe extern "C" {
         nname: c_uint,
         nentry: *mut c_void,
     ) -> c_int;
+    pub fn ipc_right_info(
+        space: *mut c_void,
+        name: c_uint,
+        entry: *mut c_void,
+        typep: *mut c_uint,
+        urefsp: *mut c_uint,
+    ) -> c_int;
+    pub fn ipc_right_destroy(
+        space: *mut c_void,
+        name: c_uint,
+        entry: *mut c_void,
+    ) -> c_int;
+    pub fn ipc_right_dealloc(
+        space: *mut c_void,
+        name: c_uint,
+        entry: *mut c_void,
+    ) -> c_int;
+    pub fn ipc_right_delta(
+        space: *mut c_void,
+        name: c_uint,
+        entry: *mut c_void,
+        right: c_uint,
+        delta: c_int,
+    ) -> c_int;
 
     pub fn ipc_mqueue_init(mqueue: *mut c_void);
     pub fn ipc_mqueue_changed(mqueue: *mut c_void, mr: c_int);
+    pub fn ipc_pset_alloc(
+        space: *mut c_void,
+        namep: *mut c_uint,
+        psetp: *mut *mut c_void,
+    ) -> c_int;
+    pub fn ipc_pset_alloc_name(
+        space: *mut c_void,
+        name: c_uint,
+        psetp: *mut *mut c_void,
+    ) -> c_int;
     pub fn ipc_pset_remove(pset: *mut c_void, port: *mut c_void);
+    pub fn ipc_pset_move(
+        space: *mut c_void,
+        port: *mut c_void,
+        pset: *mut c_void,
+    ) -> c_int;
 
     pub fn ipc_kobject_destroy(port: *mut c_void);
+    pub fn ipc_kobject_set_locked(
+        port: *mut c_void,
+        kobject: VmOffset,
+        type_: c_uint,
+    );
 
     pub fn convert_processor_name_to_port(
         processor: *mut Processor,

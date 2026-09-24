@@ -100,7 +100,7 @@ file, or `—` when the rest is ready too.
 
 ## 5. Outside `kern/`
 
-### `ipc/` (9 files, 7,369 LOC)
+### `ipc/` (8 files, 6,149 LOC)
 
 | File | LOC | Free | Holds the rest |
 |---|---:|---:|---|
@@ -112,7 +112,6 @@ file, or `—` when the rest is ready too.
 | `ipc_right.c` | 1844 | 0 | `ipc_entry`/`ipc_port` fields |
 | `mach_debug.c` | 286 | 0 | `hash_info_bucket_t` has no mirror |
 | `mach_msg.c` | 1648 | 0 | `ipc_kmsg` fields |
-| `mach_port.c` | 1220 | 0 | `ipc_space`/`ipc_port` fields |
 
 ### `vm/` (10 files, 6,776 LOC)
 
@@ -393,7 +392,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `ipc/ipc_object.c` (`ipc_object_copyin_type`) | `src/ipc/ipc_object.rs` | `8c8c697f` |
 | `ipc/ipc_port.c` (`ipc_port_timestamp`) | `src/ipc/ipc_port.rs` | `54dfe7cd` |
 | `ipc/ipc_port.c` whole, with the `ipc_port_multiple_lock_data` static and the `ipc_port_request`, `ipc_entry`, `ipc_space` and `ipc_kmsg` field mirrors it reads | `src/ipc/ipc_port.rs`, `src/ipc/ipc_port_ffi.rs`, `src/ipc/mod.rs` | pending |
-| `ipc/mach_port.c` (four right routines) | `src/ipc/mach_port.rs` | `6c47e6b4`, `1690113f` |
+| `ipc/mach_port.c` whole, with the `mach_port_deallocate_debug` global it owned and the `mach_port_status_t` view its receive-status call fills | `src/ipc/mach_port.rs`, `src/ipc/mach_port_ffi.rs` | pending |
 | `kern/thread.c` (`thread_init`), `kern/sched.h` (`thread_timer_delta`) | `src/kern/thread.rs`, `src/kern/timer.rs` | `16581252` |
 | `kern/timer.c` (read/normalize/delta) | `src/kern/timer.rs` | `6858b08c` |
 | `kern/processor.c` (`processor_init`, `pset_init`, info and pset entries) | `src/kern/processor.rs` | `498525e5` |

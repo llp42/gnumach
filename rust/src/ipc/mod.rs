@@ -27,6 +27,7 @@ pub mod ipc_table;
 pub mod ipc_target;
 pub mod ipc_thread;
 pub mod mach_port;
+pub mod mach_port_ffi;
 
 /// `IOT_PORT` of <ipc/ipc_object.h>: the index of the port cache
 /// `io_alloc()` and `io_free()` select.
@@ -165,6 +166,11 @@ impl IpcTarget {
     /// `ips_active()` of <ipc/ipc_pset.h>.
     pub(crate) fn is_active(&self) -> bool {
         self.object.bits & IO_BITS_ACTIVE != 0
+    }
+
+    /// `ips_local_name` of <ipc/ipc_pset.h>: `ip_target.ipt_name`.
+    pub(crate) fn local_name(&self) -> c_uint {
+        self.name
     }
 
     /// `&pset->ips_messages`: the address of the target's message queue.
@@ -760,6 +766,16 @@ impl IpcPort {
         unsafe { (*self.record()).sorights = count };
     }
 
+    /// `ip_sorights` of <ipc/ipc_port.h>.
+    ///
+    /// # Safety
+    ///
+    /// The port must be live and its lock held.
+    pub(crate) unsafe fn sorights(self) -> c_uint {
+        // SAFETY: the caller promises a live port and the held lock.
+        unsafe { (*self.record()).sorights }
+    }
+
     /// `ip_receiver_name` of <ipc/ipc_port.h>: `ip_target.ipt_name`.
     ///
     /// # Safety
@@ -932,6 +948,16 @@ impl IpcPort {
         unsafe { (*self.record()).cur_target = target };
     }
 
+    /// `ip_seqno` of <ipc/ipc_port.h>, which the message queue lock protects.
+    ///
+    /// # Safety
+    ///
+    /// The port must be live, its lock held, and its message queue locked.
+    pub(crate) unsafe fn seqno(self) -> c_uint {
+        // SAFETY: the caller promises a live port and the queue lock.
+        unsafe { (*self.record()).seqno }
+    }
+
     /// `ip_seqno` of <ipc/ipc_port.h>, locked by the message queue.
     ///
     /// # Safety
@@ -940,6 +966,16 @@ impl IpcPort {
     pub(crate) unsafe fn set_seqno(self, seqno: c_uint) {
         // SAFETY: the caller promises a live port and the held lock.
         unsafe { (*self.record()).seqno = seqno };
+    }
+
+    /// `ip_msgcount` of <ipc/ipc_port.h>.
+    ///
+    /// # Safety
+    ///
+    /// The port must be live and its lock held.
+    pub(crate) unsafe fn msgcount(self) -> c_uint {
+        // SAFETY: the caller promises a live port and the held lock.
+        unsafe { (*self.record()).msgcount }
     }
 
     /// `ip_msgcount` of <ipc/ipc_port.h>.

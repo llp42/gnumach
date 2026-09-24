@@ -16,6 +16,8 @@ use crate::arch::types::{VmOffset, VmSize};
 use crate::arch::vm_param::KERNEL_STACK_SIZE;
 use crate::glue;
 use crate::glue::time_value::{RpcTimeValue, TimeValue, TimeValue64};
+use crate::ipc::IpcSpace;
+use crate::ipc::mach_port;
 use crate::kern::ast::{AST_BLOCK, AST_HALT, AST_TERMINATE, ast_on};
 use crate::kern::ipc_mig::mach_msg_abort_rpc;
 use crate::kern::ipc_tt::{
@@ -1960,9 +1962,10 @@ impl Thread {
         // SAFETY: the caller promises a live task; the port routines take the
         // space's own locks, and the C ignored their results.
         unsafe {
-            let _ = glue::mach_port_deallocate((*task).itk_space, thread_name);
+            let space = IpcSpace::new((*task).itk_space);
+            let _ = mach_port::deallocate(space, thread_name);
             if reply_port != MACH_PORT_NULL {
-                let _ = glue::mach_port_destroy((*task).itk_space, reply_port);
+                let _ = mach_port::destroy(space, reply_port);
             }
         }
 

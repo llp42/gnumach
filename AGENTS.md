@@ -134,6 +134,7 @@ link error, not a fallback.
 | `ipc/ipc_space.c`, `ipc/ipc_entry.c` | `src/ipc/ipc_space.rs`, `ipc_space_ffi.rs`, `ipc_entry.rs`, `ipc_entry_ffi.rs` |
 | `ipc/ipc_object.c` | `src/ipc/ipc_object.rs`, `ipc_object_ffi.rs` |
 | `ipc/ipc_kmsg.c` | `src/ipc/ipc_kmsg.rs`, `ipc_kmsg_ffi.rs` |
+| `ipc/mach_port.c` | `src/ipc/mach_port.rs`, `src/ipc/mach_port_ffi.rs` |
 
 Also deleted as dead: `device/blkio.c` and the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`).

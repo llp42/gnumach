@@ -46,7 +46,6 @@ libkernel_a_SOURCES += \
 	ipc/ipc_types.h \
 	ipc/mach_msg.c \
 	ipc/mach_msg.h \
-	ipc/mach_port.c \
 	ipc/mach_port.h \
 	ipc/mach_debug.c \
 	ipc/port.h

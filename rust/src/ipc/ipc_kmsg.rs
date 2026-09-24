@@ -15,6 +15,7 @@ use crate::glue;
 use crate::ipc::ipc_entry;
 use crate::ipc::ipc_object;
 use crate::ipc::ipc_port;
+use crate::ipc::mach_port;
 use crate::ipc::{
     IE_BITS_TYPE_MASK, IpcEntry, IpcKmsg, IpcPort, IpcSpace, MachMsgHeader,
 };
@@ -1094,7 +1095,7 @@ unsafe fn entry_lookup_failed(header: *mut MachMsgHeader, port_name: c_uint) {
             (*header).id(),
         );
 
-        if glue::mach_port_deallocate_debug != 0 {
+        if mach_port::mach_port_deallocate_debug != 0 {
             glue::SoftDebugger(c"ipc_entry_lookup".as_ptr());
         }
     }
