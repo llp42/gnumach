@@ -13,6 +13,8 @@ pub mod vm_kern;
 pub mod vm_kern_ffi;
 pub mod vm_map;
 pub mod vm_map_ffi;
+pub mod vm_object;
+pub mod vm_object_ffi;
 pub mod vm_page;
 pub mod vm_page_ffi;
 pub mod vm_resident;

@@ -55,7 +55,7 @@ column is what exists in the tree today, not a plan.
 | **L2 locks/IRQ/percpu** | `simple_lock`, `spl*`, `percpu_get`, `current_thread()` | done: `kern/lock.c` and `i386/i386/lock.h` are gone, `SimpleLock` is `src/kern/lock.rs`, `spl*` are real asm functions in `glue`, and `current_thread()`, `cpu_number()` and `percpu_get` live in `src/arch/i386/percpu.rs`.  An RAII `IrqGuard` is a Rust-side type to write when wanted. |
 | **L3 memory** | `kalloc`/`kfree`, `kmem_cache_*` | done: `kern/slab.c` is gone, `src/kern/slab.rs` owns the allocator and `src/kern/slab_ffi.rs` exports its C symbols.  A `GlobalAlloc` over `kalloc` remains a design conversation. |
 | **L4 runnable** | `thread_block`, `assert_wait`, `set_timeout`, continuations | the wait/wake primitives are Rust; `thread_block`, `assert_wait` and `set_timeout` are real C symbols in `glue`; `switch_context`, `call_continuation` and `stack_handoff` stay C. |
-| **L5 IPC/VM** | ports, spaces, kmsgs, maps, objects, pages | `vm_map` is Rust-native; the rest have no field mirrors, and `vm/vm_map_glue.c` exists for the object, page and task fields the map's C edges still read. |
+| **L5 IPC/VM** | ports, spaces, kmsgs, maps, objects, pages | `vm_map` and `vm_object` are Rust-native, and `struct task` is mirrored; the rest have no field mirrors, and `vm/vm_map_glue.c` exists for the page and task fields the map's C edges still read. |
 | **L6 arch/MIG** | MIG output, trap table, pmap, locore | stays C.  MIG routines are not generated: the generated server calls the hand-written definition, so a Rust port replaces only that definition. |
 
 The two hard ABI walls are unchanged.  **MIG** (`*.srv`/`*.cli` →
@@ -124,21 +124,20 @@ file, or `—` when the rest is ready too.
 | `mach_msg.c` | 1648 | 0 | `ipc_kmsg` fields |
 | `mach_port.c` | 1220 | 0 | `ipc_space`/`ipc_port` fields |
 
-### `vm/` (12 files, 13,075 LOC)
+### `vm/` (10 files, 6,776 LOC)
 
 | File | LOC | Free | Holds the rest |
 |---|---:|---:|---|
-| `memory_object.c` | 1079 | 0 | `vm_object` fields |
+| `memory_object.c` | 1079 | 0 | `ipc_port` fields |
 | `memory_object_proxy.c` | 227 | 0 | cache statics |
 | `vm_debug.c` | 541 | 0 | `hash_info_bucket_t` mirror |
 | `vm_external_glue.c` | 21 | 0 | three `kmem_cache` storage symbols; the `KmemCache` mirror exists now, so a follow-up moves the definitions to Rust statics and deletes the file |
-| `vm_fault.c` | 2024 | 0 | `vm_object`/`vm_page`/task fields |
-| `vm_kern.c` | 812 | 0 | `vm_object` fields for the rest |
-| `vm_map_glue.c` | 341 | 0 | the object/page/task field shims; they need mirrors |
-| `vm_object.c` | 2887 | 0 | `struct vm_object` has no field mirror |
-| `vm_pageout.c` | 505 | 0 | `vm_object`/`vm_page` fields |
+| `vm_fault.c` | 2024 | 0 | `vm_page`/task fields |
+| `vm_kern.c` | 812 | 0 | — |
+| `vm_map_glue.c` | 197 | 0 | the page/task field shims; the object shims went with `vm_object.c` |
+| `vm_pageout.c` | 505 | 0 | `vm_page` fields |
 | `vm_resident.c` | 948 | 0 | the `vm_page_bucket_t` table, the fictitious-page statics and `vm_page_order` |
-| `vm_user.c` | 602 | 0 | `vm_object`/`vm_page` fields for the rest |
+| `vm_user.c` | 602 | 0 | `vm_page` fields for the rest |
 
 ### `device/` (11 files, 7,057 LOC)
 
@@ -260,10 +259,10 @@ accessors and the eight `i386/i386at/com.c` entries.
 `pmap_clear_reference` and `pmap_is_referenced` call `static`
 `phys_attribute_*` helpers, so they are not free: they move only when a
 `struct pmap` story exists or the helpers move with them.
-The `vm/vm_page.c` port added the `struct vm_object` field mirror its
-evictor needs (`src/vm/types.rs`), so the object's lock and its
-`internal`, `pager_initialized` and `alive` bits are readable from Rust;
-`vm/vm_object.c` still waits for its own story.  A follow-up added the
+The `vm/vm_object.c` port completed the `struct vm_object` field mirror
+(`src/vm/types.rs`) and moved the module to `src/vm/vm_object.rs`, so the
+object's lock, flags and page list are Rust; the C files that still call
+it keep the `vm/vm_object.h` prototypes.  A follow-up added the
 `struct task` mirror (`src/kern/task.rs`, with `struct machine_task` in
 `src/arch/i386/machine_task.rs`) with the offsets read from both built
 kernels, so the eviction path bumps `current_task()->reactivations` as
@@ -442,6 +441,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `vm/vm_page.c` (`vm_page_set_type`, `vm_page_wire`), `vm/vm_resident.c` (`vm_page_init`, `vm_page_module_init`, `vm_page_grab`, `vm_page_grab_phys_addr`, `vm_page_release`, `vm_page_zero_fill`, `vm_page_copy`) with the `struct vm_page` mirror | `src/vm/vm_page.rs`, `vm_page_ffi.rs`, `vm_resident.rs`, `vm_resident_ffi.rs` | pending |
 | `vm/vm_page.c` whole, with the `struct vm_page_seg`, `struct vm_page_boot_seg` and file-private statics it owned, and the `struct vm_object` field mirror its evictor reads | `src/vm/vm_page.rs`, `src/vm/vm_page_ffi.rs`, `src/vm/types.rs` | pending |
 | `kern/slab.c` with the `struct kmem_cache` mirror | `src/kern/slab.rs`, `src/kern/slab_ffi.rs` | pending |
+| `vm/vm_object.c` whole, with the file-private statics it owned and the `vm_submap_object` placeholder | `src/vm/vm_object.rs`, `src/vm/vm_object_ffi.rs` | pending |
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `i386/i386at/kd_glue.c`
@@ -456,15 +456,16 @@ and nothing may be added.  Each row says what deletes it.
 
 | Glue | What it provides | Deleted by |
 |---|---|---|
-| `vm/vm_map_glue.c` — object and page field shims | `vm_object` and `vm_page` bit probes | Phase B: the `vm_page` mirror and the `vm_object` story |
-| `vm/vm_map_glue.c` — task field shims | `vm_map_glue_task_map`, `_task_space` | when `struct task` gets a mirror |
+| `vm/vm_map_glue.c` — page field shims | `vm_page` bit probes and the `PMAP_ENTER`/`PAGE_WAKEUP_DONE` macros | the page-list copyin macros moving to Rust |
+| `vm/vm_map_glue.c` — task field shims | `vm_map_glue_task_map`, `_task_space` | `kern/task.c` moving, or a Rust-side edit now that the mirror exists |
 | `vm/vm_external_glue.c` | three `kmem_cache` storage symbols | Follow-up to the `kern/slab.c` port: `struct kmem_cache` is `src/kern/slab.rs`'s `KmemCache` now, so the definitions move to Rust statics in a pass of their own |
 | `i386/i386/irq.c` — `irq_mask`, `irq_unmask`, `irq_{set,get}_{handler,unit}` | `mask_irq`/`unmask_irq` static inlines and the NINTR-sized `ivect`/`iunit` | Phase B: `NINTR`, plus a Rust `mask_irq` |
 | `i386/i386at/com.c` — `com_base_addr`, `com_irq` | `cominfo` is NCOM-sized | Phase B (`NCOM`) or porting `com.c` |
 
-`i386/i386at/kd_glue.c`, `kern/processor_glue.c` and the
-`thread_glue_pset_sched_load` shim in `kern/sched_prim.c` are deleted;
-nothing joined the list since.
+`i386/i386at/kd_glue.c`, `kern/processor_glue.c`, the
+`thread_glue_pset_sched_load` shim in `kern/sched_prim.c`, and
+`vm/vm_map_glue.c`'s `vm_map_glue_object_*` shims with the
+`vm_submap_object` placeholder are deleted; nothing joined the list since.
 
 `--enable-user32` is out of scope for the Rust half: the build targets
 the i686 and x86_64 configurations the ABI pack gates.  The removed

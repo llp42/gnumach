@@ -13,11 +13,12 @@ use crate::arch::vm_param::PAGE_SIZE;
 use crate::glue::{
     kernel_map, kernel_object, kmem_alloc_pages, kmem_valloc, pmap_map_bd,
     pmap_reference, pmap_remove, printf, projected_buffer_deallocate,
-    vm_object_reference, vm_submap_object,
+    vm_object_reference,
 };
 use crate::vm::error::{Error, error_from_kern_return};
 use crate::vm::types::{Pmap, VmInherit, VmProt};
 use crate::vm::vm_map::{EnterRequest, VmMap, round_page, trunc_page};
+use crate::vm::vm_object::vm_submap_object;
 use core::ffi::{c_int, c_uint, c_void};
 use core::ptr::{self, NonNull, with_exposed_provenance_mut};
 use core::sync::atomic::{AtomicBool, Ordering};

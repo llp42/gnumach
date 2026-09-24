@@ -17,13 +17,6 @@ use crate::glue::{
     memory_object_create_proxy, pmap_create, pmap_destroy, pmap_protect,
     pmap_remove, printf, thread_block, vm_fault_copy, vm_fault_page,
     vm_fault_unwire, vm_map_cache, vm_map_copy_cache, vm_map_entry_cache,
-    vm_map_glue_object_can_coalesce, vm_map_glue_object_can_release,
-    vm_map_glue_object_extend_size, vm_map_glue_object_is_pristine_submap,
-    vm_map_glue_object_is_shadowed, vm_map_glue_object_is_temporary,
-    vm_map_glue_object_lock, vm_map_glue_object_make_shared,
-    vm_map_glue_object_needs_shadow, vm_map_glue_object_pager,
-    vm_map_glue_object_paging_begin, vm_map_glue_object_paging_end,
-    vm_map_glue_object_unlock, vm_map_glue_object_use_shared_copy,
     vm_map_glue_page_activate_if_idle, vm_map_glue_page_clear_busy,
     vm_map_glue_page_is_absent, vm_map_glue_page_is_busy,
     vm_map_glue_page_is_error, vm_map_glue_page_is_fictitious,
@@ -39,7 +32,7 @@ use crate::glue::{
     vm_object_pmap_remove, vm_object_reference, vm_object_shadow,
     vm_page_activate, vm_page_free, vm_page_lookup, vm_page_mem_size,
     vm_page_more_fictitious, vm_page_queue_lock, vm_page_replace,
-    vm_page_wait, vm_submap_object,
+    vm_page_wait,
 };
 use crate::ipc::{IpcPort, IpcSpace};
 use crate::kern::list::{List, entry as list_entry};
@@ -56,6 +49,8 @@ use crate::vm::types::{
 use crate::vm::vm_fault;
 use crate::vm::vm_kern::projected_buffer_collect;
 use crate::vm::vm_map_ffi::is_discard_cont;
+use crate::vm::vm_object;
+use crate::vm::vm_object::vm_submap_object;
 use crate::vm::vm_page;
 use crate::vm::vm_resident;
 use core::cell::UnsafeCell;
@@ -917,7 +912,7 @@ impl VmMap {
 
         // SAFETY: the map lock keeps the entry's reference alive, and the
         // caller receives the object locked, as in C.
-        unsafe { vm_map_glue_object_lock(object) };
+        unsafe { (*object).lock.lock() };
 
         LookupAttempt::Found(VmMapLookup {
             object,
@@ -1015,7 +1010,7 @@ impl VmMap {
             if object == unsafe { vm_submap_object }
                 // SAFETY: the object is the placeholder just compared.
                 && unsafe {
-                    vm_map_glue_object_is_pristine_submap(object) != 0
+                    (*object).is_pristine_submap()
                 }
             {
                 // SAFETY: the map is write-locked and the entry is live.
@@ -1054,8 +1049,8 @@ impl VmMap {
         while addr < end_addr {
             // SAFETY: the caller owns the object for the scan.
             unsafe {
-                vm_map_glue_object_lock(object);
-                vm_map_glue_object_paging_begin(object);
+                (*object).lock.lock();
+                vm_object::paging_begin(object);
             }
 
             // SAFETY: the object lock is held, as `vm_page_lookup` requires.
@@ -1067,8 +1062,8 @@ impl VmMap {
             {
                 // SAFETY: the lock and paging reference taken above.
                 unsafe {
-                    vm_map_glue_object_paging_end(object);
-                    vm_map_glue_object_unlock(object);
+                    vm_object::paging_end(object);
+                    (*object).lock.unlock();
                 }
                 return;
             }
@@ -1095,7 +1090,7 @@ impl VmMap {
             // lock; the paging reference pins it while the lock is dropped.
             unsafe {
                 vm_map_glue_page_set_busy(page);
-                vm_map_glue_object_unlock(object);
+                (*object).lock.unlock();
                 vm_map_glue_pmap_enter(
                     self.pmap,
                     addr,
@@ -1103,11 +1098,11 @@ impl VmMap {
                     protection.bits(),
                     0,
                 );
-                vm_map_glue_object_lock(object);
+                (*object).lock.lock();
                 vm_map_glue_page_wakeup_done(page);
                 vm_map_glue_page_activate_if_idle(page);
-                vm_map_glue_object_paging_end(object);
-                vm_map_glue_object_unlock(object);
+                vm_object::paging_end(object);
+                (*object).lock.unlock();
             }
 
             offset = offset.wrapping_add(PAGE_SIZE);
@@ -1397,11 +1392,11 @@ impl VmMapCopy {
                 // SAFETY: the object lock and the page queue serialise the
                 // page state, exactly as in the C.
                 unsafe {
-                    vm_map_glue_object_lock(object);
+                    (*object).lock.lock();
                     vm_map_glue_page_activate_if_idle(m);
                     vm_map_glue_page_wakeup_done(m);
-                    vm_map_glue_object_paging_end(object);
-                    vm_map_glue_object_unlock(object);
+                    vm_object::paging_end(object);
+                    (*object).lock.unlock();
                 }
 
                 // SAFETY: the slot holds a live page the copy owns, replaced
@@ -1463,11 +1458,11 @@ impl VmMapCopy {
                 // SAFETY: the object lock and the page queue serialise the
                 // page state, exactly as in the C.
                 unsafe {
-                    vm_map_glue_object_lock(object);
+                    (*object).lock.lock();
                     vm_map_glue_page_activate_if_idle(page);
                     vm_map_glue_page_wakeup_done(page);
-                    vm_map_glue_object_paging_end(object);
-                    vm_map_glue_object_unlock(object);
+                    vm_object::paging_end(object);
+                    (*object).lock.unlock();
                 }
             }
         }
@@ -2621,13 +2616,13 @@ impl VmMap {
                 // SAFETY: the object is valid and the lock serializes its page
                 // table.
                 unsafe {
-                    vm_map_glue_object_lock(object);
+                    (*object).lock.lock();
                     vm_object_page_remove(
                         object,
                         (*entry.as_ptr()).offset,
                         (*entry.as_ptr()).offset.wrapping_add(size),
                     );
-                    vm_map_glue_object_unlock(object);
+                    (*object).lock.unlock();
                 }
             } else if unsafe { (*entry.as_ptr()).is_shared() } {
                 // SAFETY: as above.
@@ -2643,15 +2638,15 @@ impl VmMap {
                 unsafe { pmap_remove(self.pmap, s, e) };
                 // SAFETY: the object lock guards its counters.
                 unsafe {
-                    vm_map_glue_object_lock(object);
-                    if vm_map_glue_object_can_release(object) != 0 {
+                    (*object).lock.lock();
+                    if (*object).can_release() {
                         vm_object_page_remove(
                             object,
                             (*entry.as_ptr()).offset,
                             (*entry.as_ptr()).offset.wrapping_add(size),
                         );
                     }
-                    vm_map_glue_object_unlock(object);
+                    (*object).lock.unlock();
                 }
             }
         }
@@ -3765,15 +3760,14 @@ impl VmMap {
                         (*old_entry.as_ptr()).object.vm_object = object;
                     }
                 } else {
-                    // SAFETY: the entry and object are live; the shim only
-                    // reads the object's sharing fields.
+                    // SAFETY: the entry and object are live; the object's
+                    // sharing fields are read.
                     let needs_shadow = unsafe {
-                        vm_map_glue_object_needs_shadow(
-                            object,
+                        (*object).needs_shadow(
                             entry_size,
-                            c_int::from((*old_entry.as_ptr()).needs_copy()),
-                            c_int::from((*old_entry.as_ptr()).is_shared()),
-                        ) != 0
+                            (*old_entry.as_ptr()).needs_copy(),
+                            (*old_entry.as_ptr()).is_shared(),
+                        )
                     };
                     if needs_shadow {
                         // SAFETY: the entry is live under the map lock;
@@ -3821,7 +3815,7 @@ impl VmMap {
                 }
 
                 // SAFETY: the object is live and shared by this call.
-                unsafe { vm_map_glue_object_make_shared(object) };
+                unsafe { vm_object::make_shared(object) };
 
                 // SAFETY: the entry cache is initialized and the map is
                 // locked.
@@ -4152,15 +4146,13 @@ impl VmMap {
             if src_destroy
                 && (src_object.is_null()
                     || (unsafe {
-                        // SAFETY: `src_object` is live under the map lock; the
-                        // shim reads its `temporary` bit.
-                        vm_map_glue_object_is_temporary(src_object)
-                    } != 0
-                        && unsafe {
-                            // SAFETY: as above; the shim reads the same
-                            // object's `use_shared_copy` bit.
-                            vm_map_glue_object_use_shared_copy(src_object)
-                        } == 0))
+                        // SAFETY: `src_object` is live under the map lock.
+                        (*src_object).is_temporary()
+                    } && !unsafe {
+                        // SAFETY: as above; the object's shared-copy bit is
+                        // read.
+                        (*src_object).use_shared_copy()
+                    }))
             {
                 // SAFETY: `new_entry` holds the object reference, and the
                 // extra one taken here keeps the object alive until the source
@@ -4244,7 +4236,7 @@ impl VmMap {
                     // SAFETY: `src_object` is live and the entry holds its
                     // reference.
                     unsafe {
-                        vm_map_glue_object_lock(src_object);
+                        (*src_object).lock.lock();
                         vm_object_copy_slowly(
                             src_object,
                             src_offset,
@@ -4660,8 +4652,8 @@ impl VmMap {
                     // SAFETY: the object lock and the paging reference
                     // serialise the page's state; the map is locked.
                     unsafe {
-                        vm_map_glue_object_lock(src_object);
-                        vm_map_glue_object_paging_begin(src_object);
+                        (*src_object).lock.lock();
+                        vm_object::paging_begin(src_object);
                     }
                     // SAFETY: the object lock is held, as `vm_page_lookup`
                     // requires.
@@ -4681,10 +4673,10 @@ impl VmMap {
 
                         if !src_destroy
                             || unsafe {
-                                // SAFETY: `src_object` is live and locked; the
-                                // shim reads its `use_shared_copy` bit.
-                                vm_map_glue_object_use_shared_copy(src_object)
-                            } != 0
+                                // SAFETY: `src_object` is live and locked;
+                                // its shared-copy bit is read.
+                                (*src_object).use_shared_copy()
+                            }
                         {
                             // SAFETY: `m` is live and its object is locked;
                             // the shim masks the page's `page_lock` and the
@@ -4729,10 +4721,8 @@ impl VmMap {
                                     // paging reference; take them again before
                                     // retrying.
                                     unsafe {
-                                        vm_map_glue_object_lock(src_object);
-                                        vm_map_glue_object_paging_begin(
-                                            src_object,
-                                        );
+                                        (*src_object).lock.lock();
+                                        vm_object::paging_begin(src_object);
                                     }
                                 }
                                 VM_FAULT_MEMORY_SHORTAGE => {
@@ -4741,10 +4731,8 @@ impl VmMap {
                                     unsafe { vm_page_wait(None) };
                                     // SAFETY: as above.
                                     unsafe {
-                                        vm_map_glue_object_lock(src_object);
-                                        vm_map_glue_object_paging_begin(
-                                            src_object,
-                                        );
+                                        (*src_object).lock.lock();
+                                        vm_object::paging_begin(src_object);
                                     }
                                 }
                                 VM_FAULT_FICTITIOUS_SHORTAGE => {
@@ -4753,10 +4741,8 @@ impl VmMap {
                                     unsafe { vm_page_more_fictitious() };
                                     // SAFETY: as above.
                                     unsafe {
-                                        vm_map_glue_object_lock(src_object);
-                                        vm_map_glue_object_paging_begin(
-                                            src_object,
-                                        );
+                                        (*src_object).lock.lock();
+                                        vm_object::paging_begin(src_object);
                                     }
                                 }
                                 VM_FAULT_MEMORY_ERROR => {
@@ -4810,12 +4796,12 @@ impl VmMap {
                             // paging reference on `src_object`; free it and
                             // drop both.
                             unsafe {
-                                vm_map_glue_object_lock(src_object);
+                                (*src_object).lock.lock();
                                 (*addr_of_mut!(vm_page_queue_lock)).lock();
                                 vm_page_free(top_page);
                                 (*addr_of_mut!(vm_page_queue_lock)).unlock();
-                                vm_map_glue_object_paging_end(src_object);
-                                vm_map_glue_object_unlock(src_object);
+                                vm_object::paging_end(src_object);
+                                (*src_object).lock.unlock();
                             }
                         }
                     }
@@ -4827,7 +4813,7 @@ impl VmMap {
                         (*pages).npages = (*pages).npages.wrapping_add(1);
                         // SAFETY: the page's object is the one left locked for
                         // it, as the C `m->object` is.
-                        vm_map_glue_object_unlock(vm_map_glue_page_object(m));
+                        (*vm_map_glue_page_object(m)).lock.unlock();
                     }
 
                     src_offset = src_offset.wrapping_add(PAGE_SIZE);
@@ -4895,17 +4881,13 @@ impl VmMap {
                 let src_object = unsafe { vm_map_glue_page_object(m) };
                 // SAFETY: the page belongs to a live object; the lock
                 // serialises its state.
-                unsafe { vm_map_glue_object_lock(src_object) };
+                unsafe { (*src_object).lock.lock() };
 
                 // SAFETY: `src_object` is locked and `m` is live.
                 if src_destroy
-                    && unsafe { vm_map_glue_object_is_temporary(src_object) }
-                        != 0
-                    && unsafe { vm_map_glue_object_is_shadowed(src_object) }
-                        == 0
-                    && unsafe {
-                        vm_map_glue_object_use_shared_copy(src_object)
-                    } == 0
+                    && unsafe { (*src_object).is_temporary() }
+                    && !unsafe { (*src_object).is_shadowed() }
+                    && !unsafe { (*src_object).use_shared_copy() }
                     && unsafe { vm_map_glue_page_is_precious(m) } == 0
                 {
                     let page_vaddr =
@@ -4915,7 +4897,7 @@ impl VmMap {
                     if unsafe { vm_map_glue_page_wire_count(m) } > 0 {
                         // SAFETY: the object lock is dropped for the map
                         // operations the C performs here.
-                        unsafe { vm_map_glue_object_unlock(src_object) };
+                        unsafe { (*src_object).lock.unlock() };
                         if page_vaddr >= unwire_end {
                             // SAFETY: the map is locked and holds the wired
                             // entry.
@@ -4960,7 +4942,7 @@ impl VmMap {
                         }
                         // SAFETY: the page's object is live; relock it as the
                         // C does.
-                        unsafe { vm_map_glue_object_lock(src_object) };
+                        unsafe { (*src_object).lock.lock() };
                     }
 
                     // SAFETY: the page queue and object locks order the page's
@@ -4968,7 +4950,7 @@ impl VmMap {
                     unsafe { vm_map_glue_page_steal(m) };
                 } else {
                     // SAFETY: the object lock was taken above.
-                    unsafe { vm_map_glue_object_unlock(src_object) };
+                    unsafe { (*src_object).lock.unlock() };
                     VmMap::unlock(map);
                     // SAFETY: the copy is a live page-list copy the caller
                     // owns.
@@ -4980,8 +4962,8 @@ impl VmMap {
                 // SAFETY: the page holds a paging reference on the object and
                 // the object lock is held.
                 unsafe {
-                    vm_map_glue_object_paging_end(src_object);
-                    vm_map_glue_object_unlock(src_object);
+                    vm_object::paging_end(src_object);
+                    (*src_object).lock.unlock();
                 }
                 i += 1;
             }
@@ -5136,8 +5118,8 @@ impl VmMap {
                     pmap_pageable(self.pmap, entry_start, entry_end, 1);
 
                     while va < entry_end {
-                        vm_map_glue_object_lock(object);
-                        vm_map_glue_object_paging_begin(object);
+                        (*object).lock.lock();
+                        vm_object::paging_begin(object);
 
                         // SAFETY: the object lock is held; a wired entry's
                         // pages are in the top object, as the C asserts by
@@ -5157,7 +5139,7 @@ impl VmMap {
                         }
 
                         vm_map_glue_page_set_busy(page);
-                        vm_map_glue_object_unlock(object);
+                        (*object).lock.unlock();
 
                         vm_map_glue_pmap_enter(
                             self.pmap,
@@ -5167,10 +5149,10 @@ impl VmMap {
                             1,
                         );
 
-                        vm_map_glue_object_lock(object);
+                        (*object).lock.lock();
                         vm_map_glue_page_wakeup_done(page);
-                        vm_map_glue_object_paging_end(object);
-                        vm_map_glue_object_unlock(object);
+                        vm_object::paging_end(object);
+                        (*object).lock.unlock();
 
                         offset = offset.wrapping_add(PAGE_SIZE);
                         va = va.wrapping_add(PAGE_SIZE);
@@ -5295,7 +5277,7 @@ impl VmMap {
                 unsafe {
                     (*last.as_ptr()).object.vm_object = object;
                     (*last.as_ptr()).offset = 0;
-                    vm_map_glue_object_lock(object);
+                    (*object).lock.lock();
                 }
                 extended = true;
             } else {
@@ -5308,21 +5290,19 @@ impl VmMap {
                 // SAFETY: the object is live; the lock is taken before the
                 // collapse probe.
                 unsafe {
-                    vm_map_glue_object_lock(object);
+                    (*object).lock.lock();
                     vm_object_collapse(object);
                 }
                 // SAFETY: the object lock is held.
-                if unsafe { vm_map_glue_object_can_coalesce(object) } != 0 {
+                if unsafe { (*object).can_coalesce() } {
                     let new_size =
                         prev_offset.wrapping_add(prev_size).wrapping_add(size);
                     // SAFETY: the object is live and locked.
-                    unsafe {
-                        vm_map_glue_object_extend_size(object, new_size)
-                    };
+                    unsafe { (*object).extend_size(new_size) };
                     extended = true;
                 } else {
                     // SAFETY: the object lock was taken above.
-                    unsafe { vm_map_glue_object_unlock(object) };
+                    unsafe { (*object).lock.unlock() };
                 }
             }
         }
@@ -5363,7 +5343,7 @@ impl VmMap {
                 (*e).max_protection = VmProt::ALL;
                 (*e).projected_on = ptr::null_mut();
 
-                vm_map_glue_object_lock(object);
+                (*object).lock.lock();
 
                 if self.first_free == last.as_ptr() {
                     self.first_free = e;
@@ -5469,7 +5449,7 @@ impl VmMap {
                     // call.
                     unsafe {
                         (*addr_of_mut!(vm_page_queue_lock)).unlock();
-                        vm_map_glue_object_unlock(object);
+                        (*object).lock.unlock();
                     }
                     VmMap::unlock(map);
 
@@ -5509,7 +5489,7 @@ impl VmMap {
                     // locks in that order.
                     VmMap::lock(map);
                     unsafe {
-                        vm_map_glue_object_lock(object);
+                        (*object).lock.lock();
                         (*addr_of_mut!(vm_page_queue_lock)).lock();
                     }
                 }
@@ -5521,7 +5501,7 @@ impl VmMap {
             // loop and the C releases them here.
             unsafe {
                 (*addr_of_mut!(vm_page_queue_lock)).unlock();
-                vm_map_glue_object_unlock(object);
+                (*object).lock.unlock();
             }
 
             dst_addr = Some(start.wrapping_add(dst_offset));
@@ -5764,10 +5744,10 @@ impl VmMap {
             let object = unsafe { (*entry.as_ptr()).object.vm_object };
             // SAFETY: as above.
             let shared = unsafe { (*entry.as_ptr()).is_shared() };
-            // SAFETY: a non-null object is live; the shim reads its
-            // `temporary` bit, which stays C until `vm/vm_object.c` moves.
-            let temporary = !object.is_null()
-                && unsafe { vm_map_glue_object_is_temporary(object) } != 0;
+            // SAFETY: a non-null object is live; its `temporary` bit is
+            // read.
+            let temporary =
+                !object.is_null() && unsafe { (*object).is_temporary() };
 
             if !shared && (object.is_null() || temporary) {
                 // SAFETY: `entry` is live and the map is locked.
@@ -6046,12 +6026,10 @@ impl VmMap {
         // SAFETY: the entry's object is alive under the map lock, and the
         // object lock is the C's own discipline around the pager.
         let pager = unsafe {
-            vm_map_glue_object_lock(object);
+            (*object).lock.lock();
             vm_object_pager_create(object);
-            let pager = IpcPort::new(ipc_port_copy_send(
-                vm_map_glue_object_pager(object),
-            ));
-            vm_map_glue_object_unlock(object);
+            let pager = IpcPort::new(ipc_port_copy_send((*object).pager));
+            (*object).lock.unlock();
             pager
         };
 

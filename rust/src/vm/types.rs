@@ -114,9 +114,18 @@ pub struct Pmap {
 /// declaration order the compiler packs: `paging_in_progress` in bits 0 to
 /// 15, then one bit per boolean flag, `used_for_pageout` at bit 16 through
 /// `cached` at bit 28.
+const VM_OBJECT_PAGING_IN_PROGRESS_MASK: u32 = 0xffff;
+const VM_OBJECT_USED_FOR_PAGEOUT_BIT: u32 = 1 << 16;
+const VM_OBJECT_PAGER_CREATED_BIT: u32 = 1 << 17;
 const VM_OBJECT_PAGER_INITIALIZED_BIT: u32 = 1 << 18;
+const VM_OBJECT_PAGER_READY_BIT: u32 = 1 << 19;
+const VM_OBJECT_CAN_PERSIST_BIT: u32 = 1 << 20;
 const VM_OBJECT_INTERNAL_BIT: u32 = 1 << 21;
+const VM_OBJECT_TEMPORARY_BIT: u32 = 1 << 22;
 const VM_OBJECT_ALIVE_BIT: u32 = 1 << 23;
+const VM_OBJECT_USE_SHARED_COPY_BIT: u32 = 1 << 26;
+const VM_OBJECT_SHADOWED_BIT: u32 = 1 << 27;
+const VM_OBJECT_CACHED_BIT: u32 = 1 << 28;
 
 /// `struct vm_object` of <vm/vm_object.h>: the memory object a page belongs
 /// to and an entry maps.
@@ -196,16 +205,205 @@ const _: () = {
 };
 
 impl VmObject {
+    /// The zero image a C `static` of `struct vm_object` began with, before
+    /// `vm_object_bootstrap()` filled the template.
+    pub(crate) const fn zeroed() -> Self {
+        Self {
+            memq: QueueEntry::unlinked(),
+            lock: SimpleLock::new(),
+            size: 0,
+            ref_count: 0,
+            resident_page_count: 0,
+            copy: core::ptr::null_mut(),
+            shadow: core::ptr::null_mut(),
+            shadow_offset: 0,
+            pager: core::ptr::null_mut(),
+            paging_offset: 0,
+            pager_request: core::ptr::null_mut(),
+            pager_name: core::ptr::null_mut(),
+            copy_strategy: 0,
+            absent_count: 0,
+            all_wanted: 0,
+            flags: 0,
+            cached_list: QueueEntry::unlinked(),
+            last_alloc: 0,
+            existence_info: core::ptr::null_mut(),
+        }
+    }
+
+    /// `paging_in_progress`; the C bitfield holds sixteen bits.
+    pub fn paging_in_progress(&self) -> u32 {
+        self.flags & VM_OBJECT_PAGING_IN_PROGRESS_MASK
+    }
+
+    pub fn set_paging_in_progress(&mut self, count: u32) {
+        self.flags = (self.flags & !VM_OBJECT_PAGING_IN_PROGRESS_MASK)
+            | (count & VM_OBJECT_PAGING_IN_PROGRESS_MASK);
+    }
+
+    pub fn is_used_for_pageout(&self) -> bool {
+        self.flag(VM_OBJECT_USED_FOR_PAGEOUT_BIT)
+    }
+
+    pub fn set_used_for_pageout(&mut self, on: bool) {
+        self.set_flag(VM_OBJECT_USED_FOR_PAGEOUT_BIT, on);
+    }
+
+    pub fn is_pager_created(&self) -> bool {
+        self.flag(VM_OBJECT_PAGER_CREATED_BIT)
+    }
+
+    pub fn set_pager_created(&mut self, on: bool) {
+        self.set_flag(VM_OBJECT_PAGER_CREATED_BIT, on);
+    }
+
     pub fn is_pager_initialized(&self) -> bool {
-        self.flags & VM_OBJECT_PAGER_INITIALIZED_BIT != 0
+        self.flag(VM_OBJECT_PAGER_INITIALIZED_BIT)
+    }
+
+    pub fn set_pager_initialized(&mut self, on: bool) {
+        self.set_flag(VM_OBJECT_PAGER_INITIALIZED_BIT, on);
+    }
+
+    pub fn is_pager_ready(&self) -> bool {
+        self.flag(VM_OBJECT_PAGER_READY_BIT)
+    }
+
+    pub fn set_pager_ready(&mut self, on: bool) {
+        self.set_flag(VM_OBJECT_PAGER_READY_BIT, on);
+    }
+
+    pub fn can_persist(&self) -> bool {
+        self.flag(VM_OBJECT_CAN_PERSIST_BIT)
+    }
+
+    pub fn set_can_persist(&mut self, on: bool) {
+        self.set_flag(VM_OBJECT_CAN_PERSIST_BIT, on);
     }
 
     pub fn is_internal(&self) -> bool {
-        self.flags & VM_OBJECT_INTERNAL_BIT != 0
+        self.flag(VM_OBJECT_INTERNAL_BIT)
+    }
+
+    pub fn set_internal(&mut self, on: bool) {
+        self.set_flag(VM_OBJECT_INTERNAL_BIT, on);
+    }
+
+    pub fn is_temporary(&self) -> bool {
+        self.flag(VM_OBJECT_TEMPORARY_BIT)
+    }
+
+    pub fn set_temporary(&mut self, on: bool) {
+        self.set_flag(VM_OBJECT_TEMPORARY_BIT, on);
     }
 
     pub fn is_alive(&self) -> bool {
-        self.flags & VM_OBJECT_ALIVE_BIT != 0
+        self.flag(VM_OBJECT_ALIVE_BIT)
+    }
+
+    pub fn set_alive(&mut self, on: bool) {
+        self.set_flag(VM_OBJECT_ALIVE_BIT, on);
+    }
+
+    pub fn use_shared_copy(&self) -> bool {
+        self.flag(VM_OBJECT_USE_SHARED_COPY_BIT)
+    }
+
+    pub fn set_use_shared_copy(&mut self, on: bool) {
+        self.set_flag(VM_OBJECT_USE_SHARED_COPY_BIT, on);
+    }
+
+    pub fn is_shadowed(&self) -> bool {
+        self.flag(VM_OBJECT_SHADOWED_BIT)
+    }
+
+    pub fn set_shadowed(&mut self, on: bool) {
+        self.set_flag(VM_OBJECT_SHADOWED_BIT, on);
+    }
+
+    pub fn is_cached(&self) -> bool {
+        self.flag(VM_OBJECT_CACHED_BIT)
+    }
+
+    pub fn set_cached(&mut self, on: bool) {
+        self.set_flag(VM_OBJECT_CACHED_BIT, on);
+    }
+
+    /// `all_wanted |= 1 << event`, the first line of the
+    /// `vm_object_wait()`/`vm_object_assert_wait()` macros.
+    pub fn want(&mut self, event: u32) {
+        self.all_wanted |= 1 << event;
+    }
+
+    /// The `all_wanted & (1 << event)` test of `vm_object_wakeup()`.
+    pub fn wants(&self, event: u32) -> bool {
+        self.all_wanted & (1 << event) != 0
+    }
+
+    /// `all_wanted &= ~(1 << event)`, the last line of `vm_object_wakeup()`.
+    pub fn clear_want(&mut self, event: u32) {
+        self.all_wanted &= !(1 << event);
+    }
+
+    /// `vm_object_collectable()` of <vm/vm_object.h>.
+    pub fn is_collectable(&self) -> bool {
+        self.ref_count == 0 && self.resident_page_count == 0
+    }
+
+    /// `vm_map_glue_object_is_pristine_submap()` in C: the submap placeholder
+    /// has never held a page.
+    pub fn is_pristine_submap(&self) -> bool {
+        self.resident_page_count == 0
+            && self.copy.is_null()
+            && self.shadow.is_null()
+            && !self.is_pager_created()
+    }
+
+    /// `vm_map_glue_object_needs_shadow()` in C.
+    pub fn needs_shadow(
+        &self,
+        size: VmSize,
+        needs_copy: bool,
+        is_shared: bool,
+    ) -> bool {
+        needs_copy
+            || self.is_shadowed()
+            || (self.is_temporary() && !is_shared && self.size > size)
+    }
+
+    /// `vm_map_glue_object_can_release()` in C.
+    pub fn can_release(&self) -> bool {
+        !self.is_pager_created()
+            && self.ref_count == 1
+            && self.paging_in_progress() == 0
+    }
+
+    /// `vm_map_glue_object_can_coalesce()` in C.
+    pub fn can_coalesce(&self) -> bool {
+        self.ref_count <= 1
+            && !self.is_pager_created()
+            && self.shadow.is_null()
+            && self.copy.is_null()
+            && self.paging_in_progress() == 0
+    }
+
+    /// `vm_map_glue_object_extend_size()` in C.
+    pub fn extend_size(&mut self, size: VmSize) {
+        if size > self.size {
+            self.size = size;
+        }
+    }
+
+    fn flag(&self, bit: u32) -> bool {
+        self.flags & bit != 0
+    }
+
+    fn set_flag(&mut self, bit: u32, on: bool) {
+        if on {
+            self.flags |= bit;
+        } else {
+            self.flags &= !bit;
+        }
     }
 }
 

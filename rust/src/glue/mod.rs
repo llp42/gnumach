@@ -332,6 +332,10 @@ unsafe extern "C" {
 
     pub fn ipc_port_copy_send(port: *mut c_void) -> *mut c_void;
     pub fn ipc_port_release_send(port: *mut c_void);
+    pub fn ipc_port_make_send(port: *mut c_void) -> *mut c_void;
+
+    pub fn ipc_object_reference(io: *mut c_void) -> c_uint;
+    pub fn ipc_object_release(io: *mut c_void) -> c_uint;
 
     pub fn ipc_port_release_receive(port: *mut c_void);
     pub fn ipc_port_init(port: *mut c_void, space: *mut c_void, name: c_uint);
@@ -427,7 +431,6 @@ unsafe extern "C" {
     pub static mut vm_map_cache: KmemCache;
     pub static mut vm_map_entry_cache: KmemCache;
     pub static mut vm_map_copy_cache: KmemCache;
-    pub static mut vm_submap_object: *mut VmObject;
 
     pub static mut vm_external_cache: KmemCache;
     pub static mut vm_object_small_existence_map_cache: KmemCache;
@@ -497,11 +500,40 @@ unsafe extern "C" {
 
     pub fn memory_manager_default_port(port: *mut c_void) -> c_int;
     pub static mut memory_manager_default: *mut c_void;
+    pub fn memory_manager_default_reference() -> *mut c_void;
+    pub fn memory_object_init(
+        pager: *mut c_void,
+        pager_request: *mut c_void,
+        pager_name: *mut c_void,
+        page_size: VmSize,
+    ) -> c_int;
+    pub fn memory_object_create(
+        memory_object: *mut c_void,
+        pager: *mut c_void,
+        size: VmSize,
+        pager_request: *mut c_void,
+        pager_name: *mut c_void,
+        page_size: VmSize,
+    ) -> c_int;
+    pub fn memory_object_copy(
+        memory_object: *mut c_void,
+        pager_request: *mut c_void,
+        offset: VmOffset,
+        size: VmSize,
+        new_memory_object: *mut c_void,
+    ) -> c_int;
+    pub fn memory_object_terminate(
+        pager: *mut c_void,
+        pager_request: *mut c_void,
+        pager_name: *mut c_void,
+    ) -> c_int;
 
     pub static mut vm_page_active_count: c_int;
     pub static mut vm_page_inactive_count: c_int;
     pub static mut vm_page_fictitious_addr: VmOffset;
     pub static mut vm_stat: VmStatistics;
+    pub static mut vm_object_external_count: c_int;
+    pub fn vm_page_grab_fictitious() -> *mut VmPage;
     pub fn vm_page_insert(
         page: *mut VmPage,
         object: *mut VmObject,
@@ -529,26 +561,6 @@ unsafe extern "C" {
 
     pub fn vm_pageout_resume();
 
-    pub fn vm_map_glue_object_lock(object: *mut VmObject);
-    pub fn vm_map_glue_object_unlock(object: *mut VmObject);
-    pub fn vm_map_glue_object_can_release(object: *mut VmObject) -> c_int;
-    pub fn vm_map_glue_object_is_pristine_submap(
-        object: *mut VmObject,
-    ) -> c_int;
-    pub fn vm_map_glue_object_needs_shadow(
-        object: *mut VmObject,
-        size: VmSize,
-        needs_copy: c_int,
-        is_shared: c_int,
-    ) -> c_int;
-    pub fn vm_map_glue_object_is_temporary(object: *mut VmObject) -> c_int;
-    pub fn vm_map_glue_object_is_shadowed(object: *mut VmObject) -> c_int;
-    pub fn vm_map_glue_object_use_shared_copy(object: *mut VmObject) -> c_int;
-    pub fn vm_map_glue_object_make_shared(object: *mut VmObject);
-    pub fn vm_map_glue_object_paging_begin(object: *mut VmObject);
-    pub fn vm_map_glue_object_paging_end(object: *mut VmObject);
-    pub fn vm_map_glue_object_can_coalesce(object: *mut VmObject) -> c_int;
-    pub fn vm_map_glue_object_extend_size(object: *mut VmObject, size: VmSize);
     pub fn vm_map_glue_page_is_absent(page: *mut VmPage) -> c_int;
     pub fn vm_map_glue_page_is_tabled(page: *mut VmPage) -> c_int;
     pub fn vm_map_glue_page_is_busy(page: *mut VmPage) -> c_int;
@@ -673,6 +685,8 @@ unsafe extern "C" {
         resume: c_int,
         continuation: Option<unsafe extern "C" fn()>,
     ) -> c_int;
+
+    pub fn vm_fault_cleanup(object: *mut VmObject, top_page: *mut VmPage);
 
     pub fn vm_fault_copy(
         src_object: *mut VmObject,

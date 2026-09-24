@@ -9,33 +9,21 @@
  * Shims for the Rust port of vm/vm_map.c, for what cannot cross
  * FFI.
  *
- * The object lock, the page-release probe and the submap-placeholder
- * probe read `struct vm_object`, which stays C until vm/vm_object.c
- * moves; they go then.
- *
  * The page shims (`vm_map_glue_page_*`, `vm_map_glue_pmap_enter`) read
  * `struct vm_page` bitfields and expand PMAP_ENTER/PAGE_WAKEUP_DONE/
  * VM_PAGE_QUEUES_REMOVE and the page-locked `pmap_page_protect` of the
- * page-list copyin, which stay C until vm/vm_page.c moves.
+ * page-list copyin; the map module's C edges still take them.
  *
- * The fork shims read `struct vm_object`'s sharing fields
- * (`shadowed`, `temporary`, `size`, `use_shared_copy`, `ref_count`);
- * they go when vm/vm_object.c moves.  The overwrite's
- * `vm_map_glue_object_is_temporary` reads the same `temporary` bit, the
- * page-list copyin's `vm_map_glue_object_is_shadowed` the same
- * `shadowed` bit, and the page-list copyout's
- * `vm_map_glue_object_can_coalesce` /
- * `vm_map_glue_object_extend_size` read and write the same structure;
- * they go with them.
+ * The region shims read `struct task`'s `map` and `itk_space` fields;
+ * they die with kern/task.c.
  *
- * The region shims read `struct task`'s `map` and `itk_space` fields
- * and `struct vm_object`'s `pager`; the task pair dies with
- * kern/task.c, the pager one with vm/vm_object.c.
+ * The object shims and the `vm_submap_object` placeholder that used to
+ * live here went with vm/vm_object.c; the object fields and the
+ * placeholder are Rust now.
  *
- * The three caches of the map module and the `vm_submap_object`
- * placeholder are storage rather than shims: they stay here because
- * `struct kmem_cache` and `struct vm_object` are still C.  They move
- * to Rust with kern/slab.c and vm/vm_object.c.
+ * The three caches of the map module are storage rather than shims: the
+ * `struct kmem_cache` mirror exists, so a follow-up moves the definitions
+ * to Rust statics and deletes them from here.
  */
 
 #include <kern/slab.h>
@@ -45,18 +33,6 @@
 #include <vm/vm_object.h>
 #include <vm/vm_page.h>
 
-boolean_t vm_map_glue_object_is_pristine_submap(vm_object_t object);
-boolean_t vm_map_glue_object_needs_shadow(
-	vm_object_t object,
-	vm_size_t size,
-	boolean_t needs_copy,
-	boolean_t is_shared);
-boolean_t vm_map_glue_object_is_temporary(vm_object_t object);
-boolean_t vm_map_glue_object_is_shadowed(vm_object_t object);
-boolean_t vm_map_glue_object_use_shared_copy(vm_object_t object);
-void vm_map_glue_object_make_shared(vm_object_t object);
-void vm_map_glue_object_paging_begin(vm_object_t object);
-void vm_map_glue_object_paging_end(vm_object_t object);
 boolean_t vm_map_glue_page_is_absent(vm_page_t page);
 boolean_t vm_map_glue_page_is_tabled(vm_page_t page);
 boolean_t vm_map_glue_page_is_busy(vm_page_t page);
@@ -73,135 +49,22 @@ void vm_map_glue_page_wakeup_done(vm_page_t page);
 void vm_map_glue_page_activate_if_idle(vm_page_t page);
 int vm_map_glue_page_wire_count(vm_page_t page);
 vm_offset_t vm_map_glue_page_offset(vm_page_t page);
-boolean_t vm_map_glue_object_can_coalesce(vm_object_t object);
-void vm_map_glue_object_extend_size(vm_object_t object, vm_size_t size);
 void vm_map_glue_pmap_enter(
 	pmap_t pmap,
 	vm_offset_t addr,
 	vm_page_t page,
 	vm_prot_t protection,
 	boolean_t wired);
-void vm_map_glue_object_lock(vm_object_t object);
-void vm_map_glue_object_unlock(vm_object_t object);
-boolean_t vm_map_glue_object_can_release(vm_object_t object);
-ipc_port_t vm_map_glue_object_pager(vm_object_t object);
 struct vm_map *vm_map_glue_task_map(struct task *task);
 ipc_space_t vm_map_glue_task_space(struct task *task);
 
 /*
- * The map module's slab caches, and its submap placeholder.  The
- * caches go when kern/slab.c moves, the placeholder with
- * vm/vm_object.c.
+ * The map module's slab caches.
  */
 
 struct kmem_cache    vm_map_cache;		/* cache for vm_map structures */
 struct kmem_cache    vm_map_entry_cache;	/* cache for vm_map_entry structures */
 struct kmem_cache    vm_map_copy_cache; 	/* cache for vm_map_copy structures */
-
-/*
- *	Placeholder object for submap operations.  This object is dropped
- *	into the range by a call to vm_map_find, and removed when
- *	vm_map_submap creates the submap.
- */
-
-static struct vm_object	vm_submap_object_store;
-vm_object_t		vm_submap_object = &vm_submap_object_store;
-
-void
-vm_map_glue_object_lock(vm_object_t object)
-{
-	simple_lock(&object->Lock);
-}
-
-void
-vm_map_glue_object_unlock(vm_object_t object)
-{
-	simple_unlock(&object->Lock);
-}
-
-boolean_t
-vm_map_glue_object_can_release(vm_object_t object)
-{
-	return !object->pager_created &&
-	       object->ref_count == 1 &&
-	       object->paging_in_progress == 0;
-}
-
-boolean_t
-vm_map_glue_object_is_pristine_submap(vm_object_t object)
-{
-	return object->resident_page_count == 0 &&
-	       object->copy == VM_OBJECT_NULL &&
-	       object->shadow == VM_OBJECT_NULL &&
-	       !object->pager_created;
-}
-
-boolean_t
-vm_map_glue_object_needs_shadow(
-	vm_object_t object,
-	vm_size_t size,
-	boolean_t needs_copy,
-	boolean_t is_shared)
-{
-	return needs_copy || object->shadowed ||
-	       (object->temporary && !is_shared && object->size > size);
-}
-
-boolean_t
-vm_map_glue_object_is_temporary(vm_object_t object)
-{
-	return object->temporary;
-}
-
-boolean_t
-vm_map_glue_object_is_shadowed(vm_object_t object)
-{
-	return object->shadowed;
-}
-
-boolean_t
-vm_map_glue_object_use_shared_copy(vm_object_t object)
-{
-	return object->use_shared_copy;
-}
-
-boolean_t
-vm_map_glue_object_can_coalesce(vm_object_t object)
-{
-	return object->ref_count <= 1 &&
-	       !object->pager_created &&
-	       object->shadow == VM_OBJECT_NULL &&
-	       object->copy == VM_OBJECT_NULL &&
-	       object->paging_in_progress == 0;
-}
-
-void
-vm_map_glue_object_extend_size(vm_object_t object, vm_size_t size)
-{
-	if (size > object->size)
-		object->size = size;
-}
-
-void
-vm_map_glue_object_make_shared(vm_object_t object)
-{
-	simple_lock(&object->Lock);
-	object->use_shared_copy = TRUE;
-	object->ref_count++;
-	simple_unlock(&object->Lock);
-}
-
-void
-vm_map_glue_object_paging_begin(vm_object_t object)
-{
-	vm_object_paging_begin(object);
-}
-
-void
-vm_map_glue_object_paging_end(vm_object_t object)
-{
-	vm_object_paging_end(object);
-}
 
 boolean_t
 vm_map_glue_page_is_absent(vm_page_t page)
@@ -320,12 +183,6 @@ vm_map_glue_pmap_enter(
 	boolean_t wired)
 {
 	PMAP_ENTER(pmap, addr, page, protection, wired);
-}
-
-ipc_port_t
-vm_map_glue_object_pager(vm_object_t object)
-{
-	return object->pager;
 }
 
 struct vm_map *
