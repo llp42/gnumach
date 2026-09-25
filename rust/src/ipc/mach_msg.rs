@@ -546,7 +546,7 @@ pub(crate) unsafe fn interrupt(thread: *mut Thread) -> bool {
     // SAFETY: the thread is live and not runnable, so storing its syscall
     // return and its resume point is safe.
     unsafe {
-        glue::thread_set_syscall_return(
+        crate::arch::i386::pcb_ffi::thread_set_syscall_return(
             thread,
             MsgReturn::RCV_INTERRUPTED.raw(),
         );

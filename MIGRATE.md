@@ -137,7 +137,6 @@ file, or `—` when the rest is ready too.
 |---|---:|---:|---|
 | `i386/db_interface.c` | 103 | 0 | `struct pcb` fields |
 | `i386/debug_i386.c` | 178 | 0 | `i386_saved_state` fields |
-| `i386/fpu.c` | 830 | 0 | `struct pcb` and FPU save-area fields |
 | `i386/gdt.c` | 141 | 0 | static `gdt_fill`, `reload_segs` |
 | `i386/hardclock.c` | 69 | 0 | `machine_slot` and interrupt plumbing |
 | `i386/idt.c` | 80 | 0 | static `idt_fill` |
@@ -146,7 +145,6 @@ file, or `—` when the rest is ready too.
 | `i386/ldt.c` | 100 | 0 | static `ldt_fill` |
 | `i386/machine_task.c` | 70 | 0 | `task.machine` fields |
 | `i386/mp_desc.c` | 296 | 0 | `int_stack_base`/`int_stack_top` are NCPUS-sized |
-| `i386/pcb.c` | 882 | 0 | `struct pcb`/`i386_saved_state` fields |
 | `i386/percpu.c` | 31 | 0 | `struct percpu.self` field |
 | `i386/phys.c` | 164 | 0 | mapped-window internals for `pmap_copy_page` etc. |
 | `i386/pic.c` | 270 | 0 | not compiled in the APIC configuration |
@@ -243,8 +241,9 @@ kernels, so the eviction path bumps `current_task()->reactivations` as
 the C did.
 
 **Gated decisions.**
-`i386/i386/pcb.c:857 user_stack_low` needs the `--enable-user32`
-`--cfg`, because `VM_MAX_USER_ADDRESS` takes a third value there.
+`i386/i386/pcb.c`'s whole-file port carried `user_stack_low` with it for
+the two gate configurations; the `--enable-user32` third value of
+`VM_MAX_USER_ADDRESS` remains out of scope for the Rust half.
 `pmap_make_temporary_mapping` and `pmap_remove_temporary_mapping` moved
 with the whole-file `pmap.c` port for the non-PAE i386 and PAE x86_64
 builds; a PAE i386 build would still need a `--cfg` plumbed through
@@ -323,9 +322,10 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
   `#if (__i386__ && !(__i486__ || __i586__ || __i686__))`, compiled out
   on every supported CPU.  Delete, do not port.
 * `#if 0` blocks in `kern/{boot_script,bootstrap,exception,ipc_kobject}.c`,
-  `device/intr.c`, `i386/i386/{fpu,smp,pcb,trap}.c`,
+  `device/intr.c`, `i386/i386/{smp,trap}.c`,
   `i386/i386at/{kd,com}.c`.  Delete before porting the surrounding code.
-  `kern/ipc_tt.c`'s four `#if 0` `retrieve_*` bodies went with the file.
+  `kern/ipc_tt.c`'s four `#if 0` `retrieve_*` bodies went with the file,
+  and `i386/i386/{fpu,pcb}.c`'s went with their whole-file ports.
 * Dead `#else /* MACH_HOST */` halves of `kern/machine.c:309`;
   `MACH_HOST` is 1 in both configured builds.  The `kern/task.c` and
   `kern/thread.c` halves went with their files.
@@ -434,6 +434,8 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `ipc/mach_msg.c` whole, with the `mach_msg_continue`/`mach_msg_receive_continue` continuations whose addresses `kern/thread.c` and `kern/exception.c` compare | `src/ipc/mach_msg.rs`, `mach_msg_ffi.rs` | pending |
 | `ipc/mach_debug.c` whole, `host_ipc_marequest_info` included | `src/ipc/mach_debug.rs`, `mach_debug_ffi.rs` | pending |
 | `device/ds_routines.c` whole, with the `struct io_req`, `struct device`, `struct mach_device`, `struct dev_ops` and `struct device_emulation_ops` mirrors it owned, and its `device_io_map`, `io_inband_cache`, `io_trap_cache`, `io_done_list` and `mach_device_emulation_ops` globals | `src/device/ds_routines.rs`, `ds_routines_ffi.rs`, `src/arch/i386/io_req.rs` | pending |
+| `i386/i386/fpu.c` whole, with the `fp_kind`, `fp_save_kind`, `fp_xsave_support`, `fp_xsave_size`, `fp_default_state`, `ifps_cache` and `mxcsr_feature_mask` globals it owned and the `I386FpSave`, `I386FpRegs`, `I386XfpSave` and save-state mirrors its bodies read | `src/arch/i386/fpu.rs`, `fpu_ffi.rs` | pending |
+| `i386/i386/pcb.c` whole, with the `pcb_cache` and `kernel_stack` globals it owned and the `Pcb`, `I386SavedState`, `I386InterruptState`, `I386MachineState`, `TaskTss`, `UserLdt` and thread-status mirrors its bodies read | `src/arch/i386/pcb.rs`, `pcb_ffi.rs` | pending |
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `i386/i386at/kd_glue.c`
@@ -463,10 +465,12 @@ The `i386/intel/pmap.c` port declared the C routines it still calls
 `rust/src/glue/`, which writes no C and is not debt.  The
 `i386/i386at/biosmem.c` port moved `biosmem_directmap_end` out of that
 list and into `src/arch/i386/biosmem.rs`.  The `kern/thread.c` port
-declared the C routines it still calls (`pcb_init`, `pcb_terminate`,
-`ipc_thread_init`, `mach_port_deallocate`, `mach_port_destroy` and the
-three `mach_msg_*` entries) in the same block, which is not debt either;
-the `mach_msg_*` declarations came out when `ipc/mach_msg.c` moved.  The
+declared the C routines it still calls (`ipc_thread_init`,
+`mach_port_deallocate`, `mach_port_destroy` and the three `mach_msg_*`
+entries) in the same block, which is not debt either; the
+`mach_msg_*` declarations came out when `ipc/mach_msg.c` moved, and the
+`pcb_init`/`pcb_terminate` and `fp_load`/`ifps_cache`/`fpintr`
+declarations when `i386/i386/pcb.c` and `i386/i386/fpu.c` moved.  The
 `ipc/ipc_mqueue.c` port declared `ipc_kobject_server`, and the
 `ipc/ipc_marequest.c` port declared `ipc_notify_msg_accepted`, in that
 same block; declaring C symbols that already exist writes no C, and the

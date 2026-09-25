@@ -24,7 +24,6 @@ libkernel_a_SOURCES += \
 	i386/i386/debug.h \
 	i386/i386/debug_i386.c \
 	i386/i386/eflags.h \
-	i386/i386/fpu.c \
 	i386/i386/fpu.h \
 	i386/i386/gdt.c \
 	i386/i386/gdt.h \
@@ -46,7 +45,6 @@ libkernel_a_SOURCES += \
 	i386/i386/model_dep.h \
 	i386/i386/mp_desc.c \
 	i386/i386/mp_desc.h \
-	i386/i386/pcb.c \
 	i386/i386/pcb.h \
 	i386/i386/phys.c \
 	i386/i386/pio.h \

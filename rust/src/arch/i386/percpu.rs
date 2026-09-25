@@ -97,6 +97,26 @@ pub fn current_stack() -> VmOffset {
     stack
 }
 
+/// `percpu_assign(active_thread, thread)` of <i386/percpu.h>: make `thread`
+/// the running thread of the current CPU.
+///
+/// # Safety
+///
+/// The caller must be the context switcher for this CPU: it is about to
+/// resume `thread`, and no other CPU may run it.
+pub unsafe fn set_active_thread(thread: *mut Thread) {
+    // SAFETY: `%gs` is based at the running CPU's block from the first
+    // context switch on, and `thread` becomes the thread that block names.
+    unsafe {
+        asm!(
+            "mov gs:[{off}], {src}",
+            src = in(reg) thread,
+            off = const offset_of!(Percpu, active_thread),
+            options(nostack, preserves_flags),
+        );
+    }
+}
+
 // `percpu_array` in <i386/percpu.h>: one block per CPU.
 #[expect(improper_ctypes)]
 unsafe extern "C" {

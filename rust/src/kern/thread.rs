@@ -9,6 +9,7 @@
 //! `kern/thread.h` declares, and the `struct thread` mirror.
 
 use crate::arch::i386::ast_check::cause_ast_check;
+use crate::arch::i386::pcb::Pcb;
 use crate::arch::i386::percpu::{
     cpu_number, current_stack, current_thread, percpu_at,
 };
@@ -238,7 +239,7 @@ pub struct Thread {
     pub lock: SimpleLock,
     pub ref_count: c_int,
     /// `pcb`: the machine-dependent process control block.
-    pub pcb: *mut c_void,
+    pub pcb: *mut Pcb,
     /// `kernel_stack`: accurate only when the thread is not swapped.
     pub kernel_stack: VmOffset,
     /// `stack_privilege`: the reserved kernel stack.
@@ -378,7 +379,7 @@ impl Thread {
             (*stack_lock).init();
             let usage_lock = &raw mut STACK_USAGE_LOCK;
             (*usage_lock).init();
-            glue::pcb_module_init();
+            crate::arch::i386::pcb::pcb_module_init();
         }
     }
 
@@ -740,7 +741,7 @@ impl Thread {
             // SAFETY: the caller promises the state buffers, and `thread` is
             // the current thread.
             let code = unsafe {
-                glue::thread_getstatus(
+                crate::arch::i386::pcb_ffi::thread_getstatus(
                     thread,
                     flavor,
                     old_state,
@@ -763,7 +764,12 @@ impl Thread {
 
         // SAFETY: as above; `thread` is live and held.
         let code = unsafe {
-            glue::thread_getstatus(thread, flavor, old_state, old_state_count)
+            crate::arch::i386::pcb_ffi::thread_getstatus(
+                thread,
+                flavor,
+                old_state,
+                old_state_count,
+            )
         };
 
         // SAFETY: as above; `thread` is the one just held.
@@ -790,7 +796,7 @@ impl Thread {
             // SAFETY: the caller promises the state buffer, and `thread` is
             // the current thread.
             let code = unsafe {
-                glue::thread_setstatus(
+                crate::arch::i386::pcb_ffi::thread_setstatus(
                     thread,
                     flavor,
                     new_state,
@@ -813,7 +819,12 @@ impl Thread {
 
         // SAFETY: as above; `thread` is live and held.
         let code = unsafe {
-            glue::thread_setstatus(thread, flavor, new_state, new_state_count)
+            crate::arch::i386::pcb_ffi::thread_setstatus(
+                thread,
+                flavor,
+                new_state,
+                new_state_count,
+            )
         };
 
         // SAFETY: as above; `thread` is the one just held.
@@ -1109,7 +1120,13 @@ impl Thread {
         // SAFETY: `stack` is a whole cache object, or this thread's private
         // one, and the C `stack_attach()` writes only this thread's fields and
         // the stack's first frame.
-        unsafe { glue::stack_attach(ptr::from_mut(self), stack, resume) };
+        unsafe {
+            crate::arch::i386::pcb::stack_attach(
+                ptr::from_mut(self),
+                stack,
+                resume,
+            )
+        };
 
         true
     }
@@ -1151,7 +1168,13 @@ impl Thread {
         };
 
         // SAFETY: as in `stack_alloc_try()`.
-        unsafe { glue::stack_attach(ptr::from_mut(self), stack, resume) };
+        unsafe {
+            crate::arch::i386::pcb::stack_attach(
+                ptr::from_mut(self),
+                stack,
+                resume,
+            )
+        };
     }
 
     /// `stack_free()` of kern/thread.c.
@@ -1165,7 +1188,7 @@ impl Thread {
         // SAFETY: the caller promises an attached stack, and `stack_detach()`
         // takes it off this thread and returns it.
         let stack = unsafe {
-            crate::arch::i386::pcb::stack_detach(ptr::from_mut(self))
+            crate::arch::i386::pcb_ffi::stack_detach(ptr::from_mut(self))
         };
 
         if stack != privilege {
@@ -1603,7 +1626,7 @@ impl Thread {
             (*new_thread).lock.init();
             (*new_thread).sched_stamp = glue::sched_tick;
             thread_timeout_setup(new_thread);
-            glue::pcb_init(parent_task, new_thread);
+            crate::arch::i386::pcb::pcb_init(parent_task, new_thread);
             ipc_thread_init(new_thread);
         }
 
@@ -1840,7 +1863,7 @@ impl Thread {
         // SAFETY: the thread is dead; the event count takes its own lock.
         unsafe { glue::evc_notify_abort(thread) };
         // SAFETY: as above; `pcb_terminate()` releases the machine state.
-        unsafe { glue::pcb_terminate(thread) };
+        unsafe { crate::arch::i386::pcb::pcb_terminate(thread) };
 
         // SAFETY: the thread came from `THREAD_CACHE`, and the entry check
         // makes its pointer non-null, so the free is sound.
@@ -2752,7 +2775,7 @@ impl Thread {
                         (*pset).lock.unlock();
                         (*all_psets_lock).unlock();
 
-                        crate::arch::i386::pcb::pcb_collect(thread);
+                        crate::arch::i386::pcb_ffi::pcb_collect(thread);
 
                         if !prev_thread.is_null() {
                             Thread::deallocate(prev_thread);
