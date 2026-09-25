@@ -8,6 +8,7 @@
 
 use crate::arch::i386::{apic, pit};
 use crate::glue;
+use crate::kern::machine;
 use crate::kern::smp as kern_smp;
 use core::arch::asm;
 use core::ffi::{c_int, c_uint, c_ulong};
@@ -68,11 +69,10 @@ fn data_init() {
     let numcpus = apic::apic_get_numcpus();
     kern_smp::smp_set_numcpus(numcpus);
 
-    let slots = &raw mut glue::machine_slot;
     for i in 0..usize::from(numcpus) {
         // SAFETY: `machine_slot` has `NCPUS` entries and the APIC probe never
         // reports more.
-        unsafe { (*slots)[i].is_cpu = 1 };
+        unsafe { (*machine::slot(i)).is_cpu = 1 };
     }
 }
 

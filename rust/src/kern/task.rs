@@ -26,7 +26,7 @@ use crate::kern::ipc_tt::{
 };
 use crate::kern::lock::SimpleLock;
 use crate::kern::mach_clock::{self, read_time_stamp};
-use crate::kern::processor::{ProcessorSet, pset_deallocate, pset_reference};
+use crate::kern::processor::{self, ProcessorSet};
 use crate::kern::queue::{
     QueueEntry, queue_empty, queue_end, queue_enter_tail, queue_first,
     queue_init, queue_next, queue_remove_generic,
@@ -633,20 +633,19 @@ pub(crate) unsafe fn create_kernel_task(
             pset = if (*parent_pset).active != 0 {
                 parent_pset
             } else {
-                // `default_pset` is the C global live for the life of the
-                // kernel.
-                addr_of_mut!(glue::default_pset).cast::<ProcessorSet>()
+                // `default_pset` is live for the life of the kernel.
+                processor::default_pset()
             };
-            pset_reference(pset);
+            (*pset).reference();
             addr_of_mut!((*task).priority).write((*parent).priority);
             addr_of_mut!((*task).max_priority).write((*parent).max_priority);
             (*parent).lock.unlock();
         }
     } else {
-        // `default_pset` is the C global live for the life of the kernel.
-        pset = addr_of_mut!(glue::default_pset).cast::<ProcessorSet>();
+        // `default_pset` is live for the life of the kernel.
+        pset = processor::default_pset();
         // SAFETY: `default_pset` is the live default set.
-        unsafe { pset_reference(pset) };
+        unsafe { (*pset).reference() };
         // SAFETY: the new task is unshared; the C raised the priority to the
         // set's own when that is higher than `BASEPRI_USER`.
         unsafe {
@@ -663,7 +662,7 @@ pub(crate) unsafe fn create_kernel_task(
     // queue insert.
     unsafe {
         (*pset).lock.lock();
-        glue::pset_add_task(pset, task);
+        (*pset).add_task(task);
         (*pset).lock.unlock();
 
         addr_of_mut!((*task).flags).write(TASK_ACTIVE | TASK_MAY_ASSIGN);
@@ -748,12 +747,12 @@ pub(crate) unsafe fn deallocate(task: *mut Task) {
     // SAFETY: the set is live; its lock serializes the removal.
     unsafe {
         (*pset).lock.lock();
-        glue::pset_remove_task(pset, task);
+        (*pset).remove_task(task);
         (*pset).lock.unlock();
     }
     // SAFETY: the set is live and the reference taken at creation moves
     // here.
-    unsafe { pset_deallocate(pset) };
+    unsafe { (*pset).deallocate() };
 
     // SAFETY: the task's map and IPC space are live, and each holds one of
     // the task's own references.
@@ -1504,18 +1503,17 @@ pub(crate) unsafe fn assign(
             if (*new_pset).active == 0 {
                 (*pset).lock.unlock();
                 (*new_pset).lock.unlock();
-                new_pset =
-                    addr_of_mut!(glue::default_pset).cast::<ProcessorSet>();
+                new_pset = processor::default_pset();
                 continue;
             }
 
-            pset_reference(new_pset);
+            (*new_pset).reference();
             break;
         }
 
         (*task).lock.lock();
-        glue::pset_remove_task(pset, task);
-        glue::pset_add_task(new_pset, task);
+        (*pset).remove_task(task);
+        (*new_pset).add_task(task);
         (*pset).lock.unlock();
         (*new_pset).lock.unlock();
     }
@@ -1535,7 +1533,7 @@ pub(crate) unsafe fn assign(
             (*task).lock.unlock();
         }
         // SAFETY: the set is live and referenced.
-        unsafe { pset_deallocate(pset) };
+        unsafe { (*pset).deallocate() };
         return Ok(());
     }
 
@@ -1600,7 +1598,7 @@ pub(crate) unsafe fn assign(
     };
 
     // SAFETY: the set is live and referenced.
-    unsafe { pset_deallocate(pset) };
+    unsafe { (*pset).deallocate() };
     result
 }
 
@@ -1623,7 +1621,7 @@ pub(crate) unsafe fn get_assignment(
             return Err(KernError::Failure);
         }
         let pset = (*task).processor_set;
-        pset_reference(pset);
+        (*pset).reference();
         Ok(pset)
     }
 }
@@ -1725,11 +1723,11 @@ unsafe fn collect_scan() {
     let mut prev_task: *mut Task = null_mut();
     let mut prev_pset: *mut ProcessorSet = null_mut();
 
-    // SAFETY: `all_psets` and its lock are the C globals; the walk keeps a
+    // SAFETY: `all_psets` and its lock guard the global list; the walk keeps a
     // reference on both the set and the task between iterations.
     unsafe {
-        let all_psets = addr_of_mut!(glue::all_psets);
-        let all_psets_lock = addr_of_mut!(glue::all_psets_lock);
+        let all_psets = processor::all_psets();
+        let all_psets_lock = processor::all_psets_lock();
 
         (*all_psets_lock).lock();
         let mut pset_entry = queue_first(all_psets);
@@ -1742,7 +1740,7 @@ unsafe fn collect_scan() {
             while queue_end(tasks, task_entry) == 0 {
                 let task = task_entry.cast::<Task>();
                 reference(task);
-                pset_reference(pset);
+                (*pset).reference();
                 (*pset).lock.unlock();
                 (*all_psets_lock).unlock();
 
@@ -1755,7 +1753,7 @@ unsafe fn collect_scan() {
                 prev_task = task;
 
                 if !prev_pset.is_null() {
-                    pset_deallocate(prev_pset);
+                    (*prev_pset).deallocate();
                 }
                 prev_pset = pset;
 
@@ -1772,7 +1770,7 @@ unsafe fn collect_scan() {
             deallocate(prev_task);
         }
         if !prev_pset.is_null() {
-            pset_deallocate(prev_pset);
+            (*prev_pset).deallocate();
         }
     }
 }

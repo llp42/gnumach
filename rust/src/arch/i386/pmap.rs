@@ -770,6 +770,18 @@ pub unsafe fn deactivate_user(pmap: *mut Pmap, cpu: c_int) {
     }
 }
 
+/// The `PMAP_DEACTIVATE_KERNEL()` of <i386/intel/pmap.h>: remove `cpu` from
+/// the kernel map's active set.
+///
+/// # Safety
+///
+/// `cpu` must be the calling CPU.
+pub(crate) unsafe fn deactivate_kernel(cpu: c_int) {
+    // SAFETY: the kernel map is live from `pmap_bootstrap()`, and the C macro
+    // cleared the bit without the lock.
+    unsafe { (*kernel_pmap_ptr()).cpus_using.clear(cpu) };
+}
+
 /// The `SPLVM()` of i386/intel/pmap.c, minus the assignment the macro makes.
 fn raise_splvm() -> c_int {
     // SAFETY: `splvm` is the real routine <i386/spl.h> declares.

@@ -109,6 +109,8 @@ MACH_RS_SRCS = \
 	rust/src/kern/bootstrap_ffi.rs \
 	rust/src/kern/debug.rs \
 	rust/src/kern/elf_load.rs \
+	rust/src/kern/eventcount.rs \
+	rust/src/kern/eventcount_ffi.rs \
 	rust/src/kern/exception.rs \
 	rust/src/kern/exception_ffi.rs \
 	rust/src/kern/gsync.rs \
@@ -128,10 +130,12 @@ MACH_RS_SRCS = \
 	rust/src/kern/mach_clock.rs \
 	rust/src/kern/mach_clock_ffi.rs \
 	rust/src/kern/machine.rs \
+	rust/src/kern/machine_ffi.rs \
 	rust/src/kern/mod.rs \
 	rust/src/kern/policy.rs \
 	rust/src/kern/printf.rs \
 	rust/src/kern/processor.rs \
+	rust/src/kern/processor_ffi.rs \
 	rust/src/kern/processor_info.rs \
 	rust/src/kern/queue.rs \
 	rust/src/kern/rbtree.rs \

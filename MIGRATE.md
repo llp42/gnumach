@@ -75,14 +75,11 @@ file, or `—` when the rest is ready too.
 |---|---:|---:|---:|---|
 | `ast.c` | 215 | 3 | 0 | `ast_taken`/`ast_check` need `net_ast()` and the run-queue walk |
 | `debug.c` | 121 | 3 | 0 | C variadics (`log`) |
-| `eventcount.c` | 305 | 4 | 0 | `struct eventcounter` has no mirror |
 | `ipc_kobject.c` | 362 | 4 | 0 | `ipc_port` fields |
 | `ipc_sched.c` | 163 | 4 | 0 | — |
 | `mach_factor.c` | 150 | 2 | 0 | `mach_factor[]`/`load_average[]` are NCPUS-sized |
-| `machine.c` | 630 | 4 | 0 | `machine_info` and NCPUS loops |
 | `printf.c` | 592 | 5 | 0 | C-variadic definitions; blocked (see §8) |
 | `priority.c` | 196 | 4 | 0 | pset tail and `struct slock_irq` |
-| `processor.c` | 465 | 4 | 0 | `processor_set_things`'s allocation and port conversions |
 | `startup.c` | 290 | 5 | 0 | `machine_info`, NCPUS loops, boot |
 | `syscall_emulation.c` | 446 | 4 | 0 | `struct eml_dispatch` and task fields |
 | `syscall_subr.c` | 251 | 4 | 0 | static continuations (`swtch_continue`, ...) |
@@ -293,10 +290,11 @@ classes.  A derivation is a snapshot of one afternoon's tree.
   `struct pmap` followed with the whole-file `pmap.c` port.  The
   `hash_info_bucket_t` mirror landed with `ipc_marequest.c`.
 
-* **Phase C — the coupled files.**  `eventcount`, `priority`,
-  `ipc_tt`, `ipc_host`, `host`, `processor`, `machine` once
-  their struct stories exist; then the anchors (`sched_prim`,
-  `exception`, `startup`, `bootstrap`, `trap`, `pcb`, `ipc_kmsg`).
+* **Phase C — the coupled files.**  `priority`, `ipc_tt`, `ipc_host`
+  and `host` once their struct stories exist, then the anchors
+  (`exception`, `startup`, `bootstrap`, `trap`, `pcb`, `ipc_kmsg`).
+  `eventcount`, `processor`, `machine` and the whole of `sched_prim`
+  and `timer` are done.
 
 Exit criterion for every step: both qemu architectures green, `rustfmt`
 and clippy clean, no new undefined symbols, and no new C.
@@ -316,8 +314,9 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
   The `#if 0` bodies of `kern/{boot_script,bootstrap}.c`,
   `i386/i386at/com.c`, `kern/ipc_tt.c` (four `retrieve_*` bodies) and
   `i386/i386/{fpu,pcb,smp,trap}.c` went with their whole-file ports.
-* Dead `#else /* MACH_HOST */` halves of `kern/machine.c:309`;
-  `MACH_HOST` is 1 in both configured builds.  The `kern/task.c` and
+* Dead `#else /* MACH_HOST */` halves of `kern/machine.c` and
+  `kern/processor.c`; `MACH_HOST` is 1 in both configured builds, so only
+  the live halves were translated.  The `kern/task.c` and
   `kern/thread.c` halves went with their files.
 * Macro-shadowed definitions: `i386/intel/pmap.c`'s `pmap_copy` and
   `pmap_kernel` were unreachable behind `i386/intel/pmap.h`'s macros and
@@ -441,6 +440,9 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `i386/i386/io_perm.c` whole, with the `IoPerm` mirror, the `taken_pci_cfg` static, the `device_emulation_ops` instance and the `no_senders()` handler it owned | `src/arch/i386/io_perm.rs`, `src/arch/i386/io_perm_ffi.rs` | pending |
 | `i386/i386/smp.c` whole, with the static `smp_send_ipi()` and the `smp_data_init()`, `wait_for_ipi()`, `smp_send_ipi_init()` and `smp_send_ipi_startup_twice()` helpers it owned | `src/arch/i386/smp.rs`, `src/arch/i386/smp_ffi.rs` | pending |
 | `i386/i386/trap.c` whole, with the `trap_type[]` table, the `user_page_fault_continue()` continuation and the `struct recovery` mirror its two table walks read | `src/arch/i386/trap.rs`, `src/arch/i386/trap_ffi.rs` | pending |
+| `kern/processor.c` whole, with the `master_cpu`, `default_pset`, `all_psets`, `all_psets_count`, `all_psets_lock`, `master_processor`, `pset_cache` and `slave_pset` globals it owned and the `processor_set_things` allocation and port conversions | `src/kern/processor.rs`, `processor_ffi.rs` | pending |
+| `kern/machine.c` whole, with the `machine_info`, `machine_slot`, `action_queue` and `action_lock` globals it owned and the static `cpu_down`, `processor_request_action` and `processor_doaction` helpers | `src/kern/machine.rs`, `machine_ffi.rs` | pending |
+| `kern/eventcount.c` whole, with the `all_eventcounters[MAX_EVCS]` table and the file-private `struct evc` | `src/kern/eventcount.rs`, `eventcount_ffi.rs` | pending |
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `i386/i386at/kd_glue.c`

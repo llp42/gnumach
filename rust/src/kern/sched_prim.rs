@@ -19,9 +19,10 @@ use crate::kern::ast::{
 };
 use crate::kern::lock::SimpleLock;
 use crate::kern::mach_clock::{self, reset_timeout_check};
+use crate::kern::machine;
 use crate::kern::policy::{POLICY_FIXEDPRI, POLICY_TIMESHARE};
 use crate::kern::processor::{
-    PROCESSOR_ASSIGN, PROCESSOR_DISPATCHING, PROCESSOR_IDLE,
+    self, PROCESSOR_ASSIGN, PROCESSOR_DISPATCHING, PROCESSOR_IDLE,
     PROCESSOR_OFF_LINE, PROCESSOR_RUNNING, PROCESSOR_SHUTDOWN, Processor,
     ProcessorSet,
 };
@@ -357,12 +358,12 @@ pub(crate) unsafe fn sched_init() {
         }
     }
 
-    // SAFETY: `kern/processor.c` and `kern/machine.c` own the processor sets
-    // and the action globals, and this is the boot step that builds them.
+    // SAFETY: the processor module owns the processor sets and the machine
+    // module the action globals, and this is the boot step that builds them.
     unsafe {
-        glue::pset_sys_bootstrap();
-        queue_init(&raw mut glue::action_queue);
-        (&raw mut glue::action_lock).write(SimpleLock::new());
+        processor::bootstrap();
+        queue_init(machine::action_queue());
+        (*machine::action_lock()).init();
     }
 
     SCHED_TICK.store(0, Ordering::Relaxed);
@@ -1539,9 +1540,9 @@ pub(crate) unsafe fn do_thread_scan() {
         // SAFETY: the all-psets lock serializes the list, and each run queue
         // has its own lock taken by `do_runq_scan()`.
         unsafe {
-            let lock = &raw mut glue::all_psets_lock;
+            let lock = processor::all_psets_lock();
             (*lock).lock();
-            let head = &raw mut glue::all_psets;
+            let head = processor::all_psets();
             // `queue_enter_tail()` links the container, so the first link is
             // the set itself; the walk follows its `all_psets` field.
             let mut pset = queue_first(head).cast::<ProcessorSet>();
@@ -1724,7 +1725,7 @@ unsafe fn pset_thread(
         (*pset).idle_lock.lock();
         if (*myprocessor).state == PROCESSOR_RUNNING {
             (*myprocessor).state = PROCESSOR_IDLE;
-            if myprocessor == glue::master_processor {
+            if myprocessor == processor::master_processor() {
                 queue_enter_tail(
                     &raw mut (*pset).idle_queue,
                     myprocessor.cast::<c_void>(),

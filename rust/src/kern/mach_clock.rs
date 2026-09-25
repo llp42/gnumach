@@ -23,8 +23,8 @@ use crate::glue::time_value::{
     MACH_ADJTIME_NSECS_OMIT, MappedTimeValue, TimeValue, TimeValue64,
 };
 use crate::kern::lock::SimpleLock;
-use crate::kern::machine::MachineSlot;
-use crate::kern::processor::PROCESSOR_IDLE;
+use crate::kern::machine;
+use crate::kern::processor::{self, PROCESSOR_IDLE};
 use crate::kern::queue::QueueEntry;
 use crate::kern::sched_prim::{thread_bind, thread_block};
 use crate::kern::timer::Timer;
@@ -387,9 +387,7 @@ pub(crate) fn interrupt(usec: c_int, usermode: bool, basepri: bool) {
     // `state` is one of the three `CPU_STATE_*` values the `cpu_ticks` array
     // holds.  Only this CPU's clock interrupt writes its counters.
     unsafe {
-        let slot = addr_of_mut!(glue::machine_slot)
-            .cast::<MachineSlot>()
-            .add(my_cpu as usize);
+        let slot = machine::slot(my_cpu as usize);
         let ticks = &mut (*slot).cpu_ticks[state as usize];
         *ticks = ticks.wrapping_add(1);
     }
@@ -399,8 +397,7 @@ pub(crate) fn interrupt(usec: c_int, usermode: bool, basepri: bool) {
     // the quantum.
     unsafe { glue::thread_quantum_update(my_cpu, thread, 1, state) };
 
-    // SAFETY: `master_cpu` is the live C global the boot set.
-    if my_cpu == unsafe { glue::master_cpu } {
+    if my_cpu == processor::master_cpu() {
         // SAFETY: `splhigh()` is the real asm routine, and its value is only
         // handed back to `splx()`.
         let s = unsafe { glue::splhigh() };
@@ -791,9 +788,7 @@ pub(crate) fn set_time64(
     }
 
     let thread = current_thread();
-    // SAFETY: `master_processor` is the live C global the boot pointed at the
-    // master slot; the C compares and passes the same value.
-    let master = unsafe { glue::master_processor };
+    let master = processor::master_processor();
     // SAFETY: `thread` is the live current thread and `master` the live
     // master processor; `thread_bind()` only stores the pairing under the
     // thread lock.
@@ -837,9 +832,7 @@ pub(crate) fn adjust_time(
     }
 
     let thread = current_thread();
-    // SAFETY: `master_processor` is the live C global the boot pointed at the
-    // master slot; the C compares and passes the same value.
-    let master = unsafe { glue::master_processor };
+    let master = processor::master_processor();
     // SAFETY: `thread` is the live current thread and `master` the live
     // master processor; `thread_bind()` only stores the pairing under the
     // thread lock.

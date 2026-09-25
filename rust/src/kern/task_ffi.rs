@@ -13,8 +13,7 @@
 //! `kern/task.c` used to define and `kern/task.h` declares.
 
 use crate::arch::types::VmOffset;
-use crate::glue;
-use crate::kern::processor::ProcessorSet;
+use crate::kern::processor::{self, ProcessorSet};
 use crate::kern::task::{self, MapSource};
 use crate::kern::types::KernError;
 use core::ffi::{CStr, c_char, c_int, c_uint, c_void};
@@ -392,10 +391,9 @@ pub unsafe extern "C" fn task_assign_default(
     task: *mut c_void,
     assign_threads: c_int,
 ) -> c_int {
-    // SAFETY: `default_pset` is the C global live for the life of the
-    // kernel; the rest is the caller's contract.
-    let default_pset =
-        ptr::addr_of_mut!(glue::default_pset).cast::<ProcessorSet>();
+    // SAFETY: `default_pset` is live for the life of the kernel; the rest is
+    // the caller's contract.
+    let default_pset = processor::default_pset();
     match unsafe {
         task::assign(task.cast(), default_pset, assign_threads != 0)
     } {

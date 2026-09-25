@@ -12,7 +12,7 @@ use crate::config::NCPUS;
 use crate::glue;
 use crate::kern::ipc_host::pset_name_to_port;
 use crate::kern::machine;
-use crate::kern::processor::{Processor, ProcessorSet};
+use crate::kern::processor::{self, Processor, ProcessorSet};
 use crate::kern::queue::{QueueEntry, queue_end, queue_first, queue_next};
 use crate::kern::slab::{kalloc, kfree};
 use crate::kern::types::KernError;
@@ -248,7 +248,7 @@ pub(crate) fn info(
             // `pset_sys_bootstrap()` initialized, whose `slot_num` is a live
             // CPU number, below `NCPUS`.
             let (cpu_type, cpu_subtype) = unsafe {
-                let processor = glue::master_processor;
+                let processor = processor::master_processor();
                 let slot = machine::slot((*processor).slot_num as usize);
                 ((*slot).cpu_type, (*slot).cpu_subtype)
             };
@@ -257,7 +257,7 @@ pub(crate) fn info(
             // holds a whole record; the writes are unaligned because the MIG
             // buffer is only `integer_t`-aligned.
             unsafe {
-                let machine_info = &*ptr::addr_of!(glue::machine_info);
+                let machine_info = &*machine::info();
                 ptr::addr_of_mut!((*basic).max_cpus)
                     .write_unaligned(machine_info.max_cpus);
                 ptr::addr_of_mut!((*basic).avail_cpus)
@@ -340,17 +340,17 @@ pub(crate) unsafe fn processor_sets(
         return Err(KernError::InvalidArgument);
     }
 
-    let lock = ptr::addr_of_mut!(glue::all_psets_lock);
+    let lock = processor::all_psets_lock();
     let mut size: usize = 0;
     let mut addr: *mut u8 = ptr::null_mut();
     let actual;
     let size_needed;
 
     loop {
-        // SAFETY: the lock is the C global guarding `all_psets`.
+        // SAFETY: the lock guards `all_psets`.
         unsafe { (*lock).lock() };
         // SAFETY: the lock is held.
-        let count = unsafe { glue::all_psets_count };
+        let count = unsafe { *processor::all_psets_count() };
         // The count is the number of live sets, never negative.
         let count = count as usize;
         let needed = count.wrapping_mul(size_of::<usize>());
@@ -374,7 +374,7 @@ pub(crate) unsafe fn processor_sets(
     }
 
     let psets = addr.cast::<*mut c_void>();
-    let list = ptr::addr_of_mut!(glue::all_psets);
+    let list = processor::all_psets();
     // SAFETY: the lock is held, the queue was initialized by
     // `processor_set_create()`, and every link is a live set.
     let mut entry = unsafe { queue_first(list) };
