@@ -11,6 +11,7 @@ use super::io_req::{
     D_NOWAIT, DEV_GET_SIZE, DEV_GET_SIZE_COUNT, DEV_GET_SIZE_DEVICE_SIZE,
     DEV_GET_SIZE_RECORD_SIZE, DevT, IoReq, KERN_SUCCESS, drain,
 };
+use crate::arch::i386::com;
 use crate::arch::i386::ioapic;
 use crate::arch::i386::irq;
 use crate::arch::i386::pio::Port;
@@ -216,7 +217,7 @@ fn button_event(s: &mut State, which: KevType, direction: u8) {
 
 /// `init_mouse_hw()` in C: program the serial port.
 fn init_mouse_hw(s: &State, unit: c_int, mode: u8) {
-    let base_addr = unsafe { glue::com_base_addr(unit) } as u16;
+    let base_addr = com::base_addr(unit) as u16;
     Port::new(base_addr + RIE).write_u8(0);
     Port::new(base_addr + RLC).write_u8(LCDLAB);
     Port::new(base_addr + RDLSB).write_u8((s.mouse_baud & 0xff) as u8);
@@ -229,7 +230,7 @@ fn init_mouse_hw(s: &State, unit: c_int, mode: u8) {
 /// `serial_mouse_open()` in C: take over the unit's interrupt vector.
 fn serial_open(s: &mut State, dev: DevT) {
     let unit = (dev & 7) as c_int;
-    let mouse_pic = unsafe { glue::com_irq(unit) };
+    let mouse_pic = com::irq(unit);
     let sp = unsafe { glue::splhi() };
     s.oldvect = irq::handler(mouse_pic);
     irq::set_handler(mouse_pic, Some(mouseintr));
@@ -251,8 +252,8 @@ fn kd_open(s: &mut State, mouse_pic: c_int) {
 fn serial_close(s: &mut State, dev: DevT) {
     let sp = unsafe { glue::splhi() };
     let unit = (dev & 7) as c_int;
-    let mouse_pic = unsafe { glue::com_irq(unit) };
-    let base_addr = unsafe { glue::com_base_addr(unit) } as u16;
+    let mouse_pic = com::irq(unit);
+    let base_addr = com::base_addr(unit) as u16;
     Port::new(base_addr + RIE).write_u8(0);
     Port::new(base_addr + RMC).write_u8(0);
     irq::set_handler(mouse_pic, s.oldvect);
@@ -586,8 +587,8 @@ pub unsafe extern "C" fn mouseopen(
             s.mousebufsize = 3;
             serial_open(s, dev);
             init_mouse_hw(s, (dev & 7) as c_int, LC7);
-            s.track_man[0] = unsafe { glue::comgetc((dev & 7) as c_int) };
-            s.track_man[1] = unsafe { glue::comgetc((dev & 7) as c_int) };
+            s.track_man[0] = com::getc((dev & 7) as c_int);
+            s.track_man[1] = com::getc((dev & 7) as c_int);
             if s.track_man[0] != 0x4d && s.track_man[1] != 0x33 {
                 // SAFETY: a literal format with no arguments.
                 unsafe { glue::printf(c"LOGITECH_TRACKMAN: NOT M3".as_ptr()) };
@@ -722,7 +723,7 @@ pub unsafe extern "C" fn mousegetstat(
 
 /// `mouseintr()` in C, as a callback value.
 unsafe extern "C" fn mouseintr(unit: c_int) {
-    let base_addr = unsafe { glue::com_base_addr(unit) } as u16;
+    let base_addr = com::base_addr(unit) as u16;
     let id = Port::new(base_addr + RID).read_u8();
     let ls = Port::new(base_addr + RLS).read_u8();
     if id == IDLS {

@@ -21,6 +21,7 @@ use crate::glue;
 use crate::utils::delay::delay;
 use core::cell::UnsafeCell;
 use core::ffi::{c_int, c_short};
+use core::mem::{align_of, offset_of, size_of};
 
 /// `NUMKEYS` in <i386at/kd.h>.
 pub(crate) const NUMKEYS: usize = 89;
@@ -157,19 +158,43 @@ pub(crate) enum Ack {
     Data,
 }
 
-/// The `struct consdev` prefix of <device/cons.h> the console entry points
-/// touch.
+/// The `struct consdev` of <device/cons.h>, field for field.
 #[repr(C)]
-#[allow(dead_code)]
 pub struct ConsDev {
-    cn_name: *mut core::ffi::c_char,
-    cn_probe: Option<unsafe extern "C" fn(*mut ConsDev) -> c_int>,
-    cn_init: Option<unsafe extern "C" fn(*mut ConsDev) -> c_int>,
-    cn_getc: Option<unsafe extern "C" fn(u16, c_int) -> c_int>,
-    cn_putc: Option<unsafe extern "C" fn(u16, c_int) -> c_int>,
-    cn_dev: u16,
-    cn_pri: c_short,
+    pub(crate) cn_name: *mut core::ffi::c_char,
+    pub(crate) cn_probe: Option<unsafe extern "C" fn(*mut ConsDev) -> c_int>,
+    pub(crate) cn_init: Option<unsafe extern "C" fn(*mut ConsDev) -> c_int>,
+    pub(crate) cn_getc: Option<unsafe extern "C" fn(u16, c_int) -> c_int>,
+    pub(crate) cn_putc: Option<unsafe extern "C" fn(u16, c_int) -> c_int>,
+    pub(crate) cn_dev: u16,
+    pub(crate) cn_pri: c_short,
 }
+
+#[cfg(target_pointer_width = "64")]
+const _: () = {
+    assert!(size_of::<ConsDev>() == 48);
+    assert!(align_of::<ConsDev>() == align_of::<*mut core::ffi::c_char>());
+    assert!(offset_of!(ConsDev, cn_name) == 0);
+    assert!(offset_of!(ConsDev, cn_probe) == 8);
+    assert!(offset_of!(ConsDev, cn_init) == 16);
+    assert!(offset_of!(ConsDev, cn_getc) == 24);
+    assert!(offset_of!(ConsDev, cn_putc) == 32);
+    assert!(offset_of!(ConsDev, cn_dev) == 40);
+    assert!(offset_of!(ConsDev, cn_pri) == 42);
+};
+
+#[cfg(target_pointer_width = "32")]
+const _: () = {
+    assert!(size_of::<ConsDev>() == 24);
+    assert!(align_of::<ConsDev>() == align_of::<*mut core::ffi::c_char>());
+    assert!(offset_of!(ConsDev, cn_name) == 0);
+    assert!(offset_of!(ConsDev, cn_probe) == 4);
+    assert!(offset_of!(ConsDev, cn_init) == 8);
+    assert!(offset_of!(ConsDev, cn_getc) == 12);
+    assert!(offset_of!(ConsDev, cn_putc) == 16);
+    assert!(offset_of!(ConsDev, cn_dev) == 20);
+    assert!(offset_of!(ConsDev, cn_pri) == 22);
+};
 
 /// `struct kbentry` of <i386at/kd.h>, the key remapping ioctl payload.
 #[repr(C)]

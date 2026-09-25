@@ -51,7 +51,7 @@ column is what exists in the tree today, not a plan.
 | Layer | What it is | State today |
 |---|---|---|
 | **L0 pure** | strings, byte order, atoi, parser tables | done |
-| **L1 types** | structs read field-by-field, sometimes by asm | `Thread`, `Processor`, `ProcessorSet`, `RunQueue`, `Timer`, `Timeout`, `QueueEntry`, `SimpleLock`, `TimeValue`/`TimeValue64`, `VmMap`/`VmMapEntry`/`VmMapHeader`/`VmMapLinks`, `VmPage`, `VmObject`, `Task`/`MachineTask`, `KmemCache`, `MachineSlot`, `struct ipc_port` (with its `ipc_target` and `ipc_mqueue`), `struct ipc_space`, `struct ipc_kmsg`, `struct ipc_entry`, `struct ipc_marequest`, `ApicLocalUnit`, `ApicIoUnit`, `ApicInfo`, `IoApicData` and the packed ACPI tables are `#[repr(C)]` mirrors with size, alignment and offset asserts.  `struct pcb` and the driver structs have no field mirror. |
+| **L1 types** | structs read field-by-field, sometimes by asm | `Thread`, `Processor`, `ProcessorSet`, `RunQueue`, `Timer`, `Timeout`, `QueueEntry`, `SimpleLock`, `TimeValue`/`TimeValue64`, `VmMap`/`VmMapEntry`/`VmMapHeader`/`VmMapLinks`, `VmPage`, `VmObject`, `Task`/`MachineTask`, `KmemCache`, `MachineSlot`, `struct ipc_port` (with its `ipc_target` and `ipc_mqueue`), `struct ipc_space`, `struct ipc_kmsg`, `struct ipc_entry`, `struct ipc_marequest`, `ApicLocalUnit`, `ApicIoUnit`, `ApicInfo`, `IoApicData` and the packed ACPI tables are `#[repr(C)]` mirrors with size, alignment and offset asserts.  `struct pcb` has no field mirror; the `struct bus_device`/`bus_ctlr`/`bus_driver` trio it listed as missing landed with `src/arch/i386/com.rs`. |
 | **L2 locks/IRQ/percpu** | `simple_lock`, `spl*`, `percpu_get`, `current_thread()` | done: `kern/lock.c` and `i386/i386/lock.h` are gone, `SimpleLock` is `src/kern/lock.rs`, `spl*` are real asm functions in `glue`, and `current_thread()`, `cpu_number()` and `percpu_get` live in `src/arch/i386/percpu.rs`.  An RAII `IrqGuard` is a Rust-side type to write when wanted. |
 | **L3 memory** | `kalloc`/`kfree`, `kmem_cache_*` | done: `kern/slab.c` is gone, `src/kern/slab.rs` owns the allocator and `src/kern/slab_ffi.rs` exports its C symbols.  A `GlobalAlloc` over `kalloc` remains a design conversation. |
 | **L4 runnable** | `thread_block`, `assert_wait`, continuations | the scheduler is Rust whole: `sched_prim.rs` owns the wait/wake primitives, `thread_block`/`thread_invoke`/`thread_select`/`thread_run`, the run-queue and stuck-thread scans, and `timer.rs` owns the statistical timers, with `sched_prim_ffi.rs`/`timer_ffi.rs` exporting the C symbols; only the asm entry points (`call_continuation`, `Switch_context`) stay C. |
@@ -124,7 +124,7 @@ never compiled in either configured build (§8, §9).
 | `net_io.c` | 2168 | 0 | `ifnet`/`net_hash_entry` fields |
 | `subrs.c` | 53 | 0 | `ifnet` fields |
 
-### `i386/` (26 files, 6,801 LOC)
+### `i386/` (23 files, 4,180 LOC)
 
 | File | LOC | Free | Holds the rest |
 |---|---:|---:|---|
@@ -145,7 +145,6 @@ never compiled in either configured build (§8, §9).
 | `i386/trap.c` | 532 | 0 | trap frames; `trap_type[]` static |
 | `i386/user_ldt.c` | 422 | 0 | `struct pcb` and descriptor structs |
 | `i386at/autoconf.c` | 127 | 0 | `bus_device`/`bus_ctlr` fields |
-| `i386at/com.c` | 909 | 0 | `com_*` arrays are NCOM-sized |
 | `i386at/conf.c` | 144 | 0 | static tables |
 | `i386at/cons_conf.c` | 48 | 0 | static tables |
 | `i386at/int_init.c` | 78 | 0 | static `int_fill` |
@@ -153,8 +152,10 @@ never compiled in either configured build (§8, §9).
 | `i386at/pic_isa.c` | 56 | 0 | not compiled in the APIC configuration |
 | `intel/read_fault.c` | 178 | 0 | dead: body is `#if`-ed out on every supported CPU |
 
-`chips/busses.c` (232 LOC) is wholly blocked on `bus_device`/`bus_ctlr`
-fields.  There are no C files under `x86_64/`.
+`chips/busses.c` (232 LOC) is still C, but the `struct bus_device`,
+`struct bus_ctlr` and `struct bus_driver` mirrors it reads now exist in
+`src/arch/i386/com.rs`, asserts included, so its field gap is closed.
+There are no C files under `x86_64/`.
 
 ## 6. What to port next — the objective test
 
@@ -212,8 +213,8 @@ deleted (§9, §10).  Five of the 20 moved in a follow-up pass:
 `chario_init` (§9).  Of the 15 this unlock freed, `pmap_virtual_space`
 went with the `pmap.c` port, `picdisable` and the four `i386/i386/irq.c`
 accessors went with the whole-file `irq.c`/`ioapic.c` ports (§9), and the
-rest are still C: `interrupt_stack_alloc` and the eight
-`i386/i386at/com.c` entries.
+eight `i386/i386at/com.c` entries went with that whole-file port.  The
+rest is still C: `interrupt_stack_alloc`.
 
 **Mirror gaps.**
 `host_ipc_marequest_info` and `host_virtual_physical_table_info` needed a
@@ -435,6 +436,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `ipc/copy_user.c`, whose one live definition was the LP64 `copyinmsg()`; the `USER32` half is deleted as dead (§8) | `src/ipc/copy_user.rs`, `copy_user_ffi.rs` | pending |
 | `i386/i386/fpu.c` whole, with the `fp_kind`, `fp_save_kind`, `fp_xsave_support`, `fp_xsave_size`, `fp_default_state`, `ifps_cache` and `mxcsr_feature_mask` globals it owned and the `I386FpSave`, `I386FpRegs`, `I386XfpSave` and save-state mirrors its bodies read | `src/arch/i386/fpu.rs`, `fpu_ffi.rs` | pending |
 | `i386/i386/pcb.c` whole, with the `pcb_cache` and `kernel_stack` globals it owned and the `Pcb`, `I386SavedState`, `I386InterruptState`, `I386MachineState`, `TaskTss`, `UserLdt` and thread-status mirrors its bodies read | `src/arch/i386/pcb.rs`, `pcb_ffi.rs` | pending |
+| `i386/i386at/com.c` whole, with the NCOM-sized `cominfo`/`com_tty`/`commodom`/`comcarrier`/`comfifo`/`comtimer_state`/`com_std` arrays, the `comdriver` bus record and the `BusDevice`/`BusCtlr`/`BusDriver` mirrors its body reads, and the two `com_base_addr`/`com_irq` shims §10 listed | `src/arch/i386/com.rs`, `src/arch/i386/com_ffi.rs` | pending |
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `i386/i386at/kd_glue.c`
@@ -447,18 +449,17 @@ Every piece of C in this tree that exists only so Rust can reach
 something.  All of it predates the no-glue law, none of it is precedent,
 and nothing may be added.  Each row says what deletes it.
 
-| Glue | What it provides | Deleted by |
-|---|---|---|
-| `i386/i386at/com.c` — `com_base_addr`, `com_irq` | `cominfo` is NCOM-sized | Phase B (`NCOM`) or porting `com.c` |
-
-`i386/i386at/kd_glue.c`, `kern/processor_glue.c`, the
-`thread_glue_pset_sched_load` shim in `kern/sched_prim.c`,
-`vm/vm_map_glue.c` with its `vm_map_glue_object_*` shims, the
-`vm_submap_object` placeholder, the `vm_map_glue_task_map`/
-`vm_map_glue_task_space` pair, the page field shims and three slab
-caches, `vm/vm_external_glue.c` with its three slab caches, and
-`i386/i386/irq.c`'s six accessors are deleted; nothing joined the list
-since.
+There is nothing left to list.  The last piece,
+`i386/i386at/com.c`'s `com_base_addr`/`com_irq` pair, came out with the
+`com.c` port.  Before it, `i386/i386at/kd_glue.c`,
+`kern/processor_glue.c`, the `thread_glue_pset_sched_load` shim in
+`kern/sched_prim.c`, `vm/vm_map_glue.c` with its
+`vm_map_glue_object_*` shims, the `vm_submap_object` placeholder, the
+`vm_map_glue_task_map`/`vm_map_glue_task_space` pair, the page field
+shims and three slab caches, `vm/vm_external_glue.c` with its three
+slab caches, `i386/i386/irq.c`'s six accessors, and
+`i386/i386at/com.c`'s `com_base_addr`/`com_irq` pair were deleted.
+Nothing joined the list since.
 The `i386/intel/pmap.c` port declared the C routines it still calls
 (`splvm`, `kmem_alloc_wired`, `cpu_features`, `_start`, `etext`) in
 `rust/src/glue/`, which writes no C and is not debt.  The

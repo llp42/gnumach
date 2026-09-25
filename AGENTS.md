@@ -160,6 +160,7 @@ link error, not a fallback.
 | `i386/i386/pcb.c` | `src/arch/i386/pcb.rs`, `src/arch/i386/pcb_ffi.rs` |
 | `kern/sched_prim.c` | `src/kern/sched_prim.rs`, `src/kern/sched_prim_ffi.rs` |
 | `kern/timer.c` | `src/kern/timer.rs`, `src/kern/timer_ffi.rs` |
+| `i386/i386at/com.c` | `src/arch/i386/com.rs`, `src/arch/i386/com_ffi.rs` |
 
 Also deleted as dead: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `ipc/copy_user.c`'s `USER32`
@@ -227,17 +228,11 @@ a per-CPU accessor), not a shim to add quietly.
 
 ### The glue already in the tree
 
-The two VM `*_glue.c` files are gone. One ordinary C file still carries a
-shim pair, debt, not precedent:
-
-```
-i386/i386at/com.c           com_base_addr, com_irq
-```
-
-It may shrink and it may be deleted. It may never grow, and no new one
-ever joins it. Deleting the last caller of one deletes it in the same
-commit. `MIGRATE.md` §10 catalogues every piece and names what deletes
-it.
+No `*_glue.c` file and no shim pair remains in the C tree: the last
+were `vm/vm_map_glue.c`, `vm/vm_external_glue.c` and
+`i386/i386at/com.c`'s `com_base_addr`/`com_irq`, all deleted with their
+last callers.  The list may never grow, and no new glue ever joins it.
+`MIGRATE.md` §10 records what each deletion took.
 
 **Not every row is waiting on a phase.** `i386/i386at/kd_glue.c` was listed
 as blocked on the lock phase long after that phase had landed, and it came
@@ -423,9 +418,11 @@ the C file it came out of.
   macro is ported first, so that there is a real symbol to declare.
 - `rust/src/panic.rs` — `#[panic_handler]`, routed into the kernel's `Panic()`.
 
-No `*_glue.c` file remains in the C tree. `i386/i386at/com.c`'s two shims
-are the last pre-rule debt, listed under "The no-glue law". Nothing adds to
-them and nothing joins them.
+No `*_glue.c` file remains in the C tree, and no shim pair either.  The
+last were `vm/vm_map_glue.c`, `vm/vm_external_glue.c` and
+`i386/i386at/com.c`'s `com_base_addr`/`com_irq`, deleted with their last
+callers and listed under "The no-glue law".  Nothing adds to them and
+nothing joins them.
 
 The C half is unchanged Mach: `kern/`, `ipc/`, `vm/`, `device/`, `i386/`,
 `x86_64/`, `chips/`, `util/`, with `include/` for the public interfaces.

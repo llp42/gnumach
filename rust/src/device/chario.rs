@@ -49,34 +49,46 @@ const B115200: usize = 17;
 
 /// `TS_*` of <device/tty.h>.
 pub(crate) const TS_INIT: c_int = 0x0000_0001;
-const TS_TIMEOUT: c_int = 0x0000_0002;
+pub(crate) const TS_TIMEOUT: c_int = 0x0000_0002;
 pub(crate) const TS_WOPEN: c_int = 0x0000_0004;
 pub(crate) const TS_ISOPEN: c_int = 0x0000_0008;
+pub(crate) const TS_FLUSH: c_int = 0x0000_0010;
 pub(crate) const TS_CARR_ON: c_int = 0x0000_0020;
 pub(crate) const TS_BUSY: c_int = 0x0000_0040;
 pub(crate) const TS_TTSTOP: c_int = 0x0000_0100;
-const TS_HUPCLS: c_int = 0x0000_0200;
+pub(crate) const TS_HUPCLS: c_int = 0x0000_0200;
 const TS_ONDELAY: c_int = 0x0000_2000;
-const TS_MIN: c_int = 0x0000_4000;
+pub(crate) const TS_MIN: c_int = 0x0000_4000;
 const TS_MIN_TO: c_int = 0x0000_8000;
 const TS_RTS_DOWN: c_int = 0x0002_0000;
 const TS_MIN_TO_RCV: c_int = 0x0040_0000;
 
 /// `TF_*` of <device/tty_status.h>.
+pub(crate) const TF_ODDP: c_int = 0x0000_0002;
+pub(crate) const TF_EVENP: c_int = 0x0000_0004;
+pub(crate) const TF_LITOUT: c_int = 0x0000_0008;
 const TF_MDMBUF: c_int = 0x0000_0010;
 const TF_NOHANG: c_int = 0x0000_0020;
 const TF_HUPCLS: c_int = 0x0000_0040;
+pub(crate) const TF_ECHO: c_int = 0x0000_0080;
+pub(crate) const TF_CRMOD: c_int = 0x0000_0100;
+pub(crate) const TF_XTABS: c_int = 0x0000_0200;
 
-/// `DMSET`, `DMBIS` and `DMBIC` of <device/tty.h>.
-const DMSET: c_int = 0;
-const DMBIS: c_int = 1;
-const DMBIC: c_int = 2;
+/// `DMSET`, `DMBIS`, `DMBIC` and `DMGET` of <device/tty.h>.
+pub(crate) const DMSET: c_int = 0;
+pub(crate) const DMBIS: c_int = 1;
+pub(crate) const DMBIC: c_int = 2;
+pub(crate) const DMGET: c_int = 3;
 
 /// `TM_*` modem signals of <device/tty_status.h>.
-const TM_DTR: c_int = 0x0002;
-const TM_RTS: c_int = 0x0004;
-const TM_BRK: c_int = 0x0200;
-const TM_HUP: c_int = 0;
+pub(crate) const TM_DTR: c_int = 0x0002;
+pub(crate) const TM_RTS: c_int = 0x0004;
+pub(crate) const TM_CTS: c_int = 0x0020;
+pub(crate) const TM_CAR: c_int = 0x0040;
+pub(crate) const TM_RNG: c_int = 0x0080;
+pub(crate) const TM_DSR: c_int = 0x0100;
+pub(crate) const TM_BRK: c_int = 0x0200;
+pub(crate) const TM_HUP: c_int = 0;
 
 /// `D_READ`, `D_WRITE` and `D_NODELAY` of <device/device_types.h>.
 pub(crate) const D_READ: c_int = 0x1;
@@ -124,15 +136,15 @@ pub struct Tty {
     pub(crate) t_lock: SimpleLock,
     pub(crate) t_inq: Cirbuf,
     pub(crate) t_outq: Cirbuf,
-    t_addr: Option<NonNull<c_char>>,
-    t_dev: c_int,
+    pub(crate) t_addr: Option<NonNull<c_char>>,
+    pub(crate) t_dev: c_int,
     pub(crate) t_start: Option<unsafe extern "C" fn(*mut Tty)>,
     pub(crate) t_stop: Option<unsafe extern "C" fn(*mut Tty, c_int)>,
     pub(crate) t_mctl:
         Option<unsafe extern "C" fn(*mut Tty, c_int, c_int) -> c_int>,
     pub(crate) t_ispeed: u8,
     pub(crate) t_ospeed: u8,
-    t_breakc: c_char,
+    pub(crate) t_breakc: c_char,
     pub(crate) t_flags: c_int,
     pub(crate) t_state: c_int,
     pub(crate) t_line: c_int,
@@ -140,10 +152,10 @@ pub struct Tty {
     pub(crate) t_delayed_write: QueueEntry,
     pub(crate) t_delayed_open: QueueEntry,
     t_timeout: Option<NonNull<mach_clock::Timeout>>,
-    t_getstat: Option<
+    pub(crate) t_getstat: Option<
         unsafe extern "C" fn(u16, c_uint, *mut c_int, *mut u32) -> c_int,
     >,
-    t_setstat:
+    pub(crate) t_setstat:
         Option<unsafe extern "C" fn(u16, c_uint, *mut c_int, u32) -> c_int>,
     t_tops: Option<NonNull<c_void>>,
 }
@@ -359,7 +371,7 @@ fn high_water(tp: &Tty) -> c_short {
 }
 
 /// `TTLOWAT(tp)` of <device/tty.h>.
-fn low_water(tp: &Tty) -> c_short {
+pub(crate) fn low_water(tp: &Tty) -> c_short {
     TTLOWAT.get(usize::from(tp.t_ospeed)).copied().unwrap_or(0)
 }
 

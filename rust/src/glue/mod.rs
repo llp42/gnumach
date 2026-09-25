@@ -6,6 +6,7 @@
 pub mod mig;
 pub mod time_value;
 
+use crate::arch::i386::com::BusDevice;
 use crate::arch::i386::irq::{IrqDev, UserIntr};
 use crate::arch::i386::pcb::{
     I386DebugState, Pcb, RealDescriptor, TaskTss, UserLdt,
@@ -306,7 +307,22 @@ unsafe extern "C" {
     /// `main_intr_queue` of <device/intr.h>: the queue `irqtab` points at.
     pub static mut main_intr_queue: QueueEntry;
 
-    pub fn comgetc(unit: c_int) -> c_int;
+    /// `bus_device_init[]` of `i386/i386at/autoconf.c`: the AT-bus device
+    /// table, incomplete in C, so this declares its first element.
+    pub static mut bus_device_init: BusDevice;
+
+    pub fn take_dev_irq(dev: *const BusDevice);
+
+    pub fn configure_bus_device(
+        name: *const c_char,
+        virt: VmOffset,
+        phys: VmOffset,
+        adpt_no: c_int,
+        bus_name: *const c_char,
+    ) -> c_int;
+
+    /// `kernel_cmdline` of `i386/i386at/model_dep.c`: the boot command line.
+    pub static mut kernel_cmdline: *mut c_char;
 
     /// `setsoftclock()` of <i386/spl.h>: raise the softclock interrupt.
     pub fn setsoftclock();
@@ -323,9 +339,6 @@ unsafe extern "C" {
     pub static mut master_cpu: c_int;
 
     pub static rebootflag: c_int;
-
-    pub fn com_base_addr(unit: c_int) -> VmOffset;
-    pub fn com_irq(unit: c_int) -> c_int;
 
     /// `apboot_addr` of <i386/model_dep.h>: the physical page the AP boot
     /// code lives in, claimed by `biosmem_bootstrap()`.
