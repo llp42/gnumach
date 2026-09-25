@@ -351,35 +351,13 @@ unsafe extern "C" {
     pub fn ipc_notify_dead_name(port: *mut c_void, name: c_uint);
     pub fn ipc_notify_init();
     pub fn ipc_notify_port_deleted(port: *mut c_void, name: c_uint);
-    pub fn ipc_marequest_init();
-    pub fn ipc_marequest_cancel(space: *mut c_void, name: c_uint);
-    pub fn ipc_marequest_rename(space: *mut c_void, old: c_uint, new: c_uint);
-    pub fn ipc_marequest_destroy(marequest: *mut c_void);
+    pub fn ipc_notify_msg_accepted(port: *mut c_void, name: c_uint);
+
+    pub fn ipc_kobject_server(kmsg: *mut c_void) -> *mut c_void;
 
     pub fn net_kmsg_put(kmsg: *mut c_void);
 
     pub fn ipc_host_init();
-
-    pub fn ipc_mqueue_init(mqueue: *mut c_void);
-    pub fn ipc_mqueue_changed(mqueue: *mut c_void, mr: c_int);
-    pub fn ipc_pset_alloc(
-        space: *mut c_void,
-        namep: *mut c_uint,
-        psetp: *mut *mut c_void,
-    ) -> c_int;
-    pub fn ipc_pset_alloc_name(
-        space: *mut c_void,
-        name: c_uint,
-        psetp: *mut *mut c_void,
-    ) -> c_int;
-    pub fn ipc_pset_remove(pset: *mut c_void, port: *mut c_void);
-    pub fn ipc_pset_destroy(pset: *mut c_void);
-    pub fn ipc_pset_move(
-        space: *mut c_void,
-        port: *mut c_void,
-        pset: *mut c_void,
-    ) -> c_int;
-
     pub fn ipc_kobject_destroy(port: *mut c_void);
     pub fn ipc_kobject_set_locked(
         port: *mut c_void,

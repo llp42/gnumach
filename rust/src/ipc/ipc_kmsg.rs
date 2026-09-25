@@ -13,12 +13,14 @@ use crate::arch::vm_param::PAGE_SIZE;
 use crate::config::NCPUS;
 use crate::glue;
 use crate::ipc::ipc_entry;
+use crate::ipc::ipc_marequest;
 use crate::ipc::ipc_object;
 use crate::ipc::ipc_port;
 use crate::ipc::ipc_right;
 use crate::ipc::mach_port;
 use crate::ipc::{
-    IE_BITS_TYPE_MASK, IpcEntry, IpcKmsg, IpcPort, IpcSpace, MachMsgHeader,
+    IE_BITS_TYPE_MASK, IpcEntry, IpcKmsg, IpcMarequest, IpcPort, IpcSpace,
+    MachMsgHeader,
 };
 use crate::kern::slab;
 use crate::kern::task;
@@ -212,10 +214,18 @@ pub(crate) struct MsgReturn(c_int);
 impl MsgReturn {
     /// `MACH_MSG_SUCCESS`.
     pub(crate) const SUCCESS: Self = Self(0);
+    /// `MACH_SEND_IN_PROGRESS`.
+    pub(crate) const SEND_IN_PROGRESS: Self = Self(0x1000_0001);
     /// `MACH_SEND_INVALID_DATA`.
     pub(crate) const SEND_INVALID_DATA: Self = Self(0x1000_0002);
     /// `MACH_SEND_INVALID_DEST`.
     pub(crate) const SEND_INVALID_DEST: Self = Self(0x1000_0003);
+    /// `MACH_SEND_TIMED_OUT`.
+    pub(crate) const SEND_TIMED_OUT: Self = Self(0x1000_0004);
+    /// `MACH_SEND_NOTIFY_IN_PROGRESS`.
+    pub(crate) const SEND_NOTIFY_IN_PROGRESS: Self = Self(0x1000_0006);
+    /// `MACH_SEND_INTERRUPTED`.
+    pub(crate) const SEND_INTERRUPTED: Self = Self(0x1000_0007);
     /// `MACH_SEND_MSG_TOO_SMALL`.
     pub(crate) const SEND_MSG_TOO_SMALL: Self = Self(0x1000_0008);
     /// `MACH_SEND_INVALID_REPLY`.
@@ -228,14 +238,32 @@ impl MsgReturn {
     pub(crate) const SEND_INVALID_MEMORY: Self = Self(0x1000_000c);
     /// `MACH_SEND_NO_BUFFER`.
     pub(crate) const SEND_NO_BUFFER: Self = Self(0x1000_000d);
+    /// `MACH_SEND_NO_NOTIFY`.
+    pub(crate) const SEND_NO_NOTIFY: Self = Self(0x1000_000e);
     /// `MACH_SEND_INVALID_TYPE`.
     pub(crate) const SEND_INVALID_TYPE: Self = Self(0x1000_000f);
     /// `MACH_SEND_INVALID_HEADER`.
     pub(crate) const SEND_INVALID_HEADER: Self = Self(0x1000_0010);
+    /// `MACH_RCV_IN_PROGRESS`.
+    pub(crate) const RCV_IN_PROGRESS: Self = Self(0x1000_4001);
+    /// `MACH_RCV_INVALID_NAME`.
+    pub(crate) const RCV_INVALID_NAME: Self = Self(0x1000_4002);
+    /// `MACH_RCV_TIMED_OUT`.
+    pub(crate) const RCV_TIMED_OUT: Self = Self(0x1000_4003);
+    /// `MACH_RCV_TOO_LARGE`.
+    pub(crate) const RCV_TOO_LARGE: Self = Self(0x1000_4004);
+    /// `MACH_RCV_INTERRUPTED`.
+    pub(crate) const RCV_INTERRUPTED: Self = Self(0x1000_4005);
+    /// `MACH_RCV_PORT_CHANGED`.
+    pub(crate) const RCV_PORT_CHANGED: Self = Self(0x1000_4006);
     /// `MACH_RCV_INVALID_NOTIFY`.
     pub(crate) const RCV_INVALID_NOTIFY: Self = Self(0x1000_4007);
     /// `MACH_RCV_INVALID_DATA`.
     pub(crate) const RCV_INVALID_DATA: Self = Self(0x1000_4008);
+    /// `MACH_RCV_PORT_DIED`.
+    pub(crate) const RCV_PORT_DIED: Self = Self(0x1000_4009);
+    /// `MACH_RCV_IN_SET`.
+    pub(crate) const RCV_IN_SET: Self = Self(0x1000_400a);
     /// `MACH_RCV_HEADER_ERROR`.
     pub(crate) const RCV_HEADER_ERROR: Self = Self(0x1000_400b);
     /// `MACH_RCV_BODY_ERROR`.
@@ -254,6 +282,11 @@ impl MsgReturn {
     /// The `mach_msg_return_t` a C caller sees.
     pub(crate) const fn raw(self) -> c_int {
         self.0
+    }
+
+    /// The code a C `mach_msg_return_t` stands for.
+    pub(crate) const fn from_raw(code: c_int) -> Self {
+        Self(code)
     }
 }
 
@@ -687,7 +720,7 @@ impl Kmsg {
     /// # Safety
     ///
     /// The message must be live.
-    unsafe fn marequest(self) -> *mut c_void {
+    pub(crate) unsafe fn marequest(self) -> *mut c_void {
         // SAFETY: the caller promises the live message.
         unsafe { (*self.record()).marequest }
     }
@@ -697,7 +730,7 @@ impl Kmsg {
     /// # Safety
     ///
     /// The message must be live and this call must own it.
-    unsafe fn set_marequest(self, marequest: *mut c_void) {
+    pub(crate) unsafe fn set_marequest(self, marequest: *mut c_void) {
         // SAFETY: the caller promises the live message.
         unsafe { (*self.record()).marequest = marequest };
     }
@@ -753,6 +786,48 @@ impl Kmsg {
         // SAFETY: the caller promises the live message.
         unsafe { (*self.header()).set_remote(0) };
     }
+
+    /// `msgh_size` of the message header.
+    ///
+    /// # Safety
+    ///
+    /// The message must be live.
+    pub(crate) unsafe fn msgh_size(self) -> u32 {
+        // SAFETY: the caller promises the live message.
+        unsafe { (*self.header()).size() }
+    }
+
+    /// `msgh_bits` of the message header.
+    ///
+    /// # Safety
+    ///
+    /// The message must be live.
+    pub(crate) unsafe fn bits(self) -> u32 {
+        // SAFETY: the caller promises the live message.
+        unsafe { (*self.header()).bits() }
+    }
+
+    /// `msgh_remote_port` of the message header.
+    ///
+    /// # Safety
+    ///
+    /// The message must be live.
+    pub(crate) unsafe fn remote_port(self) -> usize {
+        // SAFETY: the caller promises the live message.
+        unsafe { (*self.header()).remote() }
+    }
+
+    /// The `kmsg->ikm_header.msgh_remote_port = port` assignment of
+    /// `ipc_mqueue_send()`'s dead-port path.
+    ///
+    /// # Safety
+    ///
+    /// The message must be live, and the right it named must already have
+    /// been consumed.
+    pub(crate) unsafe fn set_remote_port(self, port: usize) {
+        // SAFETY: the caller promises the live message.
+        unsafe { (*self.header()).set_remote(port) };
+    }
 }
 
 /// `ipc_kmsg_cache` of ipc/ipc_kmsg.c: one cached message per CPU.
@@ -806,14 +881,15 @@ pub(crate) unsafe fn enqueue(queue: *mut IpcKmsgQueue, kmsg: Kmsg) {
 /// # Safety
 ///
 /// `queue` must hold `kmsg` as its first element.
-unsafe fn rmqueue_first(queue: *mut IpcKmsgQueue, kmsg: *mut IpcKmsg) {
+pub(crate) unsafe fn rmqueue_first(queue: *mut IpcKmsgQueue, kmsg: Kmsg) {
     // SAFETY: the caller promises `kmsg` is queued and live.
     unsafe {
-        let next = (*kmsg).next.cast::<IpcKmsg>();
-        if next == kmsg {
+        let record = kmsg.record();
+        let next = (*record).next.cast::<IpcKmsg>();
+        if next == record {
             (*queue).base = ptr::null_mut();
         } else {
-            let prev = (*kmsg).prev.cast::<IpcKmsg>();
+            let prev = (*record).prev.cast::<IpcKmsg>();
             (*queue).base = next.cast();
             (*next).prev = prev.cast();
             (*prev).next = next.cast();
@@ -834,7 +910,7 @@ pub(crate) unsafe fn dequeue(queue: *mut IpcKmsgQueue) -> Option<Kmsg> {
     }
 
     // SAFETY: `first` is a queued live message.
-    unsafe { rmqueue_first(queue, first) };
+    unsafe { rmqueue_first(queue, Kmsg::from_record(first)) };
 
     // SAFETY: `first` was the queue's live head.
     Some(unsafe { Kmsg::from_record(first) })
@@ -1115,7 +1191,7 @@ pub(crate) unsafe fn clean(kmsg: Kmsg) {
     let marequest = unsafe { kmsg.marequest() };
     if !marequest.is_null() {
         // SAFETY: the caller owns the message-accepted request.
-        unsafe { glue::ipc_marequest_destroy(marequest) };
+        unsafe { ipc_marequest::destroy(marequest.cast::<IpcMarequest>()) };
     }
 
     // SAFETY: the caller owns the destination right.

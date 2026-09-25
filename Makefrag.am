@@ -26,16 +26,13 @@ libkernel_a_SOURCES += \
 	ipc/ipc_kmsg.h \
 	ipc/ipc_kmsg_queue.h \
 	ipc/ipc_machdep.h \
-	ipc/ipc_marequest.c \
 	ipc/ipc_marequest.h \
-	ipc/ipc_mqueue.c \
 	ipc/ipc_mqueue.h \
 	ipc/ipc_notify.c \
 	ipc/ipc_notify.h \
 	ipc/ipc_object.h \
 	ipc/ipc_port.h \
 	ipc/ipc_print.h \
-	ipc/ipc_pset.c \
 	ipc/ipc_pset.h \
 	ipc/ipc_right.h \
 	ipc/ipc_space.h \

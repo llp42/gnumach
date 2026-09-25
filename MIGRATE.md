@@ -51,7 +51,7 @@ column is what exists in the tree today, not a plan.
 | Layer | What it is | State today |
 |---|---|---|
 | **L0 pure** | strings, byte order, atoi, parser tables | done |
-| **L1 types** | structs read field-by-field, sometimes by asm | `Thread`, `Processor`, `ProcessorSet`, `RunQueue`, `Timer`, `Timeout`, `QueueEntry`, `SimpleLock`, `TimeValue`/`TimeValue64`, `VmMap`/`VmMapEntry`/`VmMapHeader`/`VmMapLinks`, `VmPage`, `VmObject`, `Task`/`MachineTask`, `KmemCache`, `MachineSlot`, `struct ipc_port` (with its `ipc_target` and `ipc_mqueue`), `struct ipc_space`, `struct ipc_kmsg` and `struct ipc_entry` are `#[repr(C)]` mirrors with size, alignment and offset asserts.  `struct pcb`, the APIC structs and the driver structs have no field mirror. |
+| **L1 types** | structs read field-by-field, sometimes by asm | `Thread`, `Processor`, `ProcessorSet`, `RunQueue`, `Timer`, `Timeout`, `QueueEntry`, `SimpleLock`, `TimeValue`/`TimeValue64`, `VmMap`/`VmMapEntry`/`VmMapHeader`/`VmMapLinks`, `VmPage`, `VmObject`, `Task`/`MachineTask`, `KmemCache`, `MachineSlot`, `struct ipc_port` (with its `ipc_target` and `ipc_mqueue`), `struct ipc_space`, `struct ipc_kmsg`, `struct ipc_entry` and `struct ipc_marequest` are `#[repr(C)]` mirrors with size, alignment and offset asserts.  `struct pcb`, the APIC structs and the driver structs have no field mirror. |
 | **L2 locks/IRQ/percpu** | `simple_lock`, `spl*`, `percpu_get`, `current_thread()` | done: `kern/lock.c` and `i386/i386/lock.h` are gone, `SimpleLock` is `src/kern/lock.rs`, `spl*` are real asm functions in `glue`, and `current_thread()`, `cpu_number()` and `percpu_get` live in `src/arch/i386/percpu.rs`.  An RAII `IrqGuard` is a Rust-side type to write when wanted. |
 | **L3 memory** | `kalloc`/`kfree`, `kmem_cache_*` | done: `kern/slab.c` is gone, `src/kern/slab.rs` owns the allocator and `src/kern/slab_ffi.rs` exports its C symbols.  A `GlobalAlloc` over `kalloc` remains a design conversation. |
 | **L4 runnable** | `thread_block`, `assert_wait`, `set_timeout`, continuations | the wait/wake primitives are Rust; `thread_block`, `assert_wait` and `set_timeout` are real C symbols in `glue`; `switch_context`, `call_continuation` and `stack_handoff` stay C. |
@@ -100,16 +100,13 @@ file, or `—` when the rest is ready too.
 
 ## 5. Outside `kern/`
 
-### `ipc/` (7 files, 4,305 LOC)
+### `ipc/` (4 files, 2,922 LOC)
 
 | File | LOC | Free | Holds the rest |
 |---|---:|---:|---|
 | `copy_user.c` | 540 | 0 | `mach_msg_header` fields; `copyoutmsg` absent from both builds |
-| `ipc_marequest.c` | 415 | 0 | `struct ipc_marequest` fields |
-| `ipc_mqueue.c` | 659 | 0 | `struct ipc_mqueue` fields |
 | `ipc_notify.c` | 448 | 0 | `ipc_kmsg` and message fields |
-| `ipc_pset.c` | 309 | 0 | `ipc_pset`/`ipc_mqueue` fields |
-| `mach_debug.c` | 286 | 0 | `hash_info_bucket_t` has no mirror |
+| `mach_debug.c` | 286 | 0 | the `hash_info_bucket_t` mirror landed with `ipc_marequest.c`; re-derive the rest |
 | `mach_msg.c` | 1648 | 0 | `ipc_kmsg` fields |
 
 ### `vm/` (10 files, 6,776 LOC)
@@ -118,7 +115,7 @@ file, or `—` when the rest is ready too.
 |---|---:|---:|---|
 | `memory_object.c` | 1079 | 0 | `ipc_port` fields |
 | `memory_object_proxy.c` | 227 | 0 | cache statics |
-| `vm_debug.c` | 541 | 0 | `hash_info_bucket_t` mirror |
+| `vm_debug.c` | 541 | 0 | the `hash_info_bucket_t` mirror landed; re-derive the rest |
 | `vm_external_glue.c` | 21 | 0 | three `kmem_cache` storage symbols; the `KmemCache` mirror exists now, so a follow-up moves the definitions to Rust statics and deletes the file |
 | `vm_fault.c` | 2024 | 0 | `vm_page`/task fields |
 | `vm_kern.c` | 812 | 0 | — |
@@ -240,8 +237,10 @@ went with the `pmap.c` port and the other 14 are still C:
 accessors and the eight `i386/i386at/com.c` entries.
 
 **Mirror gaps.**
-`host_ipc_marequest_info` and `host_virtual_physical_table_info` need a
-`hash_info_bucket_t` mirror.  The `struct pmap` story now exists: the
+`host_ipc_marequest_info` and `host_virtual_physical_table_info` needed a
+`hash_info_bucket_t` mirror; the `HashInfoBucket` in `src/ipc/mod.rs`
+landed with the `ipc_marequest.c` port, so both can move.  The `struct
+pmap` story now exists: the
 whole of `i386/intel/pmap.c`, its `static` `phys_attribute_*` helpers
 included, moved to `src/arch/i386/pmap.rs` (§9).
 The `vm/vm_object.c` port completed the `struct vm_object` field mirror
@@ -311,9 +310,9 @@ classes.  A derivation is a snapshot of one afternoon's tree.
   batch; (g) the `model_dep.c` clock and console leaves.
 
 * **Phase B — unlock work.**  The constants are in `rust/src/config.rs`;
-  the 20 functions they freed are next, then mirror `hash_info_bucket_t`
-  and `struct vm_page`; `struct pmap` followed with the whole-file
-  `pmap.c` port.
+  the 20 functions they freed are next, then the `struct vm_page` mirror;
+  `struct pmap` followed with the whole-file `pmap.c` port.  The
+  `hash_info_bucket_t` mirror landed with `ipc_marequest.c`.
 
 * **Phase C — the coupled files.**  `eventcount`, `priority`, `gsync`,
   `ipc_tt`, `ipc_host`, `host`, `processor`, `machine`, `mach_clock` once
@@ -437,6 +436,9 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `ipc/ipc_init.c`, `ipc/ipc_target.c`, `ipc/ipc_space.c`, `ipc/ipc_entry.c` and `ipc/ipc_object.c` whole, with the `ipc_space_cache`, `ipc_entry_cache`, `ipc_object_caches`, `ipc_space_kernel`, `ipc_space_reply`, `ipc_kernel_map` and `ipc_kernel_map_size` globals | `src/ipc/ipc_init.rs`, `ipc_target.rs`, `ipc_space.rs`, `ipc_space_ffi.rs`, `ipc_entry.rs`, `ipc_entry_ffi.rs`, `ipc_object.rs`, `ipc_object_ffi.rs` | pending |
 | `ipc/ipc_kmsg.c` whole, with the `ipc_kmsg_cache` per-CPU array it owned and the `mach_msg_type_t`/`mach_msg_type_long_t` descriptor view its body walks use | `src/ipc/ipc_kmsg.rs`, `ipc_kmsg_ffi.rs`, `src/ipc/mod.rs` | pending |
 | `ipc/ipc_right.c` whole, with the `ipc_reverse_insert`/`ipc_reverse_remove` inlines its capability switches used | `src/ipc/ipc_right.rs`, `ipc_right_ffi.rs`, `ipc_space.rs` | pending |
+| `ipc/ipc_mqueue.c` whole, with the `struct ipc_marequest` view its receive path tears down | `src/ipc/ipc_mqueue.rs`, `ipc_mqueue_ffi.rs` | pending |
+| `ipc/ipc_pset.c` whole | `src/ipc/ipc_pset.rs`, `ipc_pset_ffi.rs` | pending |
+| `ipc/ipc_marequest.c` whole, with the `ipc_marequest_cache`, `ipc_marequest_size`, `ipc_marequest_mask` and `ipc_marequest_table` globals it owned and the `struct ipc_marequest`, `struct ipc_marequest_bucket` and `hash_info_bucket_t` mirrors its bodies read | `src/ipc/ipc_marequest.rs`, `ipc_marequest_ffi.rs`, `src/ipc/mod.rs` | pending |
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `i386/i386at/kd_glue.c`
@@ -469,7 +471,10 @@ list and into `src/arch/i386/biosmem.rs`.  The `kern/thread.c` port
 declared the C routines it still calls (`pcb_init`, `pcb_terminate`,
 `ipc_thread_init`, `mach_port_deallocate`, `mach_port_destroy`,
 `mach_msg_continue`, `mach_msg_receive_continue` and
-`mach_msg_interrupt`) in the same block, which is not debt either.
+`mach_msg_interrupt`) in the same block, which is not debt either.  The
+`ipc/ipc_mqueue.c` port declared `ipc_kobject_server`, and the
+`ipc/ipc_marequest.c` port declared `ipc_notify_msg_accepted`, in that
+same block; declaring C symbols that already exist writes no C.
 
 `--enable-user32` is out of scope for the Rust half: the build targets
 the i686 and x86_64 configurations the ABI pack gates.  The removed

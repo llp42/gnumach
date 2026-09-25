@@ -9,8 +9,10 @@
 //! `ipc/ipc_port.h` declares.
 
 use crate::glue;
-use crate::ipc::ipc_kmsg;
+use crate::ipc::ipc_kmsg::{self, MsgReturn};
+use crate::ipc::ipc_mqueue;
 use crate::ipc::ipc_object;
+use crate::ipc::ipc_pset;
 use crate::ipc::ipc_table::{self, IPC_PORT_REQUEST_SIZE, IpcTableSize};
 use crate::ipc::ipc_target;
 use crate::ipc::ipc_thread;
@@ -61,8 +63,6 @@ const MACH_PORT_NAME_DEAD: c_uint = c_uint::MAX;
 const MACH_MSG_TYPE_PORT_SEND: c_uint = 17;
 /// `MACH_MSG_SUCCESS` of <mach/message.h>.
 const MACH_MSG_SUCCESS: c_int = 0;
-/// `MACH_RCV_PORT_DIED` of <mach/message.h>.
-const MACH_RCV_PORT_DIED: c_int = 0x1000_4009;
 /// `IKOT_NONE` of <kern/ipc_kobject.h>: the type of a port bound to no kernel
 /// object.
 const IKOT_NONE: c_uint = 0;
@@ -445,7 +445,7 @@ pub(crate) unsafe fn lock_mqueue(port: IpcPort) -> *mut IpcMqueue {
                 return mqueue;
             }
 
-            glue::ipc_pset_remove(pset, port.as_ptr());
+            ipc_pset::remove(target, port);
             IpcTarget::check_unlock(target);
         }
     }
@@ -524,7 +524,7 @@ pub(crate) unsafe fn clear_receiver(port: IpcPort) {
         // SAFETY: a non-null `ip_pset` names a live port set.
         unsafe {
             (*target).lock();
-            glue::ipc_pset_remove(pset, port.as_ptr());
+            ipc_pset::remove(target, port);
             IpcTarget::check_unlock(target);
         }
     } else {
@@ -533,7 +533,7 @@ pub(crate) unsafe fn clear_receiver(port: IpcPort) {
         // SAFETY: as above; the port owns the queue.
         unsafe {
             (*mqueue).lock();
-            glue::ipc_mqueue_changed(mqueue.cast(), MACH_RCV_PORT_DIED);
+            ipc_mqueue::changed(mqueue, MsgReturn::RCV_PORT_DIED);
             (*mqueue).unlock();
         }
     }
@@ -575,7 +575,7 @@ pub(crate) unsafe fn init(port: IpcPort, space: *mut c_void, name: c_uint) {
         port.clear_protected_flag();
         port.set_protected_payload(0);
 
-        glue::ipc_mqueue_init(port.messages().cast());
+        ipc_mqueue::init(port.messages());
         ipc_thread::ipc_thread_queue_init(port.blocked());
     }
 }

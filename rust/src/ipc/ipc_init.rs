@@ -10,7 +10,7 @@
 
 use crate::arch::types::{VmOffset, VmSize};
 use crate::glue;
-use crate::ipc::{ipc_entry, ipc_object, ipc_port, ipc_space};
+use crate::ipc::{ipc_entry, ipc_marequest, ipc_object, ipc_port, ipc_space};
 use crate::vm::vm_kern_ffi::kmem_submap;
 use crate::vm::vm_map::VmMap;
 use core::ptr;
@@ -52,9 +52,9 @@ fn bootstrap() {
     // notification templates; the boot caller runs this once.
     unsafe { glue::ipc_notify_init() };
 
-    // SAFETY: `ipc_marequest_init` takes no arguments and only builds the
-    // message-accepted table; the boot caller runs this once.
-    unsafe { glue::ipc_marequest_init() };
+    // SAFETY: `ipc_marequest_init` only builds the message-accepted table;
+    // the boot caller runs this once.
+    unsafe { ipc_marequest::init() };
 }
 
 /// `ipc_init()` in C.

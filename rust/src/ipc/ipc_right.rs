@@ -8,8 +8,10 @@
 
 use crate::glue;
 use crate::ipc::ipc_entry;
+use crate::ipc::ipc_marequest;
 use crate::ipc::ipc_object;
 use crate::ipc::ipc_port;
+use crate::ipc::ipc_pset;
 use crate::ipc::{
     IE_BITS_TYPE_MASK, IO_DEAD, IpcEntry, IpcPort, IpcSpace, IpcTarget,
 };
@@ -384,7 +386,7 @@ pub(crate) unsafe fn check(
             bits &= !IE_BITS_MAREQUEST;
 
             // SAFETY: the caller holds the space lock.
-            unsafe { glue::ipc_marequest_cancel(space.as_ptr(), name) };
+            unsafe { ipc_marequest::cancel(space, name) };
         }
 
         // SAFETY: the caller holds the space lock.
@@ -438,7 +440,7 @@ pub(crate) unsafe fn clean(name: c_uint, entry: *mut IpcEntry) {
 
             // SAFETY: the port set is live and locked; the destroy consumes
             // the entry's reference and unlocks.
-            unsafe { glue::ipc_pset_destroy(pset) };
+            unsafe { ipc_pset::destroy(pset.cast::<IpcTarget>()) };
         }
 
         MACH_PORT_TYPE_SEND
@@ -567,7 +569,7 @@ pub(crate) unsafe fn destroy(
 
             // SAFETY: the port set is live and locked; the destroy consumes
             // the entry's reference and unlocks.
-            unsafe { glue::ipc_pset_destroy(pset) };
+            unsafe { ipc_pset::destroy(pset.cast::<IpcTarget>()) };
         }
 
         MACH_PORT_TYPE_SEND
@@ -579,7 +581,7 @@ pub(crate) unsafe fn destroy(
 
             if bits & IE_BITS_MAREQUEST != 0 {
                 // SAFETY: the caller holds the space lock.
-                unsafe { glue::ipc_marequest_cancel(space.as_ptr(), name) };
+                unsafe { ipc_marequest::cancel(space, name) };
             }
 
             if type_ == MACH_PORT_TYPE_SEND {
@@ -804,9 +806,7 @@ pub(crate) unsafe fn dealloc(
 
                 if bits & IE_BITS_MAREQUEST != 0 {
                     // SAFETY: the caller holds the space lock.
-                    unsafe {
-                        glue::ipc_marequest_cancel(space.as_ptr(), name)
-                    };
+                    unsafe { ipc_marequest::cancel(space, name) };
                 }
 
                 // SAFETY: the port is live and its lock is held; the release
@@ -954,7 +954,7 @@ pub(crate) unsafe fn delta(
 
             // SAFETY: the port set is live and locked; the destroy consumes
             // the entry's reference and unlocks.
-            unsafe { glue::ipc_pset_destroy(pset) };
+            unsafe { ipc_pset::destroy(pset.cast::<IpcTarget>()) };
 
             Ok(())
         }
@@ -982,7 +982,7 @@ pub(crate) unsafe fn delta(
                 bits &= !IE_BITS_MAREQUEST;
 
                 // SAFETY: the caller holds the space lock.
-                unsafe { glue::ipc_marequest_cancel(space.as_ptr(), name) };
+                unsafe { ipc_marequest::cancel(space, name) };
             }
 
             // SAFETY: a receive entry names a live port.
@@ -1214,9 +1214,7 @@ pub(crate) unsafe fn delta(
 
                     if bits & IE_BITS_MAREQUEST != 0 {
                         // SAFETY: the caller holds the space lock.
-                        unsafe {
-                            glue::ipc_marequest_cancel(space.as_ptr(), name)
-                        };
+                        unsafe { ipc_marequest::cancel(space, name) };
                     }
 
                     // SAFETY: the port is live and its lock is held; the
@@ -1479,9 +1477,7 @@ pub(crate) unsafe fn copyin(
 
                 if bits & IE_BITS_MAREQUEST != 0 {
                     // SAFETY: the caller holds the space lock.
-                    unsafe {
-                        glue::ipc_marequest_cancel(space.as_ptr(), name)
-                    };
+                    unsafe { ipc_marequest::cancel(space, name) };
                 }
 
                 // SAFETY: the entry is live.
@@ -1580,12 +1576,7 @@ pub(crate) unsafe fn copyin(
 
                         if bits & IE_BITS_MAREQUEST != 0 {
                             // SAFETY: the caller holds the space lock.
-                            unsafe {
-                                glue::ipc_marequest_cancel(
-                                    space.as_ptr(),
-                                    name,
-                                )
-                            };
+                            unsafe { ipc_marequest::cancel(space, name) };
                         }
 
                         // SAFETY: the entry is live.
@@ -1751,7 +1742,7 @@ pub(crate) unsafe fn copyin_two(
 
             if bits & IE_BITS_MAREQUEST != 0 {
                 // SAFETY: the caller holds the space lock.
-                unsafe { glue::ipc_marequest_cancel(space.as_ptr(), name) };
+                unsafe { ipc_marequest::cancel(space, name) };
             }
 
             // SAFETY: the port is live and locked.
@@ -1960,7 +1951,7 @@ pub(crate) unsafe fn rename(
 
     if bits & IE_BITS_MAREQUEST != 0 {
         // SAFETY: the caller holds the space lock.
-        unsafe { glue::ipc_marequest_rename(space.as_ptr(), oname, nname) };
+        unsafe { ipc_marequest::rename(space, oname, nname) };
     }
 
     // SAFETY: the new entry is live and unused.

@@ -17,10 +17,16 @@ pub mod ipc_entry_ffi;
 pub mod ipc_init;
 pub mod ipc_kmsg;
 pub mod ipc_kmsg_ffi;
+pub mod ipc_marequest;
+pub mod ipc_marequest_ffi;
+pub mod ipc_mqueue;
+pub mod ipc_mqueue_ffi;
 pub mod ipc_object;
 pub mod ipc_object_ffi;
 pub mod ipc_port;
 pub mod ipc_port_ffi;
+pub mod ipc_pset;
+pub mod ipc_pset_ffi;
 pub mod ipc_right;
 pub mod ipc_right_ffi;
 pub mod ipc_space;
@@ -55,6 +61,15 @@ const IO_BITS_ACTIVE: u32 = 0x8000_0000;
 const IO_DEAD: *mut c_void = usize::MAX as *mut c_void;
 /// `IE_BITS_TYPE_MASK` of <ipc/ipc_entry.h>: the capability-type field.
 const IE_BITS_TYPE_MASK: u32 = 0x001f_0000;
+/// `IE_BITS_MAREQUEST` of <ipc/ipc_entry.h>: the entry has a msg-accepted
+/// request pending.
+const IE_BITS_MAREQUEST: u32 = 0x0020_0000;
+
+/// `MACH_PORT_TYPE_RECEIVE` of <mach/port.h>: the entry holds receive
+/// rights.
+const MACH_PORT_TYPE_RECEIVE: u32 = 1 << 17;
+/// `MACH_PORT_TYPE_PORT_SET` of <mach/port.h>: the entry names a port set.
+const MACH_PORT_TYPE_PORT_SET: u32 = 1 << 19;
 
 /// The `struct ipc_object` header every IPC object begins with.
 #[repr(C)]
@@ -143,6 +158,11 @@ impl IpcMqueue {
     pub(crate) fn messages(&self) -> *mut c_void {
         ptr::addr_of!(self.messages).cast_mut().cast()
     }
+
+    /// The address of the embedded `struct ipc_thread_queue`, one pointer.
+    pub(crate) fn threads(&self) -> *mut c_void {
+        ptr::addr_of!(self.threads).cast_mut().cast()
+    }
 }
 
 /// `struct ipc_target` of <ipc/ipc_target.h>: the common part of ports and
@@ -197,6 +217,48 @@ impl IpcTarget {
         // first member.
         unsafe {
             IpcObject::check_unlock(ptr::addr_of_mut!((*target).object));
+        }
+    }
+
+    /// The `io_reference()` macro of <ipc/ipc_object.h> against a target's
+    /// object, which the caller already has locked.
+    ///
+    /// # Safety
+    ///
+    /// The target must be live and locked.
+    pub(crate) unsafe fn increment_references(target: *mut Self) {
+        // SAFETY: the caller promises a live, locked target.
+        unsafe {
+            let references = (*target).object.references;
+            (*target).object.references = references.wrapping_add(1);
+        }
+    }
+
+    /// The `io_release()` macro of <ipc/ipc_object.h> against a target's
+    /// object, which the caller already has locked.
+    ///
+    /// # Safety
+    ///
+    /// The target must be live, locked, and holding a reference.
+    pub(crate) unsafe fn decrement_references(target: *mut Self) {
+        // SAFETY: the caller promises a live, locked target with a
+        // reference.
+        unsafe {
+            let references = (*target).object.references;
+            (*target).object.references = references.wrapping_sub(1);
+        }
+    }
+
+    /// The `ipt->ipt_object.io_bits &= ~IO_BITS_ACTIVE` of
+    /// `ipc_pset_destroy()`.
+    ///
+    /// # Safety
+    ///
+    /// The target must be live and locked.
+    pub(crate) unsafe fn clear_active(target: *mut Self) {
+        // SAFETY: the caller promises a live, locked target.
+        unsafe {
+            (*target).object.bits &= !IO_BITS_ACTIVE;
         }
     }
 }
@@ -417,6 +479,73 @@ const _: () = {
     assert!(offset_of!(IpcEntry, bits) == 4);
     assert!(offset_of!(IpcEntry, object) == 8);
     assert!(offset_of!(IpcEntry, index) == 12);
+};
+
+/// `struct ipc_marequest` of <ipc/ipc_marequest.h>: one pending
+/// message-accepted request.
+#[repr(C)]
+pub(crate) struct IpcMarequest {
+    space: *mut c_void,
+    name: c_uint,
+    soright: *mut c_void,
+    next: *mut IpcMarequest,
+}
+
+#[cfg(target_pointer_width = "64")]
+const _: () = {
+    assert!(size_of::<IpcMarequest>() == 32);
+    assert!(align_of::<IpcMarequest>() == 8);
+    assert!(offset_of!(IpcMarequest, space) == 0);
+    assert!(offset_of!(IpcMarequest, name) == 8);
+    assert!(offset_of!(IpcMarequest, soright) == 16);
+    assert!(offset_of!(IpcMarequest, next) == 24);
+};
+
+#[cfg(target_pointer_width = "32")]
+const _: () = {
+    assert!(size_of::<IpcMarequest>() == 16);
+    assert!(align_of::<IpcMarequest>() == 4);
+    assert!(offset_of!(IpcMarequest, space) == 0);
+    assert!(offset_of!(IpcMarequest, name) == 4);
+    assert!(offset_of!(IpcMarequest, soright) == 8);
+    assert!(offset_of!(IpcMarequest, next) == 12);
+};
+
+/// `struct ipc_marequest_bucket` of ipc/ipc_marequest.c: one bucket of the
+/// msg-accepted request hash table.
+#[repr(C)]
+pub(crate) struct IpcMarequestBucket {
+    lock: SimpleLock,
+    head: *mut IpcMarequest,
+}
+
+#[cfg(target_pointer_width = "64")]
+const _: () = {
+    assert!(size_of::<IpcMarequestBucket>() == 16);
+    assert!(align_of::<IpcMarequestBucket>() == 8);
+    assert!(offset_of!(IpcMarequestBucket, lock) == 0);
+    assert!(offset_of!(IpcMarequestBucket, head) == 8);
+};
+
+#[cfg(target_pointer_width = "32")]
+const _: () = {
+    assert!(size_of::<IpcMarequestBucket>() == 8);
+    assert!(align_of::<IpcMarequestBucket>() == 4);
+    assert!(offset_of!(IpcMarequestBucket, lock) == 0);
+    assert!(offset_of!(IpcMarequestBucket, head) == 4);
+};
+
+/// `hash_info_bucket_t` of <mach_debug/hash_info.h>: one bucket count, as
+/// `ipc_marequest_info()` reports them.
+#[repr(transparent)]
+pub struct HashInfoBucket {
+    pub(crate) hib_count: c_uint,
+}
+
+const _: () = {
+    assert!(size_of::<HashInfoBucket>() == size_of::<c_uint>());
+    assert!(align_of::<HashInfoBucket>() == align_of::<c_uint>());
+    assert!(offset_of!(HashInfoBucket, hib_count) == 0);
 };
 
 /// `struct ipc_space` of <ipc/ipc_space.h>: the capability namespace.

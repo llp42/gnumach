@@ -7,8 +7,8 @@
 //! The common part of IPC ports and port sets, which `ipc/ipc_target.c`
 //! defines and `ipc/ipc_target.h` declares.
 
-use crate::glue;
 use crate::ipc::IpcTarget;
+use crate::ipc::ipc_mqueue;
 use core::ffi::{c_uint, c_void};
 
 /// `ipc_target_init()` in C.
@@ -20,9 +20,16 @@ pub(crate) unsafe fn init(target: *mut IpcTarget, name: c_uint) {
     // SAFETY: the caller promises the fresh target.
     unsafe {
         (*target).name = name;
-        glue::ipc_mqueue_init((*target).messages().cast());
+        ipc_mqueue::init((*target).messages());
     }
 }
+
+/// `ipc_target_terminate()` in C.
+///
+/// # Safety
+///
+/// `target` must be a live target that is being destroyed.
+pub(crate) unsafe fn terminate(_target: *mut IpcTarget) {}
 
 /// `ipc_target_init()` of ipc/ipc_target.c.
 ///
@@ -36,5 +43,12 @@ pub unsafe extern "C" fn ipc_target_init(target: *mut c_void, name: c_uint) {
 }
 
 /// `ipc_target_terminate()` of ipc/ipc_target.c.
+///
+/// # Safety
+///
+/// `target` must be a live target that is being destroyed.
 #[unsafe(no_mangle)]
-pub extern "C" fn ipc_target_terminate(_ipt: *mut c_void) {}
+pub unsafe extern "C" fn ipc_target_terminate(target: *mut c_void) {
+    // SAFETY: the caller's contract.
+    unsafe { terminate(target.cast::<IpcTarget>()) };
+}

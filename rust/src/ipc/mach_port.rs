@@ -14,6 +14,7 @@ use crate::glue;
 use crate::ipc::ipc_init;
 use crate::ipc::ipc_object::{self, copyin_type};
 use crate::ipc::ipc_port;
+use crate::ipc::ipc_pset;
 use crate::ipc::ipc_right;
 use crate::ipc::{IE_BITS_TYPE_MASK, IpcEntry, IpcPort, IpcSpace, IpcTarget};
 use crate::kern::rdxtree::RdxtreeIter;
@@ -194,14 +195,6 @@ fn timestamp_order(one: c_uint, two: c_uint) -> bool {
     // The C casts the wrapping difference to a signed int, so only the sign
     // bit matters; this is the same reinterpretation.
     (one.wrapping_sub(two) as c_int) < 0
-}
-
-/// The [`KernError`] a C `kern_return_t` stands for.
-fn kern_error(code: c_int) -> Result<(), KernError> {
-    match u8::try_from(code) {
-        Ok(code) => KernError::from_u8(code),
-        Err(_) => Err(KernError::Failure),
-    }
 }
 
 /// The [`KernError`] a VM map error stands for.
@@ -588,16 +581,12 @@ pub(crate) unsafe fn allocate_name(
             Ok(())
         }
         Some(PortRight::PortSet) => {
-            let mut pset: *mut c_void = ptr::null_mut();
-
-            // SAFETY: the caller promises the live space; `pset` is this
-            // live local, written only on success.
-            kern_error(unsafe {
-                glue::ipc_pset_alloc_name(space.as_ptr(), name, &mut pset)
-            })?;
+            // SAFETY: the caller promises the live space; a successful
+            // allocation returns the port set locked.
+            let pset = unsafe { ipc_pset::alloc_name(space, name) }?;
 
             // SAFETY: a successful allocation returned the port set locked.
-            unsafe { (*pset.cast::<IpcTarget>()).unlock() };
+            unsafe { (*pset).unlock() };
             Ok(())
         }
         Some(PortRight::DeadName) => {
@@ -635,18 +624,12 @@ pub(crate) unsafe fn allocate(
             Ok(name)
         }
         Some(PortRight::PortSet) => {
-            let mut name: c_uint = 0;
-            let mut pset: *mut c_void = ptr::null_mut();
-
-            // SAFETY: the caller promises the live space; the two
-            // out-pointers are this call's live locals, written only on
-            // success.
-            kern_error(unsafe {
-                glue::ipc_pset_alloc(space.as_ptr(), &mut name, &mut pset)
-            })?;
+            // SAFETY: the caller promises the live space; a successful
+            // allocation returns the port set locked.
+            let (name, pset) = unsafe { ipc_pset::alloc(space) }?;
 
             // SAFETY: a successful allocation returned the port set locked.
-            unsafe { (*pset.cast::<IpcTarget>()).unlock() };
+            unsafe { (*pset).unlock() };
             Ok(name)
         }
         Some(PortRight::DeadName) => {
@@ -1154,9 +1137,16 @@ pub(crate) unsafe fn move_member(
         unsafe { (*entry).object() }
     };
 
-    // SAFETY: the lookup left the space write-locked and active;
+    // SAFETY: the lookup left the space write-locked and active, the receive
+    // entry named a live port, and any port-set entry named a live set;
     // `ipc_pset_move` unlocks the space.
-    kern_error(unsafe { glue::ipc_pset_move(space.as_ptr(), port, nset) })
+    unsafe {
+        ipc_pset::move_between(
+            space,
+            IpcPort::from_raw(port),
+            nset.cast::<IpcTarget>(),
+        )
+    }
 }
 
 /// `mach_port_get_receive_status()` in C.
@@ -1200,7 +1190,7 @@ pub(crate) unsafe fn get_receive_status(
                 (*target).unlock();
                 (name, seqno)
             } else {
-                glue::ipc_pset_remove(pset, port.as_ptr());
+                ipc_pset::remove(target, port);
                 IpcTarget::check_unlock(target);
                 let mqueue = port.messages();
                 (*mqueue).lock();
