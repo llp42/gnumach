@@ -8,14 +8,15 @@
 //! The capability-space routines, which `ipc/ipc_space.c` used to define and
 //! `ipc/ipc_space.h` declares.
 
-use crate::glue;
 use crate::ipc::ipc_entry;
+use crate::ipc::ipc_right;
 use crate::ipc::{IE_BITS_TYPE_MASK, IpcEntry, IpcSpace, IpcSpaceRecord};
 use crate::kern::lock::LockData;
 use crate::kern::rdxtree::{Lookup, RdxtreeIter, RdxtreeKey};
 use crate::kern::slab::KmemCache;
 use crate::kern::slab_ffi::kmem_cache_init;
 use crate::kern::types::KernError;
+use crate::vm::error::Error;
 use crate::vm::vm_kern::VM_MIN_KERNEL_ADDRESS;
 use core::ffi::{c_uint, c_void};
 use core::mem::size_of;
@@ -99,20 +100,66 @@ impl IpcSpace {
         self,
         object: *mut c_void,
     ) -> Option<*mut IpcEntry> {
-        // The C's `KEY()` shifts the kernel address down and hands the
-        // 64-bit result to the 32-bit `rdxtree_key_t` parameter, so the high
-        // bits truncate.
-        let key =
-            (object.addr().wrapping_sub(VM_MIN_KERNEL_ADDRESS) >> 3) as u32;
-
         // SAFETY: the caller holds the space lock, which serializes the map.
         let found = unsafe {
-            (*self.record())
-                .reverse_map
-                .lookup(RdxtreeKey::from_raw(key), Lookup::Value)
+            (*self.record()).reverse_map.lookup(
+                RdxtreeKey::from_raw(reverse_key(object)),
+                Lookup::Value,
+            )
         }?;
         Some(found.address().cast::<IpcEntry>())
     }
+
+    /// `ipc_reverse_insert()` of <ipc/ipc_space.h>: record `entry` as
+    /// `object`'s reverse mapping.
+    ///
+    /// # Safety
+    ///
+    /// The space must be live and write-locked, and `entry` must be a live,
+    /// non-null entry of it.
+    pub(crate) unsafe fn reverse_insert(
+        self,
+        object: *mut c_void,
+        entry: *mut IpcEntry,
+    ) -> Result<(), Error> {
+        // SAFETY: the caller promises the live entry.
+        let entry = unsafe { NonNull::new_unchecked(entry.cast::<c_void>()) };
+
+        // SAFETY: the caller holds the write lock, which serializes the map.
+        unsafe {
+            (*self.record())
+                .reverse_map
+                .insert(RdxtreeKey::from_raw(reverse_key(object)), entry)
+                .map(|_| ())
+        }
+    }
+
+    /// `ipc_reverse_remove()` of <ipc/ipc_space.h>: drop `object` from the
+    /// reverse map.
+    ///
+    /// # Safety
+    ///
+    /// The space must be live and write-locked.
+    pub(crate) unsafe fn reverse_remove(
+        self,
+        object: *mut c_void,
+    ) -> Option<*mut IpcEntry> {
+        // SAFETY: the caller holds the write lock, which serializes the map.
+        unsafe {
+            (*self.record())
+                .reverse_map
+                .remove(RdxtreeKey::from_raw(reverse_key(object)))
+        }
+        .map(|found| found.as_ptr().cast::<IpcEntry>())
+    }
+}
+
+/// The C `KEY()` macro of <ipc/ipc_space.h>: the reverse map's key for an
+/// object.
+fn reverse_key(object: *mut c_void) -> u32 {
+    // The C shifts the kernel address down and hands the 64-bit result to the
+    // 32-bit `rdxtree_key_t` parameter, so the high bits truncate.
+    (object.addr().wrapping_sub(VM_MIN_KERNEL_ADDRESS) >> 3) as u32
 }
 
 /// `is_alloc()` of <ipc/ipc_space.h>.
@@ -289,11 +336,7 @@ pub(crate) unsafe fn destroy(space: IpcSpace) {
             // The generation is zero in this configuration, so the C's
             // `MACH_PORT_MAKEB()` is the entry's name.
             if (*entry).bits() & IE_BITS_TYPE_MASK != 0 {
-                glue::ipc_right_clean(
-                    space.as_ptr(),
-                    (*entry).name(),
-                    entry.cast(),
-                );
+                ipc_right::clean((*entry).name(), entry);
             }
 
             ipc_entry::free(entry);

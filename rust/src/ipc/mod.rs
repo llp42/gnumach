@@ -21,6 +21,8 @@ pub mod ipc_object;
 pub mod ipc_object_ffi;
 pub mod ipc_port;
 pub mod ipc_port_ffi;
+pub mod ipc_right;
+pub mod ipc_right_ffi;
 pub mod ipc_space;
 pub mod ipc_space_ffi;
 pub mod ipc_table;
@@ -171,6 +173,12 @@ impl IpcTarget {
     /// `ips_local_name` of <ipc/ipc_pset.h>: `ip_target.ipt_name`.
     pub(crate) fn local_name(&self) -> c_uint {
         self.name
+    }
+
+    /// The `pset->ips_local_name = nname` assignment of
+    /// `ipc_right_rename()`.
+    pub(crate) fn set_local_name(&mut self, name: c_uint) {
+        self.name = name;
     }
 
     /// `&pset->ips_messages`: the address of the target's message queue.

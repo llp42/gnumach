@@ -15,6 +15,7 @@ use crate::glue;
 use crate::ipc::ipc_entry;
 use crate::ipc::ipc_object;
 use crate::ipc::ipc_port;
+use crate::ipc::ipc_right;
 use crate::ipc::mach_port;
 use crate::ipc::{
     IE_BITS_TYPE_MASK, IpcEntry, IpcKmsg, IpcPort, IpcSpace, MachMsgHeader,
@@ -103,8 +104,6 @@ const IKOT_PAGING_REQUEST: c_uint = 9;
 const IKOT_DEVICE: c_uint = 10;
 /// `IKOT_USER_DEVICE` of <kern/ipc_kobject.h>.
 const IKOT_USER_DEVICE: c_uint = 28;
-/// `KERN_SUCCESS` of <mach/kern_return.h>.
-const KERN_SUCCESS: c_int = 0;
 /// `KERN_FAILURE` of <mach/kern_return.h>.
 const KERN_FAILURE: c_int = 5;
 /// `IO_DEAD` of <ipc/ipc_object.h>: the one non-null pointer `IO_VALID()`
@@ -1742,16 +1741,8 @@ pub(crate) unsafe fn copyin_header(
                 break 'copyin Err(MsgReturn::SEND_INVALID_DEST);
             };
 
-            // SAFETY: the space is write-locked and the entry is live.
-            if unsafe {
-                glue::ipc_right_copyin_check(
-                    space.as_ptr(),
-                    name,
-                    entry.cast(),
-                    reply_type,
-                )
-            } == 0
-            {
+            // SAFETY: the entry is live.
+            if !unsafe { ipc_right::copyin_check(entry, reply_type) } {
                 break 'copyin Err(MsgReturn::SEND_INVALID_REPLY);
             }
 
@@ -1765,51 +1756,36 @@ pub(crate) unsafe fn copyin_header(
                 || reply_type == MACH_MSG_TYPE_MAKE_SEND_ONCE
             {
                 // SAFETY: the space is write-locked and the entry is live.
-                if unsafe {
-                    glue::ipc_right_copyin(
-                        space.as_ptr(),
-                        name,
-                        entry.cast(),
-                        dest_type,
-                        0,
-                        &mut dest_port,
-                        &mut dest_soright,
-                    )
-                } != KERN_SUCCESS
-                {
-                    break 'copyin Err(MsgReturn::SEND_INVALID_DEST);
+                match unsafe {
+                    ipc_right::copyin(space, name, entry, dest_type, false)
+                } {
+                    Ok((object, soright)) => {
+                        dest_port = object;
+                        dest_soright = soright;
+                    }
+                    Err(_) => break 'copyin Err(MsgReturn::SEND_INVALID_DEST),
                 }
 
                 // The C ignores this result; `copyin_check` above makes it a
                 // success.
-                let _ = unsafe {
-                    glue::ipc_right_copyin(
-                        space.as_ptr(),
-                        name,
-                        entry.cast(),
-                        reply_type,
-                        1,
-                        &mut reply_port,
-                        &mut reply_soright,
-                    )
-                };
+                if let Ok((object, soright)) = unsafe {
+                    ipc_right::copyin(space, name, entry, reply_type, true)
+                } {
+                    reply_port = object;
+                    reply_soright = soright;
+                }
             } else if dest_type == MACH_MSG_TYPE_COPY_SEND
                 && reply_type == MACH_MSG_TYPE_COPY_SEND
             {
                 // SAFETY: the space is write-locked and the entry is live.
-                if unsafe {
-                    glue::ipc_right_copyin(
-                        space.as_ptr(),
-                        name,
-                        entry.cast(),
-                        dest_type,
-                        0,
-                        &mut dest_port,
-                        &mut dest_soright,
-                    )
-                } != KERN_SUCCESS
-                {
-                    break 'copyin Err(MsgReturn::SEND_INVALID_DEST);
+                match unsafe {
+                    ipc_right::copyin(space, name, entry, dest_type, false)
+                } {
+                    Ok((object, soright)) => {
+                        dest_port = object;
+                        dest_soright = soright;
+                    }
+                    Err(_) => break 'copyin Err(MsgReturn::SEND_INVALID_DEST),
                 }
 
                 // SAFETY: the copy-in returned a live port.
@@ -1819,17 +1795,12 @@ pub(crate) unsafe fn copyin_header(
                 && reply_type == MACH_MSG_TYPE_PORT_SEND
             {
                 // SAFETY: the space is write-locked and the entry is live.
-                if unsafe {
-                    glue::ipc_right_copyin_two(
-                        space.as_ptr(),
-                        name,
-                        entry.cast(),
-                        &mut dest_port,
-                        &mut dest_soright,
-                    )
-                } != KERN_SUCCESS
-                {
-                    break 'copyin Err(MsgReturn::SEND_INVALID_DEST);
+                match unsafe { ipc_right::copyin_two(space, name, entry) } {
+                    Ok((object, soright)) => {
+                        dest_port = object;
+                        dest_soright = soright;
+                    }
+                    Err(_) => break 'copyin Err(MsgReturn::SEND_INVALID_DEST),
                 }
 
                 // SAFETY: the entry is live and the space is write-locked.
@@ -1841,22 +1812,23 @@ pub(crate) unsafe fn copyin_header(
                 reply_port = dest_port;
                 reply_soright = ptr::null_mut();
             } else {
-                let mut soright: *mut c_void = ptr::null_mut();
+                let soright: *mut c_void;
 
                 // SAFETY: the space is write-locked and the entry is live.
-                if unsafe {
-                    glue::ipc_right_copyin(
-                        space.as_ptr(),
+                match unsafe {
+                    ipc_right::copyin(
+                        space,
                         name,
-                        entry.cast(),
+                        entry,
                         MACH_MSG_TYPE_PORT_SEND,
-                        0,
-                        &mut dest_port,
-                        &mut soright,
+                        false,
                     )
-                } != KERN_SUCCESS
-                {
-                    break 'copyin Err(MsgReturn::SEND_INVALID_DEST);
+                } {
+                    Ok((object, right)) => {
+                        dest_port = object;
+                        soright = right;
+                    }
+                    Err(_) => break 'copyin Err(MsgReturn::SEND_INVALID_DEST),
                 }
 
                 // SAFETY: the entry is live and the space is write-locked.
@@ -1886,19 +1858,14 @@ pub(crate) unsafe fn copyin_header(
             };
 
             // SAFETY: the space is write-locked and the entry is live.
-            if unsafe {
-                glue::ipc_right_copyin(
-                    space.as_ptr(),
-                    dest_name,
-                    entry.cast(),
-                    dest_type,
-                    0,
-                    &mut dest_port,
-                    &mut dest_soright,
-                )
-            } != KERN_SUCCESS
-            {
-                break 'copyin Err(MsgReturn::SEND_INVALID_DEST);
+            match unsafe {
+                ipc_right::copyin(space, dest_name, entry, dest_type, false)
+            } {
+                Ok((object, soright)) => {
+                    dest_port = object;
+                    dest_soright = soright;
+                }
+                Err(_) => break 'copyin Err(MsgReturn::SEND_INVALID_DEST),
             }
 
             // SAFETY: the entry is live and the space is write-locked.
@@ -1928,33 +1895,22 @@ pub(crate) unsafe fn copyin_header(
                 break 'copyin Err(MsgReturn::SEND_INVALID_REPLY);
             };
 
-            // SAFETY: the space is write-locked and the entry is live.
-            if unsafe {
-                glue::ipc_right_copyin_check(
-                    space.as_ptr(),
-                    reply_name,
-                    reply_entry.cast(),
-                    reply_type,
-                )
-            } == 0
-            {
+            // SAFETY: the entry is live.
+            if !unsafe { ipc_right::copyin_check(reply_entry, reply_type) } {
                 break 'copyin Err(MsgReturn::SEND_INVALID_REPLY);
             }
 
             // SAFETY: the space is write-locked and the entry is live.
-            if unsafe {
-                glue::ipc_right_copyin(
-                    space.as_ptr(),
-                    dest_name,
-                    dest_entry.cast(),
-                    dest_type,
-                    0,
-                    &mut dest_port,
-                    &mut dest_soright,
+            match unsafe {
+                ipc_right::copyin(
+                    space, dest_name, dest_entry, dest_type, false,
                 )
-            } != KERN_SUCCESS
-            {
-                break 'copyin Err(MsgReturn::SEND_INVALID_DEST);
+            } {
+                Ok((object, soright)) => {
+                    dest_port = object;
+                    dest_soright = soright;
+                }
+                Err(_) => break 'copyin Err(MsgReturn::SEND_INVALID_DEST),
             }
 
             // SAFETY: the entry is live and the space is write-locked.
@@ -1967,17 +1923,18 @@ pub(crate) unsafe fn copyin_header(
 
             // The C ignores this result; `copyin_check` above makes it a
             // success.
-            let _ = unsafe {
-                glue::ipc_right_copyin(
-                    space.as_ptr(),
+            if let Ok((object, soright)) = unsafe {
+                ipc_right::copyin(
+                    space,
                     reply_name,
-                    reply_entry.cast(),
+                    reply_entry,
                     reply_type,
-                    1,
-                    &mut reply_port,
-                    &mut reply_soright,
+                    true,
                 )
-            };
+            } {
+                reply_port = object;
+                reply_soright = soright;
+            }
 
             if !saved_reply.is_null() && reply_port == IO_DEAD {
                 // SAFETY: the copy-in returned a live destination port.
@@ -2006,18 +1963,18 @@ pub(crate) unsafe fn copyin_header(
                     // SAFETY: the space is write-locked, the entries live,
                     // and the copy-ins are those this call just made.
                     unsafe {
-                        glue::ipc_right_copyin_undo(
-                            space.as_ptr(),
+                        ipc_right::copyin_undo(
+                            space,
                             dest_name,
-                            dest_entry.cast(),
+                            dest_entry,
                             dest_type,
                             dest_port,
                             dest_soright,
                         );
-                        glue::ipc_right_copyin_undo(
-                            space.as_ptr(),
+                        ipc_right::copyin_undo(
+                            space,
                             reply_name,
-                            reply_entry.cast(),
+                            reply_entry,
                             reply_type,
                             reply_port,
                             reply_soright,
@@ -2837,7 +2794,7 @@ pub(crate) unsafe fn copyout_header(
     let dest_type = mach_msg_bits_remote(mbits);
     let reply_type = mach_msg_bits_local(mbits);
     let mut reply = ptr_at::<c_void>(unsafe { (*header).local() });
-    let mut reply_name = MACH_PORT_NAME_NULL;
+    let mut reply_name;
     let dest_name;
 
     // SAFETY: the header names a live destination.
@@ -2877,16 +2834,15 @@ pub(crate) unsafe fn copyout_header(
                 None
             };
 
-            if reply_type != MACH_MSG_TYPE_PORT_SEND_ONCE
-                && unsafe {
-                    glue::ipc_right_reverse(
-                        space.as_ptr(),
-                        reply,
-                        &mut reply_name,
-                        &mut entry,
-                    )
-                } != 0
-            {
+            let reversed = if reply_type != MACH_MSG_TYPE_PORT_SEND_ONCE {
+                // SAFETY: the space is write-locked and `reply` is live.
+                unsafe { ipc_right::reverse(space, reply) }
+            } else {
+                None
+            };
+            if let Some((name, found)) = reversed {
+                reply_name = name;
+                entry = found.cast();
                 break;
             }
 
@@ -3000,12 +2956,12 @@ pub(crate) unsafe fn copyout_header(
 
             // The C ignores this result.
             let _ = unsafe {
-                glue::ipc_right_copyout(
-                    space.as_ptr(),
+                ipc_right::copyout(
+                    space,
                     reply_name,
-                    entry,
+                    entry.cast(),
                     reply_type,
-                    1,
+                    true,
                     reply,
                 )
             };

@@ -8,9 +8,10 @@
 
 use crate::glue;
 use crate::ipc::ipc_entry;
+use crate::ipc::ipc_right;
 use crate::ipc::{
-    IE_BITS_TYPE_MASK, IO_BITS_ACTIVE, IOT_PORT, IOT_PORT_SET, IpcEntry,
-    IpcObject, IpcPort, IpcSpace, IpcTarget,
+    IE_BITS_TYPE_MASK, IO_BITS_ACTIVE, IOT_PORT, IOT_PORT_SET, IpcObject,
+    IpcPort, IpcSpace, IpcTarget,
 };
 use crate::kern::slab::KmemCache;
 use crate::kern::slab_ffi::kmem_cache_init;
@@ -100,14 +101,6 @@ fn strange_rights(fun: &'static CStr, message: &'static CStr) -> ! {
             fun.as_ptr(),
             message.as_ptr(),
         )
-    }
-}
-
-/// The [`KernError`] a C `kern_return_t` stands for.
-fn kern_error(code: c_int) -> Result<(), KernError> {
-    match u8::try_from(code) {
-        Ok(code) => KernError::from_u8(code),
-        Err(_) => Err(KernError::Failure),
     }
 }
 
@@ -245,16 +238,9 @@ pub(crate) unsafe fn translate(
     name: c_uint,
     right: c_uint,
 ) -> Result<*mut c_void, KernError> {
-    let mut found: *mut c_void = ptr::null_mut();
-
-    // SAFETY: the caller promises a live space; the out-pointer is this
-    // live local, written only on success.
-    kern_error(unsafe {
-        glue::ipc_right_lookup_write(space.as_ptr(), name, &mut found)
-    })?;
-
-    // SAFETY: success means a live entry with the space write-locked.
-    let entry = found.cast::<IpcEntry>();
+    // SAFETY: the caller promises a live space; on success the entry is live
+    // and the space is write-locked.
+    let entry = unsafe { ipc_right::lookup_write(space, name) }?;
 
     // SAFETY: the entry is live and the space is locked.
     if unsafe { (*entry).bits() } & mach_port_type(right) == 0 {
@@ -327,9 +313,7 @@ pub(crate) unsafe fn alloc_dead_name(
 
     // SAFETY: `ipc_right_inuse` unlocks the space when the entry is in use,
     // as the C's did.
-    if unsafe { glue::ipc_right_inuse(space.as_ptr(), name, entry.cast()) }
-        != 0
-    {
+    if unsafe { ipc_right::inuse(space, entry) } {
         return Err(KernError::NameExists);
     }
 
@@ -426,9 +410,7 @@ pub(crate) unsafe fn alloc_name(
 
     // SAFETY: `ipc_right_inuse` unlocks the space when the entry is in use,
     // as the C's did.
-    if unsafe { glue::ipc_right_inuse(space.as_ptr(), name, entry.cast()) }
-        != 0
-    {
+    if unsafe { ipc_right::inuse(space, entry) } {
         // SAFETY: the object is the fresh allocation from above.
         unsafe { io_free(otype, object) };
         return Err(KernError::NameExists);
@@ -458,33 +440,13 @@ pub(crate) unsafe fn copyin(
     name: c_uint,
     msgt_name: c_uint,
 ) -> Result<*mut c_void, KernError> {
-    let mut found: *mut c_void = ptr::null_mut();
+    // SAFETY: the caller promises a live space; on success the entry is live
+    // and the space is write-locked.
+    let entry = unsafe { ipc_right::lookup_write(space, name) }?;
 
-    // SAFETY: the caller promises a live space; the out-pointer is this
-    // live local, written only on success.
-    kern_error(unsafe {
-        glue::ipc_right_lookup_write(space.as_ptr(), name, &mut found)
-    })?;
-
-    // SAFETY: success means a live entry with the space write-locked.
-    let entry = found.cast::<IpcEntry>();
-
-    let mut object: *mut c_void = ptr::null_mut();
-    let mut soright: *mut c_void = ptr::null_mut();
-
-    // SAFETY: the entry is live, the space is write-locked and active, and
-    // the two out-pointers are this function's live locals.
-    let result = kern_error(unsafe {
-        glue::ipc_right_copyin(
-            space.as_ptr(),
-            name,
-            entry.cast(),
-            msgt_name,
-            1,
-            &mut object,
-            &mut soright,
-        )
-    });
+    // SAFETY: the entry is live and the space is write-locked and active.
+    let result =
+        unsafe { ipc_right::copyin(space, name, entry, msgt_name, true) };
 
     // SAFETY: the space lock is held; an entry left with no type is freed as
     // the C's `ipc_entry_dealloc()` did.
@@ -495,7 +457,7 @@ pub(crate) unsafe fn copyin(
         space.lock_done();
     }
 
-    result?;
+    let (object, soright) = result?;
 
     if !soright.is_null() {
         // SAFETY: a non-null send-once right came from the successful copyin
@@ -600,61 +562,50 @@ pub(crate) unsafe fn copyout(
         return Err(KernError::InvalidTask);
     }
 
-    let mut found: *mut c_void = ptr::null_mut();
-    let mut oname: c_uint = 0;
-
     // SAFETY: the space is locked and active.  On success the object is
     // locked and active.
-    let (name, entry) = if msgt_name != MACH_MSG_TYPE_PORT_SEND_ONCE
-        && unsafe {
-            glue::ipc_right_reverse(
-                space.as_ptr(),
-                object,
-                &mut oname,
-                &mut found,
-            )
-        } != 0
-    {
-        (oname, found.cast::<IpcEntry>())
+    let reversed = if msgt_name != MACH_MSG_TYPE_PORT_SEND_ONCE {
+        // SAFETY: the space is write-locked and the object is live.
+        unsafe { ipc_right::reverse(space, object) }
     } else {
-        // SAFETY: the space lock is held and no object lock is held.
-        let (name, entry) = match unsafe { ipc_entry::alloc(space) } {
-            Ok(found) => found,
-            Err(error) => {
-                // SAFETY: the space lock is held.
-                unsafe { space.lock_done() };
-                return Err(error);
-            }
-        };
+        None
+    };
 
-        // SAFETY: the space is locked, so the object cannot die under us.
-        unsafe {
-            let header = object.cast::<IpcObject>();
-            (*header).lock.lock();
-            if (*header).bits & IO_BITS_ACTIVE == 0 {
-                (*header).lock.unlock();
-                ipc_entry::dealloc(space, name, entry);
-                space.lock_done();
-                return Err(KernError::InvalidCapability);
+    let (name, entry) = match reversed {
+        Some(found) => found,
+        None => {
+            // SAFETY: the space lock is held and no object lock is held.
+            let (name, entry) = match unsafe { ipc_entry::alloc(space) } {
+                Ok(found) => found,
+                Err(error) => {
+                    // SAFETY: the space lock is held.
+                    unsafe { space.lock_done() };
+                    return Err(error);
+                }
+            };
+
+            // SAFETY: the space is locked, so the object cannot die under us.
+            unsafe {
+                let header = object.cast::<IpcObject>();
+                (*header).lock.lock();
+                if (*header).bits & IO_BITS_ACTIVE == 0 {
+                    (*header).lock.unlock();
+                    ipc_entry::dealloc(space, name, entry);
+                    space.lock_done();
+                    return Err(KernError::InvalidCapability);
+                }
+                (*entry).set_object(object);
             }
-            (*entry).set_object(object);
+
+            (name, entry)
         }
-
-        (name, entry)
     };
 
     // SAFETY: the space is write-locked and active, and the object is locked
     // and active; `ipc_right_copyout` unlocks the object.
-    let result = kern_error(unsafe {
-        glue::ipc_right_copyout(
-            space.as_ptr(),
-            name,
-            entry.cast(),
-            msgt_name,
-            c_int::from(overflow),
-            object,
-        )
-    });
+    let result = unsafe {
+        ipc_right::copyout(space, name, entry, msgt_name, overflow, object)
+    };
 
     // SAFETY: the space lock is still held.
     unsafe { space.lock_done() };
@@ -688,21 +639,16 @@ pub(crate) unsafe fn copyout_name(
         }
     };
 
-    let mut oname: c_uint = 0;
-    let mut oentry: *mut c_void = ptr::null_mut();
-
     // SAFETY: the space is locked and active.  On success the object is
     // locked and active.
-    if msgt_name != MACH_MSG_TYPE_PORT_SEND_ONCE
-        && unsafe {
-            glue::ipc_right_reverse(
-                space.as_ptr(),
-                object,
-                &mut oname,
-                &mut oentry,
-            )
-        } != 0
-    {
+    let reversed = if msgt_name != MACH_MSG_TYPE_PORT_SEND_ONCE {
+        // SAFETY: the space is write-locked and the object is live.
+        unsafe { ipc_right::reverse(space, object) }
+    } else {
+        None
+    };
+
+    if let Some((oname, _)) = reversed {
         if name != oname {
             // SAFETY: the object is locked and the space is write-locked.
             unsafe {
@@ -717,9 +663,7 @@ pub(crate) unsafe fn copyout_name(
     } else {
         // SAFETY: `ipc_right_inuse` unlocks the space when the entry is in
         // use, as the C's did.
-        if unsafe { glue::ipc_right_inuse(space.as_ptr(), name, entry.cast()) }
-            != 0
-        {
+        if unsafe { ipc_right::inuse(space, entry) } {
             return Err(KernError::NameExists);
         }
 
@@ -739,16 +683,9 @@ pub(crate) unsafe fn copyout_name(
 
     // SAFETY: the space is write-locked and active, and the object is locked
     // and active; `ipc_right_copyout` unlocks the object.
-    let result = kern_error(unsafe {
-        glue::ipc_right_copyout(
-            space.as_ptr(),
-            name,
-            entry.cast(),
-            msgt_name,
-            c_int::from(overflow),
-            object,
-        )
-    });
+    let result = unsafe {
+        ipc_right::copyout(space, name, entry, msgt_name, overflow, object)
+    };
 
     // SAFETY: the space lock is still held.
     unsafe { space.lock_done() };
@@ -859,9 +796,7 @@ pub(crate) unsafe fn rename(
 
     // SAFETY: `ipc_right_inuse` unlocks the space when the entry is in use,
     // as the C's did.
-    if unsafe { glue::ipc_right_inuse(space.as_ptr(), nname, nentry.cast()) }
-        != 0
-    {
+    if unsafe { ipc_right::inuse(space, nentry) } {
         return Err(KernError::NameExists);
     }
 
@@ -882,15 +817,8 @@ pub(crate) unsafe fn rename(
 
     // SAFETY: the space is write-locked and both entries are live;
     // `ipc_right_rename` unlocks the space.
-    kern_error(unsafe {
-        glue::ipc_right_rename(
-            space.as_ptr(),
-            oname,
-            oentry.cast(),
-            nname,
-            nentry.cast(),
-        )
-    })
+    unsafe { ipc_right::rename(space, oname, oentry, nname, nentry) };
+    Ok(())
 }
 
 /// `ipc_object_copyin_type()` in C.

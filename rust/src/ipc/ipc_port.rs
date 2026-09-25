@@ -320,6 +320,22 @@ pub(crate) unsafe fn dncancel(port: IpcPort, index: c_uint) -> *mut c_void {
     }
 }
 
+/// `ipc_port_dnrename()` of <ipc/ipc_port.h>: rename the dead-name request a
+/// table index holds.
+///
+/// # Safety
+///
+/// `port` must be live and locked, with a live dnrequests table, and `index`
+/// must name a live request in it.
+pub(crate) unsafe fn dnrename(port: IpcPort, index: c_uint, name: c_uint) {
+    // SAFETY: the caller promises a live locked port and its live table.
+    unsafe {
+        let table = port.dnrequests();
+        let request = table.add(index as usize);
+        (*request).set_name(name);
+    }
+}
+
 /// `ipc_port_pdrequest()` in C: installs `notify`, consuming its reference,
 /// and returns the previous request with its own reference.
 ///

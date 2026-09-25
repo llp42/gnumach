@@ -14,6 +14,7 @@ use crate::glue;
 use crate::ipc::ipc_init;
 use crate::ipc::ipc_object::{self, copyin_type};
 use crate::ipc::ipc_port;
+use crate::ipc::ipc_right;
 use crate::ipc::{IE_BITS_TYPE_MASK, IpcEntry, IpcPort, IpcSpace, IpcTarget};
 use crate::kern::rdxtree::RdxtreeIter;
 use crate::kern::task::current_task;
@@ -267,15 +268,8 @@ unsafe fn lookup_write(
     space: IpcSpace,
     name: c_uint,
 ) -> Result<*mut IpcEntry, KernError> {
-    let mut found: *mut c_void = ptr::null_mut();
-
-    // SAFETY: the caller promises the live space; `found` is this live local,
-    // written only on success.
-    kern_error(unsafe {
-        glue::ipc_right_lookup_write(space.as_ptr(), name, &mut found)
-    })?;
-
-    Ok(found.cast())
+    // SAFETY: the caller promises the live space.
+    unsafe { ipc_right::lookup_write(space, name) }
 }
 
 /// `mach_port_names_helper()` in C.
@@ -554,26 +548,14 @@ pub(crate) unsafe fn port_type(
     // SAFETY: the caller promises a live space.
     let entry = unsafe { lookup_write(space, name) }?;
 
-    let mut type_: c_uint = 0;
-    let mut ignored_urefs: c_uint = 0;
     // SAFETY: the lookup returned the live entry with the space
     // write-locked; `ipc_right_info` leaves the space locked on success.
-    let result = kern_error(unsafe {
-        glue::ipc_right_info(
-            space.as_ptr(),
-            name,
-            entry.cast(),
-            &mut type_,
-            &mut ignored_urefs,
-        )
-    });
+    let (type_, _) = unsafe { ipc_right::info(space, name, entry) };
 
-    if result.is_ok() {
-        // SAFETY: the space is live and write-locked.
-        unsafe { space.lock_done() };
-    }
+    // SAFETY: the space is live and write-locked.
+    unsafe { space.lock_done() };
 
-    result.map(|()| type_)
+    Ok(type_)
 }
 
 /// `mach_port_allocate_name()` in C.
@@ -703,9 +685,8 @@ pub(crate) unsafe fn destroy(
 
     // SAFETY: the lookup returned the live entry with the space
     // write-locked; `ipc_right_destroy` unlocks the space.
-    kern_error(unsafe {
-        glue::ipc_right_destroy(space.as_ptr(), name, entry.cast())
-    })
+    unsafe { ipc_right::destroy(space, name, entry) };
+    Ok(())
 }
 
 /// `mach_port_deallocate()` in C.
@@ -734,9 +715,7 @@ pub(crate) unsafe fn deallocate(
 
     // SAFETY: the lookup returned the live entry with the space
     // write-locked; `ipc_right_dealloc` unlocks the space.
-    kern_error(unsafe {
-        glue::ipc_right_dealloc(space.as_ptr(), name, entry.cast())
-    })
+    unsafe { ipc_right::dealloc(space, name, entry) }
 }
 
 /// `mach_port_get_refs()` in C.
@@ -759,19 +738,9 @@ pub(crate) unsafe fn get_refs(
     // SAFETY: the caller promises a live space.
     let entry = unsafe { lookup_write(space, name) }?;
 
-    let mut type_: c_uint = 0;
-    let mut urefs: c_uint = 0;
     // SAFETY: the lookup returned the live entry with the space
     // write-locked; `ipc_right_info` leaves the space locked on success.
-    kern_error(unsafe {
-        glue::ipc_right_info(
-            space.as_ptr(),
-            name,
-            entry.cast(),
-            &mut type_,
-            &mut urefs,
-        )
-    })?;
+    let (type_, urefs) = unsafe { ipc_right::info(space, name, entry) };
 
     // SAFETY: the space is live and write-locked.
     unsafe { space.lock_done() };
@@ -848,9 +817,7 @@ pub(crate) unsafe fn mod_refs(
 
     // SAFETY: the lookup returned the live entry with the space
     // write-locked; `ipc_right_delta` unlocks the space.
-    kern_error(unsafe {
-        glue::ipc_right_delta(space.as_ptr(), name, entry.cast(), right, delta)
-    })
+    unsafe { ipc_right::delta(space, name, entry, right, delta) }
 }
 
 /// `mach_port_set_qlimit()` in C.
@@ -1538,19 +1505,11 @@ pub(crate) unsafe fn request_notification(
             Ok(IpcPort::new(previous))
         }
         MACH_NOTIFY_DEAD_NAME => {
-            let mut previous: *mut c_void = ptr::null_mut();
             // SAFETY: the caller promises a live space; the name, flag and
-            // notify port are plain values; this live local is the out-slot
-            // `ipc_right_dnrequest` writes on success only.
-            kern_error(unsafe {
-                glue::ipc_right_dnrequest(
-                    space.as_ptr(),
-                    name,
-                    c_int::from(sync != 0),
-                    notify,
-                    &mut previous,
-                )
-            })?;
+            // notify port are plain values.
+            let previous = unsafe {
+                ipc_right::dnrequest(space, name, sync != 0, notify)
+            }?;
 
             Ok(IpcPort::new(previous))
         }

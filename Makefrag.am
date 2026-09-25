@@ -37,7 +37,6 @@ libkernel_a_SOURCES += \
 	ipc/ipc_print.h \
 	ipc/ipc_pset.c \
 	ipc/ipc_pset.h \
-	ipc/ipc_right.c \
 	ipc/ipc_right.h \
 	ipc/ipc_space.h \
 	ipc/ipc_table.h \
