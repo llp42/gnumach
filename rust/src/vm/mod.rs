@@ -19,6 +19,8 @@ pub mod vm_object;
 pub mod vm_object_ffi;
 pub mod vm_page;
 pub mod vm_page_ffi;
+pub mod vm_pageout;
+pub mod vm_pageout_ffi;
 pub mod vm_resident;
 pub mod vm_resident_ffi;
 pub mod vm_user;

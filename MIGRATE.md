@@ -97,21 +97,22 @@ kernel's `copyinmsg()`, now `src/ipc/copy_user.rs`; the i386 kernel takes
 that entry point from `i386/i386/locore.S`, and the file's `USER32` half
 never compiled in either configured build (§8, §9).
 
-### `vm/` (6 files, 4,717 LOC)
+### `vm/` (4 files, 3,397 LOC)
 
 | File | LOC | Free | Holds the rest |
 |---|---:|---:|---|
 | `memory_object_proxy.c` | 227 | 0 | cache statics |
 | `vm_debug.c` | 541 | 0 | the `hash_info_bucket_t` mirror landed; re-derive the rest |
-| `vm_fault.c` | 2024 | 0 | `vm_page`/task fields |
-| `vm_kern.c` | 815 | 0 | — |
-| `vm_pageout.c` | 505 | 0 | `vm_page` fields |
+| `vm_fault.c` | 2024 | 0 | the pinned toolchain folds the copy-object null test (§9) |
 | `vm_user.c` | 605 | 0 | `vm_page` fields for the rest |
 
-`memory_object.c` and `vm_resident.c` are whole: the `memory_manager_default`
-port and its lock, the `vm_page_bucket_t` hash table, the fictitious-page
-list, `virtual_space_start`/`virtual_space_end` and the file-private statics
-moved with them (§9).
+`memory_object.c`, `vm_resident.c`, `vm_kern.c` and `vm_pageout.c` are
+whole: the `memory_manager_default` port and its lock, the
+`vm_page_bucket_t` hash table, the fictitious-page list,
+`virtual_space_start`/`virtual_space_end`, the kernel map globals, the
+pageout daemon's statics and the file-private statics moved with them
+(§9).  `vm_fault.c` was attempted and put back whole; the blocker is
+recorded in §9.
 
 ### `device/` (7 files, 3,275 LOC)
 
@@ -284,8 +285,8 @@ classes.  A derivation is a snapshot of one afternoon's tree.
   leaves (`machine_idle`, `machine_relax`, `pcb_collect`,
   `task_ras_control`, the `apic.c` accessors); (b) `vm_user.c` wrappers;
   (c) the ipc wrappers (`ipc_init`, `ipc_object_destroy`, `ipc_port_*`,
-  `ipc_thread_*`, `ipc_pset_*`, `ipc_host`); (d) `vm_kern.c` and
-  `vm_resident.c`; (e) the `kern/thread.c`/`sched_prim.c` scheduler
+  `ipc_thread_*`, `ipc_pset_*`, `ipc_host`); (d) `vm_resident.c`;
+  (e) the `kern/thread.c`/`sched_prim.c` scheduler
   batch; (f) the `model_dep.c` clock and console leaves.
 
 * **Phase B — unlock work.**  The constants are in `rust/src/config.rs`;
@@ -441,6 +442,15 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `i386/i386/io_perm.c` whole, with the `IoPerm` mirror, the `taken_pci_cfg` static, the `device_emulation_ops` instance and the `no_senders()` handler it owned | `src/arch/i386/io_perm.rs`, `src/arch/i386/io_perm_ffi.rs` | pending |
 | `i386/i386/smp.c` whole, with the static `smp_send_ipi()` and the `smp_data_init()`, `wait_for_ipi()`, `smp_send_ipi_init()` and `smp_send_ipi_startup_twice()` helpers it owned | `src/arch/i386/smp.rs`, `src/arch/i386/smp_ffi.rs` | pending |
 | `i386/i386/trap.c` whole, with the `trap_type[]` table, the `user_page_fault_continue()` continuation and the `struct recovery` mirror its two table walks read | `src/arch/i386/trap.rs`, `src/arch/i386/trap_ffi.rs` | pending |
+| `vm/vm_kern.c` whole, with the `kernel_map_store`, `kernel_map` and `kernel_pageable_map` globals it owned and the eleven definitions left in C | `src/vm/vm_kern.rs`, `vm_kern_ffi.rs` | pending |
+| `vm/vm_pageout.c` whole, with the file-private `vm_pageout_requested` and `vm_pageout_continue` statics it owned | `src/vm/vm_pageout.rs`, `vm_pageout_ffi.rs` | pending |
+
+`vm/vm_fault.c` was ported whole and rolled back in the same pass: the pinned
+toolchain turns the copy-object loop's `first_object->copy` null test into an
+`llvm.assume` (the optimized IR carries `!nonnull` on the load), so a null copy
+dereferences `copy_object->Lock` at offset 0x10 and panics.  The retry inside
+that loop is the trigger; `vm_fault.c` stays C until the toolchain or the loop
+shape changes.
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `i386/i386at/kd_glue.c`

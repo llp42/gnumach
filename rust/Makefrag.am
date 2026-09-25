@@ -189,6 +189,8 @@ MACH_RS_SRCS = \
 	rust/src/vm/vm_object_ffi.rs \
 	rust/src/vm/vm_page.rs \
 	rust/src/vm/vm_page_ffi.rs \
+	rust/src/vm/vm_pageout.rs \
+	rust/src/vm/vm_pageout_ffi.rs \
 	rust/src/vm/vm_resident.rs \
 	rust/src/vm/vm_resident_ffi.rs \
 	rust/src/vm/vm_user.rs \

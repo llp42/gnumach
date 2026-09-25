@@ -2398,7 +2398,7 @@ unsafe fn copyin_body(
                             }
                         }
                     } else if unsafe {
-                        glue::copyinmap(
+                        crate::vm::vm_kern_ffi::copyinmap(
                             ptr::from_mut(map),
                             ptr_at::<c_char>(addr),
                             data.cast::<c_char>(),
@@ -3443,7 +3443,7 @@ pub(crate) unsafe fn copyout_body(
                         // SAFETY: the caller promises the live map, and the
                         // data is a kernel buffer.
                         let _ = unsafe {
-                            glue::copyoutmap(
+                            crate::vm::vm_kern_ffi::copyoutmap(
                                 ptr::from_mut(map),
                                 ptr_at::<c_char>(data),
                                 ptr_at::<c_char>(addr),

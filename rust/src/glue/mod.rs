@@ -98,20 +98,6 @@ unsafe extern "C" {
         kn: usize,
     ) -> c_int;
 
-    pub fn copyinmap(
-        map: *mut VmMap,
-        fromaddr: *const c_char,
-        toaddr: *mut c_char,
-        length: c_int,
-    ) -> c_int;
-
-    pub fn copyoutmap(
-        map: *mut VmMap,
-        fromaddr: *const c_char,
-        toaddr: *mut c_char,
-        length: c_int,
-    ) -> c_int;
-
     /// `thread_syscall_return()` of <kern/sched_prim.h>: the machine's
     /// syscall-return path, which never comes back to its caller.
     pub fn thread_syscall_return(retval: c_int) -> !;
@@ -249,19 +235,6 @@ unsafe extern "C" {
         entry: *mut UserIntr,
     ) -> c_int;
     pub fn irq_acknowledge(receive_port: *mut c_void) -> c_int;
-    pub fn kmem_alloc(
-        map: *mut VmMap,
-        addrp: *mut VmOffset,
-        size: VmSize,
-    ) -> c_int;
-    pub fn kmem_io_map_copyout(
-        map: *mut VmMap,
-        data: *mut VmOffset,
-        new_addr: *mut VmOffset,
-        alloc_size: *mut VmSize,
-        copy: *mut c_void,
-        min_size: VmSize,
-    ) -> c_int;
     pub fn ds_device_open_reply(
         reply_port: *mut c_void,
         reply_port_type: c_uint,
@@ -377,16 +350,6 @@ unsafe extern "C" {
         type_: c_uint,
     );
 
-    pub fn projected_buffer_deallocate(
-        map: *mut VmMap,
-        start: VmOffset,
-        end: VmOffset,
-    ) -> c_int;
-    pub fn kmem_valloc(
-        map: *mut VmMap,
-        addrp: *mut VmOffset,
-        size: VmSize,
-    ) -> c_int;
     pub fn vm_map(
         target_map: *mut VmMap,
         address: *mut VmOffset,
@@ -400,15 +363,6 @@ unsafe extern "C" {
         max_protection: c_int,
         inheritance: c_int,
     ) -> c_int;
-    pub fn kmem_alloc_pages(
-        object: *mut VmObject,
-        offset: VmOffset,
-        start: VmOffset,
-        end: VmOffset,
-        protection: VmProt,
-        flags: c_uint,
-    );
-
     pub fn pmap_destroy(pmap: *mut Pmap);
     pub fn pmap_collect(pmap: *mut Pmap);
     pub fn pmap_reference(pmap: *mut Pmap);
@@ -448,14 +402,31 @@ unsafe extern "C" {
     pub fn pmap_clear_reference(pa: VmOffset);
     pub fn pmap_is_referenced(pa: VmOffset) -> c_int;
 
-    pub fn vm_pageout_start();
-    pub fn vm_pageout_page(page: *mut VmPage, initial: c_int, flush: c_int);
-
     pub fn vm_object_collect(object: *mut VmObject);
 
     pub fn memory_manager_default_port(port: *mut c_void) -> c_int;
     pub static mut memory_manager_default: *mut c_void;
     pub fn memory_manager_default_reference() -> *mut c_void;
+    /// `memory_object_data_request()` of the MIG `memory_object_user`
+    /// stubs.
+    pub fn memory_object_data_request(
+        memory_object: *mut c_void,
+        memory_control: *mut c_void,
+        offset: VmOffset,
+        length: VmSize,
+        desired_access: VmProt,
+    ) -> c_int;
+
+    /// `memory_object_data_unlock()` of the MIG `memory_object_user`
+    /// stubs.
+    pub fn memory_object_data_unlock(
+        memory_object: *mut c_void,
+        memory_control: *mut c_void,
+        offset: VmOffset,
+        length: VmSize,
+        desired_access: VmProt,
+    ) -> c_int;
+
     /// `memory_object_data_return()` of the MIG `memory_object_user`
     /// stubs.
     pub fn memory_object_data_return(
@@ -548,14 +519,18 @@ unsafe extern "C" {
     pub static mut vm_page_queue_free_lock: SimpleLock;
     pub fn vm_page_free(page: *mut VmPage);
 
-    pub fn vm_pageout_resume();
-    pub fn vm_pageout_setup(
-        page: *mut VmPage,
-        paging_offset: VmOffset,
-        new_object: *mut VmObject,
-        new_offset: VmOffset,
-        flush: c_int,
-    ) -> *mut VmPage;
+    /// `memory_object_data_initialize()` of the MIG
+    /// `memory_object_default` stubs.
+    pub fn memory_object_data_initialize(
+        memory_object: *mut c_void,
+        memory_control: *mut c_void,
+        offset: VmOffset,
+        data: VmOffset,
+        data_cnt: c_uint,
+    ) -> c_int;
+
+    /// `net_kmsg_collect()` of <device/net_io.h>.
+    pub fn net_kmsg_collect();
 
     pub fn memory_object_create_proxy(
         task: *mut c_void,
@@ -610,11 +585,6 @@ unsafe extern "C" {
     ) -> c_int;
     pub static kernel_object: *mut VmObject;
     pub static kernel_map: *mut c_void;
-    pub fn kmem_alloc_aligned(
-        map: *mut c_void,
-        addrp: *mut VmOffset,
-        size: VmSize,
-    ) -> c_int;
     pub fn kmem_alloc_wired(
         map: *mut VmMap,
         addrp: *mut VmOffset,

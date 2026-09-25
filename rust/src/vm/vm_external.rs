@@ -25,7 +25,7 @@ const SMALL_SIZE: usize = 16;
 const LARGE_SIZE: usize = 1024;
 
 /// `VM_EXTERNAL_STATE_EXISTS` of <vm/vm_external.h>.
-const VM_EXTERNAL_STATE_EXISTS: c_int = 1;
+pub(crate) const VM_EXTERNAL_STATE_EXISTS: c_int = 1;
 /// `VM_EXTERNAL_STATE_UNKNOWN` of <vm/vm_external.h>.
 const VM_EXTERNAL_STATE_UNKNOWN: c_int = 2;
 /// `VM_EXTERNAL_STATE_ABSENT` of <vm/vm_external.h>.

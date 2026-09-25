@@ -9,11 +9,12 @@
 //! symbol `vm/vm_kern.c` used to define and `vm/vm_kern.h` declares.
 
 use crate::arch::types::{VmOffset, VmSize};
-use crate::glue::{Panic, kernel_map, kernel_pmap};
+use crate::glue::{Panic, kernel_pmap};
 use crate::vm::error::{KERN_INVALID_ARGUMENT, KERN_SUCCESS, kern_return};
+use crate::vm::types::{VmInherit, VmObject, VmProt};
 use crate::vm::vm_kern;
-use crate::vm::vm_map::VmMap;
-use core::ffi::{c_int, c_uint, c_void};
+use crate::vm::vm_map::{VmMap, VmMapCopy};
+use core::ffi::{c_char, c_int, c_uint, c_void};
 use core::ptr::{self, NonNull};
 
 /// `projected_buffer_collect()` in C.
@@ -114,9 +115,9 @@ pub unsafe extern "C" fn kmem_map_aligned_table(
     size: VmSize,
     mode: c_int,
 ) -> *mut c_void {
-    // SAFETY: `kernel_map` is the boot kernel map, built before any caller of
-    // this routine.
-    let map = unsafe { NonNull::new_unchecked(kernel_map.cast::<VmMap>()) };
+    // SAFETY: `kernel_map` is the boot kernel map storage, live before any
+    // caller of this routine.
+    let map = unsafe { NonNull::new_unchecked(vm_kern::kernel_map) };
     vm_kern::kmem_map_aligned_table(map, phys_address, size, mode)
         .map_or(ptr::null_mut(), NonNull::as_ptr)
 }
@@ -224,12 +225,8 @@ pub unsafe extern "C" fn kmem_submap(
 pub unsafe extern "C" fn kmem_init(start: VmOffset, end: VmOffset) {
     // SAFETY: `kernel_map` points at the boot map storage and `kernel_pmap`
     // is the boot pmap; both exist before `vm_mem_bootstrap` runs this.
-    let (map, pmap) = unsafe {
-        (
-            NonNull::new_unchecked(kernel_map.cast::<VmMap>()),
-            kernel_pmap,
-        )
-    };
+    let (map, pmap) =
+        unsafe { (NonNull::new_unchecked(vm_kern::kernel_map), kernel_pmap) };
     match vm_kern::kmem_init(map, pmap, start, end) {
         Ok(()) => (),
         Err(error) => {
@@ -262,4 +259,286 @@ pub unsafe extern "C" fn kmem_io_map_deallocate(
 ) {
     // SAFETY: the caller promises a valid, non-null map.
     vm_kern::kmem_io_map_deallocate(unsafe { &mut *map }, addr, size);
+}
+
+/// `projected_buffer_allocate()` in C.
+///
+/// # Safety
+///
+/// `map` must be null or a valid, unlocked map; `kernel_p` and `user_p` must
+/// be writable storage for one address each.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn projected_buffer_allocate(
+    map: *mut VmMap,
+    size: VmSize,
+    persistence: c_int,
+    kernel_p: *mut VmOffset,
+    user_p: *mut VmOffset,
+    protection: VmProt,
+    inheritance: VmInherit,
+) -> c_int {
+    let Some(map) = NonNull::new(map) else {
+        return KERN_INVALID_ARGUMENT;
+    };
+    match vm_kern::projected_buffer_allocate(
+        map,
+        size,
+        persistence != 0,
+        protection,
+        inheritance,
+    ) {
+        Ok((kernel, user)) => {
+            // SAFETY: the caller promises both out-pointers.
+            unsafe {
+                kernel_p.write(kernel);
+                user_p.write(user);
+            }
+            KERN_SUCCESS
+        }
+        Err(error) => error.as_kern_return(),
+    }
+}
+
+/// `projected_buffer_map()` in C.
+///
+/// # Safety
+///
+/// `map` must be null or a valid, unlocked map, the kernel range must be an
+/// existing mapping, and `user_p` must be writable storage for one address.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn projected_buffer_map(
+    map: *mut VmMap,
+    kernel_addr: VmOffset,
+    size: VmSize,
+    user_p: *mut VmOffset,
+    protection: VmProt,
+    inheritance: VmInherit,
+) -> c_int {
+    let Some(map) = NonNull::new(map) else {
+        return KERN_INVALID_ARGUMENT;
+    };
+    match vm_kern::projected_buffer_map(
+        map,
+        kernel_addr,
+        size,
+        protection,
+        inheritance,
+    ) {
+        Ok(user) => {
+            // SAFETY: the caller promises a writable out-pointer.
+            unsafe { user_p.write(user) };
+            KERN_SUCCESS
+        }
+        Err(error) => error.as_kern_return(),
+    }
+}
+
+/// `projected_buffer_deallocate()` in C.
+///
+/// # Safety
+///
+/// `map` must be null or a valid map, and `start..end` a range
+/// `projected_buffer_allocate()` or `projected_buffer_map()` established in
+/// it.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn projected_buffer_deallocate(
+    map: *mut VmMap,
+    start: VmOffset,
+    end: VmOffset,
+) -> c_int {
+    let Some(map) = NonNull::new(map) else {
+        return KERN_INVALID_ARGUMENT;
+    };
+    kern_return(vm_kern::projected_buffer_deallocate(map, start, end))
+}
+
+/// `kmem_alloc()` in C.
+///
+/// # Safety
+///
+/// `map` must be a valid, unlocked map and `addrp` writable storage for one
+/// address.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmem_alloc(
+    map: *mut VmMap,
+    addrp: *mut VmOffset,
+    size: VmSize,
+) -> c_int {
+    // SAFETY: the caller promises a valid, non-null map.
+    let map = unsafe { NonNull::new_unchecked(map) };
+    match vm_kern::kmem_alloc(map, size) {
+        Ok(addr) => {
+            // SAFETY: the caller promises a writable out-pointer.
+            unsafe { addrp.write(addr) };
+            KERN_SUCCESS
+        }
+        Err(error) => error.as_kern_return(),
+    }
+}
+
+/// `kmem_valloc()` in C.
+///
+/// # Safety
+///
+/// `map` must be a valid, unlocked map and `addrp` writable storage for one
+/// address.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmem_valloc(
+    map: *mut VmMap,
+    addrp: *mut VmOffset,
+    size: VmSize,
+) -> c_int {
+    // SAFETY: the caller promises a valid, non-null map.
+    let map = unsafe { NonNull::new_unchecked(map) };
+    match vm_kern::kmem_valloc(map, size) {
+        Ok(addr) => {
+            // SAFETY: the caller promises a writable out-pointer.
+            unsafe { addrp.write(addr) };
+            KERN_SUCCESS
+        }
+        Err(error) => error.as_kern_return(),
+    }
+}
+
+/// `kmem_alloc_aligned()` in C.
+///
+/// # Safety
+///
+/// `map` must be a valid, unlocked map, `size` must be a non-zero power of
+/// two, and `addrp` writable storage for one address.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmem_alloc_aligned(
+    map: *mut VmMap,
+    addrp: *mut VmOffset,
+    size: VmSize,
+) -> c_int {
+    if size & size.wrapping_sub(1) != 0 {
+        // SAFETY: `Panic` does not return; the file, function and message
+        // are this port's, as the C `panic("kmem_alloc_aligned")` had them.
+        unsafe {
+            Panic(
+                c"rust/src/vm/vm_kern_ffi.rs".as_ptr(),
+                line!() as c_int,
+                c"kmem_alloc_aligned".as_ptr(),
+                c"kmem_alloc_aligned".as_ptr(),
+            )
+        };
+    }
+
+    // SAFETY: the caller promises a valid, non-null map.
+    let map = unsafe { NonNull::new_unchecked(map) };
+    match vm_kern::kmem_alloc_aligned(map, size) {
+        Ok(addr) => {
+            // SAFETY: the caller promises a writable out-pointer.
+            unsafe { addrp.write(addr) };
+            KERN_SUCCESS
+        }
+        Err(error) => error.as_kern_return(),
+    }
+}
+
+/// `kmem_alloc_pages()` in C.
+///
+/// # Safety
+///
+/// `object` must be a live object mapped into the kernel map, and its lock
+/// must not be held.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmem_alloc_pages(
+    object: *mut VmObject,
+    offset: VmOffset,
+    start: VmOffset,
+    end: VmOffset,
+    protection: VmProt,
+    flags: c_uint,
+) {
+    // SAFETY: the caller's contract is the allocator's own.
+    unsafe {
+        vm_kern::alloc_pages(object, offset, start, end, protection, flags)
+    };
+}
+
+/// `kmem_remap_pages()` in C.
+///
+/// # Safety
+///
+/// `object` must be a live object mapped into the kernel map, and its lock
+/// must not be held.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmem_remap_pages(
+    object: *mut VmObject,
+    offset: VmOffset,
+    start: VmOffset,
+    end: VmOffset,
+    protection: VmProt,
+) {
+    // SAFETY: the caller's contract is the remapper's own.
+    unsafe { vm_kern::remap_pages(object, offset, start, end, protection) };
+}
+
+/// `kmem_io_map_copyout()` in C.
+///
+/// # Safety
+///
+/// `map` must be a valid, unlocked map, `copy` a live page-list copy, and the
+/// three out-pointers writable storage.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kmem_io_map_copyout(
+    map: *mut VmMap,
+    addr: *mut VmOffset,
+    alloc_addr: *mut VmOffset,
+    alloc_size: *mut VmSize,
+    copy: *mut VmMapCopy,
+    min_size: VmSize,
+) -> c_int {
+    let Some(copy) = NonNull::new(copy) else {
+        return KERN_INVALID_ARGUMENT;
+    };
+    // SAFETY: the caller promises a valid, non-null map.
+    let map = unsafe { &mut *map };
+    match vm_kern::kmem_io_map_copyout(map, copy, min_size) {
+        Ok(mapped) => {
+            // SAFETY: the caller promises all three out-pointers.
+            unsafe {
+                addr.write(mapped.addr);
+                alloc_addr.write(mapped.alloc_addr);
+                alloc_size.write(mapped.alloc_size);
+            }
+            KERN_SUCCESS
+        }
+        Err(error) => error.as_kern_return(),
+    }
+}
+
+/// `copyinmap()` in C.
+///
+/// # Safety
+///
+/// `map` must be a valid map, and `fromaddr`/`toaddr` must be readable and
+/// writable for `length` bytes as the C `copyin`/`memcpy` required.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn copyinmap(
+    map: *mut VmMap,
+    fromaddr: *mut c_char,
+    toaddr: *mut c_char,
+    length: c_int,
+) -> c_int {
+    // SAFETY: the caller promises a valid map and the byte ranges.
+    unsafe { vm_kern::copyinmap(&*map, fromaddr, toaddr, length) }
+}
+
+/// `copyoutmap()` in C.
+///
+/// # Safety
+///
+/// Same contract as `copyinmap()`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn copyoutmap(
+    map: *mut VmMap,
+    fromaddr: *mut c_char,
+    toaddr: *mut c_char,
+    length: c_int,
+) -> c_int {
+    // SAFETY: the caller promises a valid map and the byte ranges.
+    unsafe { vm_kern::copyoutmap(&*map, fromaddr, toaddr, length) }
 }

@@ -145,12 +145,10 @@ libkernel_a_SOURCES += \
 	vm/vm_fault.c \
 	vm/vm_fault.h \
 	vm/vm_init.h \
-	vm/vm_kern.c \
 	vm/vm_kern.h \
 	vm/vm_map.h \
 	vm/vm_object.h \
 	vm/vm_page.h \
-	vm/vm_pageout.c \
 	vm/vm_pageout.h \
 	vm/vm_resident.h \
 	vm/vm_types.h \

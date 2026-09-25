@@ -17,7 +17,7 @@ use crate::glue::{
     pmap_is_referenced, pmap_page_protect, printf, vm_object_collapse,
     vm_object_collect, vm_object_pager_create, vm_page_fictitious_addr,
     vm_page_free, vm_page_insert, vm_page_queue_free_lock, vm_page_queue_lock,
-    vm_page_remove, vm_pageout_page, vm_pageout_start, vm_stat,
+    vm_page_remove, vm_stat,
 };
 use crate::kern::list::{List, entry};
 use crate::kern::lock::SimpleLock;
@@ -27,6 +27,7 @@ use crate::kern::sched_prim::{
 };
 use crate::utils::cell::SyncCell;
 use crate::vm::types::{VmObject, VmProt};
+use crate::vm::vm_pageout_ffi::{vm_pageout_page, vm_pageout_start};
 use crate::vm::vm_resident;
 use core::cell::UnsafeCell;
 use core::cmp::min;

@@ -1159,9 +1159,8 @@ pub(crate) unsafe fn release(
     if laundry {
         let count = VM_PAGE_LAUNDRY_COUNT.fetch_sub(1, Ordering::Relaxed);
         if count == 1 {
-            // SAFETY: the pageout daemon's resume path is the real symbol,
-            // and the C calls it under the free lock.
-            unsafe { crate::glue::vm_pageout_resume() };
+            // SAFETY: the caller holds the free lock, as the C required.
+            unsafe { crate::vm::vm_pageout::resume() };
         }
     }
 
@@ -1172,8 +1171,8 @@ pub(crate) unsafe fn release(
             let count = count.wrapping_sub(1);
             VM_PAGE_EXTERNAL_LAUNDRY_COUNT.store(count, Ordering::Relaxed);
             if count == 0 {
-                // SAFETY: as `vm_pageout_resume()` above.
-                unsafe { crate::glue::vm_pageout_resume() };
+                // SAFETY: as `resume()` above.
+                unsafe { crate::vm::vm_pageout::resume() };
             }
         }
     }

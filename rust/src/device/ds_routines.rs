@@ -1591,12 +1591,14 @@ pub(crate) unsafe extern "C" fn device_write_get(
 
         let io_copy = (*ior).data.cast::<VmMapCopy>();
         let mut new_addr: VmOffset = 0;
-        let result = glue::kmem_io_map_copyout(
+        // SAFETY: the caller promises the live request, its copy is the live
+        // page-list copy just read, and the out-pointers are live locals.
+        let result = crate::vm::vm_kern_ffi::kmem_io_map_copyout(
             device_io_map,
             ptr::addr_of_mut!((*ior).data).cast::<VmOffset>(),
             &mut new_addr,
             ptr::addr_of_mut!((*ior).alloc_size),
-            io_copy.cast::<c_void>(),
+            io_copy,
             min_size,
         );
         if result != KERN_SUCCESS {
@@ -1920,7 +1922,8 @@ pub(crate) unsafe extern "C" fn device_read_alloc(
         } else {
             let size = round_page(size);
             let mut addr: VmOffset = 0;
-            let kr = glue::kmem_alloc(
+            // SAFETY: the kernel map is live and `addr` is writable.
+            let kr = crate::vm::vm_kern_ffi::kmem_alloc(
                 glue::kernel_map.cast::<VmMap>(),
                 &mut addr,
                 size,

@@ -1452,9 +1452,14 @@ fn pagealloc_virtual(size: VmSize, align: VmSize) -> Option<NonNull<u8>> {
         vm_kern::kmem_alloc_wired(map, size).ok()?
     } else {
         let mut addr: VmOffset = 0;
-        // SAFETY: the out-pointer is a live local and the map is unlocked.
+        // SAFETY: the out-pointer is a live local and the map is unlocked;
+        // the C's alignment contract makes `size` a power of two.
         let kr = unsafe {
-            glue::kmem_alloc_aligned(glue::kernel_map, &mut addr, size)
+            crate::vm::vm_kern_ffi::kmem_alloc_aligned(
+                glue::kernel_map.cast::<VmMap>(),
+                &mut addr,
+                size,
+            )
         };
 
         if kr != KERN_SUCCESS {

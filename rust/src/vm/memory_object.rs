@@ -14,7 +14,7 @@ use crate::glue::{
     memory_object_change_completed, memory_object_data_return,
     memory_object_lock_completed, memory_object_supply_completed,
     pmap_clear_modify, pmap_is_modified, pmap_page_protect,
-    vm_page_queue_lock, vm_pageout_setup,
+    vm_page_queue_lock,
 };
 use crate::ipc::{IpcPort, ipc_port};
 use crate::kern::host::Host;
@@ -26,6 +26,7 @@ use crate::kern::sched_prim::{
 use crate::vm::error::{Error, error_from_kern_return};
 use crate::vm::types::{VmObject, VmPage, VmProt};
 use crate::vm::vm_map::{VmMapCopy, round_page};
+use crate::vm::vm_pageout_ffi::vm_pageout_setup;
 use crate::vm::{vm_external, vm_object, vm_page, vm_resident};
 use core::ffi::{CStr, c_int, c_uint, c_void};
 use core::ptr::{NonNull, addr_of_mut, null_mut};
