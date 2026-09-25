@@ -31,6 +31,9 @@
  * Upstream site with license notes :
  * http://git.sceen.net/rbraun/librbraun.git/
  */
+/*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
 
 #ifndef _RDXTREE_H
 #define _RDXTREE_H
@@ -46,10 +49,6 @@ void rdxtree_cache_init(void);
 /*
  * This macro selects between 32 or 64-bits (the default) keys.
  */
-#if 0
-#define RDXTREE_KEY_32
-#endif
-
 #ifdef RDXTREE_KEY_32
 typedef uint32_t rdxtree_key_t;
 #else /* RDXTREE_KEY_32 */

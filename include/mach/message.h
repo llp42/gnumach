@@ -24,6 +24,9 @@
  * the rights to redistribute these changes.
  */
 /*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
+/*
  *	File:	mach/message.h
  *
  *	Mach IPC message and primitive function definitions.
@@ -185,10 +188,6 @@ typedef mach_msg_header_t mach_msg_user_header_t;
  */
 
 #define MACH_MSGH_KIND_NORMAL		0x00000000
-#if	0
-/* code using this is likely to break, so better not to have it defined */
-#define MACH_MSGH_KIND_NOTIFICATION	0x00000001
-#endif
 #define	msgh_kind			msgh_seqno
 #define mach_msg_kind_t			mach_port_seqno_t
 

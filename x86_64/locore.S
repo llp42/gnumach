@@ -27,6 +27,9 @@
  * any improvements or extensions that they make and grant Carnegie Mellon
  * the rights to redistribute these changes.
  */
+/*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
 
 #include <mach/machine/asm.h>
 #include <mach/machine/eflags.h>
@@ -860,18 +863,6 @@ syscall_native:
 	jl	mach_call_range		/* out of range if it was positive */
 	cmpl	EXT(mach_trap_count),%eax	/* check system call table bounds */
 	jg	mach_call_range		/* error if out of range */
-#if 0 /* debug hack to show the syscall number on the screen */
-	movb	%al,%dl
-	shrb	$4,%dl
-	orb	$0x30,%dl
-	movb	$0x0f,%dh
-	movw	%dx,0xb800a
-	movb	%al,%dl
-	andb	$0xf,%dl
-	orb	$0x30,%dl
-	movb	$0xf,%dh
-	movw	%dx,0xb800c
-#endif
 	shll	$5,%eax			/* manual indexing of mach_trap_t */
 	xorq	%r10,%r10
 	mov	EXT(mach_trap_table)(%rax),%r10

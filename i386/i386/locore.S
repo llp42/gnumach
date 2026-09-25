@@ -27,6 +27,9 @@
  * any improvements or extensions that they make and grant Carnegie Mellon
  * the rights to redistribute these changes.
  */
+/*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
 
 #include <mach/machine/asm.h>
 #include <mach/machine/eflags.h>
@@ -699,18 +702,6 @@ syscall_native:
 	jl	mach_call_range		/* out of range if it was positive */
 	cmpl	EXT(mach_trap_count),%eax	/* check system call table bounds */
 	jg	mach_call_range		/* error if out of range */
-#if 0 /* debug hack to show the syscall number on the screen */
-	movb	%al,%dl
-	shrb	$4,%dl
-	orb	$0x30,%dl
-	movb	$0x0f,%dh
-	movw	%dx,0xb800a
-	movb	%al,%dl
-	andb	$0xf,%dl
-	orb	$0x30,%dl
-	movb	$0xf,%dh
-	movw	%dx,0xb800c
-#endif
 	shll	$4,%eax			/* manual indexing of mach_trap_t */
 	movl	EXT(mach_trap_table)(%eax),%ecx
 					/* get number of arguments */
@@ -827,13 +818,6 @@ ENTRY(discover_x86_cpu_type)
 	pushl	%ebp			/* Save frame pointer */
 	movl	%esp,%ebp		/* Save stack pointer */
 	and	$~0x3,%esp		/* Align stack pointer */
-
-#if 0
-/* Seems to hang with kvm linux 4.3.0 */
-	inb	$0xe8,%al		/* Enable ID flag for Cyrix CPU ... */
-	andb	$0x80,%al		/* ... in CCR4 reg bit7 */
-	outb	%al,$0xe8
-#endif
 
 	pushfl				/* Fetch flags ... */
 	popl	%eax			/*  ... into eax */

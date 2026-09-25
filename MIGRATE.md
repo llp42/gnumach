@@ -85,11 +85,11 @@ kernel's `copyinmsg()`, now `src/ipc/copy_user.rs`; the i386 kernel takes
 that entry point from `i386/i386/locore.S`, and the file's `USER32` half
 never compiled in either configured build (§8, §9).
 
-### `vm/` (1 file, 2,024 LOC)
+### `vm/` (1 file, 1,871 LOC)
 
 | File | LOC | Free | Holds the rest |
-|---|---:|---:|---|
-| `vm_fault.c` | 2024 | 0 | the pinned toolchain folds the copy-object null test (§9) |
+|---|---:|---:|---:|
+| `vm_fault.c` | 1871 | 0 | the pinned toolchain folds the copy-object null test (§9) |
 
 `memory_object.c`, `vm_resident.c`, `vm_kern.c`, `vm_pageout.c`,
 `vm_user.c`, `vm_debug.c` and `memory_object_proxy.c` are whole: the
@@ -284,11 +284,18 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 * `i386/intel/read_fault.c` is deleted: the body is
   `#if (__i386__ && !(__i486__ || __i586__ || __i686__))`, compiled out
   on every supported CPU.
-* `#if 0` blocks in `kern/exception.c` and `i386/i386at/kd.c`.  Delete
-  before porting the surrounding code.  The `#if 0` bodies of
+* `#if 0` blocks in `kern/exception.c` and `i386/i386at/kd.c` went with
+  those whole-file ports, as did the `#if 0` bodies of
   `kern/{boot_script,bootstrap}.c`, `i386/i386at/com.c`,
   `kern/ipc_tt.c` (four `retrieve_*` bodies), `device/intr.c` and
-  `i386/i386/{fpu,pcb,smp,trap}.c` went with their whole-file ports.
+  `i386/i386/{fpu,pcb,smp,trap}.c`.  The rest are deleted as dead: the
+  syscall screen hacks and the Cyrix CCR4 probe of the two `locore.S`
+  files, `kern/rdxtree.h`'s redundant `RDXTREE_KEY_32`,
+  `include/mach/vm_sync.h`'s unsupported `VM_SYNC_*` flags,
+  `include/mach/message.h`'s `MACH_MSGH_KIND_NOTIFICATION`, and
+  `vm/vm_fault.c`'s untested `vm_fault_page_overwrite` `notdef`
+  function.  The `skip;` scaffolding in
+  `include/mach/memory_object_default.defs` is live and stays.
 * Dead `#else /* MACH_HOST */` halves of `kern/machine.c` and
   `kern/processor.c`; `MACH_HOST` is 1 in both configured builds, so only
   the live halves were translated.  The `kern/task.c` and
