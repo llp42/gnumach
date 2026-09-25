@@ -46,13 +46,13 @@ impl ThreadRef {
     /// # Safety
     ///
     /// `thread` must point at a valid `struct thread`.
-    unsafe fn new(thread: *mut c_void) -> ThreadRef {
+    pub(crate) unsafe fn new(thread: *mut c_void) -> ThreadRef {
         // SAFETY: the caller promises a valid thread.
         ThreadRef(unsafe { NonNull::new_unchecked(thread) })
     }
 
-    /// The raw thread pointer, for the C adapters.
-    fn as_ptr(self) -> *mut c_void {
+    /// The raw thread pointer, for the C adapters and the exception path.
+    pub(crate) fn as_ptr(self) -> *mut c_void {
         self.0.as_ptr()
     }
 

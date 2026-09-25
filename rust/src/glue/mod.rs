@@ -10,7 +10,7 @@ use crate::arch::types::{VmOffset, VmSize};
 use crate::config::NCPUS;
 use crate::kern::lock::SimpleLock;
 use crate::kern::mach_clock::Timeout;
-use crate::kern::machine::MachineSlot;
+use crate::kern::machine::{MachineInfo, MachineSlot};
 use crate::kern::processor::{Processor, ProcessorSet};
 use crate::kern::queue::QueueEntry;
 use crate::kern::sched::RunQueue;
@@ -21,7 +21,9 @@ use crate::kern::thread::{StackResume, Thread};
 use crate::kern::timer::Timer;
 use crate::vm::types::{Pmap, VmObject, VmPage, VmProt, VmStatistics};
 use crate::vm::vm_map::{VmMap, VmMapEntry};
-use core::ffi::{c_char, c_int, c_short, c_uint, c_ulong, c_ushort, c_void};
+use core::ffi::{
+    c_char, c_int, c_long, c_short, c_uint, c_ulong, c_ushort, c_void,
+};
 use core::mem::offset_of;
 
 /// `NSPEEDS` of <device/tty_status.h>: how many baud-rate slots `ttlowat[]`
@@ -115,7 +117,13 @@ unsafe extern "C" {
     pub fn thread_block(continuation: Option<unsafe extern "C" fn()>);
     pub fn update_priority(thread: *mut Thread);
     pub fn rem_runq(th: *mut Thread) -> *mut RunQueue;
-    pub fn thread_exception_return();
+    pub fn thread_exception_return() -> !;
+    pub fn thread_handoff(
+        self_: *mut Thread,
+        continuation: crate::kern::thread::Continuation,
+        receiver: *mut Thread,
+    ) -> c_int;
+    pub fn thread_syscall_return(code: c_int) -> !;
     pub fn stack_attach(
         thread: *mut Thread,
         stack: VmOffset,
@@ -226,6 +234,13 @@ unsafe extern "C" {
 
     pub static mut machine_slot: [MachineSlot; NCPUS];
 
+    pub static mut machine_info: MachineInfo;
+
+    /// `avenrun` and `mach_factor` of kern/mach_factor.c: the three load
+    /// averages `host_info()` reports.
+    pub static avenrun: [c_long; 3];
+    pub static mach_factor: [c_long; 3];
+
     pub static cpu_features: [c_uint; 2];
 
     /// The load image bounds `pmap_bootstrap()` maps read-only.
@@ -235,8 +250,6 @@ unsafe extern "C" {
     pub static mut default_pset: c_void;
     pub static mut pset_cache: KmemCache;
     pub static mut slave_pset: *mut ProcessorSet;
-
-    pub static mut realhost: c_void;
 
     pub fn processor_shutdown(processor: *mut Processor) -> c_int;
     pub fn processor_set_create(
@@ -409,20 +422,12 @@ unsafe extern "C" {
 
     pub fn net_kmsg_put(kmsg: *mut c_void);
 
-    pub fn ipc_host_init();
     pub fn ipc_kobject_destroy(port: *mut c_void);
     pub fn ipc_kobject_set_locked(
         port: *mut c_void,
         kobject: VmOffset,
         type_: c_uint,
     );
-
-    pub fn convert_processor_name_to_port(
-        processor: *mut Processor,
-    ) -> *mut c_void;
-
-    pub fn convert_processor_to_port(processor: *mut Processor)
-    -> *mut c_void;
 
     pub fn ipc_kobject_set(
         port: *mut c_void,

@@ -75,9 +75,9 @@ fn init() {
         );
     }
 
-    // SAFETY: `ipc_host_init` takes no arguments and only builds the host's
-    // special ports; the boot caller runs this once.
-    unsafe { glue::ipc_host_init() };
+    // SAFETY: `ipc_host::init()` takes no arguments and only builds the
+    // host's special ports; the boot caller runs this once.
+    unsafe { crate::kern::ipc_host::init() };
 }
 
 /// `ipc_bootstrap()` of ipc/ipc_init.c.

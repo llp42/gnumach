@@ -605,20 +605,20 @@ unsafe fn write_type_deallocate(addr: usize, value: bool) {
 
 impl MachMsgHeader {
     /// `msgh_bits` of <mach/message.h>.
-    fn bits(&self) -> u32 {
+    pub(crate) fn bits(&self) -> u32 {
         self.bits
     }
 
-    fn set_bits(&mut self, bits: u32) {
+    pub(crate) fn set_bits(&mut self, bits: u32) {
         self.bits = bits;
     }
 
     /// `msgh_size` of <mach/message.h>.
-    fn size(&self) -> u32 {
+    pub(crate) fn size(&self) -> u32 {
         self.size
     }
 
-    fn set_size(&mut self, size: u32) {
+    pub(crate) fn set_size(&mut self, size: u32) {
         self.size = size;
     }
 
@@ -627,16 +627,16 @@ impl MachMsgHeader {
         self.remote_port
     }
 
-    fn set_remote(&mut self, port: usize) {
+    pub(crate) fn set_remote(&mut self, port: usize) {
         self.remote_port = port;
     }
 
     /// `msgh_local_port` of <mach/message.h>.
-    fn local(&self) -> usize {
+    pub(crate) fn local(&self) -> usize {
         self.local_port
     }
 
-    fn set_local(&mut self, port: usize) {
+    pub(crate) fn set_local(&mut self, port: usize) {
         self.local_port = port;
     }
 
@@ -648,6 +648,10 @@ impl MachMsgHeader {
     /// `msgh_id` of <mach/message.h>.
     pub(crate) fn id(&self) -> c_int {
         self.id
+    }
+
+    pub(crate) fn set_id(&mut self, id: c_int) {
+        self.id = id;
     }
 }
 
@@ -690,7 +694,7 @@ impl Kmsg {
     /// # Safety
     ///
     /// The message must be live.
-    unsafe fn header(self) -> *mut MachMsgHeader {
+    pub(crate) unsafe fn header(self) -> *mut MachMsgHeader {
         // SAFETY: the caller promises the live message.
         unsafe { ptr::addr_of_mut!((*self.record()).header) }
     }
@@ -1349,7 +1353,7 @@ unsafe fn ikm_init(kmsg: Kmsg, size: usize) {
 }
 
 /// `ikm_cache_alloc()` of <ipc/ipc_kmsg.h>.
-fn cache_alloc() -> Option<Kmsg> {
+pub(crate) fn cache_alloc() -> Option<Kmsg> {
     let slot = cache_slot();
 
     // SAFETY: the slot belongs to the running CPU, and a non-null slot holds
@@ -1374,7 +1378,7 @@ fn cache_alloc() -> Option<Kmsg> {
 /// # Safety
 ///
 /// `kmsg` must be a live message whose storage this call owns.
-unsafe fn cache_free(kmsg: Kmsg) {
+pub(crate) unsafe fn cache_free(kmsg: Kmsg) {
     let slot = cache_slot();
 
     // SAFETY: the caller promises the live message.
@@ -1389,6 +1393,24 @@ unsafe fn cache_free(kmsg: Kmsg) {
         // SAFETY: the caller owns the message.
         unsafe { ikm_free(kmsg) };
     }
+}
+
+/// `ikm_cache_free_try()` of <ipc/ipc_kmsg.h>: cache the message when the
+/// running CPU's slot is empty; the caller keeps it otherwise.
+///
+/// # Safety
+///
+/// `kmsg` must be a live message whose storage this call owns.
+pub(crate) unsafe fn cache_free_try(kmsg: Kmsg) -> bool {
+    let slot = cache_slot();
+
+    // SAFETY: the slot belongs to the running CPU.
+    let empty = unsafe { (*slot).is_null() };
+    if empty {
+        // SAFETY: the slot is empty and takes ownership of the message.
+        unsafe { *slot = kmsg.as_ptr() };
+    }
+    empty
 }
 
 /// `ipc_kmsg_get()` in C.

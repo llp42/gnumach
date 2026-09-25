@@ -143,6 +143,9 @@ link error, not a fallback.
 | `i386/i386/apic.c` | `src/arch/i386/apic.rs` |
 | `i386/i386at/acpi_parse_apic.c` | `src/arch/i386/acpi_parse_apic.rs` |
 | `device/ds_routines.c` | `src/device/ds_routines.rs`, `src/device/ds_routines_ffi.rs` |
+| `kern/ipc_host.c` | `src/kern/ipc_host.rs`, `src/kern/ipc_host_ffi.rs` |
+| `kern/host.c` | `src/kern/host.rs`, `src/kern/host_ffi.rs` |
+| `kern/exception.c` | `src/kern/exception.rs`, `src/kern/exception_ffi.rs` |
 
 Also deleted as dead: `device/blkio.c` and the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`).

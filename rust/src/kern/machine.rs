@@ -47,6 +47,40 @@ const _: () = assert!(offset_of!(MachineSlot, running) == 12);
 const _: () = assert!(offset_of!(MachineSlot, cpu_ticks) == 16);
 const _: () = assert!(offset_of!(MachineSlot, clock_freq) == 28);
 
+/// `struct machine_info` of <mach/machine.h>: what `kern/startup.c` records
+/// about the machine as a whole.
+#[repr(C)]
+pub struct MachineInfo {
+    pub major_version: c_int,
+    pub minor_version: c_int,
+    pub max_cpus: c_int,
+    pub avail_cpus: c_int,
+    /// `memory_size`: a `vm_size_t`, four bytes on i386 and eight on x86_64.
+    pub memory_size: usize,
+}
+
+#[cfg(target_pointer_width = "64")]
+const _: () = {
+    assert!(size_of::<MachineInfo>() == 24);
+    assert!(align_of::<MachineInfo>() == 8);
+    assert!(offset_of!(MachineInfo, major_version) == 0);
+    assert!(offset_of!(MachineInfo, minor_version) == 4);
+    assert!(offset_of!(MachineInfo, max_cpus) == 8);
+    assert!(offset_of!(MachineInfo, avail_cpus) == 12);
+    assert!(offset_of!(MachineInfo, memory_size) == 16);
+};
+
+#[cfg(target_pointer_width = "32")]
+const _: () = {
+    assert!(size_of::<MachineInfo>() == 20);
+    assert!(align_of::<MachineInfo>() == 4);
+    assert!(offset_of!(MachineInfo, major_version) == 0);
+    assert!(offset_of!(MachineInfo, minor_version) == 4);
+    assert!(offset_of!(MachineInfo, max_cpus) == 8);
+    assert!(offset_of!(MachineInfo, avail_cpus) == 12);
+    assert!(offset_of!(MachineInfo, memory_size) == 16);
+};
+
 /// The C `machine_slot[cpu]` of <mach/machine.h>.
 ///
 /// # Safety

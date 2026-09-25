@@ -30,7 +30,7 @@ const IS_FREE_LIST_SIZE_LIMIT: usize = 64;
 const IE_BITS_GEN_MASK: u32 = 0;
 /// `IE_BITS_GEN_ONE` of <ipc/ipc_entry.h>: one generation step; zero in this
 /// configuration.
-const IE_BITS_GEN_ONE: u32 = 0;
+pub(crate) const IE_BITS_GEN_ONE: u32 = 0;
 
 /// `ipc_entry_cache` of ipc/ipc_entry.c: the `struct ipc_entry` slab cache.
 #[unsafe(export_name = "ipc_entry_cache")]

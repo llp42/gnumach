@@ -2131,7 +2131,7 @@ impl Thread {
                     core::ptr::fn_addr_eq(f, continue_fn)
                         || core::ptr::fn_addr_eq(f, receive_continue_fn)
                 })) && glue::mach_msg_interrupt(thread) != 0;
-                let exception_return_fn: unsafe extern "C" fn() =
+                let exception_return_fn: unsafe extern "C" fn() -> ! =
                     glue::thread_exception_return;
                 let bootstrap_return_fn: unsafe extern "C" fn() =
                     glue::thread_bootstrap_return;

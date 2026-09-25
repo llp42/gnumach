@@ -150,6 +150,11 @@ impl IpcMqueue {
         self.lock.lock();
     }
 
+    /// `simple_lock_try()` against the queue.
+    pub(crate) fn try_lock(&self) -> bool {
+        self.lock.try_lock()
+    }
+
     pub(crate) fn unlock(&self) {
         self.lock.unlock();
     }
@@ -626,6 +631,90 @@ const _: () = {
     assert!(offset_of!(MachMsgHeader, local_port) == 12);
     assert!(offset_of!(MachMsgHeader, seqno) == 16);
     assert!(offset_of!(MachMsgHeader, id) == 20);
+};
+
+/// `mach_msg_type_t` of <mach/message.h>: the inline descriptor of one body
+/// element.  On LP64 it grew to the size of `mach_msg_type_long_t`; the
+/// number moved out of the bitfield word into its own member.
+#[cfg(target_pointer_width = "64")]
+#[repr(C, align(8))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct MachMsgType {
+    word: u32,
+    number: u32,
+}
+
+/// `mach_msg_type_t` of <mach/message.h>.
+#[cfg(target_pointer_width = "32")]
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct MachMsgType {
+    word: u32,
+}
+
+#[cfg(target_pointer_width = "64")]
+const _: () = {
+    assert!(size_of::<MachMsgType>() == 8);
+    assert!(align_of::<MachMsgType>() == 8);
+    assert!(offset_of!(MachMsgType, word) == 0);
+    assert!(offset_of!(MachMsgType, number) == 4);
+};
+
+#[cfg(target_pointer_width = "32")]
+const _: () = {
+    assert!(size_of::<MachMsgType>() == 4);
+    assert!(align_of::<MachMsgType>() == 4);
+    assert!(offset_of!(MachMsgType, word) == 0);
+};
+
+impl MachMsgType {
+    /// A descriptor built from its C initializer, with one element.
+    pub(crate) const fn new(word: u32, number: u32) -> Self {
+        #[cfg(target_pointer_width = "64")]
+        {
+            Self { word, number }
+        }
+        #[cfg(target_pointer_width = "32")]
+        {
+            // The 32-bit layout packs the 12-bit number above the 8-bit size
+            // in the same word; the C initializer's stores are equivalent.
+            Self {
+                word: word | ((number & 0xfff) << 16),
+            }
+        }
+    }
+
+    /// The first word, the one the C's `BAD_TYPECHECK` compares.
+    pub(crate) const fn word(self) -> u32 {
+        self.word
+    }
+}
+
+/// `mig_reply_header_t` of <mach/mig_errors.h>: the MIG reply preamble a
+/// server sends back through the reply port.
+#[repr(C)]
+pub(crate) struct MigReplyHeader {
+    pub(crate) head: MachMsgHeader,
+    pub(crate) ret_code_type: MachMsgType,
+    pub(crate) ret_code: c_int,
+}
+
+#[cfg(target_pointer_width = "64")]
+const _: () = {
+    assert!(size_of::<MigReplyHeader>() == 48);
+    assert!(align_of::<MigReplyHeader>() == 8);
+    assert!(offset_of!(MigReplyHeader, head) == 0);
+    assert!(offset_of!(MigReplyHeader, ret_code_type) == 32);
+    assert!(offset_of!(MigReplyHeader, ret_code) == 40);
+};
+
+#[cfg(target_pointer_width = "32")]
+const _: () = {
+    assert!(size_of::<MigReplyHeader>() == 32);
+    assert!(align_of::<MigReplyHeader>() == 4);
+    assert!(offset_of!(MigReplyHeader, head) == 0);
+    assert!(offset_of!(MigReplyHeader, ret_code_type) == 24);
+    assert!(offset_of!(MigReplyHeader, ret_code) == 28);
 };
 
 /// `struct ipc_kmsg` of <ipc/ipc_kmsg.h>: the header of a kernel message
