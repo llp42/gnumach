@@ -146,7 +146,6 @@ libkernel_a_SOURCES += \
 	vm/memory_object.h \
 	vm/pmap.h \
 	vm/vm_debug.c \
-	vm/vm_external_glue.c \
 	vm/vm_external.h \
 	vm/vm_fault.c \
 	vm/vm_fault.h \
@@ -154,7 +153,6 @@ libkernel_a_SOURCES += \
 	vm/vm_kern.c \
 	vm/vm_kern.h \
 	vm/vm_map.h \
-	vm/vm_map_glue.c \
 	vm/vm_object.h \
 	vm/vm_page.h \
 	vm/vm_pageout.c \

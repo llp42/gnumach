@@ -356,14 +356,6 @@ unsafe extern "C" {
         type_: c_uint,
     );
 
-    pub static mut vm_map_cache: KmemCache;
-    pub static mut vm_map_entry_cache: KmemCache;
-    pub static mut vm_map_copy_cache: KmemCache;
-
-    pub static mut vm_external_cache: KmemCache;
-    pub static mut vm_object_small_existence_map_cache: KmemCache;
-    pub static mut vm_object_large_existence_map_cache: KmemCache;
-
     pub fn projected_buffer_deallocate(
         map: *mut VmMap,
         start: VmOffset,
@@ -502,32 +494,6 @@ unsafe extern "C" {
     pub static mut vm_page_external_laundry_count: c_int;
 
     pub fn vm_pageout_resume();
-
-    pub fn vm_map_glue_page_is_absent(page: *mut VmPage) -> c_int;
-    pub fn vm_map_glue_page_is_tabled(page: *mut VmPage) -> c_int;
-    pub fn vm_map_glue_page_is_busy(page: *mut VmPage) -> c_int;
-    pub fn vm_map_glue_page_is_fictitious(page: *mut VmPage) -> c_int;
-    pub fn vm_map_glue_page_is_error(page: *mut VmPage) -> c_int;
-    pub fn vm_map_glue_page_is_precious(page: *mut VmPage) -> c_int;
-    pub fn vm_map_glue_page_object(page: *mut VmPage) -> *mut VmObject;
-    pub fn vm_map_glue_page_steal(page: *mut VmPage);
-    pub fn vm_map_glue_page_protect(page: *mut VmPage, protection: c_int);
-    pub fn vm_map_glue_page_set_busy(page: *mut VmPage);
-    pub fn vm_map_glue_page_clear_busy(page: *mut VmPage);
-    pub fn vm_map_glue_page_set_dirty(page: *mut VmPage);
-    pub fn vm_map_glue_page_wakeup_done(page: *mut VmPage);
-    pub fn vm_map_glue_page_activate_if_idle(page: *mut VmPage);
-    pub fn vm_map_glue_page_wire_count(page: *mut VmPage) -> c_int;
-    pub fn vm_map_glue_page_offset(page: *mut VmPage) -> VmOffset;
-    pub fn vm_map_glue_pmap_enter(
-        pmap: *mut Pmap,
-        addr: VmOffset,
-        page: *mut VmPage,
-        protection: c_int,
-        wired: c_int,
-    );
-
-    pub fn vm_map_glue_object_pager(object: *mut VmObject) -> *mut c_void;
 
     pub fn memory_object_create_proxy(
         task: *mut c_void,

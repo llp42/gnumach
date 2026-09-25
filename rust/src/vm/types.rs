@@ -80,6 +80,14 @@ impl core::ops::BitAndAssign for VmProt {
     }
 }
 
+impl core::ops::Not for VmProt {
+    type Output = Self;
+
+    fn not(self) -> Self {
+        Self(!self.0)
+    }
+}
+
 /// `vm_inherit_t` of <mach/vm_inherit.h>.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(transparent)]

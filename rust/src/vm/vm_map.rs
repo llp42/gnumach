@@ -14,31 +14,24 @@ use crate::arch::types::{VmOffset, VmSize};
 use crate::glue::{
     Panic, assert_wait, kernel_map, kernel_object, kernel_pmap,
     kernel_virtual_end, kernel_virtual_start, memory_object_create_proxy,
-    pmap_create, pmap_destroy, pmap_protect, pmap_remove, printf,
-    thread_block, vm_fault_copy, vm_fault_page, vm_fault_unwire, vm_map_cache,
-    vm_map_copy_cache, vm_map_entry_cache, vm_map_glue_page_activate_if_idle,
-    vm_map_glue_page_clear_busy, vm_map_glue_page_is_absent,
-    vm_map_glue_page_is_busy, vm_map_glue_page_is_error,
-    vm_map_glue_page_is_fictitious, vm_map_glue_page_is_precious,
-    vm_map_glue_page_is_tabled, vm_map_glue_page_object,
-    vm_map_glue_page_offset, vm_map_glue_page_protect,
-    vm_map_glue_page_set_busy, vm_map_glue_page_set_dirty,
-    vm_map_glue_page_steal, vm_map_glue_page_wakeup_done,
-    vm_map_glue_page_wire_count, vm_map_glue_pmap_enter, vm_object_allocate,
-    vm_object_coalesce, vm_object_collapse, vm_object_copy_slowly,
-    vm_object_copy_strategically, vm_object_copy_temporary,
-    vm_object_deallocate, vm_object_name, vm_object_page_remove,
-    vm_object_pager_create, vm_object_pmap_protect, vm_object_pmap_remove,
-    vm_object_reference, vm_object_shadow, vm_page_activate, vm_page_free,
-    vm_page_lookup, vm_page_mem_size, vm_page_more_fictitious,
-    vm_page_queue_lock, vm_page_replace, vm_page_wait,
+    pmap_create, pmap_destroy, pmap_enter, pmap_page_protect, pmap_protect,
+    pmap_remove, printf, thread_block, vm_fault_copy, vm_fault_page,
+    vm_fault_unwire, vm_object_allocate, vm_object_coalesce,
+    vm_object_collapse, vm_object_copy_slowly, vm_object_copy_strategically,
+    vm_object_copy_temporary, vm_object_deallocate, vm_object_name,
+    vm_object_page_remove, vm_object_pager_create, vm_object_pmap_protect,
+    vm_object_pmap_remove, vm_object_reference, vm_object_shadow,
+    vm_page_activate, vm_page_free, vm_page_lookup, vm_page_mem_size,
+    vm_page_more_fictitious, vm_page_queue_lock, vm_page_remove,
+    vm_page_replace, vm_page_wait, vm_page_wire_count,
 };
 use crate::ipc::{IpcPort, IpcSpace, ipc_port};
 use crate::kern::list::{List, entry as list_entry};
 use crate::kern::lock::{LockData, SimpleLock};
 use crate::kern::rbtree::{RBTREE_LEFT, RBTREE_RIGHT, Rbtree, RbtreeNode};
 use crate::kern::sched_prim::{THREAD_AWAKENED, thread_wakeup_prim};
-use crate::kern::slab::{CacheInitFlags, kalloc, kfree};
+use crate::kern::slab::{CacheInitFlags, KmemCache, kalloc, kfree};
+use crate::utils::cell::SyncCell;
 use crate::vm::error::{
     Error, KERN_SUCCESS, error_from_kern_return, kern_return,
 };
@@ -67,6 +60,33 @@ pub const VM_MAP_COPY_ENTRY_LIST: c_int = 1;
 pub const VM_MAP_COPY_OBJECT: c_int = 2;
 /// `VM_MAP_COPY_PAGE_LIST`: the copy holds a page list.
 pub const VM_MAP_COPY_PAGE_LIST: c_int = 3;
+
+/// `vm_map_cache` of `vm/vm_map.c`.
+#[unsafe(export_name = "vm_map_cache")]
+static VM_MAP_CACHE: SyncCell<KmemCache> =
+    SyncCell(UnsafeCell::new(KmemCache::zeroed()));
+
+/// `vm_map_entry_cache` of `vm/vm_map.c`.
+#[unsafe(export_name = "vm_map_entry_cache")]
+static VM_MAP_ENTRY_CACHE: SyncCell<KmemCache> =
+    SyncCell(UnsafeCell::new(KmemCache::zeroed()));
+
+/// `vm_map_copy_cache` of `vm/vm_map.c`.
+#[unsafe(export_name = "vm_map_copy_cache")]
+static VM_MAP_COPY_CACHE: SyncCell<KmemCache> =
+    SyncCell(UnsafeCell::new(KmemCache::zeroed()));
+
+fn map_cache() -> *mut KmemCache {
+    VM_MAP_CACHE.0.get()
+}
+
+fn map_entry_cache() -> *mut KmemCache {
+    VM_MAP_ENTRY_CACHE.0.get()
+}
+
+fn map_copy_cache() -> *mut KmemCache {
+    VM_MAP_COPY_CACHE.0.get()
+}
 
 /// Pins a mirror to the C layout it replaces: size, alignment and the offsets
 /// of the fields C reads by name.
@@ -429,6 +449,46 @@ pub(crate) const fn trunc_page(x: VmOffset) -> VmOffset {
     x & !PAGE_MASK
 }
 
+/// The body `vm_map_glue_page_steal()` had in C: unlink the page from its
+/// object and the queues, clearing a wired page's count.
+///
+/// # Safety
+///
+/// `page` must be a live page whose object lock the caller holds.
+unsafe fn page_steal(page: *mut VmPage) {
+    // SAFETY: the page-queues lock guards the queues and the wire count, and
+    // `vm_page_remove()` requires the object lock the caller holds.
+    unsafe {
+        (*addr_of_mut!(vm_page_queue_lock)).lock();
+        vm_page_remove(page);
+        if (*page).wire_count() > 0 {
+            (*page).set_wire_count(0);
+            vm_page_wire_count -= 1;
+        } else {
+            vm_page::queues_remove(page);
+        }
+        (*addr_of_mut!(vm_page_queue_lock)).unlock();
+    }
+}
+
+/// The body `vm_map_glue_page_activate_if_idle()` had in C: activate a page
+/// that is on no queue.
+///
+/// # Safety
+///
+/// `page` must be a live page whose object lock the caller holds.
+unsafe fn page_activate_if_idle(page: *mut VmPage) {
+    // SAFETY: the page-queues lock serializes the flags, the queues and
+    // `vm_page_activate()`.
+    unsafe {
+        (*addr_of_mut!(vm_page_queue_lock)).lock();
+        if !(*page).is_active() && !(*page).is_inactive() {
+            vm_page_activate(page);
+        }
+        (*addr_of_mut!(vm_page_queue_lock)).unlock();
+    }
+}
+
 impl VmMap {
     /// Copy the virtual-memory limits from `src` to `dst`, which
     /// `vm_map_copy_limits()` in C does.
@@ -626,9 +686,9 @@ impl VmMap {
         let _ = unsafe { (*map.as_ptr()).delete(min, max) };
         // SAFETY: as above, and the pmap is no longer used.
         unsafe { pmap_destroy(pmap) };
-        // SAFETY: the map came from `vm_map_cache`, and nothing references it
+        // SAFETY: the map came from `map_cache()`, and nothing references it
         // now.
-        unsafe { (*addr_of_mut!(vm_map_cache)).free(map.cast::<u8>()) };
+        unsafe { (*map_cache()).free(map.cast::<u8>()) };
     }
 
     /// `vm_map_init()` in C.
@@ -638,24 +698,24 @@ impl VmMap {
     /// Must run once, before any other routine of this module, so the caches
     /// are ready before the first allocation from them.
     pub(crate) unsafe fn init_module() {
-        // SAFETY: the caches live in vm/vm_map_glue.c and outlive the kernel;
+        // SAFETY: this module defines the caches and they outlive the kernel;
         // the bootstrap calls this before anything allocates from them.
         unsafe {
-            (*addr_of_mut!(vm_map_cache)).init(
+            (*map_cache()).init(
                 b"vm_map",
                 size_of::<VmMap>(),
                 0,
                 None,
                 CacheInitFlags::EMPTY,
             );
-            (*addr_of_mut!(vm_map_entry_cache)).init(
+            (*map_entry_cache()).init(
                 b"vm_map_entry",
                 size_of::<VmMapEntry>(),
                 0,
                 None,
                 CacheInitFlags::NOOFFSLAB | CacheInitFlags::PHYSMEM,
             );
-            (*addr_of_mut!(vm_map_copy_cache)).init(
+            (*map_copy_cache()).init(
                 b"vm_map_copy",
                 size_of::<VmMapCopy>(),
                 0,
@@ -719,10 +779,9 @@ impl VmMap {
         min: VmOffset,
         max: VmOffset,
     ) -> Option<NonNull<VmMap>> {
-        // SAFETY: `vm_map_cache` is initialized by `vm_map_init()` before any
+        // SAFETY: `map_cache()` is initialized by `vm_map_init()` before any
         // map is created.
-        let map =
-            unsafe { (*addr_of_mut!(vm_map_cache)).alloc() }?.cast::<VmMap>();
+        let map = unsafe { (*map_cache()).alloc() }?.cast::<VmMap>();
 
         // SAFETY: the object is freshly allocated and unshared.
         VmMap::setup(unsafe { &mut *map.as_ptr() }, pmap, min, max);
@@ -1089,9 +1148,7 @@ impl VmMap {
             let page = unsafe { vm_page_lookup(object, offset) };
             // SAFETY: a non-null page came from the object just locked; the
             // absent bit is read under that lock.
-            if page.is_null()
-                || unsafe { vm_map_glue_page_is_absent(page) != 0 }
-            {
+            if page.is_null() || unsafe { (*page).is_absent() } {
                 // SAFETY: the lock and paging reference taken above.
                 unsafe {
                     vm_object::paging_end(object);
@@ -1121,18 +1178,18 @@ impl VmMap {
             // SAFETY: the page is present and marked busy under the object
             // lock; the paging reference pins it while the lock is dropped.
             unsafe {
-                vm_map_glue_page_set_busy(page);
+                (*page).set_busy(true);
                 (*object).lock.unlock();
-                vm_map_glue_pmap_enter(
+                pmap_enter(
                     self.pmap,
                     addr,
-                    page,
-                    protection.bits(),
+                    (*page).phys_addr,
+                    protection & !(*page).page_lock(),
                     0,
                 );
                 (*object).lock.lock();
-                vm_map_glue_page_wakeup_done(page);
-                vm_map_glue_page_activate_if_idle(page);
+                vm_object::page_wakeup_done(page);
+                page_activate_if_idle(page);
                 vm_object::paging_end(object);
                 (*object).lock.unlock();
             }
@@ -1276,7 +1333,7 @@ impl VmMapCopy {
     /// `copy` must be a live copy from this cache that nothing uses any more.
     unsafe fn free(copy: NonNull<VmMapCopy>) {
         // SAFETY: the caller promises a live, unused cache object.
-        unsafe { (*addr_of_mut!(vm_map_copy_cache)).free(copy.cast::<u8>()) };
+        unsafe { (*map_copy_cache()).free(copy.cast::<u8>()) };
     }
 
     /// The `cpy_hdr` accessors in C.
@@ -1397,7 +1454,7 @@ impl VmMapCopy {
             let m = unsafe { (*pages).page_list[i] };
             // SAFETY: a tabled page belongs to a live object that the copy
             // holds a paging reference on.
-            if unsafe { vm_map_glue_page_is_tabled(m) } != 0 {
+            if unsafe { (*m).is_tabled() } {
                 // SAFETY: the allocator and `vm_page_wait` own the page
                 // queues.
                 let mut new_m = unsafe { vm_resident::grab(VM_PAGE_HIGHMEM) }
@@ -1420,13 +1477,13 @@ impl VmMapCopy {
 
                 // SAFETY: the page is tabled, so it belongs to a live object
                 // the copy holds a paging reference on.
-                let object = unsafe { vm_map_glue_page_object(m) };
+                let object = unsafe { (*m).object };
                 // SAFETY: the object lock and the page queue serialise the
                 // page state, exactly as in the C.
                 unsafe {
                     (*object).lock.lock();
-                    vm_map_glue_page_activate_if_idle(m);
-                    vm_map_glue_page_wakeup_done(m);
+                    page_activate_if_idle(m);
+                    vm_object::page_wakeup_done(m);
                     vm_object::paging_end(object);
                     (*object).lock.unlock();
                 }
@@ -1474,7 +1531,7 @@ impl VmMapCopy {
 
             // SAFETY: the page is live; `tabled` tells whether the copy holds
             // a paging reference to its object.
-            if unsafe { vm_map_glue_page_is_tabled(page) } == 0 {
+            if !unsafe { (*page).is_tabled() } {
                 // SAFETY: a stolen page is in no object, so it goes back to
                 // the free list; the C `VM_PAGE_FREE` holds the page queue
                 // lock across `vm_page_free`.
@@ -1486,13 +1543,13 @@ impl VmMapCopy {
             } else {
                 // SAFETY: a tabled page belongs to a live object the copy
                 // holds a paging reference on.
-                let object = unsafe { vm_map_glue_page_object(page) };
+                let object = unsafe { (*page).object };
                 // SAFETY: the object lock and the page queue serialise the
                 // page state, exactly as in the C.
                 unsafe {
                     (*object).lock.lock();
-                    vm_map_glue_page_activate_if_idle(page);
-                    vm_map_glue_page_wakeup_done(page);
+                    page_activate_if_idle(page);
+                    vm_object::page_wakeup_done(page);
                     vm_object::paging_end(object);
                     (*object).lock.unlock();
                 }
@@ -1662,9 +1719,8 @@ impl VmMapCopy {
     ) -> NonNull<VmMapCopy> {
         // SAFETY: the copy cache is initialized by `vm_map_init()` before any
         // copy exists.
-        let Some(new_copy) =
-            unsafe { (*addr_of_mut!(vm_map_copy_cache)).alloc() }
-                .map(|buf| buf.cast::<VmMapCopy>())
+        let Some(new_copy) = unsafe { (*map_copy_cache()).alloc() }
+            .map(|buf| buf.cast::<VmMapCopy>())
         else {
             // SAFETY: the C dereferences the null allocation; halt as
             // `VmMapEntry::create()` does.
@@ -1720,7 +1776,7 @@ impl VmMapCopy {
     ) -> NonNull<VmMapCopy> {
         // SAFETY: `vm_map_copy_cache` is initialized by `vm_map_init()` before
         // any copy is created.
-        let Some(copy) = unsafe { (*addr_of_mut!(vm_map_copy_cache)).alloc() }
+        let Some(copy) = unsafe { (*map_copy_cache()).alloc() }
             .map(|buf| buf.cast::<VmMapCopy>())
         else {
             // SAFETY: the C dereferences the null allocation, which halts the
@@ -1768,7 +1824,7 @@ impl VmMapCopy {
     ) -> NonNull<VmMapCopy> {
         // SAFETY: `vm_map_copy_cache` is initialized by `vm_map_init()` before
         // any copy is created.
-        let Some(copy) = unsafe { (*addr_of_mut!(vm_map_copy_cache)).alloc() }
+        let Some(copy) = unsafe { (*map_copy_cache()).alloc() }
             .map(|buf| buf.cast::<VmMapCopy>())
         else {
             // SAFETY: the C dereferences the null allocation, which halts the
@@ -1809,7 +1865,7 @@ impl VmMapCopy {
     ) -> NonNull<VmMapCopy> {
         // SAFETY: `vm_map_copy_cache` is initialized by `vm_map_init()` before
         // any copy is created.
-        let Some(copy) = unsafe { (*addr_of_mut!(vm_map_copy_cache)).alloc() }
+        let Some(copy) = unsafe { (*map_copy_cache()).alloc() }
             .map(|buf| buf.cast::<VmMapCopy>())
         else {
             // SAFETY: the C dereferences the null allocation, which halts the
@@ -1904,7 +1960,7 @@ impl VmMapEntry {
     pub(crate) unsafe fn create() -> NonNull<VmMapEntry> {
         // SAFETY: `vm_map_entry_cache` is initialized by `vm_map_init()`
         // before any entry is created.
-        match unsafe { (*addr_of_mut!(vm_map_entry_cache)).alloc() }
+        match unsafe { (*map_entry_cache()).alloc() }
             .map(|buf| buf.cast::<VmMapEntry>())
         {
             Some(entry) => entry,
@@ -2368,9 +2424,7 @@ impl VmMapEntry {
     /// `entry` must be unlinked and came from `create()`.
     pub(crate) unsafe fn dispose(entry: NonNull<VmMapEntry>) {
         // SAFETY: the caller promises the entry is free.
-        unsafe {
-            (*addr_of_mut!(vm_map_entry_cache)).free(entry.cast::<u8>())
-        };
+        unsafe { (*map_entry_cache()).free(entry.cast::<u8>()) };
     }
 
     /// `vm_map_entry_copy_full()` in C; used for splitting and for projected
@@ -4706,14 +4760,14 @@ impl VmMap {
                     // SAFETY: a non-null page came from the object just
                     // locked; its bits are read under that lock.
                     if !m.is_null()
-                        && unsafe { vm_map_glue_page_is_busy(m) } == 0
-                        && unsafe { vm_map_glue_page_is_fictitious(m) } == 0
-                        && unsafe { vm_map_glue_page_is_absent(m) } == 0
-                        && unsafe { vm_map_glue_page_is_error(m) } == 0
+                        && !unsafe { (*m).is_busy() }
+                        && !unsafe { (*m).is_fictitious() }
+                        && !unsafe { (*m).is_absent() }
+                        && !unsafe { (*m).is_error() }
                     {
                         // SAFETY: the object lock is held; setting the busy
                         // bit is the C's own lock discipline.
-                        unsafe { vm_map_glue_page_set_busy(m) };
+                        unsafe { (*m).set_busy(true) };
 
                         if !src_destroy
                             || unsafe {
@@ -4723,10 +4777,16 @@ impl VmMap {
                             }
                         {
                             // SAFETY: `m` is live and its object is locked;
-                            // the shim masks the page's `page_lock` and the
-                            // write bit.
+                            // the mask keeps the page's `page_lock` and write
+                            // bits clear.
                             unsafe {
-                                vm_map_glue_page_protect(m, protection.bits())
+                                pmap_page_protect(
+                                    (*m).phys_addr,
+                                    (protection
+                                        & !(*m).page_lock()
+                                        & !VmProt::WRITE)
+                                        .bits(),
+                                )
                             };
                         }
                     } else {
@@ -4857,7 +4917,7 @@ impl VmMap {
                         (*pages).npages = (*pages).npages.wrapping_add(1);
                         // SAFETY: the page's object is the one left locked for
                         // it, as the C `m->object` is.
-                        (*vm_map_glue_page_object(m)).lock.unlock();
+                        (*(*m).object).lock.unlock();
                     }
 
                     src_offset = src_offset.wrapping_add(PAGE_SIZE);
@@ -4922,7 +4982,7 @@ impl VmMap {
                 let m = unsafe { (*pages).page_list[i] };
                 // SAFETY: the copy holds a paging reference on the page's
                 // object.
-                let src_object = unsafe { vm_map_glue_page_object(m) };
+                let src_object = unsafe { (*m).object };
                 // SAFETY: the page belongs to a live object; the lock
                 // serialises its state.
                 unsafe { (*src_object).lock.lock() };
@@ -4932,13 +4992,13 @@ impl VmMap {
                     && unsafe { (*src_object).is_temporary() }
                     && !unsafe { (*src_object).is_shadowed() }
                     && !unsafe { (*src_object).use_shared_copy() }
-                    && unsafe { vm_map_glue_page_is_precious(m) } == 0
+                    && !unsafe { (*m).is_precious() }
                 {
                     let page_vaddr =
                         src_start.wrapping_add(i.wrapping_mul(PAGE_SIZE));
                     // SAFETY: the object lock is held; the wire count is read
                     // under it.
-                    if unsafe { vm_map_glue_page_wire_count(m) } > 0 {
+                    if unsafe { (*m).wire_count() } > 0 {
                         // SAFETY: the object lock is dropped for the map
                         // operations the C performs here.
                         unsafe { (*src_object).lock.unlock() };
@@ -4991,7 +5051,7 @@ impl VmMap {
 
                     // SAFETY: the page queue and object locks order the page's
                     // state, exactly as the C block does.
-                    unsafe { vm_map_glue_page_steal(m) };
+                    unsafe { page_steal(m) };
                 } else {
                     // SAFETY: the object lock was taken above.
                     unsafe { (*src_object).lock.unlock() };
@@ -5170,8 +5230,8 @@ impl VmMap {
                         // panicking otherwise.
                         let page = vm_page_lookup(object, offset);
                         if page.is_null()
-                            || vm_map_glue_page_wire_count(page) == 0
-                            || vm_map_glue_page_is_absent(page) != 0
+                            || (*page).wire_count() == 0
+                            || (*page).is_absent()
                         {
                             Panic(
                                 c"rust/src/vm/vm_map.rs".as_ptr(),
@@ -5182,19 +5242,19 @@ impl VmMap {
                             );
                         }
 
-                        vm_map_glue_page_set_busy(page);
+                        (*page).set_busy(true);
                         (*object).lock.unlock();
 
-                        vm_map_glue_pmap_enter(
+                        pmap_enter(
                             self.pmap,
                             va,
-                            page,
-                            (*e).protection.bits(),
+                            (*page).phys_addr,
+                            (*e).protection & !(*page).page_lock(),
                             1,
                         );
 
                         (*object).lock.lock();
-                        vm_map_glue_page_wakeup_done(page);
+                        vm_object::page_wakeup_done(page);
                         vm_object::paging_end(object);
                         (*object).lock.unlock();
 
@@ -5254,7 +5314,7 @@ impl VmMap {
         let first_page = unsafe { (*VmMapCopy::page_list(copy)).page_list[0] };
         // SAFETY: a tabled page belongs to a live object the copy holds a
         // paging reference on.
-        if unsafe { vm_map_glue_page_is_tabled(first_page) } != 0 {
+        if unsafe { (*first_page).is_tabled() } {
             // SAFETY: the caller owns the live copy.
             unsafe { VmMapCopy::steal_pages(copy) };
         }
@@ -5444,8 +5504,8 @@ impl VmMap {
                 // SAFETY: `m` is a live page of the copy and the page queue
                 // lock is held.
                 unsafe {
-                    vm_map_glue_page_clear_busy(m);
-                    vm_map_glue_page_set_dirty(m);
+                    (*m).set_busy(false);
+                    (*m).set_dirty(true);
                     vm_page_replace(
                         m,
                         object,
@@ -5459,14 +5519,14 @@ impl VmMap {
                         vm_page::wire(NonNull::new_unchecked(m));
                         let entry_start = (*last.as_ptr()).links.start;
                         let entry_offset = (*last.as_ptr()).offset;
-                        let page_offset = vm_map_glue_page_offset(m);
-                        vm_map_glue_pmap_enter(
+                        let page_offset = (*m).offset;
+                        pmap_enter(
                             self.pmap,
                             entry_start
                                 .wrapping_add(page_offset)
                                 .wrapping_sub(entry_offset),
-                            m,
-                            (*last.as_ptr()).protection.bits(),
+                            (*m).phys_addr,
+                            (*last.as_ptr()).protection & !(*m).page_lock(),
                             1,
                         );
                     }
@@ -5523,7 +5583,7 @@ impl VmMap {
                         page_index = 0;
                         // SAFETY: `pages` names the live variant.
                         let first = unsafe { (*pages).page_list[0] };
-                        if unsafe { vm_map_glue_page_is_tabled(first) } != 0 {
+                        if unsafe { (*first).is_tabled() } {
                             // SAFETY: the caller owns the live copy.
                             unsafe { VmMapCopy::steal_pages(new_copy) };
                         }

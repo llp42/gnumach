@@ -7,15 +7,13 @@
 //! define and `vm/vm_external.h` declares.
 
 use crate::arch::types::VmOffset;
-use crate::glue::{
-    vm_external_cache, vm_object_large_existence_map_cache,
-    vm_object_small_existence_map_cache,
-};
-use crate::kern::slab::CacheInitFlags;
+use crate::kern::slab::{CacheInitFlags, KmemCache};
+use crate::utils::cell::SyncCell;
 use crate::vm::types::PAGE_SHIFT;
+use core::cell::UnsafeCell;
 use core::ffi::c_int;
 use core::mem::{align_of, offset_of, size_of};
-use core::ptr::{self, NonNull, addr_of_mut};
+use core::ptr::{self, NonNull};
 use core::slice;
 use core::sync::atomic::{AtomicU32, Ordering};
 
@@ -113,25 +111,46 @@ fn page_bit(offset: VmOffset) -> usize {
     offset >> PAGE_SHIFT
 }
 
+/// `vm_external_cache` of `vm/vm_external.c`.
+#[unsafe(export_name = "vm_external_cache")]
+static VM_EXTERNAL_CACHE: SyncCell<KmemCache> =
+    SyncCell(UnsafeCell::new(KmemCache::zeroed()));
+
+/// `vm_object_small_existence_map_cache` of `vm/vm_external.c`.
+#[unsafe(export_name = "vm_object_small_existence_map_cache")]
+static SMALL_EXISTENCE_MAP_CACHE: SyncCell<KmemCache> =
+    SyncCell(UnsafeCell::new(KmemCache::zeroed()));
+
+/// `vm_object_large_existence_map_cache` of `vm/vm_external.c`.
+#[unsafe(export_name = "vm_object_large_existence_map_cache")]
+static LARGE_EXISTENCE_MAP_CACHE: SyncCell<KmemCache> =
+    SyncCell(UnsafeCell::new(KmemCache::zeroed()));
+
+fn external_cache() -> *mut KmemCache {
+    VM_EXTERNAL_CACHE.0.get()
+}
+
+fn small_existence_map_cache() -> *mut KmemCache {
+    SMALL_EXISTENCE_MAP_CACHE.0.get()
+}
+
+fn large_existence_map_cache() -> *mut KmemCache {
+    LARGE_EXISTENCE_MAP_CACHE.0.get()
+}
+
 impl VmExternal {
     /// `vm_external_create()` in C.
     fn create(size: VmOffset) -> Option<NonNull<VmExternal>> {
-        // SAFETY: `vm_external_cache` is initialized by
+        // SAFETY: `external_cache()` is initialized by
         // `vm_external_module_initialize()` before any caller.
-        let header = unsafe { (*addr_of_mut!(vm_external_cache)).alloc() }
+        let header = unsafe { (*external_cache()).alloc() }
             .map(|buf| buf.cast::<VmExternal>())?;
 
         let bytes = (size >> PAGE_SHIFT).wrapping_add(7) >> 3;
         let (cache, existence_size) = if bytes <= SMALL_SIZE {
-            (
-                addr_of_mut!(vm_object_small_existence_map_cache),
-                SMALL_SIZE,
-            )
+            (small_existence_map_cache(), SMALL_SIZE)
         } else {
-            (
-                addr_of_mut!(vm_object_large_existence_map_cache),
-                LARGE_SIZE,
-            )
+            (large_existence_map_cache(), LARGE_SIZE)
         };
 
         // SAFETY: the chosen map cache is initialized too, and its object
@@ -140,9 +159,7 @@ impl VmExternal {
             unsafe { (*cache).alloc() }.map(|buf| buf.cast::<u8>())
         else {
             // SAFETY: the header is the live allocation from above.
-            unsafe {
-                (*addr_of_mut!(vm_external_cache)).free(header.cast::<u8>())
-            };
+            unsafe { (*external_cache()).free(header.cast::<u8>()) };
             return None;
         };
 
@@ -174,9 +191,9 @@ impl VmExternal {
         if let Some(map) = this.existence_map {
             // SMALL_SIZE is 16, so the C `int` comparison is exact.
             let cache = if this.existence_size <= SMALL_SIZE as c_int {
-                addr_of_mut!(vm_object_small_existence_map_cache)
+                small_existence_map_cache()
             } else {
-                addr_of_mut!(vm_object_large_existence_map_cache)
+                large_existence_map_cache()
             };
             // SAFETY: the map came from that cache and is not used again; the
             // header is still alive for the read above.
@@ -184,7 +201,7 @@ impl VmExternal {
         }
         // SAFETY: the header came from its cache, and nothing references it
         // after this point.
-        unsafe { (*addr_of_mut!(vm_external_cache)).free(e.cast::<u8>()) };
+        unsafe { (*external_cache()).free(e.cast::<u8>()) };
     }
 
     /// The bitmap this object records page states in, when it has one.
@@ -326,24 +343,24 @@ pub unsafe extern "C" fn vm_external_state_set(
 /// kernel's VM bootstrap.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vm_external_module_initialize() {
-    // SAFETY: the caches live in vm/vm_external_glue.c and outlive the kernel;
-    // the bootstrap calls this before anything allocates from them.
+    // SAFETY: this module defines the caches and they outlive the kernel; the
+    // bootstrap calls this before anything allocates from them.
     unsafe {
-        (*addr_of_mut!(vm_external_cache)).init(
+        (*external_cache()).init(
             b"vm_external",
             size_of::<VmExternal>(),
             0,
             None,
             CacheInitFlags::EMPTY,
         );
-        (*addr_of_mut!(vm_object_small_existence_map_cache)).init(
+        (*small_existence_map_cache()).init(
             b"small_existence_map",
             SMALL_SIZE,
             0,
             None,
             CacheInitFlags::EMPTY,
         );
-        (*addr_of_mut!(vm_object_large_existence_map_cache)).init(
+        (*large_existence_map_cache()).init(
             b"large_existence_map",
             LARGE_SIZE,
             0,

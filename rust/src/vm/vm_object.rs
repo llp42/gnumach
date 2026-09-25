@@ -432,7 +432,7 @@ unsafe fn page_wakeup(page: *mut VmPage) {
 /// # Safety
 ///
 /// `page` must be a live page whose object lock the caller holds.
-unsafe fn page_wakeup_done(page: *mut VmPage) {
+pub(crate) unsafe fn page_wakeup_done(page: *mut VmPage) {
     // SAFETY: the caller promises the live page and its lock.
     unsafe {
         (*page).set_busy(false);
