@@ -189,7 +189,7 @@ pub(crate) unsafe extern "C" fn start_kernel_threads() {
         let _ = thread_ffi::kernel_thread(
             kernel_task,
             c"intr".as_ptr(),
-            Some(glue::intr_thread),
+            Some(crate::device::intr_ffi::intr_thread),
             ptr::null_mut(),
         );
         let _ = thread_ffi::kernel_thread(

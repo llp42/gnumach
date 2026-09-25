@@ -7,6 +7,8 @@
 //! <device/subrs.h> and <device/if_ether.h>.
 
 use crate::arch::types::VmOffset;
+use crate::device::net_io::IfNet;
+use crate::kern::queue::queue_init;
 use crate::kern::sched_prim::{
     THREAD_AWAKENED, assert_wait, thread_block, thread_wakeup_prim,
 };
@@ -14,6 +16,9 @@ use crate::utils::cell::SyncCell;
 use core::cell::UnsafeCell;
 use core::ffi::{c_char, c_int, c_void};
 use core::ptr;
+
+/// `IFQ_MAXLEN` of <device/if_hdr.h>.
+const IFQ_MAXLEN: c_int = 50;
 
 /// `digits[]` of `ether_sprintf()`.
 const DIGITS: [u8; 16] = *b"0123456789abcdef";
@@ -41,8 +46,7 @@ fn format_into(address: &[u8; 6], buf: &mut [u8; 18]) {
 /// # Safety
 ///
 /// `ap` must be readable for six bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn ether_sprintf(ap: *const u8) -> *mut c_char {
+pub(crate) unsafe fn ether_sprintf(ap: *const u8) -> *mut c_char {
     // SAFETY: the caller promises six readable bytes; a `[u8; 6]` needs no
     // alignment a byte pointer does not already have.
     let address = unsafe { &*ap.cast::<[u8; 6]>() };
@@ -66,8 +70,7 @@ fn event(channel: VmOffset) -> *mut c_void {
 /// `channel` must be the event the matching [`wakeup()`] names, and the
 /// current thread must not already be waiting on an event; the call blocks
 /// until the wakeup.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn sleep(channel: VmOffset, _priority: c_int) {
+pub(crate) unsafe fn sleep(channel: VmOffset, _priority: c_int) {
     // SAFETY: the caller names the matching event; `0` is the C's `FALSE`
     // non-interruptible wait, and the null continuation resumes the caller
     // with nothing to run.
@@ -84,11 +87,34 @@ pub unsafe extern "C" fn sleep(channel: VmOffset, _priority: c_int) {
 ///
 /// `channel` must be the event the matching [`sleep()`] or `assert_wait()`
 /// names.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn wakeup(channel: VmOffset) {
+pub(crate) unsafe fn wakeup(channel: VmOffset) {
     // SAFETY: the caller names the matching wait's event; `0` is the macro's
     // `FALSE`, so every waiter is woken, normally.
     unsafe {
         thread_wakeup_prim(event(channel), 0, THREAD_AWAKENED);
     }
+}
+
+/// `if_init_queues()` of device/subrs.c.
+///
+/// # Safety
+///
+/// `ifp` must be a live interface header that nothing else initializes at the
+/// same time.
+pub(crate) unsafe fn if_init_queues(ifp: *mut IfNet) {
+    // SAFETY: the caller promises the live header.
+    let ifp = unsafe { &mut *ifp };
+
+    // SAFETY: the embedded queue heads are initialized here, once.
+    unsafe {
+        queue_init(ptr::from_mut(&mut ifp.if_snd.ifq_head).cast());
+        queue_init(ptr::from_mut(&mut ifp.if_rcv_port_list).cast());
+        queue_init(ptr::from_mut(&mut ifp.if_snd_port_list).cast());
+    }
+    ifp.if_snd.ifq_lock.init();
+    ifp.if_snd.ifq_len = 0;
+    ifp.if_snd.ifq_maxlen = IFQ_MAXLEN;
+    ifp.if_snd.ifq_drops = 0;
+    ifp.if_rcv_port_list_lock.init();
+    ifp.if_snd_port_list_lock.init();
 }

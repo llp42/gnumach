@@ -259,10 +259,11 @@ pub(crate) fn machine_init() {
     ioapic::ioapic_configure();
     pit::clkstart();
 
-    // SAFETY: `cninit` and `probeio` are the real C routines of
-    // `device/cons.c` and `i386/i386at/autoconf.c`.
+    // SAFETY: `cninit` and `probeio` are the console and AT-bus boot steps;
+    // the first moved to Rust with the `device/cons.c` port, the second is
+    // still the real C routine of `i386/i386at/autoconf.c`.
     unsafe {
-        glue::cninit();
+        crate::device::cons_ffi::cninit();
         glue::probeio();
     }
 

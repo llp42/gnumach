@@ -1384,6 +1384,16 @@ impl IpcPort {
         unsafe { (*self.record()).target.object.references = references };
     }
 
+    /// `ip_references` of <ipc/ipc_port.h>: the port's reference count.
+    ///
+    /// # Safety
+    ///
+    /// The port must be live.
+    pub(crate) unsafe fn references(self) -> c_uint {
+        // SAFETY: the caller promises a live port.
+        unsafe { (*self.record()).target.object.references }
+    }
+
     /// `ip_lock_init()` of <ipc/ipc_port.h>.
     ///
     /// # Safety

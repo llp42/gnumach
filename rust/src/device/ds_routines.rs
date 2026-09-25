@@ -958,7 +958,7 @@ pub(crate) unsafe extern "C" fn ds_device_intr_register(
             c"irq".as_ptr(),
         )
     };
-    if same_name == 0 {
+    if !same_name {
         return Err(DeviceError::InvalidOperation).as_io_return();
     }
 
@@ -973,7 +973,7 @@ pub(crate) unsafe extern "C" fn ds_device_intr_register(
     // SAFETY: `irqtab` is the live interrupt table, and the id is inside its
     // NINTR entries.
     let entry = unsafe {
-        glue::insert_intr_entry(
+        crate::device::intr_ffi::insert_intr_entry(
             ptr::addr_of_mut!(irq::irqtab),
             id,
             receive_port,
@@ -985,7 +985,7 @@ pub(crate) unsafe extern "C" fn ds_device_intr_register(
 
     // SAFETY: the entry belongs to the table, which serializes its use.
     let err = unsafe {
-        glue::install_user_intr_handler(
+        crate::device::intr_ffi::install_user_intr_handler(
             ptr::addr_of_mut!(irq::irqtab),
             id,
             flags as c_ulong,
@@ -1027,12 +1027,13 @@ pub(crate) unsafe extern "C" fn ds_device_intr_ack(
             c"irq".as_ptr(),
         )
     };
-    if same_name == 0 {
+    if !same_name {
         return Err(DeviceError::InvalidOperation).as_io_return();
     }
 
     // SAFETY: the caller promises a live irq port.
-    let ret = unsafe { glue::irq_acknowledge(receive_port) };
+    let ret =
+        unsafe { crate::device::intr_ffi::irq_acknowledge(receive_port) };
     if ret == D_SUCCESS {
         // SAFETY: the acknowledge consumed the send right the registration
         // held.

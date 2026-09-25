@@ -159,9 +159,9 @@ pub unsafe extern "C" fn safe_gets(str: *mut c_char, maxlen: c_int) {
     let line =
         unsafe { core::slice::from_raw_parts_mut(str.cast::<u8>(), len) };
     let mut getc = || {
-        // SAFETY: `cngetc()` is the real C symbol <device/cons.h> declares and
-        // takes no argument.
-        unsafe { glue::cngetc() }
+        // SAFETY: `cngetc()` takes no argument and the console is
+        // initialized before `safe_gets()` can be called.
+        unsafe { crate::device::cons_ffi::cngetc() }
     };
     let mut putc = |byte: u8| {
         // SAFETY: `printf` is the C entry point of <kern/printf.h>, the format

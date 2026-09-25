@@ -3,100 +3,51 @@
 //   Copyright (c) 1991,1990,1989 Carnegie Mellon University.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! The device-name comparison and the empty device-table entries of
-//! `device/dev_name.c`, declared in <device/dev_hdr.h> and <device/conf.h>.
+//! The device-name lookup of `device/dev_name.c`, declared in
+//! <device/dev_hdr.h> and <device/conf.h>.
 
-use crate::arch::i386::io_req::{DevT, IoReq};
-use crate::arch::types::VmOffset;
-use crate::device::r#return::{DeviceError, DeviceSuccess, IoResultExt};
-use core::ffi::{c_char, c_int, c_uint, c_ushort, c_void};
+use crate::device::ds_routines::DevOps;
+use crate::glue;
+use crate::utils::string::strcmp;
+use core::ffi::{c_char, c_int};
+use core::mem::size_of;
+use core::ptr::{self, NonNull};
 use core::slice;
 
-/// `nulldev_reset()` in C.
-#[unsafe(no_mangle)]
-pub extern "C" fn nulldev_reset(_dev: DevT) -> c_int {
-    Ok(DeviceSuccess::Success).as_io_return()
+/// `struct dev_indirect` of <device/conf.h>: the operation vector and unit one
+/// indirect name stands for.
+#[repr(C)]
+pub struct DevIndirect {
+    pub d_name: *mut c_char,
+    pub d_ops: *mut DevOps,
+    pub d_unit: c_int,
 }
 
-/// `nulldev_open()` in C.
-#[unsafe(no_mangle)]
-pub extern "C" fn nulldev_open(
-    _dev: DevT,
-    _flags: c_int,
-    _ior: *mut IoReq,
-) -> c_int {
-    Ok(DeviceSuccess::Success).as_io_return()
+#[cfg(target_pointer_width = "64")]
+const _: () = {
+    assert!(size_of::<DevIndirect>() == 24);
+    assert!(core::mem::align_of::<DevIndirect>() == 8);
+    assert!(core::mem::offset_of!(DevIndirect, d_name) == 0);
+    assert!(core::mem::offset_of!(DevIndirect, d_ops) == 8);
+    assert!(core::mem::offset_of!(DevIndirect, d_unit) == 16);
+};
+
+#[cfg(target_pointer_width = "32")]
+const _: () = {
+    assert!(size_of::<DevIndirect>() == 12);
+    assert!(core::mem::align_of::<DevIndirect>() == 4);
+    assert!(core::mem::offset_of!(DevIndirect, d_name) == 0);
+    assert!(core::mem::offset_of!(DevIndirect, d_ops) == 4);
+    assert!(core::mem::offset_of!(DevIndirect, d_unit) == 8);
+};
+
+/// The C `c >= '0' && c <= '9'`.
+fn is_digit(c: c_char) -> bool {
+    b'0' as c_char <= c && c <= b'9' as c_char
 }
 
-/// `nulldev_close()` in C.
-#[unsafe(no_mangle)]
-pub extern "C" fn nulldev_close(_dev: DevT, _flags: c_int) {}
-
-/// `nulldev_read()` in C.
-#[unsafe(no_mangle)]
-pub extern "C" fn nulldev_read(_dev: DevT, _ior: *mut IoReq) -> c_int {
-    Ok(DeviceSuccess::Success).as_io_return()
-}
-
-/// `nulldev_write()` in C.
-#[unsafe(no_mangle)]
-pub extern "C" fn nulldev_write(_dev: DevT, _ior: *mut IoReq) -> c_int {
-    Ok(DeviceSuccess::Success).as_io_return()
-}
-
-/// `nulldev_getstat()` in C.
-#[unsafe(no_mangle)]
-pub extern "C" fn nulldev_getstat(
-    _dev: DevT,
-    _flavor: c_uint,
-    _data: *mut c_int,
-    _count: *mut c_uint,
-) -> c_int {
-    Err(DeviceError::InvalidOperation).as_io_return()
-}
-
-/// `nulldev_setstat()` in C.
-#[unsafe(no_mangle)]
-pub extern "C" fn nulldev_setstat(
-    _dev: DevT,
-    _flavor: c_uint,
-    _data: *mut c_int,
-    _count: c_uint,
-) -> c_int {
-    Err(DeviceError::InvalidOperation).as_io_return()
-}
-
-/// `nulldev_portdeath()` in C.
-#[unsafe(no_mangle)]
-pub extern "C" fn nulldev_portdeath(_dev: DevT, _port: VmOffset) -> c_int {
-    Ok(DeviceSuccess::Success).as_io_return()
-}
-
-/// `nodev_async_in()` in C.
-#[unsafe(no_mangle)]
-pub extern "C" fn nodev_async_in(
-    _dev: DevT,
-    _port: *mut c_void,
-    _x: c_int,
-    _filter: *mut c_ushort,
-    _j: c_uint,
-) -> c_int {
-    Err(DeviceError::InvalidOperation).as_io_return()
-}
-
-/// `nodev_info()` in C.
-#[unsafe(no_mangle)]
-pub extern "C" fn nodev_info(_dev: DevT, _a: c_int, _b: *mut c_int) -> c_int {
-    Err(DeviceError::InvalidOperation).as_io_return()
-}
-
-/// `nomap()` in C.
-#[unsafe(no_mangle)]
-pub extern "C" fn nomap(_dev: DevT, _off: VmOffset, _prot: c_int) -> VmOffset {
-    VmOffset::MAX
-}
-
-/// `name_equal()` in C.
+/// `name_equal()` of <device/dev_hdr.h>: whether `target` begins with the
+/// `len` bytes at `src` and ends there.
 ///
 /// # Safety
 ///
@@ -104,12 +55,11 @@ pub extern "C" fn nomap(_dev: DevT, _off: VmOffset, _prot: c_int) -> VmOffset {
 /// read when it is not), and `target` must be readable through the first byte
 /// that differs from `src`, or through `target[len]` when the first `len`
 /// bytes all match.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn name_equal(
+pub(crate) unsafe fn name_equal(
     src: *const c_char,
     len: c_int,
     target: *const c_char,
-) -> c_int {
+) -> bool {
     // The C's pre-decrement skips its loop for any len <= 0 and then asks only
     // whether target is empty; the clamp keeps that answer.
     let len = len.max(0) as usize;
@@ -124,10 +74,156 @@ pub unsafe extern "C" fn name_equal(
         // SAFETY: the caller promises `target` readable through the first byte
         // that differs from `src`, and no byte before `i` has differed yet.
         if unsafe { *target.add(i) } != want {
-            return 0;
+            return false;
         }
     }
     // SAFETY: every byte of the prefix matched, and the caller promises
     // `target[len]` readable for that case; it is the terminator the C tests.
-    c_int::from(unsafe { *target.add(len) } == 0)
+    (unsafe { *target.add(len) }) == 0
+}
+
+/// The unit arithmetic `dev_name_lookup()` applies once a name matched.
+///
+/// # Safety
+///
+/// `cp` must point into the NUL-terminated name, at the first byte after the
+/// unit digits, and `c` must be the byte at `cp`; `subdev` is the matched
+/// entry's `d_subdev`.
+unsafe fn subdev_unit(
+    mut unit: c_int,
+    subdev: c_int,
+    mut c: c_char,
+    mut cp: *const c_char,
+) -> c_int {
+    if subdev <= 0 {
+        return unit;
+    }
+
+    unit = unit.wrapping_mul(subdev);
+    let mut slice_num: c_int = 0;
+    if c == b's' as c_char {
+        // SAFETY: the caller's walk stays inside the NUL-terminated name.
+        cp = unsafe { cp.add(1) };
+        loop {
+            // SAFETY: as above.
+            c = unsafe { *cp };
+            if c == 0 || !is_digit(c) {
+                break;
+            }
+            slice_num = slice_num
+                .wrapping_mul(10)
+                .wrapping_add(c_int::from(c as u8 - b'0'));
+            // SAFETY: as above.
+            cp = unsafe { cp.add(1) };
+        }
+    }
+
+    unit = unit.wrapping_add(slice_num << 4);
+    let offset = c_int::from(c) - c_int::from(b'a' as c_char);
+    if 0 <= offset && offset < subdev {
+        unit = unit.wrapping_add(offset + 1);
+    }
+    unit
+}
+
+/// `dev_name_lookup()` of `device/dev_name.c`.
+///
+/// # Safety
+///
+/// `name` must be a NUL-terminated string readable by the caller.
+pub(crate) unsafe fn lookup(
+    name: *const c_char,
+) -> Option<(NonNull<DevOps>, c_int)> {
+    let mut cp = name;
+    let mut len: c_int = 0;
+    loop {
+        // SAFETY: the caller promises the NUL-terminated name.
+        let c = unsafe { *cp };
+        if c == 0 || is_digit(c) {
+            break;
+        }
+        len += 1;
+        // SAFETY: the walk stops at the terminator.
+        cp = unsafe { cp.add(1) };
+    }
+
+    let mut unit: c_int = 0;
+    // SAFETY: the walk stopped at the terminator or the first digit.
+    let mut c = unsafe { *cp };
+    if c != 0 {
+        while is_digit(c) {
+            // The C multiplied an `int` and offset by the digit.
+            unit = unit
+                .wrapping_mul(10)
+                .wrapping_add(c_int::from(c as u8 - b'0'));
+            // SAFETY: the walk stops at the terminator.
+            cp = unsafe { cp.add(1) };
+            c = unsafe { *cp };
+        }
+    }
+
+    // SAFETY: `dev_name_list` is the C table of `dev_name_count` entries.
+    let first = ptr::addr_of_mut!(glue::dev_name_list);
+    let count = unsafe { glue::dev_name_count }.max(0) as usize;
+    for i in 0..count {
+        // SAFETY: `i` is inside the table.
+        let dev = unsafe { first.add(i) };
+        // SAFETY: the entry's name is a NUL-terminated string.
+        if unsafe { name_equal(name, len, (*dev).d_name) } {
+            // SAFETY: `dev` is a live table entry, never null.
+            let dev = unsafe { NonNull::new_unchecked(dev) };
+            // SAFETY: the name and the entry's fields are live.
+            let unit =
+                unsafe { subdev_unit(unit, (*dev.as_ptr()).d_subdev, c, cp) };
+            return Some((dev, unit));
+        }
+    }
+
+    // SAFETY: `dev_indirect_list` is the C table of `dev_indirect_count`
+    // entries.
+    let indirect = ptr::addr_of_mut!(glue::dev_indirect_list);
+    let count = unsafe { glue::dev_indirect_count }.max(0) as usize;
+    for i in 0..count {
+        // SAFETY: `i` is inside the table.
+        let di = unsafe { indirect.add(i) };
+        // SAFETY: the entry's name is a NUL-terminated string.
+        if unsafe { name_equal(name, len, (*di).d_name) } {
+            // SAFETY: the entry's operation vector is live.
+            let ops = unsafe { NonNull::new((*di).d_ops)? };
+            return Some((ops, unsafe { (*di).d_unit }));
+        }
+    }
+
+    None
+}
+
+/// `dev_set_indirection()` of `device/dev_name.c`.
+///
+/// # Safety
+///
+/// `name` must be a NUL-terminated string, and `ops` must be a live entry
+/// point table.
+pub(crate) unsafe fn set_indirection(
+    name: *const c_char,
+    ops: *mut DevOps,
+    unit: c_int,
+) {
+    // SAFETY: `dev_indirect_list` is the C table of `dev_indirect_count`
+    // entries.
+    let list = ptr::addr_of_mut!(glue::dev_indirect_list);
+    let count = unsafe { glue::dev_indirect_count }.max(0) as usize;
+    for i in 0..count {
+        // SAFETY: `i` is inside the table.
+        let di = unsafe { list.add(i) };
+        // SAFETY: both names are NUL-terminated strings.
+        if unsafe { strcmp((*di).d_name, name) } == 0 {
+            // SAFETY: the lock-free update is the C's own; the table is
+            // initialized at boot.
+            unsafe {
+                (*di).d_ops = ops;
+                (*di).d_unit = unit;
+            }
+            break;
+        }
+    }
 }

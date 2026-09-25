@@ -9,15 +9,15 @@ pub mod time_value;
 use crate::arch::i386::com::BusDevice;
 use crate::arch::i386::debug_i386::MachTrap;
 use crate::arch::i386::idt::IdtInitEntry;
-use crate::arch::i386::irq::{IrqDev, UserIntr};
+use crate::arch::i386::kd::ConsDev;
 use crate::arch::i386::model_dep::GdtDescrTmp;
 use crate::arch::i386::trap::Recovery;
 use crate::arch::types::{VmOffset, VmSize};
+use crate::device::dev_name::DevIndirect;
 use crate::device::ds_routines::DevOps;
 use crate::ipc::MachMsgHeader;
 use crate::kern::lock::SimpleLock;
 use crate::kern::processor::Processor;
-use crate::kern::queue::QueueEntry;
 use crate::kern::slab::KmemCache;
 use crate::kern::task::Task;
 use crate::kern::thread::{Continuation, Thread};
@@ -46,8 +46,6 @@ unsafe extern "C" {
         format: *const c_char,
         ...
     ) -> c_int;
-
-    pub fn cngetc() -> c_int;
 
     pub fn cpu_shutdown();
     pub fn action_thread_continue() -> !;
@@ -185,8 +183,23 @@ unsafe extern "C" {
     /// `init_percpu()` of `i386/i386/percpu.c`: fill one CPU's per-CPU block.
     pub fn init_percpu(cpu: c_int);
 
-    /// `cninit()` of `device/cons.c`: find and initialize the console.
-    pub fn cninit();
+    /// `constab[]` of `i386/i386at/cons_conf.c`: the console table
+    /// `cninit()` walks to its null entry.
+    pub static mut constab: ConsDev;
+
+    /// `dev_name_list[]` of `i386/i386at/conf.c`: the major-device table
+    /// `dev_name_lookup()` searches.
+    pub static mut dev_name_list: DevOps;
+
+    /// `dev_name_count` of `i386/i386at/conf.c`.
+    pub static dev_name_count: c_int;
+
+    /// `dev_indirect_list[]` of `i386/i386at/conf.c`: the indirect-device
+    /// table `dev_name_lookup()` falls back to.
+    pub static mut dev_indirect_list: DevIndirect;
+
+    /// `dev_indirect_count` of `i386/i386at/conf.c`.
+    pub static dev_indirect_count: c_int;
 
     /// `probeio()` of `i386/i386at/autoconf.c`: probe the ISA devices.
     pub fn probeio();
@@ -194,16 +207,7 @@ unsafe extern "C" {
     /// `discover_x86_cpu_type()` of `i386/i386/locore.S`.
     pub fn discover_x86_cpu_type() -> c_int;
 
-    /// `intr_thread()` of `device/intr.c`, the interrupt service thread.
-    pub fn intr_thread();
     pub static mut master_device_port: *mut c_void;
-
-    /// `dev_name_lookup()` of `device/dev_name.c`, which is still C.
-    pub fn dev_name_lookup(
-        name: *const c_char,
-        ops: *mut *mut DevOps,
-        unit: *mut c_int,
-    ) -> c_int;
 
     /// `r_memory_object_data_error()` of the MIG `memory_object_reply`
     /// user stubs.
@@ -221,18 +225,6 @@ unsafe extern "C" {
         may_cache: c_int,
         copy_strategy: c_int,
     ) -> c_int;
-    pub fn insert_intr_entry(
-        dev: *mut IrqDev,
-        id: c_int,
-        receive_port: *mut c_void,
-    ) -> *mut UserIntr;
-    pub fn install_user_intr_handler(
-        dev: *mut IrqDev,
-        id: c_int,
-        flags: c_ulong,
-        entry: *mut UserIntr,
-    ) -> c_int;
-    pub fn irq_acknowledge(receive_port: *mut c_void) -> c_int;
     pub fn ds_device_open_reply(
         reply_port: *mut c_void,
         reply_port_type: c_uint,
@@ -285,9 +277,6 @@ unsafe extern "C" {
         ret_addr: *const c_char,
         regs: *mut c_void,
     );
-
-    /// `main_intr_queue` of <device/intr.h>: the queue `irqtab` points at.
-    pub static mut main_intr_queue: QueueEntry;
 
     /// `bus_device_init[]` of `i386/i386at/autoconf.c`: the AT-bus device
     /// table, incomplete in C, so this declares its first element.

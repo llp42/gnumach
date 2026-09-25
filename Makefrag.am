@@ -154,17 +154,14 @@ EXTRA_DIST += \
 
 # These device support files are always needed; the others are needed only if
 # particular drivers want the routines.
-# TODO.  Functions in device/subrs.c should each be moved elsewhere.
 libkernel_a_SOURCES += \
 	device/chario.h \
 	device/cirbuf.h \
 	device/conf.h \
-	device/cons.c \
 	device/cons.h \
 	device/device_emul.h \
 	device/dev_hdr.h \
 	device/dev_master.h \
-	device/dev_name.c \
 	device/device_init.c \
 	device/device_init.h \
 	device/device_port.h \
@@ -173,12 +170,10 @@ libkernel_a_SOURCES += \
 	device/if_ether.h \
 	device/if_hdr.h \
 	device/input.h \
-	device/intr.c \
 	device/intr.h \
 	device/io_req.h \
 	device/net_io.h \
 	device/param.h \
-	device/subrs.c \
 	device/subrs.h \
 	device/tty.h
 EXTRA_DIST += \
@@ -194,7 +189,6 @@ EXTRA_DIST += \
 
 if enable_kmsg
 libkernel_a_SOURCES += \
-	device/kmsg.c \
 	device/kmsg.h
 endif
 

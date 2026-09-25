@@ -656,6 +656,11 @@ impl MachMsgHeader {
         self.local_port = payload;
     }
 
+    /// `msgh_seqno` of <mach/message.h>.
+    pub(crate) fn set_seqno(&mut self, seqno: u32) {
+        self.seqno = seqno;
+    }
+
     /// `msgh_id` of <mach/message.h>.
     pub(crate) fn id(&self) -> c_int {
         self.id

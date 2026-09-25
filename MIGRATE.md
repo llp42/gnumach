@@ -104,16 +104,18 @@ the VM-debug info records and the proxy slab cache all moved with them
 (§9).  `vm_fault.c` was attempted and put back whole; the blocker is
 recorded in §9.
 
-### `device/` (6 files, 1,610 LOC)
+### `device/` (1 file, 49 LOC)
 
 | File | LOC | Free | Holds the rest |
-|---|---:|---:|---|
-| `cons.c` | 176 | 0 | `cn_tab` static table |
-| `device_init.c` | 49 | 0 | — |
-| `dev_name.c` | 166 | 0 | `dev_ops`/`dev_indirect` fields |
-| `intr.c` | 375 | 0 | `struct irqdev`/`user_intr_t` fields |
-| `kmsg.c` | 237 | 0 | — (the rest is message plumbing) |
-| `subrs.c` | 53 | 0 | `ifnet` fields |
+|---|---|---:|---:|---|
+| `device_init.c` | 49 | 0 | the `master_device_port` global it still defines |
+
+`cons.c`, `dev_name.c`, `intr.c`, `kmsg.c` and `subrs.c` moved whole
+(§9).  Their headers stay for the C callers; the mirrors they read live in
+Rust now: `ConsDev` in `src/arch/i386/kd/mod.rs`, `DevOps` in
+`src/device/ds_routines.rs`, `DevIndirect` and the name tables'
+declarations in `src/device/dev_name.rs` and `glue`, `IfNet` in
+`src/device/net_io.rs`, and `IrqDev`/`UserIntr` in `src/arch/i386/irq.rs`.
 
 ### `i386/` (10 files, 1,157 LOC)
 
@@ -293,10 +295,10 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 * `i386/intel/read_fault.c`: the body is
   `#if (__i386__ && !(__i486__ || __i586__ || __i686__))`, compiled out
   on every supported CPU.  Delete, do not port.
-* `#if 0` blocks in `kern/exception.c`, `device/intr.c`,
-  and `i386/i386at/kd.c`.  Delete before porting the surrounding code.
-  The `#if 0` bodies of `kern/{boot_script,bootstrap}.c`,
-  `i386/i386at/com.c`, `kern/ipc_tt.c` (four `retrieve_*` bodies) and
+* `#if 0` blocks in `kern/exception.c` and `i386/i386at/kd.c`.  Delete
+  before porting the surrounding code.  The `#if 0` bodies of
+  `kern/{boot_script,bootstrap}.c`, `i386/i386at/com.c`,
+  `kern/ipc_tt.c` (four `retrieve_*` bodies), `device/intr.c` and
   `i386/i386/{fpu,pcb,smp,trap}.c` went with their whole-file ports.
 * Dead `#else /* MACH_HOST */` halves of `kern/machine.c` and
   `kern/processor.c`; `MACH_HOST` is 1 in both configured builds, so only
@@ -445,6 +447,11 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `i386/i386at/int_init.c` whole, with the static `int_fill` and the `int_entry_table` walk | `src/arch/i386/int_init.rs`, `int_init_ffi.rs` | pending |
 | `i386/i386/user_ldt.c` whole, with the `struct descriptor` mirror and the `user_ldt_free` entry `pcb.rs` calls | `src/arch/i386/user_ldt.rs`, `user_ldt_ffi.rs` | pending |
 | `i386/i386/db_interface.c` whole, with the `zero_dr` static and the `ddb_regs` global | `src/arch/i386/db_interface.rs`, `db_interface_ffi.rs` | pending |
+| `device/cons.c` whole, with the `cn_inited`/`cn_tab` statics, the exported `romgetc`/`romputc` and the `consbuf`/`consbp`/`consbufused` pending-output buffer, walking the C `constab[]` of `i386/i386at/cons_conf.c` through the `ConsDev` mirror | `src/device/cons.rs`, `cons_ffi.rs` | pending |
+| `device/dev_name.c` whole, with the `dev_name_list`/`dev_indirect_list`/`dev_name_count`/`dev_indirect_count` globals of `i386/i386at/conf.c`, the new `DevIndirect` mirror and the `name_equal` core | `src/device/dev_name.rs`, `dev_name_ffi.rs` | pending |
+| `device/intr.c` whole, with `main_intr_queue`, the `user_intr_handlers[NINTR]` lists and the `intr_lock` irq lock, the `queue_intr`/`user_irq_handler`/`deliver_intr` statics, and `struct intr_list`; reads `irqtab` in `src/arch/i386/irq.rs` and builds the `device_intr_notification_t` of <device/notify.h> | `src/device/intr.rs`, `intr_ffi.rs` | pending |
+| `device/kmsg.c` whole, with the `kmsg_buffer` ring, the `kmsg_write_offset`/`kmsg_read_offset`/`kmsg_read_queue`/`kmsg_in_use`/`kmsg_init_done` statics, the `kmsg_lock` irq lock and the `kmsginit`/`kmsg_read_done` statics | `src/device/kmsg.rs`, `kmsg_ffi.rs` | pending |
+| `device/subrs.c` whole, adding `if_init_queues` over the `IfNet`/`IfQueue` mirrors of `src/device/net_io.rs` | `src/device/subrs.rs`, `subrs_ffi.rs` | pending |
 
 `vm/vm_fault.c` was ported whole and rolled back in the same pass: the pinned
 toolchain turns the copy-object loop's `first_object->copy` null test into an

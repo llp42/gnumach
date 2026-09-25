@@ -126,7 +126,7 @@ unsafe extern "C" fn irq_eoi(dev: *mut IrqDev, id: c_int) {
 pub static mut irqtab: IrqDev = IrqDev {
     name: c"irq".as_ptr().cast_mut(),
     irqdev_ack: Some(irq_eoi),
-    intr_queue: &raw mut glue::main_intr_queue,
+    intr_queue: &raw mut crate::device::intr::MAIN_INTR_QUEUE,
     tot_num_intr: 0,
     irq: irq_map(),
 };

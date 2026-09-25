@@ -14,7 +14,7 @@ use crate::arch::i386::io_req::DevT;
 use crate::arch::types::{VmOffset, VmSize};
 use crate::arch::vm_param::PAGE_SHIFT;
 use crate::device::dev_lookup;
-use crate::device::dev_name::nomap;
+use crate::device::dev_name_ffi::nomap;
 use crate::device::ds_routines::{MachDevice, driver_unit};
 use crate::device::r#return::DeviceError;
 use crate::glue;

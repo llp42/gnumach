@@ -9,6 +9,7 @@
 //! The C table's number lock was a file `static`; the Rust one is a
 //! [`Mutex`], still held before any device's `ref_lock`.
 
+use crate::device::dev_name;
 use crate::device::ds_routines::{
     DevOps, Device, MACH_DEVICE_EMULATION_OPS, MachDevice,
 };
@@ -207,16 +208,10 @@ unsafe fn number_lookup(
 pub(crate) unsafe fn lookup(
     name: *const c_char,
 ) -> Option<NonNull<MachDevice>> {
-    let mut dev_ops: *mut DevOps = ptr::null_mut();
-    let mut dev_number: c_int = 0;
-    // SAFETY: the caller promises the name, and both out-pointers are live
-    // locals.
-    if unsafe {
-        glue::dev_name_lookup(name, &raw mut dev_ops, &raw mut dev_number)
-    } == 0
-    {
-        return None;
-    }
+    // SAFETY: the caller promises the NUL-terminated name, and the device
+    // name tables are initialized.
+    let (dev_ops, dev_number) = unsafe { dev_name::lookup(name) }?;
+    let dev_ops = dev_ops.as_ptr();
 
     let mut new_device: *mut MachDevice = ptr::null_mut();
     loop {
