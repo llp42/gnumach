@@ -5,11 +5,10 @@
 //   the Computer Systems Laboratory (CSL).
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! The page-fault routines of `vm/vm_fault.c` that Rust holds: finding the
-//! resident page for an object/offset, wiring a map entry, unwiring it,
-//! cleaning up an object/page pair, and copying pages between objects.
-//! `vm_fault_init()`, `vm_fault_continue()` and `vm_fault()` still live in
-//! C.
+//! The page-fault module, which `vm/vm_fault.c` used to define and
+//! `vm/vm_fault.h` declared: finding the resident page for an object/offset,
+//! handling a map fault and its continuation, wiring a map entry, unwiring
+//! it, cleaning up an object/page pair, and copying pages between objects.
 
 use crate::arch::i386::mp_desc::simple_lock_pause;
 use crate::arch::i386::percpu::current_thread;
@@ -20,8 +19,7 @@ use crate::arch::i386::pmap::{
 use crate::arch::types::{VmOffset, VmSize};
 use crate::arch::vm_param::PAGE_SIZE;
 use crate::glue::{
-    self, memory_object_data_request, memory_object_data_unlock, vm_fault,
-    vm_page_queue_lock,
+    memory_object_data_request, memory_object_data_unlock, vm_page_queue_lock,
 };
 use crate::kern::console::kprint;
 use crate::kern::debug::kpanic;
@@ -29,6 +27,7 @@ use crate::kern::sched_prim::{
     THREAD_AWAKENED, THREAD_RESTART, assert_wait, thread_block,
     thread_wakeup_prim,
 };
+use crate::kern::slab::{CacheInitFlags, KmemCache};
 use crate::kern::task::current_task;
 use crate::kern::thread::Continuation;
 use crate::vm::error::{
@@ -59,7 +58,7 @@ const VM_FAULT_MEMORY_SHORTAGE: c_int = 3;
 const VM_FAULT_FICTITIOUS_SHORTAGE: c_int = 4;
 const VM_FAULT_MEMORY_ERROR: c_int = 5;
 
-/// `vm_fault_state_t` of `vm/vm_fault.c`: the state `vm_fault()` saves on the
+/// `vm_fault_state_t` of `vm/vm_fault.c`: the state [`fault`] saves on the
 /// current thread for a continuation.
 #[repr(C)]
 struct VmFaultState {
@@ -122,6 +121,57 @@ const _: () = {
     assert!(core::mem::offset_of!(VmFaultState, vmfp_access) == 56);
 };
 
+/// `vm_object_absent_max` of `vm/vm_fault.c`: the outstanding page-request
+/// count past which the fault waits for the object's absent count to drop.
+static VM_OBJECT_ABSENT_MAX: c_int = 50;
+
+/// `vm_fault_dirty_handling` of `vm/vm_fault.c`: whether a write fault marks
+/// the page dirty.
+static VM_FAULT_DIRTY_HANDLING: c_int = 0;
+/// `vm_fault_interruptible` of `vm/vm_fault.c`: whether a fault may be
+/// interrupted.
+static VM_FAULT_INTERRUPTIBLE: c_int = 1;
+/// `software_reference_bits` of `vm/vm_fault.c`: whether the hardware
+/// reference bits are emulated.
+static SOFTWARE_REFERENCE_BITS: c_int = 1;
+
+/// `vm_fault_state_cache` of `vm/vm_fault.c`: the state record's slab cache.
+static mut VM_FAULT_STATE_CACHE: KmemCache = KmemCache::zeroed();
+
+/// `kmem_cache_alloc(&vm_fault_state_cache)` of the C.
+fn cache_alloc() -> Option<NonNull<VmFaultState>> {
+    // SAFETY: the caller runs after `init_module()`, so the cache is live,
+    // and the cache's lock serializes the call.
+    let buf = unsafe { (*addr_of_mut!(VM_FAULT_STATE_CACHE)).alloc() }?;
+    Some(buf.cast::<VmFaultState>())
+}
+
+/// `kmem_cache_free(&vm_fault_state_cache, state)` of the C.
+///
+/// # Safety
+///
+/// `state` must be a dead record that came from [`cache_alloc()`] and has no
+/// other holder.
+unsafe fn cache_free(state: NonNull<VmFaultState>) {
+    // SAFETY: the caller promises the dead, owned record.
+    unsafe { (*addr_of_mut!(VM_FAULT_STATE_CACHE)).free(state.cast::<u8>()) };
+}
+
+/// `vm_fault_init()` of `vm/vm_fault.c`: initialize the state cache.
+pub(crate) fn init_module() {
+    // SAFETY: the call runs once in the bootstrap sequence, after the slab
+    // package is up and before any fault state is allocated.
+    unsafe {
+        (*addr_of_mut!(VM_FAULT_STATE_CACHE)).init(
+            b"vm_fault_state",
+            size_of::<VmFaultState>(),
+            0,
+            None,
+            CacheInitFlags::EMPTY,
+        );
+    }
+}
+
 /// What [`fault_page`] produced: the `VM_FAULT_*` result and the outputs the
 /// C signature carried in pointers.
 pub(crate) struct Fault {
@@ -147,12 +197,12 @@ impl Fault {
     }
 }
 
-/// The `vm_fault_state_t` the C `vm_fault()` allocated on the current thread
-/// for a continuation.
+/// The `vm_fault_state_t` [`fault`] allocated on the current thread for a
+/// continuation.
 ///
 /// # Safety
 ///
-/// The current thread's `ith_other` must hold the state `vm_fault()` saved
+/// The current thread's `ith_other` must hold the state [`fault`] saved
 /// before calling with a continuation.
 unsafe fn fault_state() -> *mut VmFaultState {
     // SAFETY: the caller promises the allocation.
@@ -227,8 +277,8 @@ unsafe fn block_and_backoff(
     match continuation {
         Some(continuation) => {
             let state = unsafe { fault_state() };
-            // SAFETY: the state is the live allocation the C made for this
-            // continuation.
+            // SAFETY: the state is the live allocation `fault` made for
+            // this continuation.
             unsafe {
                 (*state).vmfp_backoff = 1;
                 (*state).vmf_prot = protection;
@@ -288,16 +338,7 @@ pub(crate) unsafe fn wire(map: &VmMap, entry: NonNull<VmMapEntry>) {
         if wired != KERN_SUCCESS {
             // SAFETY: as above; the C fault path takes the same map and
             // address, wires the page and passes no continuation.
-            unsafe {
-                vm_fault(
-                    map,
-                    va,
-                    VmProt::NONE,
-                    c_int::from(true),
-                    c_int::from(false),
-                    None,
-                )
-            };
+            unsafe { fault(map, va, VmProt::NONE, true, false, None) };
         }
         va = va.wrapping_add(PAGE_SIZE);
     }
@@ -465,8 +506,8 @@ pub(crate) unsafe fn cleanup(object: *mut VmObject, top_page: *mut VmPage) {
 /// `first_object` must be live, locked and referenced and must donate one
 /// paging reference; the call consumes the lock and the reference.  When
 /// `resume` is set, the current thread's `ith_other` must hold the state
-/// `vm_fault()` saved, and `continuation` must be the continuation that
-/// state names.
+/// [`fault`] saved, and `continuation` must be the continuation that state
+/// names.
 #[expect(clippy::too_many_arguments)]
 pub(crate) unsafe fn fault_page(
     first_object: *mut VmObject,
@@ -487,10 +528,10 @@ pub(crate) unsafe fn fault_page(
     let mut resume_after_thread_block = false;
 
     if resume {
-        // SAFETY: with `resume`, the C caller saved the state on the current
+        // SAFETY: with `resume`, the caller saved the state on the current
         // thread before blocking.
         let state = unsafe { fault_state() };
-        // SAFETY: `state` is the live state the C saved.
+        // SAFETY: `state` is the live state the caller saved.
         if unsafe { (*state).vmfp_backoff } != 0 {
             // SAFETY: the backoff already cleaned up before it blocked.
             return Fault::error(
@@ -498,7 +539,7 @@ pub(crate) unsafe fn fault_page(
                 protection,
             );
         }
-        // SAFETY: `state` is the live state the C saved.
+        // SAFETY: `state` is the live state the caller saved.
         unsafe {
             object = (*state).vmfp_object;
             offset = (*state).vmfp_offset;
@@ -513,16 +554,12 @@ pub(crate) unsafe fn fault_page(
             (*current_task()).faults += 1;
         }
 
-        // SAFETY: both C tunables are plain statics that live for the
-        // kernel's lifetime.
-        if unsafe { glue::vm_fault_dirty_handling } != 0
-            && !fault_type.contains(VmProt::WRITE)
+        if VM_FAULT_DIRTY_HANDLING != 0 && !fault_type.contains(VmProt::WRITE)
         {
             protection &= !VmProt::WRITE;
         }
 
-        // SAFETY: as the dirty-handling tunable above.
-        if unsafe { glue::vm_fault_interruptible } == 0 {
+        if VM_FAULT_INTERRUPTIBLE == 0 {
             interruptible = false;
         }
 
@@ -796,9 +833,7 @@ pub(crate) unsafe fn fault_page(
                 };
             }
 
-            // SAFETY: the C tunable is a plain static that lives for the
-            // kernel's lifetime.
-            if unsafe { glue::software_reference_bits } == 0 {
+            if SOFTWARE_REFERENCE_BITS == 0 {
                 // SAFETY: the queue lock guards the page queues.
                 unsafe {
                     (*addr_of_mut!(vm_page_queue_lock)).lock();
@@ -894,10 +929,8 @@ pub(crate) unsafe fn fault_page(
                     m = real.as_ptr();
                 }
             } else {
-                // SAFETY: the C tunable is a plain static that lives for
-                // the kernel's lifetime.
-                let absent_max = unsafe { glue::vm_object_absent_max };
-                let absent_max = u32::try_from(absent_max).unwrap_or(u32::MAX);
+                let absent_max =
+                    u32::try_from(VM_OBJECT_ABSENT_MAX).unwrap_or(u32::MAX);
                 // SAFETY: the object is live and locked.
                 if unsafe { (*object).absent_count } > absent_max {
                     // SAFETY: the object is live and locked, and `m` is the
@@ -1289,11 +1322,7 @@ pub(crate) unsafe fn fault_page(
         break;
     }
 
-    // SAFETY: the C tunable is a plain static that lives for the kernel's
-    // lifetime.
-    if unsafe { glue::vm_fault_dirty_handling } != 0
-        && protection.contains(VmProt::WRITE)
-    {
+    if VM_FAULT_DIRTY_HANDLING != 0 && protection.contains(VmProt::WRITE) {
         // SAFETY: the result page is live and busy.
         unsafe { (*m).set_dirty(true) };
     }
@@ -1304,6 +1333,385 @@ pub(crate) unsafe fn fault_page(
         result_page: m,
         top_page: first_m,
     }
+}
+
+/// `vm_fault_continue()` of `vm/vm_fault.c`: the continuation the fault
+/// computation resumes through after its stack may have been discarded.
+///
+/// # Safety
+///
+/// The scheduling code calls this only with the current thread's `ith_other`
+/// holding the state [`fault`] saved.
+unsafe extern "C" fn vm_fault_continue() {
+    // SAFETY: the caller promises the state.
+    let state = unsafe { fault_state() };
+    // SAFETY: the state is live until `fault` frees it at its end.
+    let (map, vaddr, fault_type, change_wiring, continuation) = unsafe {
+        (
+            (*state).vmf_map,
+            (*state).vmf_vaddr,
+            (*state).vmf_fault_type,
+            (*state).vmf_change_wiring != 0,
+            (*state).vmf_continuation,
+        )
+    };
+    // SAFETY: the state named this map and continuation.
+    unsafe {
+        fault(map, vaddr, fault_type, change_wiring, true, continuation)
+    };
+}
+
+/// `vm_fault()` of `vm/vm_fault.c`: handle a page fault, including the
+/// pseudo-faults that change a mapping's wiring.
+///
+/// # Safety
+///
+/// `map` must be a live map covering `vaddr`.  With a continuation the call
+/// does not return to its caller: it invokes the continuation at its end,
+/// and with `resume` the current thread's `ith_other` must hold the state
+/// [`vm_fault_continue`] saved.
+///
+/// # Panics
+///
+/// Halts through the kernel panic path when the state cache cannot allocate
+/// for a continuation, which the C's unchecked `kmem_cache_alloc` left to
+/// fault later.
+pub(crate) unsafe fn fault(
+    map: *mut VmMap,
+    vaddr: VmOffset,
+    fault_type: VmProt,
+    change_wiring: bool,
+    resume: bool,
+    continuation: Option<unsafe extern "C" fn(c_int)>,
+) -> c_int {
+    let mut fault_type = fault_type;
+    // SAFETY: the caller promises a live map.
+    let mut map = unsafe { NonNull::new_unchecked(map) };
+
+    // The state a resumed call continues from, when one was saved.
+    let mut resumed = None;
+    if resume {
+        // SAFETY: the caller promises the state the continuation saved.
+        let state = unsafe { fault_state() };
+        // SAFETY: the state is live for the whole call.
+        unsafe {
+            let object = (*state).vmf_object;
+            if !object.is_null() {
+                resumed = Some((
+                    object,
+                    (*state).vmf_offset,
+                    (*state).vmf_prot,
+                    VmMapVersion {
+                        main_timestamp: (*state).vmf_version.main_timestamp,
+                    },
+                    (*state).vmf_wired != 0,
+                ));
+            }
+        }
+    } else if continuation.is_some() {
+        let Some(state) = cache_alloc() else {
+            kpanic!("vm_fault", "vm_fault: vm_fault_state allocation failed");
+        };
+        // SAFETY: the current thread is live, and this is its only writer
+        // for the call.
+        unsafe {
+            (*current_thread()).saved.other = state.as_ptr().cast::<c_void>();
+        }
+    }
+
+    // The `KERN_*` result the continuation, or the caller, receives.
+    let mut kr;
+
+    'fault: loop {
+        let (object, offset, mut version, mut wired, fault) = match resumed
+            .take()
+        {
+            Some((object, offset, prot, version, wired)) => {
+                // SAFETY: the resume state names a live object, and the
+                // state's continuation names this computation.
+                let fault = unsafe {
+                    fault_page(
+                        object,
+                        offset,
+                        fault_type,
+                        change_wiring && !wired,
+                        !change_wiring,
+                        prot,
+                        true,
+                        Some(vm_fault_continue),
+                    )
+                };
+                (object, offset, version, wired, fault)
+            }
+            None => {
+                let lookup = VmMap::lookup(&mut map, vaddr, fault_type, false);
+                match lookup {
+                    Ok(found) => {
+                        let object = found.object;
+                        if found.wired {
+                            fault_type = found.protection;
+                        }
+                        // SAFETY: the lookup returned the object
+                        // locked.
+                        unsafe {
+                            (*object).ref_count += 1;
+                            paging_begin(object);
+                        }
+                        if continuation.is_some() {
+                            // SAFETY: the state was allocated above
+                            // and nothing else holds it.
+                            let state = unsafe { fault_state() };
+                            // SAFETY: the state is live and this is
+                            // the only writer.
+                            unsafe {
+                                (*state).vmf_map = map.as_ptr();
+                                (*state).vmf_vaddr = vaddr;
+                                (*state).vmf_fault_type = fault_type;
+                                (*state).vmf_change_wiring =
+                                    c_int::from(change_wiring);
+                                (*state).vmf_continuation = continuation;
+                                (*state).vmf_version = VmMapVersion {
+                                    main_timestamp: found.timestamp,
+                                };
+                                (*state).vmf_wired = c_int::from(found.wired);
+                                (*state).vmf_object = object;
+                                (*state).vmf_offset = found.offset;
+                                (*state).vmf_prot = found.protection;
+                            }
+                        }
+                        // SAFETY: the lookup's object lock and
+                        // reference are the fault's, and the
+                        // continuation resumes through the state when
+                        // one is asked for.
+                        let fault = unsafe {
+                            fault_page(
+                                object,
+                                found.offset,
+                                fault_type,
+                                change_wiring && !found.wired,
+                                !change_wiring,
+                                found.protection,
+                                false,
+                                if continuation.is_some() {
+                                    Some(vm_fault_continue)
+                                } else {
+                                    None
+                                },
+                            )
+                        };
+                        (
+                            object,
+                            found.offset,
+                            VmMapVersion {
+                                main_timestamp: found.timestamp,
+                            },
+                            found.wired,
+                            fault,
+                        )
+                    }
+                    Err(error) => {
+                        kr = error.as_kern_return();
+                        break 'fault;
+                    }
+                }
+            }
+        };
+
+        let mut prot = fault.protection;
+        kr = fault.result;
+        let result_page = fault.result_page;
+        let top_page = fault.top_page;
+
+        if kr != VM_FAULT_SUCCESS {
+            // SAFETY: the lookup's reference is the caller's, and no lock
+            // is held here.
+            unsafe { deallocate(object) };
+        }
+
+        match kr {
+            VM_FAULT_SUCCESS => (),
+            VM_FAULT_RETRY => continue 'fault,
+            VM_FAULT_INTERRUPTED => {
+                kr = KERN_SUCCESS;
+                break 'fault;
+            }
+            VM_FAULT_MEMORY_SHORTAGE => {
+                if continuation.is_some() {
+                    // SAFETY: the state was allocated above.
+                    let state = unsafe { fault_state() };
+                    // SAFETY: the state is live and this is the only
+                    // writer.
+                    unsafe {
+                        (*state).vmf_map = map.as_ptr();
+                        (*state).vmf_vaddr = vaddr;
+                        (*state).vmf_fault_type = fault_type;
+                        (*state).vmf_change_wiring =
+                            c_int::from(change_wiring);
+                        (*state).vmf_continuation = continuation;
+                        (*state).vmf_object = ptr::null_mut();
+                    }
+                    // SAFETY: the wait resumes through the state.
+                    unsafe { vm_page::wait(Some(vm_fault_continue)) };
+                } else {
+                    // SAFETY: the wait takes no continuation.
+                    unsafe { vm_page::wait(None) };
+                }
+                continue 'fault;
+            }
+            VM_FAULT_FICTITIOUS_SHORTAGE => {
+                // SAFETY: the slab package is up in this path.
+                unsafe { vm_resident::more_fictitious() };
+                continue 'fault;
+            }
+            VM_FAULT_MEMORY_ERROR => {
+                kr = KERN_MEMORY_ERROR;
+                break 'fault;
+            }
+            _ => (),
+        }
+
+        // SAFETY: the fault returned the live, busy result page with its
+        // object locked.
+        let old_copy_object = unsafe { (*(*result_page).object).copy };
+        // SAFETY: as above.
+        unsafe { (*(*result_page).object).lock.unlock() };
+
+        while !VmMap::verify(map, &version) {
+            // The C clears the write bit so the retry cannot write-lock
+            // the map.
+            let retry = VmMap::lookup(
+                &mut map,
+                vaddr,
+                fault_type & !VmProt::WRITE,
+                false,
+            );
+            let (retry_object, retry_offset, retry_prot) = match retry {
+                Ok(found) => {
+                    version = VmMapVersion {
+                        main_timestamp: found.timestamp,
+                    };
+                    wired = found.wired;
+                    (found.object, found.offset, found.protection)
+                }
+                Err(error) => {
+                    // SAFETY: the result page and its top page are the
+                    // fault's, and the lookup's reference is the caller's.
+                    unsafe {
+                        (*(*result_page).object).lock.lock();
+                        release_page(result_page);
+                        cleanup((*result_page).object, top_page);
+                        deallocate(object);
+                    }
+                    kr = error.as_kern_return();
+                    break 'fault;
+                }
+            };
+
+            // SAFETY: the retry lookup returned its object locked.
+            unsafe { (*retry_object).lock.unlock() };
+            // SAFETY: the result page's object is live.
+            unsafe { (*(*result_page).object).lock.lock() };
+
+            if retry_object != object || retry_offset != offset {
+                // SAFETY: as the lookup-failure arm above.
+                unsafe {
+                    release_page(result_page);
+                    cleanup((*result_page).object, top_page);
+                    deallocate(object);
+                }
+                continue 'fault;
+            }
+
+            prot &= retry_prot;
+            // SAFETY: the result page's object is live.
+            unsafe { (*(*result_page).object).lock.unlock() };
+        }
+
+        // SAFETY: `verify` left the map read-locked, and the result page's
+        // object is live.
+        unsafe { (*(*result_page).object).lock.lock() };
+        // SAFETY: the result page's object is live and locked.
+        if unsafe { (*(*result_page).object).copy } != old_copy_object {
+            prot &= !VmProt::WRITE;
+        }
+        if wired && prot != fault_type {
+            // SAFETY: `verify` left the map read-locked.
+            unsafe { map.as_ref().lock.done() };
+            // SAFETY: the result page and its top page are the fault's,
+            // and the lookup's reference is the caller's.
+            unsafe {
+                release_page(result_page);
+                cleanup((*result_page).object, top_page);
+                deallocate(object);
+            }
+            continue 'fault;
+        }
+
+        // SAFETY: the result page's object is live and locked.
+        unsafe { (*(*result_page).object).lock.unlock() };
+
+        // SAFETY: the map is live, and the page is the live, busy result of
+        // the fault.
+        unsafe {
+            pmap_enter(
+                (*map.as_ptr()).pmap,
+                vaddr,
+                (*result_page).phys_addr,
+                (prot & !(*result_page).page_lock()).bits(),
+                c_int::from(wired),
+            );
+        }
+
+        // SAFETY: the result page's object and the page-queues lock
+        // serialize the page's state.
+        unsafe {
+            (*(*result_page).object).lock.lock();
+            (*addr_of_mut!(vm_page_queue_lock)).lock();
+            if change_wiring {
+                if wired {
+                    vm_page::wire(NonNull::new_unchecked(result_page));
+                } else {
+                    vm_page::unwire(result_page);
+                }
+            } else if SOFTWARE_REFERENCE_BITS != 0 {
+                if !(*result_page).is_active() && !(*result_page).is_inactive()
+                {
+                    vm_page::activate(result_page);
+                }
+                (*result_page).set_reference(true);
+            } else {
+                vm_page::activate(result_page);
+            }
+            (*addr_of_mut!(vm_page_queue_lock)).unlock();
+        }
+
+        // SAFETY: `verify` left the map read-locked, and the page is the
+        // live, busy result of the fault.
+        unsafe {
+            map.as_ref().lock.done();
+            page_wakeup_done(result_page);
+        }
+        kr = KERN_SUCCESS;
+
+        // SAFETY: the result page and its top page are the fault's, and the
+        // lookup's reference is the caller's.
+        unsafe {
+            cleanup((*result_page).object, top_page);
+            deallocate(object);
+        }
+        break 'fault;
+    }
+
+    if let Some(continuation) = continuation {
+        // SAFETY: the state was allocated for this continuation, and
+        // nothing else holds it.
+        let state = unsafe { fault_state() };
+        // SAFETY: the state is the dead allocation.
+        unsafe { cache_free(NonNull::new_unchecked(state)) };
+        // SAFETY: the caller's continuation, which does not return.
+        unsafe { continuation(kr) };
+    }
+    kr
 }
 
 /// `vm_fault_unwire()` of `vm/vm_fault.c`.
@@ -1338,7 +1746,7 @@ pub(crate) unsafe fn unwire(map: &VmMap, entry: NonNull<VmMapEntry>) {
             // the C's, so the fault below may take the map lock again.
             unsafe {
                 map.lock.set_recursive();
-                vm_fault(map_ptr, va, VmProt::NONE, 1, 0, None);
+                fault(map_ptr, va, VmProt::NONE, true, false, None);
                 map.lock.clear_recursive();
             }
         } else {

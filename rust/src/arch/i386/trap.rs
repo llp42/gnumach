@@ -22,6 +22,7 @@ use crate::kern::exception as exception_core;
 use crate::kern::thread::Thread;
 use crate::vm::error::KERN_SUCCESS;
 use crate::vm::types::VmProt;
+use crate::vm::vm_fault;
 use crate::vm::vm_kern;
 use crate::vm::vm_map::{VmMap, trunc_page};
 use core::arch::asm;
@@ -375,7 +376,14 @@ fn page_fault(
     // SAFETY: `map` is live, either the kernel map or the faulting thread's,
     // and `vm_fault()` handles the fault at the page `trunc_page()` names.
     let result = unsafe {
-        glue::vm_fault(map, trunc_page(subcode), protection, 0, 0, None)
+        vm_fault::fault(
+            map,
+            trunc_page(subcode),
+            protection,
+            false,
+            false,
+            None,
+        )
     };
 
     if result == KERN_SUCCESS {
@@ -557,12 +565,12 @@ pub(crate) unsafe fn user_trap(regs: &mut I386SavedState) -> c_int {
             // SAFETY: the trap path runs on a live thread whose task map is
             // live; the continuation resumes the faulting thread.
             unsafe {
-                glue::vm_fault(
+                vm_fault::fault(
                     (*(*thread).task).map.cast::<VmMap>(),
                     trunc_page(subcode),
                     protection,
-                    0,
-                    0,
+                    false,
+                    false,
                     Some(user_page_fault_continue),
                 )
             };

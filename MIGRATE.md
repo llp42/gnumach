@@ -66,9 +66,12 @@ order.
 
 ## 4. `kern/` — file-by-file
 
-There are no C files left under `kern/`.  `debug.c` went with the dead
-`Panic` (§8) and `printf.c` with its last caller, `vm_fault_page`, now
-`kprint!` in Rust (§11).
+There are no C files left under `kern/`, and none anywhere else either:
+`debug.c` went with the dead `Panic` (§8), `printf.c` with its last
+caller, `vm_fault_page` (§11), and `vm/vm_fault.c` whole with the last
+pass, which also deleted `vm/vm_fault.h`.  The only C the build compiles
+now is generated — MIG's `*.server.c`/`*.user.c` and `version.c` — beside
+the `.S` files.
 
 ## 5. Outside `kern/`
 
@@ -79,11 +82,20 @@ kernel's `copyinmsg()`, now `src/ipc/copy_user.rs`; the i386 kernel takes
 that entry point from `i386/i386/locore.S`, and the file's `USER32` half
 never compiled in either configured build (§8, §9).
 
-### `vm/` (1 file, 478 LOC)
+### `vm/` (0 files)
 
-| File | LOC | Free | Holds the rest |
-|---|---:|---:|---|
-| `vm_fault.c` | 478 | 0 | `vm_fault_init`, `vm_fault_continue` and `vm_fault` share the `vm_fault_state_cache` and the `vm_fault_state_t` the Rust `VmFaultState` mirrors, §9 |
+`vm_fault.c` was the last one.  `vm_fault_cleanup`, `vm_fault_unwire`,
+`vm_fault_wire_fast` and `vm_fault_copy` moved in a second pass, and
+`vm_fault_page` in a third, after the copy-object retry loop was
+rewritten to re-read `first_object->copy` with a volatile load.  The
+fourth pass moved the rest: `vm_fault_init` with the
+`vm_fault_state_cache` and the four tunables, the private
+`vm_fault_continue`, and `vm_fault` itself, whose `VmFaultState` mirror
+now lives in `src/vm/vm_fault.rs` and whose frozen symbols are exported
+by `src/vm/vm_fault_ffi.rs`.  `vm/vm_fault.h` is deleted with it.  With
+that, no hand-written C source remains in the tree: the only C the build
+compiles is generated (MIG's `*.server.c`/`*.user.c` and `version.c`)
+beside the `.S` files.
 
 `memory_object.c`, `vm_resident.c`, `vm_kern.c`, `vm_pageout.c`,
 `vm_user.c`, `vm_debug.c` and `memory_object_proxy.c` are whole: the
@@ -91,13 +103,7 @@ never compiled in either configured build (§8, §9).
 table, the fictitious-page list, `virtual_space_start`/`virtual_space_end`,
 the kernel map globals, the pageout daemon's statics, the `vm_stat` block,
 the VM-debug info records and the proxy slab cache all moved with them
-(§9).  `vm_fault_cleanup`, `vm_fault_unwire`, `vm_fault_wire_fast` and
-`vm_fault_copy` moved in a second pass, and `vm_fault_page` in a third,
-after the copy-object retry loop was rewritten to re-read
-`first_object->copy` with a volatile load (§9).  `vm_fault_init`,
-`vm_fault_continue` and `vm_fault` stay C: they share the
-`vm_fault_state_cache` and the `vm_fault_state_t` the Rust side now
-mirrors.
+(§9).
 
 ### `device/` (0 files)
 
@@ -156,11 +162,10 @@ These exemptions are settled and are not re-decided per port:
 
 ### 6.1 Free ports today (Tier 0) — empty
 
-The last six entries moved in one pass (see §9).  An empty list is not a
-finished file or a finished tree: §6.3's re-derivation is what refills
-it, and the previous mechanical pass found forty entries the list had
-never been pointed at.  Re-derive before reading a file's "Free: 0" as
-final.
+The last six entries moved in one pass (see §9).  The list is now empty
+for good: `vm/vm_fault.c` was the last C source, and no hand-written C
+remains to port.  What is left outside Rust is the two ABI walls and
+`version.c`, and the standing gaps of §7.
 
 ### 6.2 Blocked with one unlock
 
@@ -297,6 +302,10 @@ went with its port; `printnum` and `safe_gets` are Rust (see §9).
   configured builds, so they were deleted with the file rather than ported.
   The header beside them had already lost its last C caller and went with
   it.
+* `vm/vm_fault.c` and `vm/vm_fault.h` are deleted with the whole-file
+  port (§9): every definition became Rust, and the header had no other
+  includer.  The tree now has no hand-written C source; what C the build
+  compiles is generated (MIG's `*.server.c`/`*.user.c` and `version.c`).
 * `i386/i386/pic.c`, `i386/i386/pic.h` and `i386/i386at/pic_isa.c` are
   deleted with the non-APIC configuration.  `configfrag-first.ac` rejects
   `--enable-ncpus` below 2 and `i386/configfrag.ac` then forced
@@ -451,7 +460,7 @@ went with its port; `printnum` and `safe_gets` are Rust (see §9).
 | `chips/busses.c` whole, with the `bus_master_init[]`/`bus_device_init[]` walks and the `BusCtlr`/`BusDevice`/`BusDriver` mirrors it reads, which stay in `src/arch/i386/com.rs` | `src/arch/i386/busses.rs` | pending |
 | `device/device_init.c` whole: `master_device_port` becomes an `AtomicPtr` with `Acquire`/`Release` ordering, and the file is deleted | `src/device/device_init.rs` | pending |
 | `i386/i386at/conf.c` and `i386/i386at/cons_conf.c` whole, with the `dev_name_list`/`dev_indirect_list` tables in their `SyncCell`s and `constab`; both files are deleted | `src/device/dev_name.rs`, `src/device/cons.rs` | pending |
-| `vm/vm_fault.c` (`vm_fault_cleanup`, `vm_fault_unwire`, `vm_fault_wire_fast`, `vm_fault_copy` and the file-private `vm_fault_copy_cleanup`, then `vm_fault_page` with its `vm_fault_state_t` mirror); `vm_fault_init`, `vm_fault_continue` and `vm_fault` stay C | `src/vm/vm_fault.rs`, `src/vm/vm_fault_ffi.rs` | pending |
+| `vm/vm_fault.c` whole, with the `vm_fault_state_t` mirror, the `vm_fault_state_cache`, the four tunables, the private `vm_fault_continue` and `vm/vm_fault.h` deleted with it | `src/vm/vm_fault.rs`, `src/vm/vm_fault_ffi.rs` | pending |
 
 `vm/vm_fault.c` was ported whole once and rolled back: the pinned
 toolchain turned the copy-object loop's `first_object->copy` null test into
@@ -461,8 +470,9 @@ The retry inside that loop was the trigger.  `vm_fault_page` has since
 moved with that loop written as a Rust `loop` whose head re-reads the
 field with `core::ptr::read_volatile`, so each retry re-tests the null
 the compiler could previously assume away; the ABI pack is green on both
-architectures with it.  The three functions that do not touch the loop
-had already moved.
+architectures with it.  The three functions that do not touch the loop,
+the state they own and the header followed in a fourth pass, and the C
+file is gone.
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), `i386/i386at/kd_glue.c`
@@ -499,7 +509,11 @@ There is nothing left to list.  The last piece,
 shims and three slab caches, `vm/vm_external_glue.c` with its three
 slab caches, `i386/i386/irq.c`'s six accessors, and
 `i386/i386at/com.c`'s `com_base_addr`/`com_irq` pair were deleted.
-Nothing joined the list since.
+Nothing joined the list since.  The `vm/vm_fault.c` port removed that
+module's last shared C globals — `vm_object_absent_max`,
+`vm_fault_dirty_handling`, `vm_fault_interruptible` and
+`software_reference_bits`, now Rust statics — and with them its
+declarations in `glue`.
 The `i386/intel/pmap.c` port declared the C routines it still calls
 (`splvm`, `kmem_alloc_wired`, `cpu_features`, `_start`, `etext`) in
 `rust/src/glue/`, which writes no C and is not debt.  The
@@ -550,10 +564,11 @@ path:
   C-variadic edge for the `locore.S` call under `#ifdef DEBUG` and reads
   the arguments with `VaList::next_arg`.
 
-`vm_fault_page()`'s two diagnostics format through `kprint!` in
-`src/vm/vm_fault.rs`, so no C caller of `printf` remains: `printf.c`,
-`printf.h` and the variadic declarations are deleted.  No C caller of
-`Panic` remains either, and `debug.c` with the `Panic` declaration
+The whole `vm_fault.c` port is now done: `vm_fault_page()`'s two
+diagnostics format through `kprint!` in `src/vm/vm_fault.rs`, so no C
+caller of `printf` remains and `printf.c`, `printf.h` and the variadic
+declarations are deleted.  No C caller of `Panic` remains either, and
+`debug.c` with the `Panic` declaration
 preceded them.
 
 A boot-time differential harness formatted the same values through the C

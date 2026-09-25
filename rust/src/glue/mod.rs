@@ -463,22 +463,6 @@ unsafe extern "C" {
     );
     pub fn pmap_zero_page(pa: VmOffset);
     pub fn pmap_copy_page(src: VmOffset, dst: VmOffset);
-    pub fn vm_fault(
-        map: *mut VmMap,
-        va: VmOffset,
-        protection: VmProt,
-        change_wiring: c_int,
-        resume: c_int,
-        continuation: Option<unsafe extern "C" fn(c_int)>,
-    ) -> c_int;
-
-    /// The tunables of `vm/vm_fault.c` its ported body reads; the C half
-    /// still owns and sets them.
-    pub static vm_fault_dirty_handling: c_int;
-    pub static vm_fault_interruptible: c_int;
-    pub static software_reference_bits: c_int;
-    pub static vm_object_absent_max: c_int;
-
     pub fn vm_object_shadow(
         object: *mut *mut VmObject,
         offset: *mut VmOffset,
@@ -527,8 +511,6 @@ unsafe extern "C" {
     pub fn vm_object_init();
 
     pub fn pmap_init();
-
-    pub fn vm_fault_init();
 
     pub fn memory_manager_default_init();
 }

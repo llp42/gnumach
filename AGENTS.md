@@ -200,7 +200,7 @@ link error, not a fallback.
 | `i386/i386at/autoconf.c` | `src/arch/i386/autoconf.rs`, `src/arch/i386/autoconf_ffi.rs` |
 | `chips/busses.c` | `src/arch/i386/busses.rs` |
 | `device/device_init.c`, `i386/i386at/conf.c`, `i386/i386at/cons_conf.c` | `src/device/device_init.rs`, `dev_name.rs`, `cons.rs` |
-| `vm/vm_fault.c` (`vm_fault_cleanup`, `vm_fault_unwire`, `vm_fault_wire_fast`, `vm_fault_copy`, `vm_fault_page`) | `src/vm/vm_fault.rs`, `vm_fault_ffi.rs` |
+| `vm/vm_fault.c` whole, with `vm/vm_fault.h` | `src/vm/vm_fault.rs`, `vm_fault_ffi.rs` |
 
 Also deleted as dead: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), `i386/intel/read_fault.c` (body
@@ -208,14 +208,18 @@ Also deleted as dead: `device/blkio.c`, the `#if 0` profiling facility
 (`copyoutmsg()` included), which never compiled in either configured
 build, `kern/debug.c`, whose `Panic` lost its last caller when
 `vm_fault_unwire` moved to Rust, and `kern/printf.c` with its header,
-whose last caller went when `vm_fault_page` did.
+whose last caller went when `vm_fault_page` did.  `vm/vm_fault.c` and
+`vm/vm_fault.h` followed as a whole-file port: **no hand-written C source
+is left**; the only C the build compiles is generated (MIG's
+`*.server.c`/`*.user.c` and `version.c`), beside the `.S` files.
 
-**Next:** a good candidate is a leaf, needs no allocation, and has a C
-definition that can be deleted in the same commit. `MIGRATE.md` §9 is the
-remaining-work table, and `vm/vm_fault.c`'s three state functions are the
-only C source left. The standing gaps are an allocator over
-`kalloc`/`kmem_cache`, an RAII lock/IRQ layer, and a per-CPU accessor — each
-is a design conversation, not something to add quietly to land one patch.
+**Next:** there is no hand-written C source left to port. What remains
+outside Rust is the two hard ABI walls — MIG's generated C, and the
+trap/asm files with `mach_trap_table`, `i386/i386/i386asm.sym` and the
+`locore.S` entry points — plus `version.c`. The standing gaps are an
+allocator over `kalloc`/`kmem_cache`, an RAII lock/IRQ layer, and a
+per-CPU accessor; each is a design conversation, not something to add
+quietly to land one patch. `MIGRATE.md` §9 is the record of what moved.
 
 **When you update this section, update `MIGRATE.md` §9 in the same commit.**
 This table drifted badly once already.
@@ -467,11 +471,13 @@ last were `vm/vm_map_glue.c`, `vm/vm_external_glue.c` and
 callers and listed under "The no-glue law".  Nothing adds to them and
 nothing joins them.
 
-The C half is unchanged Mach: `kern/`, `ipc/`, `vm/`, `device/`, `i386/`,
-`x86_64/`, `chips/`, `util/`, with `include/` for the public interfaces.
-`abi-test/` holds the frozen ABI pack that gates every commit. `build-64/`
-and `build-32/` are the out-of-tree build directories and hold the
-MIG-generated `*.server.c` / `*.user.c`.
+The C half has no hand-written source left: `kern/`, `ipc/`, `vm/`,
+`device/`, `i386/`, `x86_64/`, `chips/` and `util/` hold headers and the
+`.S` entry points, with `include/` for the public interfaces.  The C the
+build compiles is generated: MIG's `*.server.c` / `*.user.c` and
+`version.c`.  `abi-test/` holds the frozen ABI pack that gates every
+commit.  `build-64/` and `build-32/` are the out-of-tree build directories
+and hold the MIG-generated `*.server.c` / `*.user.c`.
 
 ### Every new `.rs` file goes in `MACH_RS_SRCS`
 

@@ -6,7 +6,7 @@
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
 //! The `extern "C"` edge of the page faults, one adapter per symbol
-//! `vm/vm_fault.c` used to define and `vm/vm_fault.h` declares.
+//! `vm/vm_fault.c` used to define and `vm/vm_fault.h` declared.
 
 use crate::arch::types::{VmOffset, VmSize};
 use crate::vm::types::{VmObject, VmPage, VmProt};
@@ -60,6 +60,47 @@ pub unsafe extern "C" fn vm_fault_page(
         }
     }
     fault.result
+}
+
+/// `vm_fault_init()` in C.
+///
+/// # Safety
+///
+/// Must be called once by the bootstrap sequence, after the slab package is
+/// up and before any fault runs.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_fault_init() {
+    vm_fault::init_module();
+}
+
+/// `vm_fault()` in C.
+///
+/// # Safety
+///
+/// `map` must point at a live map covering `vaddr`.  With a non-null
+/// `continuation` the call does not return: it invokes the continuation at
+/// its end, and with `resume` the current thread's `ith_other` must hold the
+/// state the continuation saved.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_fault(
+    map: *mut VmMap,
+    vaddr: VmOffset,
+    fault_type: VmProt,
+    change_wiring: c_int,
+    resume: c_int,
+    continuation: Option<unsafe extern "C" fn(c_int)>,
+) -> c_int {
+    // SAFETY: the caller's contract is the core's own.
+    unsafe {
+        vm_fault::fault(
+            map,
+            vaddr,
+            fault_type,
+            change_wiring != 0,
+            resume != 0,
+            continuation,
+        )
+    }
 }
 
 /// `vm_fault_wire()` in C.
