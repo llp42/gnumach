@@ -41,7 +41,7 @@ routine at a time. The target is a Rust kernel, not a kernel with Rust in it.
 The build is GNU Autotools plus a hand-written `rustc` invocation — no Cargo,
 no lock file, no network. The Rust half compiles to `libmach-rs.a`, which is
 linked between two passes over `libkernel.a`, so Rust may call C and C may
-call Rust. As of 2026-09-25 the Rust half is 162 files and about 79,000 lines.
+call Rust. As of 2026-09-25 the Rust half is 170 files and about 85,000 lines.
 
 ### The idea
 
@@ -148,6 +148,7 @@ link error, not a fallback.
 | `i386/i386/irq.c` | `src/arch/i386/irq.rs` |
 | `i386/i386at/ioapic.c` | `src/arch/i386/ioapic.rs` |
 | `device/ds_routines.c` | `src/device/ds_routines.rs`, `src/device/ds_routines_ffi.rs` |
+| `device/dev_pager.c`, `device/dev_lookup.c` | `src/device/dev_pager.rs`, `src/device/dev_pager_ffi.rs`, `src/device/dev_lookup.rs`, `src/device/dev_lookup_ffi.rs` |
 | `kern/ipc_host.c` | `src/kern/ipc_host.rs`, `src/kern/ipc_host_ffi.rs` |
 | `kern/host.c` | `src/kern/host.rs`, `src/kern/host_ffi.rs` |
 | `kern/exception.c` | `src/kern/exception.rs`, `src/kern/exception_ffi.rs` |

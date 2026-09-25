@@ -53,9 +53,9 @@ pub unsafe extern "C" fn device_service_create() {
     // below.
     unsafe {
         mach_device_init();
-        glue::dev_lookup_init();
+        crate::device::dev_lookup::init();
         glue::net_io_init();
-        glue::device_pager_init();
+        crate::device::dev_pager::init();
         chario::chario_init();
     }
 

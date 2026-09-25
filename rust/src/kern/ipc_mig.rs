@@ -476,7 +476,8 @@ unsafe fn port_name_to_device(name: c_uint) -> *mut c_void {
     };
     // SAFETY: the copyin returned one live reference to the object the name
     // denoted.
-    let device = unsafe { glue::dev_port_lookup(object) };
+    let device =
+        unsafe { crate::device::dev_lookup_ffi::dev_port_lookup(object) };
     // SAFETY: the reference the copyin returned is the one this releases.
     unsafe { release_send(object) };
     device
