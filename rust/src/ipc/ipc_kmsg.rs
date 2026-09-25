@@ -41,7 +41,8 @@ use core::ptr::{self, NonNull, with_exposed_provenance_mut};
 const IKM_SIZE_NETWORK: usize = usize::MAX;
 /// `IKM_OVERHEAD` of <ipc/ipc_kmsg.h>: the allocation bytes before the
 /// message header.
-const IKM_OVERHEAD: usize = size_of::<IpcKmsg>() - size_of::<MachMsgHeader>();
+pub(crate) const IKM_OVERHEAD: usize =
+    size_of::<IpcKmsg>() - size_of::<MachMsgHeader>();
 /// `IKM_SAVED_MSG_SIZE` of <ipc/ipc_kmsg.h>: the body of a cached message.
 const IKM_SAVED_MSG_SIZE: usize = PAGE_SIZE - IKM_OVERHEAD;
 /// `IKM_EXPAND_FACTOR` of <ipc/ipc_kmsg.h>: how much a body can grow when
@@ -1296,7 +1297,7 @@ pub(crate) unsafe fn destroy(kmsg: Kmsg) {
 /// # Safety
 ///
 /// `kmsg` must be a live message whose storage this call owns.
-unsafe fn ikm_free(kmsg: Kmsg) {
+pub(crate) unsafe fn ikm_free(kmsg: Kmsg) {
     // SAFETY: the caller promises the live message.
     let size = unsafe { kmsg.size() };
 
@@ -1339,7 +1340,7 @@ pub(crate) unsafe fn free(kmsg: Kmsg) {
 }
 
 /// `ikm_alloc()` of <ipc/ipc_kmsg.h>.
-fn ikm_alloc(size: usize) -> Option<Kmsg> {
+pub(crate) fn ikm_alloc(size: usize) -> Option<Kmsg> {
     let buf = slab::kalloc(size.wrapping_add(IKM_OVERHEAD))?;
     Some(Kmsg(buf.cast::<IpcKmsg>()))
 }
@@ -1349,7 +1350,7 @@ fn ikm_alloc(size: usize) -> Option<Kmsg> {
 /// # Safety
 ///
 /// `kmsg` must be a live, freshly allocated message this call owns.
-unsafe fn ikm_init(kmsg: Kmsg, size: usize) {
+pub(crate) unsafe fn ikm_init(kmsg: Kmsg, size: usize) {
     // SAFETY: the caller promises the fresh message.
     unsafe {
         kmsg.set_size(size.wrapping_add(IKM_OVERHEAD));

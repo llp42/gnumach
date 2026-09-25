@@ -670,7 +670,7 @@ pub(crate) unsafe fn destroy(port: IpcPort) {
         }
 
         if port.kotype() != IKOT_NONE {
-            glue::ipc_kobject_destroy(port.as_ptr());
+            crate::kern::ipc_kobject::destroy(port.as_ptr());
         }
 
         let record = port.record();

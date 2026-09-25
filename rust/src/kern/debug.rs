@@ -74,3 +74,16 @@ pub extern "C" fn __stack_chk_fail() -> ! {
 pub extern "C" fn panic_init() {
     PANIC_LOCK.init();
 }
+
+/// `__stack_chk_guard[]` in C: the canary GCC's stack protector reads.
+///
+/// The last three bytes are the C initializer's marker; the immutable
+/// section is enough because nothing writes the guard.
+#[cfg(target_pointer_width = "64")]
+#[unsafe(export_name = "__stack_chk_guard")]
+static STACK_CHK_GUARD: [u8; 8] = [0, 0, 0, 0, 0, b'\r', b'\n', 0xff];
+
+/// `__stack_chk_guard[]` in C, the i386 image.
+#[cfg(target_pointer_width = "32")]
+#[unsafe(export_name = "__stack_chk_guard")]
+static STACK_CHK_GUARD: [u8; 4] = [0, b'\r', b'\n', 0xff];

@@ -48,7 +48,7 @@ use crate::kern::sched_prim::{
 };
 use crate::kern::slab::{CacheInitFlags, KmemCache, kalloc, kfree};
 use crate::kern::smp::smp_get_numcpus;
-use crate::kern::syscall_subr::thread_depress_abort;
+use crate::kern::syscall_subr::depress_abort;
 use crate::kern::task::{Task, add_time64, current_task, kernel_task};
 use crate::kern::timer::{TIMER_RATE, Timer, TimerSave, read_times};
 use crate::kern::types::KernError;
@@ -646,9 +646,9 @@ impl Thread {
         unsafe { Thread::release(thread) };
 
         if unsafe { (*thread).depress_priority } != -1 {
-            // SAFETY: as above; the Rust `thread_depress_abort()` takes the
-            // thread lock itself.
-            unsafe { thread_depress_abort(thread) };
+            // SAFETY: as above; the Rust `depress_abort()` takes the thread
+            // lock itself.
+            let _ = unsafe { depress_abort(thread) };
         }
 
         Ok(())

@@ -37,7 +37,8 @@ use crate::kern::sched_prim::{
     thread_wakeup_prim,
 };
 use crate::kern::slab::{CacheInitFlags, KmemCache, kalloc, kfree};
-use crate::kern::syscall_emulation::eml_init;
+use crate::kern::syscall_emulation::EmlDispatch;
+use crate::kern::syscall_emulation_ffi::eml_init;
 use crate::kern::thread::Thread;
 use crate::kern::timer::read_times;
 use crate::kern::types::KernError;
@@ -124,7 +125,7 @@ pub struct Task {
     pub itk_bootstrap: *mut c_void,
     pub itk_registered: [*mut c_void; TASK_PORT_REGISTER_MAX],
     pub itk_space: *mut c_void,
-    pub eml_dispatch: *mut c_void,
+    pub eml_dispatch: *mut EmlDispatch,
     pub machine: MachineTask,
     pub faults: c_ulong,
     pub zero_fills: c_ulong,
@@ -613,7 +614,7 @@ pub(crate) unsafe fn create_kernel_task(
     // one, is live as the caller promised.  All four calls only read the
     // parent and initialize the task's own fields.
     unsafe {
-        glue::eml_task_reference(task, parent);
+        crate::kern::syscall_emulation::task_reference(task, parent);
         ipc_task_init(task, parent);
         glue::machine_task_init(task);
 
@@ -739,7 +740,7 @@ pub(crate) unsafe fn deallocate(task: *mut Task) {
     // vector belong to this call.
     unsafe {
         glue::machine_task_terminate(task);
-        glue::eml_task_deallocate(task);
+        crate::kern::syscall_emulation::task_deallocate(task);
     }
 
     // SAFETY: a live task's processor-set field was set by `pset_add_task()`.

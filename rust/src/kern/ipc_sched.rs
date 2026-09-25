@@ -88,7 +88,10 @@ unsafe fn will_wait(thread: *mut Thread) {
 ///
 /// `thread` must point at a live thread; the routine takes the thread lock
 /// itself.
-unsafe fn will_wait_with_timeout(thread: *mut Thread, msecs: c_uint) {
+pub(crate) unsafe fn will_wait_with_timeout(
+    thread: *mut Thread,
+    msecs: c_uint,
+) {
     let ticks = ipc_timeout_to_ticks(msecs);
     let s = unsafe { glue::splsched() };
     // SAFETY: the caller's contract; the thread lock protects the fields and

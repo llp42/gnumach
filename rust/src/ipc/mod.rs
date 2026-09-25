@@ -868,6 +868,27 @@ impl IpcPort {
         unsafe { (*self.record()).kobject = kobject };
     }
 
+    /// The `ipc_kobject_set_locked()` body of `kern/ipc_kobject.c`: name the
+    /// kernel object and its type in the port's bits.
+    ///
+    /// # Safety
+    ///
+    /// The port must be live and locked, and the object must be one whose
+    /// life the caller keeps alive while the port names it.
+    pub(crate) unsafe fn set_kobject_locked(
+        self,
+        kobject: *mut c_void,
+        type_: c_uint,
+    ) {
+        // SAFETY: the caller promises a live port and the held lock.
+        unsafe {
+            let record = self.record();
+            (*record).target.object.bits =
+                ((*record).target.object.bits & !IO_BITS_KOTYPE) | type_;
+            (*record).kobject = kobject;
+        }
+    }
+
     /// The `ip_reference()` macro of <ipc/ipc_port.h>: the bare
     /// `io_references++` the C makes with the port lock already held, as
     /// opposed to [`IpcPort::reference()`]'s locking function.

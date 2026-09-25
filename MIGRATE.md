@@ -73,16 +73,11 @@ file, or `—` when the rest is ready too.
 
 | File | LOC | Friction | Free | Holds the rest |
 |---|---:|---:|---:|---|
-| `ast.c` | 215 | 3 | 0 | `ast_taken`/`ast_check` need `net_ast()` and the run-queue walk |
-| `debug.c` | 121 | 3 | 0 | C variadics (`log`) |
-| `ipc_kobject.c` | 362 | 4 | 0 | `ipc_port` fields |
+| `debug.c` | 114 | 3 | 0 | C variadics (`Panic`, `log`) |
 | `ipc_sched.c` | 163 | 4 | 0 | — |
 | `mach_factor.c` | 150 | 2 | 0 | `mach_factor[]`/`load_average[]` are NCPUS-sized |
 | `printf.c` | 592 | 5 | 0 | C-variadic definitions; blocked (see §8) |
 | `priority.c` | 196 | 4 | 0 | pset tail and `struct slock_irq` |
-| `startup.c` | 290 | 5 | 0 | `machine_info`, NCPUS loops, boot |
-| `syscall_emulation.c` | 446 | 4 | 0 | `struct eml_dispatch` and task fields |
-| `syscall_subr.c` | 251 | 4 | 0 | static continuations (`swtch_continue`, ...) |
 | `syscall_sw.c` | 220 | 3 | 0 | trap table ABI; static stubs |
 
 ## 5. Outside `kern/`
@@ -292,7 +287,7 @@ classes.  A derivation is a snapshot of one afternoon's tree.
 
 * **Phase C — the coupled files.**  `priority`, `ipc_tt`, `ipc_host`
   and `host` once their struct stories exist, then the anchors
-  (`exception`, `startup`, `bootstrap`, `trap`, `pcb`, `ipc_kmsg`).
+  (`exception`, `bootstrap`, `trap`, `pcb`, `ipc_kmsg`).
   `eventcount`, `processor`, `machine` and the whole of `sched_prim`
   and `timer` are done.
 
@@ -309,7 +304,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 * `i386/intel/read_fault.c`: the body is
   `#if (__i386__ && !(__i486__ || __i586__ || __i686__))`, compiled out
   on every supported CPU.  Delete, do not port.
-* `#if 0` blocks in `kern/{exception,ipc_kobject}.c`, `device/intr.c`,
+* `#if 0` blocks in `kern/exception.c`, `device/intr.c`,
   and `i386/i386at/kd.c`.  Delete before porting the surrounding code.
   The `#if 0` bodies of `kern/{boot_script,bootstrap}.c`,
   `i386/i386at/com.c`, `kern/ipc_tt.c` (four `retrieve_*` bodies) and
@@ -449,6 +444,12 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `i386/i386at/model_dep.c` whole, with the `boot_info`, `kernel_cmdline` and `rebootflag` globals and the `ElfShdr` and `GdtDescrTmp` mirrors its boot path reads | `src/arch/i386/model_dep.rs`, `model_dep_ffi.rs` | pending |
 | `i386/i386/mp_desc.c` whole, with the NCPUS-sized `int_stack_base`, `int_stack_top`, `solid_intstack`, `mp_desc_table`, `mp_ktss` and `mp_gdt` it owned, the `apboot_addr` global, and the `RealGate` and `MpDescTable` mirrors `idt.c`, `int_init.c`, `gdt.c`, `ldt.c` and `ktss.c` still read | `src/arch/i386/mp_desc.rs`, `mp_desc_ffi.rs` | pending |
 | `i386/i386/debug_i386.c` whole, with the `debug_trace_buf`/`debug_trace_pos`, `syscall_trace`/`syscall_trace_task` globals and the `DebugTraceEntry` and `MachTrap` mirrors, and `dump_ss` re-homed out of `glue` for `trap.rs` | `src/arch/i386/debug_i386.rs`, `debug_i386_ffi.rs` | pending |
+| `kern/ast.c` (`ast_taken`, `ast_check`) whole, with the `need_ast[NCPUS]` array the macros and `locore.S` read | `src/kern/ast.rs`, `ast_ffi.rs` | pending |
+| `kern/debug.c` (`__stack_chk_guard`) | `src/kern/debug.rs` | pending |
+| `kern/ipc_kobject.c` whole, with the `IKOT_*` type values, the ten generated MIG server tables it dispatches through and the `ipc_port` bits/kobject update | `src/kern/ipc_kobject.rs`, `ipc_kobject_ffi.rs` | pending |
+| `kern/startup.c` whole, with the `reboot_on_panic` global and the empty `start_timer`/`timer_switch` macros | `src/kern/startup.rs`, `startup_ffi.rs` | pending |
+| `kern/syscall_emulation.c` whole, with the `struct eml_dispatch` mirror its bodies and the `i386asm.sym` offsets read | `src/kern/syscall_emulation.rs`, `syscall_emulation_ffi.rs` | pending |
+| `kern/syscall_subr.c` whole, with the `swtch_continue`, `swtch_pri_continue` and `thread_switch_continue` statics and the `thread_switch` hint path | `src/kern/syscall_subr.rs`, `syscall_subr_ffi.rs` | pending |
 
 `vm/vm_fault.c` was ported whole and rolled back in the same pass: the pinned
 toolchain turns the copy-object loop's `first_object->copy` null test into an
@@ -492,8 +493,10 @@ entries) in the same block, which is not debt either; the
 declarations when `i386/i386/pcb.c` and `i386/i386/fpu.c` moved.  The
 `ipc/ipc_mqueue.c` port declared `ipc_kobject_server`, and the
 `ipc/ipc_marequest.c` port declared `ipc_notify_msg_accepted`, in that
-same block; declaring C symbols that already exist writes no C, and the
-notify declarations came out with `ipc/ipc_notify.c`.
+same block; declaring C symbols that already exist writes no C, the
+notify declarations came out with `ipc/ipc_notify.c`, and the
+`ipc_kobject_server` declaration went with the `kern/ipc_kobject.c`
+port.
 
 `--enable-user32` is out of scope for the Rust half: the build targets
 the i686 and x86_64 configurations the ABI pack gates.  The removed

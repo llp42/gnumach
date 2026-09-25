@@ -51,7 +51,6 @@ EXTRA_DIST += \
 
 libkernel_a_SOURCES += \
 	kern/assert.h \
-	kern/ast.c \
 	kern/ast.h \
 	kern/atomic.h \
 	kern/boot_script.h \
@@ -64,7 +63,6 @@ libkernel_a_SOURCES += \
 	kern/gsync.h \
 	kern/host.h \
 	kern/ipc_host.h \
-	kern/ipc_kobject.c \
 	kern/ipc_kobject.h \
 	kern/ipc_mig.h \
 	kern/ipc_sched.c \
@@ -97,11 +95,8 @@ libkernel_a_SOURCES += \
 	kern/sched.h \
 	kern/sched_prim.h \
 	kern/shuttle.h \
-	kern/startup.c \
 	kern/startup.h \
-	kern/syscall_emulation.c \
 	kern/syscall_emulation.h \
-	kern/syscall_subr.c \
 	kern/syscall_subr.h \
 	kern/syscall_sw.c \
 	kern/syscall_sw.h \

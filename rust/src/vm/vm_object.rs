@@ -13,15 +13,16 @@ use crate::arch::i386::percpu::current_thread;
 use crate::arch::types::{VmOffset, VmSize};
 use crate::arch::vm_param::{PAGE_SHIFT, PAGE_SIZE};
 use crate::glue::{
-    self, Panic, ipc_kobject_set, memory_manager_default_reference,
-    memory_object_copy, memory_object_create, memory_object_init,
-    memory_object_terminate, pmap_is_modified, pmap_page_protect, printf,
-    vm_fault_cleanup, vm_fault_page, vm_page_fictitious_addr, vm_page_free,
+    self, Panic, memory_manager_default_reference, memory_object_copy,
+    memory_object_create, memory_object_init, memory_object_terminate,
+    pmap_is_modified, pmap_page_protect, printf, vm_fault_cleanup,
+    vm_fault_page, vm_page_fictitious_addr, vm_page_free,
     vm_page_grab_fictitious, vm_page_insert, vm_page_lookup,
     vm_page_more_fictitious, vm_page_queue_lock, vm_stat,
 };
 use crate::ipc::{IpcPort, ipc_port, ipc_space};
 use crate::kern::debug::SoftDebugger;
+use crate::kern::ipc_kobject;
 use crate::kern::queue::{
     QueueEntry, queue_enter_tail, queue_init, queue_next, queue_remove_generic,
 };
@@ -515,7 +516,7 @@ pub(crate) unsafe fn allocate(size: VmSize) -> Option<NonNull<VmObject>> {
             die(c"vm_object_allocate", c"vm_object_allocate");
         }
         (*object.as_ptr()).pager_name = port;
-        ipc_kobject_set(port, object.as_ptr().addr(), IKOT_PAGING_NAME);
+        ipc_kobject::set(port, object.as_ptr().addr(), IKOT_PAGING_NAME);
     }
 
     Some(object)
@@ -589,7 +590,7 @@ pub(crate) fn init() {
         let port = ipc_port::alloc_special(ipc_space::kernel())
             .map_or(ptr::null_mut(), IpcPort::as_ptr);
         (*object).pager_name = port;
-        ipc_kobject_set(port, object.addr(), IKOT_PAGING_NAME);
+        ipc_kobject::set(port, object.addr(), IKOT_PAGING_NAME);
     }
 }
 
@@ -794,7 +795,7 @@ pub(crate) unsafe fn pager_wakeup(pager: *mut c_void) {
         cache_lock();
         let someone_waiting = !port.kobject().is_null();
         if port.is_active() {
-            ipc_kobject_set(pager, 0, IKOT_NONE);
+            ipc_kobject::set(pager, 0, IKOT_NONE);
         }
         cache_unlock();
         if someone_waiting {
@@ -1660,7 +1661,7 @@ pub(crate) unsafe fn enter(
                     new_object = object.as_ptr();
                     cache_lock();
                 } else {
-                    ipc_kobject_set(pager, new_object.addr(), IKOT_PAGER);
+                    ipc_kobject::set(pager, new_object.addr(), IKOT_PAGER);
                     new_object = null_mut();
                     must_init = true;
                 }
@@ -1715,7 +1716,7 @@ pub(crate) unsafe fn enter(
                     );
                 }
                 (*object).pager_request = request;
-                ipc_kobject_set(request, object.addr(), IKOT_PAGING_REQUEST);
+                ipc_kobject::set(request, object.addr(), IKOT_PAGING_REQUEST);
 
                 if internal {
                     let dmm = memory_manager_default_reference();
@@ -1796,7 +1797,7 @@ pub(crate) unsafe fn pager_create(object: *mut VmObject) {
         }
 
         ipc_port::make_send(IpcPort::from_raw(pager)).as_ptr();
-        ipc_kobject_set(pager, object.addr(), IKOT_PAGER);
+        ipc_kobject::set(pager, object.addr(), IKOT_PAGER);
 
         if enter(pager, (*object).size, true).map(NonNull::as_ptr)
             != Some(object)
@@ -1827,7 +1828,7 @@ pub(crate) unsafe fn remove(object: *mut VmObject) {
             let port = IpcPort::from_raw(pager);
             let kotype = port.kotype();
             if kotype == IKOT_PAGER {
-                ipc_kobject_set(pager, 0, IKOT_PAGER_TERMINATING);
+                ipc_kobject::set(pager, 0, IKOT_PAGER_TERMINATING);
             } else if kotype != IKOT_NONE {
                 die(c"vm_object_remove", c"vm_object_remove: bad object port");
             }
@@ -1838,7 +1839,7 @@ pub(crate) unsafe fn remove(object: *mut VmObject) {
             let port = IpcPort::from_raw(request);
             let kotype = port.kotype();
             if kotype == IKOT_PAGING_REQUEST {
-                ipc_kobject_set(request, 0, IKOT_NONE);
+                ipc_kobject::set(request, 0, IKOT_NONE);
             } else if kotype != IKOT_NONE {
                 die(
                     c"vm_object_remove",
@@ -1852,7 +1853,7 @@ pub(crate) unsafe fn remove(object: *mut VmObject) {
             let port = IpcPort::from_raw(name);
             let kotype = port.kotype();
             if kotype == IKOT_PAGING_NAME {
-                ipc_kobject_set(name, 0, IKOT_NONE);
+                ipc_kobject::set(name, 0, IKOT_NONE);
             } else if kotype != IKOT_NONE {
                 die(c"vm_object_remove", c"vm_object_remove: bad name port");
             }
@@ -1954,7 +1955,7 @@ pub(crate) unsafe fn collapse(object: *mut VmObject) {
 
                 (*object).pager = (*backing_object).pager;
                 if !(*object).pager.is_null() {
-                    ipc_kobject_set(
+                    ipc_kobject::set(
                         (*object).pager,
                         object.addr(),
                         IKOT_PAGER,
@@ -1969,7 +1970,7 @@ pub(crate) unsafe fn collapse(object: *mut VmObject) {
 
                 (*object).pager_request = (*backing_object).pager_request;
                 if !(*object).pager_request.is_null() {
-                    ipc_kobject_set(
+                    ipc_kobject::set(
                         (*object).pager_request,
                         object.addr(),
                         IKOT_PAGING_REQUEST,
@@ -1977,11 +1978,11 @@ pub(crate) unsafe fn collapse(object: *mut VmObject) {
                 }
                 let old_name_port = (*object).pager_name;
                 if !old_name_port.is_null() {
-                    ipc_kobject_set(old_name_port, 0, IKOT_NONE);
+                    ipc_kobject::set(old_name_port, 0, IKOT_NONE);
                 }
                 (*object).pager_name = (*backing_object).pager_name;
                 if !(*object).pager_name.is_null() {
-                    ipc_kobject_set(
+                    ipc_kobject::set(
                         (*object).pager_name,
                         object.addr(),
                         IKOT_PAGING_NAME,

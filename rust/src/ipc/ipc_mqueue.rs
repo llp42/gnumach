@@ -20,6 +20,7 @@ use crate::ipc::{
     IpcMarequest, IpcMqueue, IpcPort, IpcSpace, IpcTarget,
     MACH_PORT_TYPE_PORT_SET, MACH_PORT_TYPE_RECEIVE,
 };
+use crate::kern::ipc_kobject;
 use crate::kern::ipc_sched::{
     thread_go, thread_will_wait, thread_will_wait_with_timeout,
 };
@@ -199,12 +200,11 @@ pub(crate) unsafe fn send(
 
         // SAFETY: a kernel port's message goes to its server, which consumes
         // it; the port lock is already dropped.
-        let reply = unsafe { glue::ipc_kobject_server(kmsg.as_ptr()) };
-        if !reply.is_null() {
+        if let Some(reply) = unsafe { ipc_kobject::server(kmsg) } {
             // The `ipc_mqueue_send_always()` macro.
             // SAFETY: the reply is a live message the server handed over.
             let _ = unsafe {
-                send(reply, MACH_SEND_ALWAYS, MACH_MSG_TIMEOUT_NONE)
+                send(reply.as_ptr(), MACH_SEND_ALWAYS, MACH_MSG_TIMEOUT_NONE)
             };
         }
         return MsgReturn::SUCCESS;

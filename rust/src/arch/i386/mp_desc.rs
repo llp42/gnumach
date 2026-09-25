@@ -376,7 +376,9 @@ fn cpu_setup(cpu: c_int) -> ! {
     apic::lapic_enable();
     // SAFETY: `cpu_launch_first_thread` is the real C routine of
     // `kern/startup.c`, and it never returns.
-    unsafe { glue::cpu_launch_first_thread(ptr::null_mut()) }
+    unsafe {
+        crate::kern::startup_ffi::cpu_launch_first_thread(ptr::null_mut())
+    }
 }
 
 /// `cpu_ap_main()` of <i386/mp_desc.h>, the entry `cpuboot.S` calls.

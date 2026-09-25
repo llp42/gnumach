@@ -190,7 +190,7 @@ pub(crate) unsafe fn ipc_task_enable(task: *mut Task) {
         (*task).itk_lock_data.lock();
         let kport = (*task).itk_self;
         if !kport.is_null() {
-            glue::ipc_kobject_set(kport, task.addr(), IKOT_TASK);
+            crate::kern::ipc_kobject::set(kport, task.addr(), IKOT_TASK);
         }
         (*task).itk_lock_data.unlock();
     }
@@ -209,7 +209,7 @@ pub(crate) unsafe fn ipc_task_disable(task: *mut Task) {
         (*task).itk_lock_data.lock();
         let kport = (*task).itk_self;
         if !kport.is_null() {
-            glue::ipc_kobject_set(kport, IKO_NULL, IKOT_NONE);
+            crate::kern::ipc_kobject::set(kport, IKO_NULL, IKOT_NONE);
         }
         (*task).itk_lock_data.unlock();
     }
@@ -294,7 +294,7 @@ pub(crate) unsafe fn ipc_thread_enable(thread: *mut Thread) {
         (*thread).ith_lock_data.lock();
         let kport = (*thread).ith_self;
         if !kport.is_null() {
-            glue::ipc_kobject_set(kport, thread.addr(), IKOT_THREAD);
+            crate::kern::ipc_kobject::set(kport, thread.addr(), IKOT_THREAD);
         }
         (*thread).ith_lock_data.unlock();
     }
@@ -313,7 +313,7 @@ pub(crate) unsafe fn ipc_thread_disable(thread: *mut Thread) {
         (*thread).ith_lock_data.lock();
         let kport = (*thread).ith_self;
         if !kport.is_null() {
-            glue::ipc_kobject_set(kport, IKO_NULL, IKOT_NONE);
+            crate::kern::ipc_kobject::set(kport, IKO_NULL, IKOT_NONE);
         }
         (*thread).ith_lock_data.unlock();
     }
