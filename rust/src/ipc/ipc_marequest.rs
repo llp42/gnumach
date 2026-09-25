@@ -10,6 +10,7 @@
 
 use crate::glue;
 use crate::ipc::ipc_kmsg::MsgReturn;
+use crate::ipc::ipc_notify;
 use crate::ipc::ipc_port;
 use crate::ipc::ipc_right;
 use crate::ipc::ipc_space;
@@ -421,7 +422,7 @@ pub(crate) unsafe fn destroy(marequest: *mut IpcMarequest) {
 
     // SAFETY: the request held a send-once right for the notification, which
     // the C passes on to the notify routine; it is null in compat mode only.
-    unsafe { glue::ipc_notify_msg_accepted(soright, name) };
+    unsafe { ipc_notify::msg_accepted(soright, name) };
 }
 
 /// `ipc_marequest_info()` in C.

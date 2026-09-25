@@ -28,7 +28,6 @@ libkernel_a_SOURCES += \
 	ipc/ipc_machdep.h \
 	ipc/ipc_marequest.h \
 	ipc/ipc_mqueue.h \
-	ipc/ipc_notify.c \
 	ipc/ipc_notify.h \
 	ipc/ipc_object.h \
 	ipc/ipc_port.h \
@@ -40,10 +39,8 @@ libkernel_a_SOURCES += \
 	ipc/ipc_target.h \
 	ipc/ipc_thread.h \
 	ipc/ipc_types.h \
-	ipc/mach_msg.c \
 	ipc/mach_msg.h \
 	ipc/mach_port.h \
-	ipc/mach_debug.c \
 	ipc/port.h
 EXTRA_DIST += \
 	ipc/mach_port.srv \

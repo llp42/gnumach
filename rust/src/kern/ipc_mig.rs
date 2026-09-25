@@ -152,7 +152,7 @@ pub(crate) const fn kern_return(result: Result<(), Error>) -> c_int {
 ///
 /// Must be called from a thread context: the running task is live and its
 /// space is not null.
-unsafe fn current_space() -> IpcSpace {
+pub(crate) unsafe fn current_space() -> IpcSpace {
     // SAFETY: the caller's contract.
     unsafe { IpcSpace::from_raw((*task::current_task()).itk_space) }
 }
@@ -163,7 +163,7 @@ unsafe fn current_space() -> IpcSpace {
 ///
 /// Must be called from a thread context: the running task is live and its map
 /// is not null.
-unsafe fn current_map() -> *mut VmMap {
+pub(crate) unsafe fn current_map() -> *mut VmMap {
     // SAFETY: the caller's contract.
     unsafe { (*task::current_task()).map.cast() }
 }

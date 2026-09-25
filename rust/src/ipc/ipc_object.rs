@@ -8,6 +8,7 @@
 
 use crate::glue;
 use crate::ipc::ipc_entry;
+use crate::ipc::ipc_notify;
 use crate::ipc::ipc_right;
 use crate::ipc::{
     IE_BITS_TYPE_MASK, IO_BITS_ACTIVE, IOT_PORT, IOT_PORT_SET, IpcObject,
@@ -462,7 +463,7 @@ pub(crate) unsafe fn copyin(
     if !soright.is_null() {
         // SAFETY: a non-null send-once right came from the successful copyin
         // and is consumed by the notification.
-        unsafe { glue::ipc_notify_port_deleted(soright, name) };
+        unsafe { ipc_notify::port_deleted(soright, name) };
     }
 
     Ok(object)
@@ -739,7 +740,7 @@ pub(crate) unsafe fn copyout_dest(
                 port.unlock();
 
                 if !nsrequest.is_null() {
-                    glue::ipc_notify_no_senders(nsrequest, mscount);
+                    ipc_notify::no_senders(nsrequest, mscount);
                 }
 
                 name
@@ -759,7 +760,7 @@ pub(crate) unsafe fn copyout_dest(
                 } else {
                     port.increment_references();
                     port.unlock();
-                    glue::ipc_notify_send_once(port.as_ptr());
+                    ipc_notify::send_once(port.as_ptr());
                     MACH_PORT_NAME_NULL
                 }
             }
@@ -858,7 +859,7 @@ unsafe fn destroy(port: IpcPort, name: MsgTypeName) {
         MsgTypeName::MoveSendOnce => {
             // SAFETY: the caller owns the one send-once right the port holds,
             // which `ipc_notify_send_once` consumes.
-            unsafe { glue::ipc_notify_send_once(port.as_ptr()) }
+            unsafe { ipc_notify::send_once(port.as_ptr()) }
         }
         MsgTypeName::Null
         | MsgTypeName::CopySend

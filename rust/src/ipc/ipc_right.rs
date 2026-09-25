@@ -9,6 +9,7 @@
 use crate::glue;
 use crate::ipc::ipc_entry;
 use crate::ipc::ipc_marequest;
+use crate::ipc::ipc_notify;
 use crate::ipc::ipc_object;
 use crate::ipc::ipc_port;
 use crate::ipc::ipc_pset;
@@ -283,7 +284,7 @@ pub(crate) unsafe fn dnrequest(
             unsafe { space.lock_done() };
 
             // SAFETY: the caller promises the live send-once right.
-            unsafe { glue::ipc_notify_dead_name(notify, name) };
+            unsafe { ipc_notify::dead_name(notify, name) };
             return Ok(ptr::null_mut());
         }
 
@@ -497,7 +498,7 @@ pub(crate) unsafe fn clean(name: c_uint, entry: *mut IpcEntry) {
                 unsafe { port.unlock() };
 
                 // SAFETY: the notifications consume the send-once right.
-                unsafe { glue::ipc_notify_send_once(port.as_ptr()) };
+                unsafe { ipc_notify::send_once(port.as_ptr()) };
             } else {
                 // SAFETY: the port is live and its lock is held; the release
                 // consumes the entry's reference.
@@ -510,13 +511,13 @@ pub(crate) unsafe fn clean(name: c_uint, entry: *mut IpcEntry) {
             if !nsrequest.is_null() {
                 // SAFETY: a nonzero no-senders request is a live send-once
                 // right.
-                unsafe { glue::ipc_notify_no_senders(nsrequest, mscount) };
+                unsafe { ipc_notify::no_senders(nsrequest, mscount) };
             }
 
             if !dnrequest.is_null() {
                 // SAFETY: a nonzero dead-name request is a live send-once
                 // right.
-                unsafe { glue::ipc_notify_port_deleted(dnrequest, name) };
+                unsafe { ipc_notify::port_deleted(dnrequest, name) };
             }
         }
 
@@ -648,7 +649,7 @@ pub(crate) unsafe fn destroy(
                 unsafe { port.unlock() };
 
                 // SAFETY: the notifications consume the send-once right.
-                unsafe { glue::ipc_notify_send_once(port.as_ptr()) };
+                unsafe { ipc_notify::send_once(port.as_ptr()) };
             } else {
                 // SAFETY: the port is live and its lock is held; the release
                 // consumes the entry's reference.
@@ -661,13 +662,13 @@ pub(crate) unsafe fn destroy(
             if !nsrequest.is_null() {
                 // SAFETY: a nonzero no-senders request is a live send-once
                 // right.
-                unsafe { glue::ipc_notify_no_senders(nsrequest, mscount) };
+                unsafe { ipc_notify::no_senders(nsrequest, mscount) };
             }
 
             if !dnrequest.is_null() {
                 // SAFETY: a nonzero dead-name request is a live send-once
                 // right.
-                unsafe { glue::ipc_notify_port_deleted(dnrequest, name) };
+                unsafe { ipc_notify::port_deleted(dnrequest, name) };
             }
         }
 
@@ -753,12 +754,12 @@ pub(crate) unsafe fn dealloc(
 
             // SAFETY: the notification consumes the send-once right (or its
             // reference).
-            unsafe { glue::ipc_notify_send_once(port.as_ptr()) };
+            unsafe { ipc_notify::send_once(port.as_ptr()) };
 
             if !dnrequest.is_null() {
                 // SAFETY: a nonzero dead-name request is a live send-once
                 // right.
-                unsafe { glue::ipc_notify_port_deleted(dnrequest, name) };
+                unsafe { ipc_notify::port_deleted(dnrequest, name) };
             }
 
             Ok(())
@@ -830,13 +831,13 @@ pub(crate) unsafe fn dealloc(
             if !nsrequest.is_null() {
                 // SAFETY: a nonzero no-senders request is a live send-once
                 // right.
-                unsafe { glue::ipc_notify_no_senders(nsrequest, mscount) };
+                unsafe { ipc_notify::no_senders(nsrequest, mscount) };
             }
 
             if !dnrequest.is_null() {
                 // SAFETY: a nonzero dead-name request is a live send-once
                 // right.
-                unsafe { glue::ipc_notify_port_deleted(dnrequest, name) };
+                unsafe { ipc_notify::port_deleted(dnrequest, name) };
             }
 
             Ok(())
@@ -886,7 +887,7 @@ pub(crate) unsafe fn dealloc(
             if !nsrequest.is_null() {
                 // SAFETY: a nonzero no-senders request is a live send-once
                 // right.
-                unsafe { glue::ipc_notify_no_senders(nsrequest, mscount) };
+                unsafe { ipc_notify::no_senders(nsrequest, mscount) };
             }
 
             Ok(())
@@ -1032,7 +1033,7 @@ pub(crate) unsafe fn delta(
             if !dnrequest.is_null() {
                 // SAFETY: a nonzero dead-name request is a live send-once
                 // right.
-                unsafe { glue::ipc_notify_port_deleted(dnrequest, name) };
+                unsafe { ipc_notify::port_deleted(dnrequest, name) };
             }
 
             Ok(())
@@ -1084,12 +1085,12 @@ pub(crate) unsafe fn delta(
 
             // SAFETY: the send-once notification consumes the entry's
             // reference.
-            unsafe { glue::ipc_notify_send_once(port.as_ptr()) };
+            unsafe { ipc_notify::send_once(port.as_ptr()) };
 
             if !dnrequest.is_null() {
                 // SAFETY: a nonzero dead-name request is a live send-once
                 // right.
-                unsafe { glue::ipc_notify_port_deleted(dnrequest, name) };
+                unsafe { ipc_notify::port_deleted(dnrequest, name) };
             }
 
             Ok(())
@@ -1239,13 +1240,13 @@ pub(crate) unsafe fn delta(
             if !nsrequest.is_null() {
                 // SAFETY: a nonzero no-senders request is a live send-once
                 // right.
-                unsafe { glue::ipc_notify_no_senders(nsrequest, mscount) };
+                unsafe { ipc_notify::no_senders(nsrequest, mscount) };
             }
 
             if !dnrequest.is_null() {
                 // SAFETY: a nonzero dead-name request is a live send-once
                 // right.
-                unsafe { glue::ipc_notify_port_deleted(dnrequest, name) };
+                unsafe { ipc_notify::port_deleted(dnrequest, name) };
             }
 
             Ok(())

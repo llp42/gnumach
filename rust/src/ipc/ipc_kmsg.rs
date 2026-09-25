@@ -14,6 +14,7 @@ use crate::config::NCPUS;
 use crate::glue;
 use crate::ipc::ipc_entry;
 use crate::ipc::ipc_marequest;
+use crate::ipc::ipc_notify;
 use crate::ipc::ipc_object;
 use crate::ipc::ipc_port;
 use crate::ipc::ipc_right;
@@ -222,6 +223,8 @@ impl MsgReturn {
     pub(crate) const SEND_INVALID_DEST: Self = Self(0x1000_0003);
     /// `MACH_SEND_TIMED_OUT`.
     pub(crate) const SEND_TIMED_OUT: Self = Self(0x1000_0004);
+    /// `MACH_SEND_WILL_NOTIFY`.
+    pub(crate) const SEND_WILL_NOTIFY: Self = Self(0x1000_0005);
     /// `MACH_SEND_NOTIFY_IN_PROGRESS`.
     pub(crate) const SEND_NOTIFY_IN_PROGRESS: Self = Self(0x1000_0006);
     /// `MACH_SEND_INTERRUPTED`.
@@ -690,7 +693,7 @@ impl Kmsg {
     /// # Safety
     ///
     /// The message must be live.
-    unsafe fn header(self) -> *mut MachMsgHeader {
+    pub(crate) unsafe fn header(self) -> *mut MachMsgHeader {
         // SAFETY: the caller promises the live message.
         unsafe { ptr::addr_of_mut!((*self.record()).header) }
     }
@@ -1346,6 +1349,20 @@ unsafe fn ikm_init(kmsg: Kmsg, size: usize) {
         kmsg.set_size(size.wrapping_add(IKM_OVERHEAD));
         kmsg.set_marequest(ptr::null_mut());
     }
+}
+
+/// `ikm_alloc()` followed by `ikm_init()`: a fresh message for a caller that
+/// builds its own header, as the notification senders do.
+///
+/// # Safety
+///
+/// The caller permits an allocation; the result, when `Some`, is a live
+/// message this call owns.
+pub(crate) unsafe fn alloc(size: usize) -> Option<Kmsg> {
+    let kmsg = ikm_alloc(size)?;
+    // SAFETY: the message is fresh and owned by this call.
+    unsafe { ikm_init(kmsg, size) };
+    Some(kmsg)
 }
 
 /// `ikm_cache_alloc()` of <ipc/ipc_kmsg.h>.
@@ -2080,10 +2097,7 @@ pub(crate) unsafe fn copyin_header(
                         space.lock_done();
 
                         if !dest_soright.is_null() {
-                            glue::ipc_notify_dead_name(
-                                dest_soright,
-                                dest_name,
-                            );
+                            ipc_notify::dead_name(dest_soright, dest_name);
                         }
                         ipc_object::release(saved_reply);
                     }
@@ -2129,11 +2143,11 @@ pub(crate) unsafe fn copyin_header(
 
     if !dest_soright.is_null() {
         // SAFETY: the copy-in left the send-once right unused.
-        unsafe { glue::ipc_notify_port_deleted(dest_soright, dest_name) };
+        unsafe { ipc_notify::port_deleted(dest_soright, dest_name) };
     }
     if !reply_soright.is_null() {
         // SAFETY: the copy-in left the send-once right unused.
-        unsafe { glue::ipc_notify_port_deleted(reply_soright, reply_name) };
+        unsafe { ipc_notify::port_deleted(reply_soright, reply_name) };
     }
 
     let dest_type = ipc_object::copyin_type(dest_type);
@@ -2650,7 +2664,7 @@ unsafe fn copyout_dest_fast(
                 dest_port.set_nsrequest(ptr::null_mut());
                 let mscount = dest_port.mscount();
                 dest_port.unlock();
-                glue::ipc_notify_no_senders(nsrequest, mscount);
+                ipc_notify::no_senders(nsrequest, mscount);
             } else {
                 dest_port.unlock();
             }
@@ -2855,7 +2869,7 @@ pub(crate) unsafe fn copyout_header(
                         // SAFETY: the port lock is held.
                         unsafe { dest_port.unlock() };
                         // SAFETY: the send-once right is being received.
-                        unsafe { glue::ipc_notify_send_once(dest) };
+                        unsafe { ipc_notify::send_once(dest) };
                         MACH_PORT_NAME_NULL
                     };
 

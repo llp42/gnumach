@@ -381,6 +381,17 @@ pub(crate) unsafe fn send(
     MsgReturn::SUCCESS
 }
 
+/// `ipc_mqueue_send_always()` of <ipc/ipc_mqueue.h>.
+///
+/// # Safety
+///
+/// `kmsg` must be a live message the caller owns, holding a reference for the
+/// destination port; nothing may be locked.
+pub(crate) unsafe fn send_always(kmsg: *mut c_void) -> MsgReturn {
+    // SAFETY: the caller's contract.
+    unsafe { send(kmsg, MACH_SEND_ALWAYS, MACH_MSG_TIMEOUT_NONE) }
+}
+
 /// `ipc_mqueue_copyin()` in C.
 ///
 /// # Safety

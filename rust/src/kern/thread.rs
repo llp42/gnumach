@@ -2124,13 +2124,14 @@ impl Thread {
                 // point routines by address; the bindings give the function
                 // items the pointer type that comparison needs.
                 let continue_fn: unsafe extern "C" fn() =
-                    glue::mach_msg_continue;
+                    crate::ipc::mach_msg::mach_msg_continue;
                 let receive_continue_fn: unsafe extern "C" fn() =
-                    glue::mach_msg_receive_continue;
-                let has_cleanup = (swap_func.is_some_and(|f| {
-                    core::ptr::fn_addr_eq(f, continue_fn)
-                        || core::ptr::fn_addr_eq(f, receive_continue_fn)
-                })) && glue::mach_msg_interrupt(thread) != 0;
+                    crate::ipc::mach_msg::mach_msg_receive_continue;
+                let has_cleanup =
+                    (swap_func.is_some_and(|f| {
+                        core::ptr::fn_addr_eq(f, continue_fn)
+                            || core::ptr::fn_addr_eq(f, receive_continue_fn)
+                    })) && crate::ipc::mach_msg::interrupt(thread);
                 let exception_return_fn: unsafe extern "C" fn() =
                     glue::thread_exception_return;
                 let bootstrap_return_fn: unsafe extern "C" fn() =

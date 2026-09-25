@@ -172,9 +172,9 @@ unsafe extern "C" {
     pub fn pcb_init(task: *mut Task, thread: *mut Thread);
     pub fn pcb_terminate(thread: *mut Thread);
 
-    pub fn mach_msg_continue();
-    pub fn mach_msg_receive_continue();
-    pub fn mach_msg_interrupt(thread: *mut Thread) -> c_int;
+    /// `thread_syscall_return()` of <kern/sched_prim.h>: the machine's
+    /// syscall-return path, which never comes back to its caller.
+    pub fn thread_syscall_return(retval: c_int) -> !;
 
     pub fn eml_task_reference(task: *mut Task, parent: *mut Task);
     pub fn eml_task_deallocate(task: *mut Task);
@@ -396,14 +396,6 @@ unsafe extern "C" {
     pub fn fp_load(thread: *mut Thread);
 
     pub static mut machine_task_iopb_cache: KmemCache;
-
-    pub fn ipc_notify_send_once(port: *mut c_void);
-    pub fn ipc_notify_no_senders(port: *mut c_void, mscount: c_uint);
-    pub fn ipc_notify_port_destroyed(port: *mut c_void, backup: *mut c_void);
-    pub fn ipc_notify_dead_name(port: *mut c_void, name: c_uint);
-    pub fn ipc_notify_init();
-    pub fn ipc_notify_port_deleted(port: *mut c_void, name: c_uint);
-    pub fn ipc_notify_msg_accepted(port: *mut c_void, name: c_uint);
 
     pub fn ipc_kobject_server(kmsg: *mut c_void) -> *mut c_void;
 

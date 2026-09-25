@@ -99,14 +99,11 @@ file, or `—` when the rest is ready too.
 
 ## 5. Outside `kern/`
 
-### `ipc/` (4 files, 2,922 LOC)
+### `ipc/` (1 file, 540 LOC)
 
 | File | LOC | Free | Holds the rest |
-|---|---:|---:|---|
+|---|---|---:|---|
 | `copy_user.c` | 540 | 0 | `mach_msg_header` fields; `copyoutmsg` absent from both builds |
-| `ipc_notify.c` | 448 | 0 | `ipc_kmsg` and message fields |
-| `mach_debug.c` | 286 | 0 | the `hash_info_bucket_t` mirror landed with `ipc_marequest.c`; re-derive the rest |
-| `mach_msg.c` | 1648 | 0 | `ipc_kmsg` fields |
 
 ### `vm/` (10 files, 6,776 LOC)
 
@@ -235,8 +232,10 @@ accessors and the eight `i386/i386at/com.c` entries.
 **Mirror gaps.**
 `host_ipc_marequest_info` and `host_virtual_physical_table_info` needed a
 `hash_info_bucket_t` mirror; the `HashInfoBucket` in `src/ipc/mod.rs`
-landed with the `ipc_marequest.c` port, so both can move.  The `struct
-pmap` story now exists: the
+landed with the `ipc_marequest.c` port, and the `mach_debug.c` batch
+moved `host_ipc_marequest_info`; `host_virtual_physical_table_info` in
+`vm/vm_debug.c` still waits on the `struct vm_page` seg walk.  The
+`struct pmap` story now exists: the
 whole of `i386/intel/pmap.c`, its `static` `phys_attribute_*` helpers
 included, moved to `src/arch/i386/pmap.rs` (§9).
 The `vm/vm_object.c` port completed the `struct vm_object` field mirror
@@ -313,8 +312,7 @@ classes.  A derivation is a snapshot of one afternoon's tree.
 * **Phase C — the coupled files.**  `eventcount`, `priority`, `gsync`,
   `ipc_tt`, `ipc_host`, `host`, `processor`, `machine`, `mach_clock` once
   their struct stories exist; then the anchors (`sched_prim`,
-  `exception`, `startup`, `bootstrap`, `trap`, `pcb`,
-  `ipc_kmsg`, `mach_msg`).
+  `exception`, `startup`, `bootstrap`, `trap`, `pcb`, `ipc_kmsg`).
 
 Exit criterion for every step: both qemu architectures green, `rustfmt`
 and clippy clean, no new undefined symbols, and no new C.
@@ -437,6 +435,9 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `ipc/ipc_mqueue.c` whole, with the `struct ipc_marequest` view its receive path tears down | `src/ipc/ipc_mqueue.rs`, `ipc_mqueue_ffi.rs` | pending |
 | `ipc/ipc_pset.c` whole | `src/ipc/ipc_pset.rs`, `ipc_pset_ffi.rs` | pending |
 | `ipc/ipc_marequest.c` whole, with the `ipc_marequest_cache`, `ipc_marequest_size`, `ipc_marequest_mask` and `ipc_marequest_table` globals it owned and the `struct ipc_marequest`, `struct ipc_marequest_bucket` and `hash_info_bucket_t` mirrors its bodies read | `src/ipc/ipc_marequest.rs`, `ipc_marequest_ffi.rs`, `src/ipc/mod.rs` | pending |
+| `ipc/ipc_notify.c` whole, with the six notification templates it initialized and the `mach_msg_type_t`/notification layouts its senders wrote | `src/ipc/ipc_notify.rs`, `ipc_notify_ffi.rs` | pending |
+| `ipc/mach_msg.c` whole, with the `mach_msg_continue`/`mach_msg_receive_continue` continuations whose addresses `kern/thread.c` and `kern/exception.c` compare | `src/ipc/mach_msg.rs`, `mach_msg_ffi.rs` | pending |
+| `ipc/mach_debug.c` whole, `host_ipc_marequest_info` included | `src/ipc/mach_debug.rs`, `mach_debug_ffi.rs` | pending |
 | `device/ds_routines.c` whole, with the `struct io_req`, `struct device`, `struct mach_device`, `struct dev_ops` and `struct device_emulation_ops` mirrors it owned, and its `device_io_map`, `io_inband_cache`, `io_trap_cache`, `io_done_list` and `mach_device_emulation_ops` globals | `src/device/ds_routines.rs`, `ds_routines_ffi.rs`, `src/arch/i386/io_req.rs` | pending |
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
@@ -468,12 +469,13 @@ The `i386/intel/pmap.c` port declared the C routines it still calls
 `i386/i386at/biosmem.c` port moved `biosmem_directmap_end` out of that
 list and into `src/arch/i386/biosmem.rs`.  The `kern/thread.c` port
 declared the C routines it still calls (`pcb_init`, `pcb_terminate`,
-`ipc_thread_init`, `mach_port_deallocate`, `mach_port_destroy`,
-`mach_msg_continue`, `mach_msg_receive_continue` and
-`mach_msg_interrupt`) in the same block, which is not debt either.  The
+`ipc_thread_init`, `mach_port_deallocate`, `mach_port_destroy` and the
+three `mach_msg_*` entries) in the same block, which is not debt either;
+the `mach_msg_*` declarations came out when `ipc/mach_msg.c` moved.  The
 `ipc/ipc_mqueue.c` port declared `ipc_kobject_server`, and the
 `ipc/ipc_marequest.c` port declared `ipc_notify_msg_accepted`, in that
-same block; declaring C symbols that already exist writes no C.
+same block; declaring C symbols that already exist writes no C, and the
+notify declarations came out with `ipc/ipc_notify.c`.
 
 `--enable-user32` is out of scope for the Rust half: the build targets
 the i686 and x86_64 configurations the ABI pack gates.  The removed

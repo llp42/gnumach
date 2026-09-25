@@ -11,6 +11,7 @@
 use crate::glue;
 use crate::ipc::ipc_kmsg::{self, MsgReturn};
 use crate::ipc::ipc_mqueue;
+use crate::ipc::ipc_notify;
 use crate::ipc::ipc_object;
 use crate::ipc::ipc_pset;
 use crate::ipc::ipc_table::{self, IPC_PORT_REQUEST_SIZE, IpcTableSize};
@@ -376,7 +377,7 @@ pub(crate) unsafe fn nsrequest(
         if port.srights() == 0 && sync <= mscount && !notify.is_null() {
             port.set_nsrequest(ptr::null_mut());
             port.unlock();
-            glue::ipc_notify_no_senders(notify, mscount);
+            ipc_notify::no_senders(notify, mscount);
         } else {
             port.set_nsrequest(notify);
             port.unlock();
@@ -598,7 +599,7 @@ pub(crate) unsafe fn destroy(port: IpcPort) {
             port.unlock();
 
             if !check_circularity(port, pdrequest) {
-                glue::ipc_notify_port_destroyed(pdrequest, port.as_ptr());
+                ipc_notify::port_destroyed(pdrequest, port.as_ptr());
                 return;
             }
 
@@ -627,7 +628,7 @@ pub(crate) unsafe fn destroy(port: IpcPort) {
 
         let nsrequest = port.nsrequest();
         if !nsrequest.is_null() {
-            glue::ipc_notify_send_once(nsrequest);
+            ipc_notify::send_once(nsrequest);
         }
 
         let mqueue = port.messages();
@@ -662,7 +663,7 @@ pub(crate) unsafe fn destroy(port: IpcPort) {
                     continue;
                 }
 
-                glue::ipc_notify_dead_name((*request).soright(), name);
+                ipc_notify::dead_name((*request).soright(), name);
             }
 
             dnrequests_free(its, dnrequests);
@@ -972,7 +973,7 @@ pub(crate) unsafe fn release_send(port: IpcPort) {
         port.unlock();
 
         if !nsrequest.is_null() {
-            glue::ipc_notify_no_senders(nsrequest, mscount);
+            ipc_notify::no_senders(nsrequest, mscount);
         }
     }
 }
