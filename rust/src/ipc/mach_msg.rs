@@ -27,7 +27,7 @@ use crate::kern::ipc_mig::{current_map, current_space};
 use crate::kern::thread::Thread;
 use crate::vm::vm_map::VmMap;
 use core::ffi::{c_int, c_uint, c_void};
-use core::mem::{offset_of, size_of};
+use core::mem::size_of;
 use core::ptr::{self, with_exposed_provenance_mut};
 
 /// `MACH_SEND_MSG` of <mach/message.h>.
@@ -75,16 +75,14 @@ fn ptr_at(address: usize) -> *mut c_void {
 /// `user` must name a writable user message header.
 unsafe fn write_back_size(user: *mut c_void, size: c_uint) {
     let real_size = size;
+    let header = user.cast::<MachMsgHeader>();
 
     // SAFETY: the caller promises the writable header, and `copyout`
-    // validates the user address; the size field is the header's second
-    // word.
+    // validates the user address.
     let _ = unsafe {
         glue::copyout(
             ptr::addr_of!(real_size).cast(),
-            user.cast::<u8>()
-                .add(offset_of!(MachMsgHeader, size))
-                .cast(),
+            ptr::addr_of_mut!((*header).size).cast(),
             size_of::<c_uint>(),
         )
     };

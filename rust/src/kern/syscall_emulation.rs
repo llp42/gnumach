@@ -53,6 +53,10 @@ pub struct EmlDispatch {
     disp_count: c_int,
     /// `disp_min`: the index of the vector's lowest entry.
     disp_min: c_int,
+    /// `disp_vector`: the dispatch entries, allocated with the header.  The
+    /// C writes `[1]` so its `sizeof` carries one entry; the count here
+    /// spells that entry in `count_to_size()` instead.
+    disp_vector: [VmOffset; 0],
 }
 
 const _: () = {
@@ -61,6 +65,7 @@ const _: () = {
     assert!(core::mem::offset_of!(EmlDispatch, ref_count) == 4);
     assert!(core::mem::offset_of!(EmlDispatch, disp_count) == 8);
     assert!(core::mem::offset_of!(EmlDispatch, disp_min) == 12);
+    assert!(core::mem::offset_of!(EmlDispatch, disp_vector) == 16);
 };
 
 /// `count_to_size()` of kern/syscall_emulation.c: the allocation size of a
@@ -77,11 +82,7 @@ const fn count_to_size(count: usize) -> usize {
 unsafe fn vector(eml: *mut EmlDispatch) -> *mut VmOffset {
     // SAFETY: every dispatch table allocates its vector in the same
     // allocation, right after the header.
-    unsafe {
-        eml.cast::<u8>()
-            .add(size_of::<EmlDispatch>())
-            .cast::<VmOffset>()
-    }
+    unsafe { ptr::addr_of_mut!((*eml).disp_vector).cast::<VmOffset>() }
 }
 
 /// `eml_task_reference()` in C: give `task` a reference to `parent`'s

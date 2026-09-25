@@ -11,6 +11,7 @@
 
 use super::*;
 use crate::arch::i386::io_req::{DevT, IoReq};
+use crate::arch::types::VmOffset;
 use crate::arch::vm_param::PAGE_SHIFT;
 use crate::device::chario::{
     LdiscSwitch, TS_BUSY, TS_CARR_ON, TS_ISOPEN, TS_TTSTOP, TS_WOPEN, TTLOWAT,
@@ -187,10 +188,10 @@ pub unsafe extern "C" fn kdmmap(
 ///
 /// The device layer calls this with a valid port.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn kdportdeath(dev: DevT, port: u32) -> c_int {
+pub unsafe extern "C" fn kdportdeath(dev: DevT, port: VmOffset) -> c_int {
     let _ = dev;
     // SAFETY: the tty layer owns the request queues.
-    unsafe { tty_portdeath(tty(), port as usize as *mut c_void) }
+    unsafe { tty_portdeath(tty(), port as *mut c_void) }
 }
 
 /// `kdgetstat()` in C.
