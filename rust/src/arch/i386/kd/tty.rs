@@ -12,22 +12,17 @@
 use super::*;
 use crate::arch::i386::io_req::{DevT, IoReq};
 use crate::arch::vm_param::PAGE_SHIFT;
-use crate::device::chario::tty_queue_completion;
-use crate::device::cirbuf::Cirbuf;
+use crate::device::chario::{
+    LdiscSwitch, TS_BUSY, TS_CARR_ON, TS_ISOPEN, TS_TTSTOP, TS_WOPEN, TTLOWAT,
+    Tty,
+};
+use crate::device::chario_ffi::{
+    LINESW, char_open, tty_get_status, tty_portdeath, tty_queue_completion,
+    tty_set_status, ttychars, ttyclose,
+};
 use crate::device::r#return::{DeviceError, DeviceSuccess, IoResultExt};
 use crate::glue;
-use crate::kern::lock::SimpleLock;
-use crate::kern::queue::QueueEntry;
-use core::ffi::{c_char, c_int, c_uint, c_void};
-use core::mem::{offset_of, size_of};
-use core::ptr::NonNull;
-
-/// `TS_*` of <device/tty.h>.
-const TS_WOPEN: c_int = 0x0000_0004;
-const TS_ISOPEN: c_int = 0x0000_0008;
-const TS_CARR_ON: c_int = 0x0000_0020;
-const TS_BUSY: c_int = 0x0000_0040;
-const TS_TTSTOP: c_int = 0x0000_0100;
+use core::ffi::{c_int, c_uint, c_void};
 
 /// `B115200` of <device/tty_status.h>.
 const B115200: u8 = 17;
@@ -50,90 +45,6 @@ const MAP_LIMIT: usize = 128 * 1024;
 /// `kdmmap()`'s failure value, as `(vm_offset_t)-1`.
 const MAP_FAILED: usize = usize::MAX;
 
-/// `struct tty` of <device/tty.h>, field for field.
-#[repr(C)]
-#[allow(dead_code)]
-pub struct Tty {
-    t_lock: SimpleLock,
-    t_inq: Cirbuf,
-    t_outq: Cirbuf,
-    t_addr: Option<NonNull<c_char>>,
-    t_dev: c_int,
-    t_start: Option<unsafe extern "C" fn(*mut Tty)>,
-    t_stop: Option<unsafe extern "C" fn(*mut Tty, c_int)>,
-    t_mctl: Option<unsafe extern "C" fn(*mut Tty, c_int, c_int) -> c_int>,
-    t_ispeed: u8,
-    t_ospeed: u8,
-    t_breakc: c_char,
-    t_flags: c_int,
-    t_state: c_int,
-    t_line: c_int,
-    t_delayed_read: QueueEntry,
-    t_delayed_write: QueueEntry,
-    t_delayed_open: QueueEntry,
-    t_timeout: Option<NonNull<c_void>>,
-    t_getstat: Option<
-        unsafe extern "C" fn(u16, c_uint, *mut c_int, *mut u32) -> c_int,
-    >,
-    t_setstat:
-        Option<unsafe extern "C" fn(u16, c_uint, *mut c_int, u32) -> c_int>,
-    t_tops: Option<NonNull<c_void>>,
-}
-
-const _: () = assert!(offset_of!(Tty, t_lock) == 0);
-const _: () = assert!(size_of::<SimpleLock>() == size_of::<u32>());
-
-#[cfg(target_pointer_width = "32")]
-const _: () = {
-    assert!(offset_of!(Tty, t_inq) == 4);
-    assert!(offset_of!(Tty, t_outq) == 24);
-    assert!(offset_of!(Tty, t_addr) == 44);
-    assert!(offset_of!(Tty, t_state) == 72);
-    assert!(offset_of!(Tty, t_line) == 76);
-    assert!(offset_of!(Tty, t_delayed_read) == 80);
-    assert!(offset_of!(Tty, t_timeout) == 104);
-    assert!(size_of::<Tty>() == 120);
-};
-#[cfg(target_pointer_width = "64")]
-const _: () = {
-    assert!(offset_of!(Tty, t_inq) == 8);
-    assert!(offset_of!(Tty, t_outq) == 48);
-    assert!(offset_of!(Tty, t_addr) == 88);
-    assert!(offset_of!(Tty, t_state) == 136);
-    assert!(offset_of!(Tty, t_line) == 140);
-    assert!(offset_of!(Tty, t_delayed_read) == 144);
-    assert!(offset_of!(Tty, t_timeout) == 192);
-    assert!(size_of::<Tty>() == 224);
-};
-
-impl Tty {
-    pub(crate) const fn new() -> Self {
-        Self {
-            t_lock: SimpleLock::new(),
-            t_inq: Cirbuf::new(),
-            t_outq: Cirbuf::new(),
-            t_addr: None,
-            t_dev: 0,
-            t_start: None,
-            t_stop: None,
-            t_mctl: None,
-            t_ispeed: 0,
-            t_ospeed: 0,
-            t_breakc: 0,
-            t_flags: 0,
-            t_state: 0,
-            t_line: 0,
-            t_delayed_read: QueueEntry::unlinked(),
-            t_delayed_write: QueueEntry::unlinked(),
-            t_delayed_open: QueueEntry::unlinked(),
-            t_timeout: None,
-            t_getstat: None,
-            t_setstat: None,
-            t_tops: None,
-        }
-    }
-}
-
 /// `kd_tty` of <i386at/kd.c>.
 fn tty() -> &'static mut Tty {
     &mut super::kd().tty
@@ -141,12 +52,9 @@ fn tty() -> &'static mut Tty {
 
 /// The line discipline `tp.t_line` names, or [`None`] when the tty names one
 /// this kernel does not have.
-fn ldisc(tp: &Tty) -> Option<&'static glue::LdiscSwitch> {
+fn ldisc(tp: &Tty) -> Option<&'static LdiscSwitch> {
     let line = usize::try_from(tp.t_line).ok()?;
-    // SAFETY: `linesw` is a C static that device/chario.c's initializer builds
-    // before any device is open and nothing writes afterwards, so a shared
-    // reference outlives the kernel.
-    unsafe { glue::linesw.get(line) }
+    LINESW.get(line)
 }
 
 /// Feed one character to the line discipline.
@@ -155,19 +63,15 @@ pub(crate) fn line_rint(c: u8) {
     let Some(rint) = ldisc(tp).and_then(|d| d.l_rint) else {
         return;
     };
-    // SAFETY: the discipline is device/chario.c's `ttyinput()`, and the tty is
-    // up once the console is open.
-    unsafe { rint(c_uint::from(c), ptr(tp)) };
+    // SAFETY: the discipline is `chario::input()`, and the tty is up once the
+    // console is open.
+    unsafe { rint(c_uint::from(c), tp) };
 }
 
-/// Allocate the input buffer: the `ttychars()` shim.
+/// Allocate the character buffers through `ttychars()`.
 pub(crate) fn ttychars_init() {
     // SAFETY: called from kdinit() at SPLKD.
-    unsafe { glue::ttychars(ptr(tty())) };
-}
-
-fn ptr(tp: &mut Tty) -> *mut c_void {
-    (tp as *mut Tty).cast()
+    unsafe { ttychars(tty()) };
 }
 
 /// `kdopen()` in C.
@@ -189,7 +93,7 @@ pub unsafe extern "C" fn kdopen(
         tp.t_lock.unlock();
         // SAFETY: ttychars allocates the character buffers, and must not run
         // under the tty lock.
-        unsafe { glue::ttychars(ptr(tp)) };
+        unsafe { ttychars(tp) };
         tp.t_lock.lock();
         tp.t_start = Some(kdstart);
         tp.t_stop = Some(kdstop);
@@ -202,8 +106,9 @@ pub unsafe extern "C" fn kdopen(
     tp.t_lock.unlock();
     // SAFETY: `o_pri` is the level `splhigh()` returned above.
     unsafe { glue::splx(o_pri) };
-    // SAFETY: the request and tty are the caller's.
-    unsafe { glue::char_open(dev as c_int, ptr(tp), flag, ior.cast()) }
+    // SAFETY: the request and tty are the caller's.  The C passed the
+    // `int flag` to the `dev_mode_t mode` parameter unchanged.
+    unsafe { char_open(dev as c_int, tp, flag as c_uint, ior) }
 }
 
 /// `kdclose()` in C.
@@ -219,7 +124,7 @@ pub unsafe extern "C" fn kdclose(_dev: DevT, _flag: c_int) {
     let s = unsafe { glue::splhigh() };
     tp.t_lock.lock();
     // SAFETY: the tty is the driver's own.
-    unsafe { glue::ttyclose(ptr(tp)) };
+    unsafe { ttyclose(tp) };
     tp.t_lock.unlock();
     // SAFETY: `s` is the level `splhigh()` returned above.
     unsafe { glue::splx(s) };
@@ -237,9 +142,9 @@ pub unsafe extern "C" fn kdread(_dev: DevT, uio: *mut IoReq) -> c_int {
     let Some(read) = ldisc(tp).and_then(|d| d.l_read) else {
         return Err(DeviceError::InvalidOperation).as_io_return();
     };
-    // SAFETY: the discipline is device/chario.c's `char_read()`, and the tty
-    // and the request are the device layer's.
-    unsafe { read(ptr(tp), uio.cast()) }
+    // SAFETY: the discipline is `chario::read()`, and the tty and the request
+    // are the device layer's.
+    unsafe { read(tp, uio) }
 }
 
 /// `kdwrite()` in C.
@@ -253,9 +158,9 @@ pub unsafe extern "C" fn kdwrite(_dev: DevT, uio: *mut IoReq) -> c_int {
     let Some(write) = ldisc(tp).and_then(|d| d.l_write) else {
         return Err(DeviceError::InvalidOperation).as_io_return();
     };
-    // SAFETY: the discipline is device/chario.c's `char_write()`, and the tty
-    // and the request are the device layer's.
-    unsafe { write(ptr(tp), uio.cast()) }
+    // SAFETY: the discipline is `chario::write()`, and the tty and the request
+    // are the device layer's.
+    unsafe { write(tp, uio) }
 }
 
 /// `kdmmap()` in C.
@@ -285,7 +190,7 @@ pub unsafe extern "C" fn kdmmap(
 pub unsafe extern "C" fn kdportdeath(dev: DevT, port: u32) -> c_int {
     let _ = dev;
     // SAFETY: the tty layer owns the request queues.
-    unsafe { glue::tty_portdeath(ptr(tty()), port as usize as *mut c_void) }
+    unsafe { tty_portdeath(tty(), port as usize as *mut c_void) }
 }
 
 /// `kdgetstat()` in C.
@@ -317,7 +222,7 @@ pub unsafe extern "C" fn kdgetstat(
         Ok(DeviceSuccess::Success).as_io_return()
     } else {
         // SAFETY: the tty layer handles its own flavors.
-        unsafe { glue::tty_get_status(ptr(tty()), flavor, data, count) }
+        unsafe { tty_get_status(tty(), flavor, data, count) }
     }
 }
 
@@ -350,7 +255,7 @@ pub unsafe extern "C" fn kdsetstat(
         super::console::set_bell(val, 0).as_io_return()
     } else {
         // SAFETY: the tty layer handles its own flavors.
-        unsafe { glue::tty_set_status(ptr(tty()), flavor, data, count) }
+        unsafe { tty_set_status(tty(), flavor, data, count) }
     }
 }
 
@@ -374,9 +279,7 @@ unsafe extern "C" fn kdstart(tp: *mut Tty) {
         super::esc::putc_esc(ch);
         unsafe { glue::splx(o_pri) };
     }
-    // SAFETY: `ttlowat[]` is a C static of `NSPEEDS` shorts, written only by
-    // device/chario.c's initializer.
-    let lowat = match unsafe { glue::ttlowat.get(usize::from(tp.t_ospeed)) } {
+    let lowat = match TTLOWAT.get(usize::from(tp.t_ospeed)) {
         Some(&w) => w,
         None => 0,
     };

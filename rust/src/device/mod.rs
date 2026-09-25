@@ -5,6 +5,7 @@
 //! layer.
 
 pub mod chario;
+pub mod chario_ffi;
 pub mod cirbuf;
 pub mod dev_name;
 pub mod dev_pager;

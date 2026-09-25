@@ -149,6 +149,7 @@ link error, not a fallback.
 | `kern/ipc_host.c` | `src/kern/ipc_host.rs`, `src/kern/ipc_host_ffi.rs` |
 | `kern/host.c` | `src/kern/host.rs`, `src/kern/host_ffi.rs` |
 | `kern/exception.c` | `src/kern/exception.rs`, `src/kern/exception_ffi.rs` |
+| `device/chario.c` | `src/device/chario.rs`, `src/device/chario_ffi.rs` |
 
 Also deleted as dead: `device/blkio.c` and the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`).

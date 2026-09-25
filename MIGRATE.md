@@ -117,11 +117,10 @@ file, or `—` when the rest is ready too.
 | `vm_resident.c` | 948 | 0 | the `vm_page_bucket_t` table, the fictitious-page statics and `vm_page_order` |
 | `vm_user.c` | 602 | 0 | `vm_page` fields for the rest |
 
-### `device/` (10 files, 5,203 LOC)
+### `device/` (9 files, 4,205 LOC)
 
 | File | LOC | Free | Holds the rest |
 |---|---:|---:|---|
-| `chario.c` | 998 | 0 | `struct tty` fields |
 | `cons.c` | 176 | 0 | `cn_tab` static table |
 | `device_init.c` | 49 | 0 | — |
 | `dev_lookup.c` | 365 | 0 | `mach_device` fields |
@@ -393,7 +392,8 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `i386/i386at/acpi_parse_apic.c` whole, with the packed ACPI table mirrors, the `lapic_addr` and `hpet_addr` globals and the static MADT it owned | `src/arch/i386/acpi_parse_apic.rs` | pending |
 | `i386/i386at/ioapic.c` (`intnull`) | `src/arch/i386/ioapic.rs` | pending |
 | `device/ds_routines.c` whole, with the `struct io_req`, `struct device`, `struct mach_device`, `struct dev_ops` and `struct device_emulation_ops` mirrors it owned, and its `device_io_map`, `io_inband_cache`, `io_trap_cache`, `io_done_list` and `mach_device_emulation_ops` globals | `src/device/ds_routines.rs`, `ds_routines_ffi.rs`, `src/arch/i386/io_req.rs` | pending |
-| `device/chario.c` (`tty_queue_completion`), `device/device_init.c` (`device_service_create`), `device/intr.c` (`irqgetstat`), `device/kmsg.c` (`kmsggetstat`) | `src/device/chario.rs`, `device_init.rs`, `intr.rs`, `kmsg.rs` | pending |
+| `device/device_init.c` (`device_service_create`), `device/intr.c` (`irqgetstat`), `device/kmsg.c` (`kmsggetstat`) | `src/device/device_init.rs`, `intr.rs`, `kmsg.rs` | pending |
+| `device/chario.c` whole, with the `struct tty`, `struct ldisc_switch` and `struct tty_status` mirrors and the `tthiwat`, `ttlowat`, `linesw`, `tty_inq_size`, `tty_outq_size`, `pdma_default`, `pdma_timeouts` and `pdma_water_mark` globals it owned | `src/device/chario.rs`, `chario_ffi.rs` | pending |
 | `kern/ipc_mig.c` whole, with the `mach_msg`/`syscall_*` RPC stubs and the `port_name_to_*` send-right lookups | `src/kern/ipc_mig.rs`, `src/kern/ipc_mig_ffi.rs` | pending |
 | `kern/ipc_sched.c` (`thread_go`, `thread_will_wait`, `thread_will_wait_with_timeout`) | `src/kern/ipc_sched.rs` | pending |
 | `kern/ipc_tt.c` whole, with the `struct ipc_port`/`ipc_target`/`ipc_mqueue` field mirror its `ip_srights` bump reads | `src/kern/ipc_tt.rs`, `src/kern/ipc_tt_ffi.rs`, `src/ipc/mod.rs` | pending |
@@ -415,7 +415,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `vm/vm_user.c` (`vm_allocate`, `vm_deallocate`, `vm_inherit`, `vm_protect`, `vm_machine_attribute`, `vm_read`, `vm_write`, `vm_copy`, `vm_object_sync`, `vm_msync`, `vm_get_size_limit`) | `src/vm/vm_user.rs`, `src/vm/vm_user_ffi.rs` | pending |
 | `vm/vm_fault.c` (`vm_fault_wire`), `vm/vm_page.c` (`vm_page_seg_name`), `vm/vm_resident.c` (`pmap_steal_memory`, `vm_page_rename`, `vm_page_alloc_flags`, `vm_page_alloc`) | `src/vm/vm_fault.rs`, `vm_fault_ffi.rs`, `vm_page.rs`, `vm_page_ffi.rs`, `vm_resident.rs`, `vm_resident_ffi.rs` | pending |
 | `kern/processor_glue.c` (4 shims), `kern/sched_prim.c` (`thread_glue_pset_sched_load`) | `src/config.rs` (`NCPUS`, `NCOM`, `NINTR`), `src/kern/processor.rs`, `src/kern/thread.rs` | pending |
-| `kern/ast.c` (`ast_init`), `kern/timer.c` (`init_timers`), `kern/host.c` (`host_processors`), `kern/processor.c` (`pset_sys_init`), `device/chario.c` (`chario_init`) | `src/kern/ast.rs`, `src/kern/timer.rs`, `src/kern/host.rs`, `src/kern/processor.rs`, `src/device/chario.rs` | pending |
+| `kern/ast.c` (`ast_init`), `kern/timer.c` (`init_timers`), `kern/host.c` (`host_processors`), `kern/processor.c` (`pset_sys_init`) | `src/kern/ast.rs`, `src/kern/timer.rs`, `src/kern/host.rs`, `src/kern/processor.rs` | pending |
 | `vm/vm_page.c` (`vm_page_set_type`, `vm_page_wire`), `vm/vm_resident.c` (`vm_page_init`, `vm_page_module_init`, `vm_page_grab`, `vm_page_grab_phys_addr`, `vm_page_release`, `vm_page_zero_fill`, `vm_page_copy`) with the `struct vm_page` mirror | `src/vm/vm_page.rs`, `vm_page_ffi.rs`, `vm_resident.rs`, `vm_resident_ffi.rs` | pending |
 | `vm/vm_page.c` whole, with the `struct vm_page_seg`, `struct vm_page_boot_seg` and file-private statics it owned, and the `struct vm_object` field mirror its evictor reads | `src/vm/vm_page.rs`, `src/vm/vm_page_ffi.rs`, `src/vm/types.rs` | pending |
 | `kern/slab.c` with the `struct kmem_cache` mirror | `src/kern/slab.rs`, `src/kern/slab_ffi.rs` | pending |

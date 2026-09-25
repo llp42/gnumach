@@ -63,6 +63,17 @@ impl Cirbuf {
         self.c_cc
     }
 
+    /// The buffer's high-water mark, the C `c_hog`.
+    pub fn hog(&self) -> c_short {
+        self.c_hog
+    }
+
+    /// Lower the high-water mark by `amount`, the flow-control adjustment
+    /// `ttychars()` makes for a line that may use modem signals.
+    pub fn lower_hog(&mut self, amount: c_short) {
+        self.c_hog = self.c_hog.wrapping_sub(amount);
+    }
+
     /// The allocation's length, or zero when the buffer is unallocated.
     fn extent(&self) -> usize {
         self.c_end.addr().wrapping_sub(self.c_start.addr())
