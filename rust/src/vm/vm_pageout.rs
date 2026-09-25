@@ -13,8 +13,8 @@ use crate::arch::types::VmOffset;
 use crate::arch::vm_param::PAGE_SIZE;
 use crate::glue::{
     memory_manager_default_port, memory_object_data_initialize,
-    memory_object_data_return, net_kmsg_collect, pmap_clear_modify,
-    vm_page_queue_free_lock, vm_page_queue_lock, vm_stat,
+    memory_object_data_return, pmap_clear_modify, vm_page_queue_free_lock,
+    vm_page_queue_lock, vm_stat,
 };
 use crate::kern::mach_clock::hz;
 use crate::kern::sched_prim::{
@@ -381,7 +381,7 @@ unsafe fn scan(should_wait: *mut c_int) -> bool {
     // SAFETY: the collectors require no page lock.
     unsafe {
         Thread::stack_collect();
-        net_kmsg_collect();
+        crate::device::net_io::kmsg_collect();
         task::consider_collect();
         slab_collect();
     }

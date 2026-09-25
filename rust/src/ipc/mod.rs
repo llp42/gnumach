@@ -698,6 +698,32 @@ impl MachMsgType {
     pub(crate) const fn word(self) -> u32 {
         self.word
     }
+
+    /// `msgt_number`: how many elements the descriptor counts.
+    pub(crate) const fn number(self) -> u32 {
+        #[cfg(target_pointer_width = "64")]
+        {
+            self.number
+        }
+        #[cfg(target_pointer_width = "32")]
+        {
+            (self.word >> 16) & 0xfff
+        }
+    }
+
+    /// The C's `msgt_number = number` assignment; the 32-bit layout keeps the
+    /// count in the descriptor word.
+    pub(crate) fn set_number(&mut self, number: u32) {
+        #[cfg(target_pointer_width = "64")]
+        {
+            self.number = number;
+        }
+        #[cfg(target_pointer_width = "32")]
+        {
+            self.word =
+                (self.word & !(0xfff << 16)) | ((number & 0xfff) << 16);
+        }
+    }
 }
 
 /// `mig_reply_header_t` of <mach/mig_errors.h>: the MIG reply preamble a

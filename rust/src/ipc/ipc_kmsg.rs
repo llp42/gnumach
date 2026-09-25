@@ -48,6 +48,11 @@ const IKM_SAVED_MSG_SIZE: usize = PAGE_SIZE - IKM_OVERHEAD;
 /// port names widen into kernel ports.
 const IKM_EXPAND_FACTOR: c_uint = size_of::<usize>().div_ceil(4) as c_uint;
 
+/// `ikm_plus_overhead()` of <ipc/ipc_kmsg.h>.
+pub(crate) const fn ikm_plus_overhead(size: usize) -> usize {
+    size.wrapping_add(IKM_OVERHEAD)
+}
+
 const _: () = assert!(size_of::<usize>() >= size_of::<c_uint>());
 
 /// `sizeof(mach_msg_user_header_t)`: the user and kernel headers have the
@@ -857,6 +862,20 @@ impl Kmsg {
         // SAFETY: the caller promises the live message.
         unsafe { (*self.header()).set_remote(port) };
     }
+
+    /// The `ikm_init_special(kmsg, IKM_SIZE_NETWORK)` of `device/net_io.c`:
+    /// mark the message as one the network pool owns.
+    ///
+    /// # Safety
+    ///
+    /// The message must be live and this call must own it.
+    pub(crate) unsafe fn init_network(self) {
+        // SAFETY: the caller promises the live message.
+        unsafe {
+            self.set_size(IKM_SIZE_NETWORK);
+            self.set_marequest(ptr::null_mut());
+        }
+    }
 }
 
 /// `ipc_kmsg_cache` of ipc/ipc_kmsg.c: one cached message per CPU.
@@ -1326,7 +1345,7 @@ pub(crate) unsafe fn free(kmsg: Kmsg) {
     let size = unsafe { kmsg.size() };
     if size == IKM_SIZE_NETWORK {
         // SAFETY: the network code owns this message's storage.
-        unsafe { glue::net_kmsg_put(kmsg.as_ptr()) };
+        unsafe { crate::device::net_io::kmsg_put(kmsg.as_ptr()) };
     } else {
         // SAFETY: the caller owns the live allocation.
         unsafe {

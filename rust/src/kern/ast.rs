@@ -24,6 +24,8 @@ pub const AST_HALT: c_int = 0x1;
 pub const AST_TERMINATE: c_int = 0x2;
 /// `AST_BLOCK` in <kern/ast.h>: the scheduling AST reason.
 pub const AST_BLOCK: usize = 0x4;
+/// `AST_NETWORK` in <kern/ast.h>: the network thread has packets to deliver.
+pub const AST_NETWORK: usize = 0x8;
 /// `AST_SCHEDULING` in <kern/ast.h>: the reasons the scheduler holds back
 /// while the idle loop waits.
 pub const AST_SCHEDULING: usize =

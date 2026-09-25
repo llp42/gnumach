@@ -184,7 +184,6 @@ libkernel_a_SOURCES += \
 	device/intr.c \
 	device/intr.h \
 	device/io_req.h \
-	device/net_io.c \
 	device/net_io.h \
 	device/param.h \
 	device/subrs.c \
