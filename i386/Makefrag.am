@@ -82,15 +82,11 @@ libkernel_a_SOURCES += \
 	i386/i386/apic.h \
 	i386/i386/hardclock.c \
 	i386/i386/hardclock.h \
-	i386/i386/irq.c \
 	i386/i386/irq.h \
 	i386/i386/msr.h \
 	i386/i386/pit.h
 
-if enable_apic
-libkernel_a_SOURCES += \
-	i386/i386at/ioapic.c
-else
+if !enable_apic
 libkernel_a_SOURCES += \
 	i386/i386/pic.c \
 	i386/i386/pic.h \

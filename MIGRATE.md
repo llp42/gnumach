@@ -138,7 +138,7 @@ file, or `—` when the rest is ready too.
 | `net_io.c` | 2168 | 0 | `ifnet`/`net_hash_entry` fields |
 | `subrs.c` | 53 | 0 | `ifnet` fields |
 
-### `i386/` (28 files, 7,424 LOC)
+### `i386/` (26 files, 6,801 LOC)
 
 | File | LOC | Free | Holds the rest |
 |---|---:|---:|---|
@@ -149,7 +149,6 @@ file, or `—` when the rest is ready too.
 | `i386/hardclock.c` | 69 | 0 | `machine_slot` and interrupt plumbing |
 | `i386/idt.c` | 80 | 0 | static `idt_fill` |
 | `i386/io_perm.c` | 325 | 0 | `struct io_perm`; static bitmap helpers |
-| `i386/irq.c` | 136 | 0 | `ivect`/`iunit` are NINTR-sized |
 | `i386/ktss.c` | 86 | 0 | static `ktss_fill` |
 | `i386/ldt.c` | 100 | 0 | static `ldt_fill` |
 | `i386/machine_task.c` | 70 | 0 | `task.machine` fields |
@@ -166,7 +165,6 @@ file, or `—` when the rest is ready too.
 | `i386at/conf.c` | 144 | 0 | static tables |
 | `i386at/cons_conf.c` | 48 | 0 | static tables |
 | `i386at/int_init.c` | 78 | 0 | static `int_fill` |
-| `i386at/ioapic.c` | 487 | 0 | `curr_ipl` is NCPUS-sized; `ioapic_*` statics |
 | `i386at/model_dep.c` | 468 | 0 | init/boot state |
 | `i386at/pic_isa.c` | 56 | 0 | not compiled in the APIC configuration |
 | `intel/read_fault.c` | 178 | 0 | dead: body is `#if`-ed out on every supported CPU |
@@ -228,9 +226,10 @@ the four `processor_glue.c` shims plus `thread_glue_pset_sched_load` are
 deleted (§9, §10).  Five of the 20 moved in a follow-up pass:
 `init_timers`, `ast_init`, `host_processors`, `pset_sys_init` and
 `chario_init` (§9).  Of the 15 this unlock freed, `pmap_virtual_space`
-went with the `pmap.c` port and the other 14 are still C:
-`interrupt_stack_alloc`, `picdisable`, the four `i386/i386/irq.c`
-accessors and the eight `i386/i386at/com.c` entries.
+went with the `pmap.c` port, `picdisable` and the four `i386/i386/irq.c`
+accessors went with the whole-file `irq.c`/`ioapic.c` ports (§9), and the
+rest are still C: `interrupt_stack_alloc` and the eight
+`i386/i386at/com.c` entries.
 
 **Mirror gaps.**
 `host_ipc_marequest_info` and `host_virtual_physical_table_info` needed a
@@ -396,7 +395,8 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `i386/i386/pcb.c` (`stack_detach`, `load_context`, `pcb_collect`), `i386/i386/phys.c` (`kvtophys`) | `src/arch/i386/pcb.rs`, `phys.rs` | pending |
 | `i386/i386/apic.c` whole, with the `ApicLocalUnit`, `ApicIoUnit`, `ApicReg`, `IoApicData`, `IrqOverrideData` and `ApicInfo` mirrors and the `lapic`, `cpu_id_lut`, `apic_data`, `apic_id_mask` and `hpet_period_nsec` globals it owned | `src/arch/i386/apic.rs` | pending |
 | `i386/i386at/acpi_parse_apic.c` whole, with the packed ACPI table mirrors, the `lapic_addr` and `hpet_addr` globals and the static MADT it owned | `src/arch/i386/acpi_parse_apic.rs` | pending |
-| `i386/i386at/ioapic.c` (`intnull`) | `src/arch/i386/ioapic.rs` | pending |
+| `i386/i386at/ioapic.c` whole, with the `irqinfo`, `ivect`, `iunit`, `curr_ipl`, `spl_init`, `pic_mode`, `timer_pin`, `calibrated_ticks`, `lapic_timer_val` and `ioapic_lock` statics it owned | `src/arch/i386/ioapic.rs` | pending |
+| `i386/i386/irq.c` whole, with the `struct irqdev`/`user_intr_t` mirrors its `irqtab` is read through and the `nested_irqs` static, and the six accessor shims §10 listed | `src/arch/i386/irq.rs` | pending |
 | `device/ds_routines.c` whole, with the `struct io_req`, `struct device`, `struct mach_device`, `struct dev_ops` and `struct device_emulation_ops` mirrors it owned, and its `device_io_map`, `io_inband_cache`, `io_trap_cache`, `io_done_list` and `mach_device_emulation_ops` globals | `src/device/ds_routines.rs`, `ds_routines_ffi.rs`, `src/arch/i386/io_req.rs` | pending |
 | `device/chario.c` (`tty_queue_completion`), `device/device_init.c` (`device_service_create`), `device/intr.c` (`irqgetstat`), `device/kmsg.c` (`kmsggetstat`) | `src/device/chario.rs`, `device_init.rs`, `intr.rs`, `kmsg.rs` | pending |
 | `kern/host.c` (`host_processor_set_priv`, `processor_set_processors`) | `src/kern/host.rs` | pending |
@@ -454,14 +454,14 @@ and nothing may be added.  Each row says what deletes it.
 |---|---|---|
 | `vm/vm_map_glue.c` — page field shims | `vm_page` bit probes and the `PMAP_ENTER`/`PAGE_WAKEUP_DONE` macros | the page-list copyin macros moving to Rust |
 | `vm/vm_external_glue.c` | three `kmem_cache` storage symbols | Follow-up to the `kern/slab.c` port: `struct kmem_cache` is `src/kern/slab.rs`'s `KmemCache` now, so the definitions move to Rust statics in a pass of their own |
-| `i386/i386/irq.c` — `irq_mask`, `irq_unmask`, `irq_{set,get}_{handler,unit}` | `mask_irq`/`unmask_irq` static inlines and the NINTR-sized `ivect`/`iunit` | Phase B: `NINTR`, plus a Rust `mask_irq` |
 | `i386/i386at/com.c` — `com_base_addr`, `com_irq` | `cominfo` is NCOM-sized | Phase B (`NCOM`) or porting `com.c` |
 
 `i386/i386at/kd_glue.c`, `kern/processor_glue.c`, the
 `thread_glue_pset_sched_load` shim in `kern/sched_prim.c`,
 `vm/vm_map_glue.c`'s `vm_map_glue_object_*` shims with the
-`vm_submap_object` placeholder, and its `vm_map_glue_task_map`/
-`vm_map_glue_task_space` pair are deleted; nothing joined the list since.
+`vm_submap_object` placeholder, its `vm_map_glue_task_map`/
+`vm_map_glue_task_space` pair, and `i386/i386/irq.c`'s six accessors are
+deleted; nothing joined the list since.
 The `i386/intel/pmap.c` port declared the C routines it still calls
 (`splvm`, `kmem_alloc_wired`, `cpu_features`, `_start`, `etext`) in
 `rust/src/glue/`, which writes no C and is not debt.  The
