@@ -14,6 +14,7 @@ use crate::arch::i386::pcb::{
 use crate::arch::types::{VmOffset, VmSize};
 use crate::config::NCPUS;
 use crate::device::ds_routines::DevOps;
+use crate::kern::bootstrap::MultibootRawInfo;
 use crate::kern::lock::SimpleLock;
 use crate::kern::machine::{MachineInfo, MachineSlot};
 use crate::kern::processor::{Processor, ProcessorSet};
@@ -323,6 +324,10 @@ unsafe extern "C" {
 
     /// `kernel_cmdline` of `i386/i386at/model_dep.c`: the boot command line.
     pub static mut kernel_cmdline: *mut c_char;
+
+    /// `boot_info` of `i386/i386at/model_dep.c`: the multiboot information
+    /// the boot loader left.
+    pub static mut boot_info: MultibootRawInfo;
 
     /// `setsoftclock()` of <i386/spl.h>: raise the softclock interrupt.
     pub fn setsoftclock();

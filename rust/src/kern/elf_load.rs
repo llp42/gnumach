@@ -21,6 +21,16 @@ impl ExecSectype {
     pub const EXECUTE: Self = Self(VmProt::EXECUTE.bits());
     pub const ALLOC: Self = Self(0x0100);
     pub const LOAD: Self = Self(0x0200);
+
+    /// Whether every bit of `other` is set in `self`.
+    pub const fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    /// The `EXEC_SECTYPE_PROT_MASK` bits as a [`VmProt`].
+    pub const fn protection(self) -> VmProt {
+        VmProt::from_bits(self.0 & VmProt::ALL.bits())
+    }
 }
 
 impl core::ops::BitOr for ExecSectype {
@@ -66,6 +76,13 @@ pub struct ExecInfo {
     init_dp: VmOffset,
     interp: VmOffset,
     stack_prot: VmProt,
+}
+
+impl ExecInfo {
+    /// `exec_info_t.stack_prot`: the protection the image wants on its stack.
+    pub(crate) fn stack_prot(&self) -> VmProt {
+        self.stack_prot
+    }
 }
 
 /// The ELF scalar types of <mach/exec/elf.h>, which its `Ehdr` and `Phdr`
