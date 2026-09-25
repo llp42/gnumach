@@ -23,7 +23,7 @@ use crate::kern::queue::QueueEntry;
 use crate::kern::slab::KmemCache;
 use crate::kern::task::Task;
 use crate::kern::thread::{Continuation, Thread};
-use crate::vm::types::{Pmap, VmObject, VmPage, VmProt, VmStatistics};
+use crate::vm::types::{Pmap, VmObject, VmPage, VmProt};
 use crate::vm::vm_map::{VmMap, VmMapEntry};
 use core::ffi::{c_char, c_int, c_long, c_uint, c_ulong, c_ushort, c_void};
 
@@ -364,19 +364,6 @@ unsafe extern "C" {
         type_: c_uint,
     );
 
-    pub fn vm_map(
-        target_map: *mut VmMap,
-        address: *mut VmOffset,
-        size: VmSize,
-        mask: VmOffset,
-        anywhere: c_int,
-        memory_object: *mut c_void,
-        offset: VmOffset,
-        copy: c_int,
-        cur_protection: c_int,
-        max_protection: c_int,
-        inheritance: c_int,
-    ) -> c_int;
     pub fn pmap_destroy(pmap: *mut Pmap);
     pub fn pmap_collect(pmap: *mut Pmap);
     pub fn pmap_reference(pmap: *mut Pmap);
@@ -512,7 +499,6 @@ unsafe extern "C" {
     ) -> c_int;
 
     pub static mut vm_page_fictitious_addr: VmOffset;
-    pub static mut vm_stat: VmStatistics;
     pub fn vm_page_grab_fictitious() -> *mut VmPage;
     pub fn vm_page_insert(
         page: *mut VmPage,
@@ -545,20 +531,6 @@ unsafe extern "C" {
 
     /// `net_kmsg_collect()` of <device/net_io.h>.
     pub fn net_kmsg_collect();
-
-    pub fn memory_object_create_proxy(
-        task: *mut c_void,
-        max_protection: c_int,
-        object: *mut *mut c_void,
-        object_count: c_uint,
-        offset: *mut VmOffset,
-        offset_count: c_uint,
-        start: *mut VmOffset,
-        start_count: c_uint,
-        len: *mut VmSize,
-        len_count: c_uint,
-        proxy: *mut *mut c_void,
-    ) -> c_int;
 
     pub fn vm_page_lookup(
         object: *mut VmObject,
@@ -708,5 +680,4 @@ unsafe extern "C" {
     pub fn vm_fault_init();
 
     pub fn memory_manager_default_init();
-    pub fn memory_object_proxy_init();
 }

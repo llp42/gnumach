@@ -17,7 +17,7 @@ use crate::glue::{
     pmap_is_referenced, pmap_page_protect, printf, vm_object_collapse,
     vm_object_collect, vm_object_pager_create, vm_page_fictitious_addr,
     vm_page_free, vm_page_insert, vm_page_queue_free_lock, vm_page_queue_lock,
-    vm_page_remove, vm_stat,
+    vm_page_remove,
 };
 use crate::kern::list::{List, entry};
 use crate::kern::lock::SimpleLock;
@@ -29,6 +29,7 @@ use crate::utils::cell::SyncCell;
 use crate::vm::types::{VmObject, VmProt};
 use crate::vm::vm_pageout_ffi::{vm_pageout_page, vm_pageout_start};
 use crate::vm::vm_resident;
+use crate::vm::vm_user::vm_stat;
 use core::cell::UnsafeCell;
 use core::cmp::min;
 use core::ffi::{CStr, c_char, c_int, c_uint, c_ulong, c_void};
@@ -458,16 +459,16 @@ pub(crate) const VM_PAGE_MAX_SEGS: usize = 3;
 /// `VM_PAGE_SEL_*` of <vm/vm_page.h>: the selectors `vm_page_grab()` and
 /// `vm_page_alloc_pa()` take.  The DMA32 and DIRECTMAP indices swap with
 /// the segment ordering, and the non-PAE i686 build has no DMA32 entry.
-const SEL_DMA: c_uint = 0;
+pub(crate) const SEL_DMA: c_uint = 0;
 #[cfg(target_arch = "x86_64")]
-const SEL_DIRECTMAP: c_uint = 1;
+pub(crate) const SEL_DIRECTMAP: c_uint = 1;
 #[cfg(target_arch = "x86_64")]
-const SEL_DMA32: c_uint = 2;
+pub(crate) const SEL_DMA32: c_uint = 2;
 #[cfg(target_arch = "x86")]
-const SEL_DMA32: c_uint = 1;
+pub(crate) const SEL_DMA32: c_uint = 1;
 #[cfg(target_arch = "x86")]
-const SEL_DIRECTMAP: c_uint = 2;
-const SEL_HIGHMEM: c_uint = 3;
+pub(crate) const SEL_DIRECTMAP: c_uint = 2;
+pub(crate) const SEL_HIGHMEM: c_uint = 3;
 
 /// `VM_PT_FREE`, `VM_PT_RESERVED` and `VM_PT_TABLE` of <vm/vm_page.h>;
 /// `VM_PT_KERNEL` lives in `vm_resident.rs`.
@@ -508,17 +509,17 @@ const _: () = assert!(VM_PAGE_SEG_THRESHOLD_HIGH > VM_PAGE_SEG_THRESHOLD_LOW);
 const _: () = assert!(VM_PAGE_SEG_MIN_PAGES > VM_PAGE_SEG_THRESHOLD_HIGH);
 
 /// `vm_page_atop()` of <vm/vm_page.h>: a byte address to a page number.
-const fn atop(addr: VmOffset) -> usize {
+pub(crate) const fn atop(addr: VmOffset) -> usize {
     addr >> PAGE_SHIFT
 }
 
 /// `vm_page_ptoa()` of <vm/vm_page.h>: a page number to a byte address.
-const fn ptoa(page: usize) -> VmOffset {
+pub(crate) const fn ptoa(page: usize) -> VmOffset {
     page << PAGE_SHIFT
 }
 
 /// `vm_page_round()` of <vm/vm_page.h>.
-const fn round_page(addr: VmOffset) -> VmOffset {
+pub(crate) const fn round_page(addr: VmOffset) -> VmOffset {
     addr.wrapping_add(PAGE_SIZE - 1) & !(PAGE_SIZE - 1)
 }
 

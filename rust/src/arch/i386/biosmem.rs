@@ -41,23 +41,23 @@ const BIOSMEM_END: VmOffset = 0x100000;
 const MULTIBOOT_LOADER_MMAP: u32 = 0x40;
 
 /// `VM_PAGE_DMA_LIMIT` of <i386/vm_param.h>.
-const VM_PAGE_DMA_LIMIT: VmOffset = 0x0100_0000;
+pub(crate) const VM_PAGE_DMA_LIMIT: VmOffset = 0x0100_0000;
 
 /// `VM_PAGE_DMA32_LIMIT` of <i386/vm_param.h>; the non-PAE i686 build has no
 /// DMA32 segment.
 #[cfg(target_arch = "x86_64")]
-const VM_PAGE_DMA32_LIMIT: VmOffset = 0x1_0000_0000;
+pub(crate) const VM_PAGE_DMA32_LIMIT: VmOffset = 0x1_0000_0000;
 
 /// `VM_PAGE_DIRECTMAP_LIMIT` of <i386/vm_param.h>: the physical memory the
 /// direct map covers, up to where the kernel map's room begins.
-const VM_PAGE_DIRECTMAP_LIMIT: VmOffset =
+pub(crate) const VM_PAGE_DIRECTMAP_LIMIT: VmOffset =
     VM_MAX_KERNEL_ADDRESS - VM_MIN_KERNEL_ADDRESS - VM_KERNEL_MAP_SIZE + 1;
 
 /// `VM_PAGE_HIGHMEM_LIMIT` of <i386/vm_param.h>.
 #[cfg(target_arch = "x86_64")]
-const VM_PAGE_HIGHMEM_LIMIT: VmOffset = 0x0010_0000_0000_0000;
+pub(crate) const VM_PAGE_HIGHMEM_LIMIT: VmOffset = 0x0010_0000_0000_0000;
 #[cfg(target_arch = "x86")]
-const VM_PAGE_HIGHMEM_LIMIT: VmOffset = 0xffff_f000;
+pub(crate) const VM_PAGE_HIGHMEM_LIMIT: VmOffset = 0xffff_f000;
 
 /// `MAX_PHYS_END` of <i386/vm_param.h>: the largest tested memory size.
 #[cfg(target_arch = "x86_64")]

@@ -31,7 +31,7 @@ use crate::kern::sched_prim::{self, THREAD_AWAKENED};
 use crate::kern::slab::{kalloc, kfree};
 use crate::kern::task::{self, MapSource, Task, current_task};
 use crate::kern::thread::Thread;
-use crate::vm::types::VmProt;
+use crate::vm::types::{VmInherit, VmProt};
 use crate::vm::vm_kern::VM_MIN_KERNEL_ADDRESS;
 use crate::vm::vm_map::{VmMap, round_page, trunc_page};
 use crate::vm::{vm_page, vm_user};
@@ -59,9 +59,6 @@ const STACK_SIZE: VmSize = 2 * 64 * 1024;
 
 /// `IP_NULL` of <ipc/ipc_port.h>.
 const IP_NULL: *mut c_void = null_mut();
-
-/// `VM_INHERIT_DEFAULT` of <mach/vm_inherit.h>.
-const VM_INHERIT_COPY: c_int = 1;
 
 /// The bytes one `mach_port_name_t` can spell, the C's `host_string[12]`.
 const PORT_STRING_SIZE: usize = 12;
@@ -674,21 +671,23 @@ unsafe fn build_args_and_stack(
 
     let stack_size = round_page(STACK_SIZE);
     let mut stack_base = user_stack_low(stack_size);
-    // SAFETY: the current task's map is live, the stack range is free, and
-    // `stack_base` is a writable slot.
-    unsafe {
-        glue::vm_map(
-            (*current_task()).map.cast(),
-            &mut stack_base,
-            stack_size,
-            0,
-            0,
-            IP_NULL,
-            0,
-            0,
-            info.stack_prot().bits(),
-            VmProt::ALL.bits(),
-            VM_INHERIT_COPY,
+    // SAFETY: the current task's map is live and unlocked, the stack range is
+    // free, and `stack_base` is a writable slot.
+    let _ = unsafe {
+        vm_user::map(
+            &mut *(*current_task()).map.cast::<VmMap>(),
+            vm_user::MapRequest {
+                address: &mut stack_base,
+                size: stack_size,
+                mask: 0,
+                anywhere: false,
+                memory_object: IP_NULL,
+                offset: 0,
+                copy: false,
+                cur_protection: info.stack_prot(),
+                max_protection: VmProt::ALL,
+                inheritance: VmInherit::COPY,
+            },
         )
     };
 

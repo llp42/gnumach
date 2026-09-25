@@ -6,14 +6,15 @@
 //! The `extern "C"` edge of the user-exported VM calls, one adapter per
 //! symbol `vm/vm_user.c` used to define and `vm/vm_user.h` declares.
 
-use crate::arch::types::{VmOffset, VmSize};
+use crate::arch::types::{RpcPhysAddr, VmOffset, VmSize};
+use crate::kern::host::Host;
 use crate::vm::error::{
     KERN_INVALID_ARGUMENT, KERN_INVALID_TASK, KERN_SUCCESS, kern_return,
 };
-use crate::vm::types::{VmInherit, VmObject, VmProt};
+use crate::vm::types::{VmInherit, VmObject, VmProt, VmStatistics};
 use crate::vm::vm_map::{VmMap, VmMapCopy};
-use crate::vm::vm_user;
-use core::ffi::{c_int, c_uint};
+use crate::vm::vm_user::{self, VmCacheStatistics};
+use core::ffi::{c_int, c_uint, c_void};
 use core::ptr::{NonNull, with_exposed_provenance_mut};
 
 /// `vm_allocate()` in C.
@@ -279,4 +280,215 @@ pub unsafe extern "C" fn vm_get_size_limit(
         max_limit.write(max);
     }
     KERN_SUCCESS
+}
+
+/// `vm_statistics()` of vm/vm_user.c.
+///
+/// # Safety
+///
+/// `map` must be null or a live map, and `stat` must be writable storage for
+/// one statistics record.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_statistics(
+    map: *mut VmMap,
+    stat: *mut VmStatistics,
+) -> c_int {
+    if map.is_null() {
+        return KERN_INVALID_ARGUMENT;
+    }
+    // SAFETY: the caller promises the writable record.
+    unsafe { stat.write(vm_user::statistics()) };
+    KERN_SUCCESS
+}
+
+/// `vm_cache_statistics()` of vm/vm_user.c.
+///
+/// # Safety
+///
+/// `map` must be null or a live map, and `stats` must be writable storage
+/// for one cache-statistics record.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_cache_statistics(
+    map: *mut VmMap,
+    stats: *mut VmCacheStatistics,
+) -> c_int {
+    if map.is_null() {
+        return KERN_INVALID_ARGUMENT;
+    }
+    // SAFETY: the caller promises the writable record.
+    unsafe { stats.write(vm_user::cache_statistics()) };
+    KERN_SUCCESS
+}
+
+/// `vm_map()` of vm/vm_user.c.
+///
+/// # Safety
+///
+/// `target_map` must be null or a live, unlocked map, `address` must point
+/// at writable storage for one address, and `memory_object` must be
+/// `IP_NULL`, `IP_DEAD` or a live port the caller holds a reference to.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_map(
+    target_map: *mut VmMap,
+    address: *mut VmOffset,
+    size: VmSize,
+    mask: VmOffset,
+    anywhere: c_int,
+    memory_object: *mut c_void,
+    offset: VmOffset,
+    copy: c_int,
+    cur_protection: VmProt,
+    max_protection: VmProt,
+    inheritance: VmInherit,
+) -> c_int {
+    let Some(target_map) = NonNull::new(target_map) else {
+        return KERN_INVALID_ARGUMENT;
+    };
+    // SAFETY: the caller promises a live map and a writable address slot.
+    kern_return(unsafe {
+        vm_user::map(
+            &mut *target_map.as_ptr(),
+            vm_user::MapRequest {
+                address: &mut *address,
+                size,
+                mask,
+                anywhere: anywhere != 0,
+                memory_object,
+                offset,
+                copy: copy != 0,
+                cur_protection,
+                max_protection,
+                inheritance,
+            },
+        )
+    })
+}
+
+/// `vm_wire()` of vm/vm_user.c.
+///
+/// # Safety
+///
+/// `port` must be `IP_NULL`, `IP_DEAD` or a live port; `map` must be null or
+/// a live, unlocked map.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_wire(
+    port: *mut c_void,
+    map: *mut VmMap,
+    start: VmOffset,
+    size: VmSize,
+    access: VmProt,
+) -> c_int {
+    // SAFETY: the caller's contract.
+    kern_return(unsafe { vm_user::wire(port, map, start, size, access) })
+}
+
+/// `vm_wire_all()` of vm/vm_user.c.
+///
+/// # Safety
+///
+/// `port` must be `IP_NULL`, `IP_DEAD` or a live port; `map` must be null or
+/// a live, unlocked map.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_wire_all(
+    port: *mut c_void,
+    map: *mut VmMap,
+    flags: c_int,
+) -> c_int {
+    // SAFETY: the caller's contract.
+    kern_return(unsafe { vm_user::wire_all(port, map, flags) })
+}
+
+/// `vm_allocate_contiguous()` of vm/vm_user.c.
+///
+/// # Safety
+///
+/// `host_priv` must be null or the live host pointer the generated server
+/// converted the request port into; `map` must be null or a live, unlocked
+/// map; `vaddr` and `paddr` must be writable storage, written only on
+/// success.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_allocate_contiguous(
+    host_priv: *mut Host,
+    map: *mut VmMap,
+    vaddr: *mut VmOffset,
+    paddr: *mut RpcPhysAddr,
+    size: VmSize,
+    pmin: RpcPhysAddr,
+    pmax: RpcPhysAddr,
+    palign: RpcPhysAddr,
+) -> c_int {
+    // SAFETY: the caller's contract.
+    match unsafe {
+        vm_user::allocate_contiguous(
+            NonNull::new(host_priv),
+            map,
+            size,
+            pmin,
+            pmax,
+            palign,
+        )
+    } {
+        Ok((address, physical)) => {
+            // SAFETY: the caller promises both out-pointers writable; the C
+            // writes them only on success.
+            unsafe {
+                vaddr.write(address);
+                paddr.write(physical);
+            }
+            KERN_SUCCESS
+        }
+        Err(error) => error.as_kern_return(),
+    }
+}
+
+/// `vm_pages_phys()` of vm/vm_user.c.
+///
+/// # Safety
+///
+/// `host` must be null or the live host pointer the generated server
+/// converted the request port into; `map` must be null or a live, unlocked
+/// map; `pagespp` and `countp` must be writable storage, and the caller
+/// permits an allocation and a kernel-map copy.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_pages_phys(
+    host: *mut Host,
+    map: *mut VmMap,
+    address: VmOffset,
+    size: VmSize,
+    pagespp: *mut *mut RpcPhysAddr,
+    countp: *mut c_uint,
+) -> c_int {
+    // SAFETY: the caller's contract.
+    match unsafe {
+        vm_user::pages_phys(
+            NonNull::new(host),
+            map,
+            address,
+            size,
+            pagespp,
+            countp,
+        )
+    } {
+        Ok(()) => KERN_SUCCESS,
+        Err(error) => error.as_kern_return(),
+    }
+}
+
+/// `vm_set_size_limit()` of vm/vm_user.c.
+///
+/// # Safety
+///
+/// `host_port` must be `IP_NULL`, `IP_DEAD` or a live port, and `map` must be
+/// null or a live, unlocked map.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_set_size_limit(
+    host_port: *mut c_void,
+    map: *mut VmMap,
+    current_limit: VmSize,
+    max_limit: VmSize,
+) -> c_int {
+    // SAFETY: the caller's contract.
+    kern_return(unsafe {
+        vm_user::set_size_limit(host_port, map, current_limit, max_limit)
+    })
 }

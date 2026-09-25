@@ -10,11 +10,11 @@
 
 use crate::arch::types::VmOffset;
 use crate::glue::{
-    memory_manager_default_init, memory_object_proxy_init, pmap_init,
-    vm_fault_init, vm_object_bootstrap, vm_object_init, vm_page_bootstrap,
-    vm_page_info_all,
+    memory_manager_default_init, pmap_init, vm_fault_init,
+    vm_object_bootstrap, vm_object_init, vm_page_bootstrap, vm_page_info_all,
 };
 use crate::kern::slab::{kalloc_init, slab_bootstrap, slab_init};
+use crate::vm::memory_object_proxy;
 use crate::vm::vm_kern_ffi::kmem_init;
 use crate::vm::vm_map::VmMap;
 use crate::vm::vm_resident;
@@ -51,9 +51,9 @@ fn init() {
     // scheduler is alive; each callee requires the state it left.
     unsafe {
         vm_object_init();
-        memory_object_proxy_init();
         vm_page_info_all();
     }
+    memory_object_proxy::init();
 }
 
 /// `vm_mem_bootstrap()` in C.

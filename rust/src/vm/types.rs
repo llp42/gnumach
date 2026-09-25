@@ -129,6 +129,8 @@ const VM_OBJECT_CAN_PERSIST_BIT: u32 = 1 << 20;
 const VM_OBJECT_INTERNAL_BIT: u32 = 1 << 21;
 const VM_OBJECT_TEMPORARY_BIT: u32 = 1 << 22;
 const VM_OBJECT_ALIVE_BIT: u32 = 1 << 23;
+const VM_OBJECT_LOCK_IN_PROGRESS_BIT: u32 = 1 << 24;
+const VM_OBJECT_LOCK_RESTART_BIT: u32 = 1 << 25;
 const VM_OBJECT_USE_SHARED_COPY_BIT: u32 = 1 << 26;
 const VM_OBJECT_SHADOWED_BIT: u32 = 1 << 27;
 const VM_OBJECT_CACHED_BIT: u32 = 1 << 28;
@@ -356,6 +358,16 @@ impl VmObject {
         self.ref_count == 0 && self.resident_page_count == 0
     }
 
+    /// `lock_in_progress`; the C bitfield holds one bit.
+    pub fn is_lock_in_progress(&self) -> bool {
+        self.flag(VM_OBJECT_LOCK_IN_PROGRESS_BIT)
+    }
+
+    /// `lock_restart`; the C bitfield holds one bit.
+    pub fn is_lock_restart(&self) -> bool {
+        self.flag(VM_OBJECT_LOCK_RESTART_BIT)
+    }
+
     /// `vm_map_glue_object_is_pristine_submap()` in C: the submap placeholder
     /// has never held a page.
     pub fn is_pristine_submap(&self) -> bool {
@@ -435,5 +447,26 @@ const _: () = assert!(size_of::<VmStatistics>() == 13 * size_of::<c_int>());
 const _: () = assert!(align_of::<VmStatistics>() == align_of::<c_int>());
 const _: () =
     assert!(core::mem::offset_of!(VmStatistics, reactivations) == 24);
+
+impl VmStatistics {
+    /// The zero image the C `vm_stat` static began with.
+    pub(crate) const fn zeroed() -> Self {
+        Self {
+            pagesize: 0,
+            free_count: 0,
+            active_count: 0,
+            inactive_count: 0,
+            wire_count: 0,
+            zero_fill_count: 0,
+            reactivations: 0,
+            pageins: 0,
+            pageouts: 0,
+            faults: 0,
+            cow_faults: 0,
+            lookups: 0,
+            hits: 0,
+        }
+    }
+}
 
 pub use crate::vm::vm_page::VmPage;

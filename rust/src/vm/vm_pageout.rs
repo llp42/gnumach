@@ -14,7 +14,7 @@ use crate::arch::vm_param::PAGE_SIZE;
 use crate::glue::{
     memory_manager_default_port, memory_object_data_initialize,
     memory_object_data_return, net_kmsg_collect, pmap_clear_modify,
-    vm_page_queue_free_lock, vm_page_queue_lock, vm_stat,
+    vm_page_queue_free_lock, vm_page_queue_lock,
 };
 use crate::kern::mach_clock::hz;
 use crate::kern::sched_prim::{
@@ -35,6 +35,7 @@ use crate::vm::vm_object::{self, allocate};
 use crate::vm::vm_resident::{
     VM_PAGE_EXTERNAL_LAUNDRY_COUNT, VM_PAGE_LAUNDRY_COUNT,
 };
+use crate::vm::vm_user::vm_stat;
 use crate::vm::{vm_page, vm_resident};
 use core::cell::UnsafeCell;
 use core::ffi::{CStr, c_int, c_uint, c_void};

@@ -27,6 +27,7 @@ use crate::kern::syscall_subr;
 use crate::kern::task::{self, MapSource, Task};
 use crate::kern::thread::Thread;
 use crate::kern::types::KernError;
+use crate::vm::types::{VmInherit, VmProt};
 use crate::vm::vm_map::{VmMap, VmMapCopy};
 use crate::vm::vm_user;
 use core::ffi::{c_char, c_int, c_uint, c_ulong, c_void};
@@ -901,21 +902,23 @@ pub(crate) unsafe fn syscall_vm_map(
     // SAFETY: the map is live and unlocked, `port` is the right the copyin
     // produced or an invalid-name sentinel, and the caller permits the
     // mapping.
-    let result = unsafe {
-        glue::vm_map(
-            map.as_ptr(),
-            ptr::addr_of_mut!(addr),
-            request.size,
-            request.mask,
-            request.anywhere,
-            port,
-            request.offset,
-            request.copy,
-            request.cur_protection,
-            request.max_protection,
-            request.inheritance,
+    let result = crate::vm::error::kern_return(unsafe {
+        vm_user::map(
+            &mut *map.as_ptr(),
+            vm_user::MapRequest {
+                address: &mut addr,
+                size: request.size,
+                mask: request.mask,
+                anywhere: request.anywhere != 0,
+                memory_object: port,
+                offset: request.offset,
+                copy: request.copy != 0,
+                cur_protection: VmProt::from_bits(request.cur_protection),
+                max_protection: VmProt::from_bits(request.max_protection),
+                inheritance: VmInherit::from_bits(request.inheritance),
+            },
         )
-    };
+    });
     if result == KERN_SUCCESS {
         // SAFETY: `vm_map()` wrote the mapped address into `addr`, and the
         // caller promises the user address is writable.

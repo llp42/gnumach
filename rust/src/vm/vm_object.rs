@@ -18,7 +18,7 @@ use crate::glue::{
     memory_object_terminate, pmap_is_modified, pmap_page_protect, printf,
     vm_fault_cleanup, vm_fault_page, vm_page_fictitious_addr, vm_page_free,
     vm_page_grab_fictitious, vm_page_insert, vm_page_lookup,
-    vm_page_more_fictitious, vm_page_queue_lock, vm_stat,
+    vm_page_more_fictitious, vm_page_queue_lock,
 };
 use crate::ipc::{IpcPort, ipc_port, ipc_space};
 use crate::kern::debug::SoftDebugger;
@@ -33,6 +33,7 @@ use crate::kern::slab::{CacheInitFlags, KmemCache};
 use crate::vm::error::Error;
 use crate::vm::types::{Pmap, VmObject, VmPage, VmProt};
 use crate::vm::vm_pageout_ffi::vm_pageout_page;
+use crate::vm::vm_user::vm_stat;
 use crate::vm::{vm_external, vm_page, vm_resident};
 use core::ffi::{CStr, c_int, c_uint, c_void};
 use core::mem::{offset_of, size_of};
@@ -266,7 +267,7 @@ const fn atop(address: VmOffset) -> usize {
 /// # Safety
 ///
 /// `entry` must be the container pointer a `memq` walk produced.
-unsafe fn page_of(entry: *mut QueueEntry) -> *mut VmPage {
+pub(crate) unsafe fn page_of(entry: *mut QueueEntry) -> *mut VmPage {
     entry.cast::<VmPage>()
 }
 
@@ -277,7 +278,7 @@ unsafe fn page_of(entry: *mut QueueEntry) -> *mut VmPage {
 ///
 /// `entry` must be linked into the queue headed by `head`, through the
 /// `VmPage.listq` field.
-unsafe fn next_entry(
+pub(crate) unsafe fn next_entry(
     head: *mut QueueEntry,
     entry: *mut QueueEntry,
 ) -> Option<NonNull<QueueEntry>> {

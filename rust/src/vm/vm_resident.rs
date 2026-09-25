@@ -753,7 +753,7 @@ pub(crate) unsafe fn convert(
 
 /// `vm_page_order()` of <vm/vm_page.h>: the power of two that holds `size`
 /// bytes.
-fn page_order(size: VmSize) -> c_uint {
+pub(crate) fn page_order(size: VmSize) -> c_uint {
     let pages = (round_page(size) >> PAGE_SHIFT) as usize;
     if pages == 1 {
         return 0;

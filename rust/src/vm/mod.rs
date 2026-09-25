@@ -6,7 +6,11 @@
 pub mod error;
 pub mod memory_object;
 pub mod memory_object_ffi;
+pub mod memory_object_proxy;
+pub mod memory_object_proxy_ffi;
 pub mod types;
+pub mod vm_debug;
+pub mod vm_debug_ffi;
 pub mod vm_external;
 pub mod vm_fault;
 pub mod vm_fault_ffi;

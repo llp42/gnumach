@@ -176,6 +176,9 @@ link error, not a fallback.
 | `i386/i386at/model_dep.c` | `src/arch/i386/model_dep.rs`, `src/arch/i386/model_dep_ffi.rs` |
 | `i386/i386/mp_desc.c` | `src/arch/i386/mp_desc.rs`, `src/arch/i386/mp_desc_ffi.rs` |
 | `i386/i386/debug_i386.c` | `src/arch/i386/debug_i386.rs`, `src/arch/i386/debug_i386_ffi.rs` |
+| `vm/memory_object_proxy.c` | `src/vm/memory_object_proxy.rs`, `src/vm/memory_object_proxy_ffi.rs` |
+| `vm/vm_debug.c` | `src/vm/vm_debug.rs`, `src/vm/vm_debug_ffi.rs` |
+| `vm/vm_user.c` | `src/vm/vm_user.rs`, `src/vm/vm_user_ffi.rs` |
 
 Also deleted as dead: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `ipc/copy_user.c`'s `USER32`

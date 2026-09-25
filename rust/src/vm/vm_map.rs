@@ -13,16 +13,16 @@ use crate::arch::i386::pmap::pmap_pageable;
 use crate::arch::types::{VmOffset, VmSize};
 use crate::glue::{
     Panic, kernel_map, kernel_object, kernel_pmap, kernel_virtual_end,
-    kernel_virtual_start, memory_object_create_proxy, pmap_create,
-    pmap_destroy, pmap_enter, pmap_page_protect, pmap_protect, pmap_remove,
-    printf, vm_fault_copy, vm_fault_page, vm_fault_unwire, vm_object_allocate,
-    vm_object_coalesce, vm_object_collapse, vm_object_copy_slowly,
-    vm_object_copy_strategically, vm_object_copy_temporary,
-    vm_object_deallocate, vm_object_name, vm_object_page_remove,
-    vm_object_pager_create, vm_object_pmap_protect, vm_object_pmap_remove,
-    vm_object_reference, vm_object_shadow, vm_page_activate, vm_page_free,
-    vm_page_lookup, vm_page_mem_size, vm_page_more_fictitious,
-    vm_page_queue_lock, vm_page_remove, vm_page_replace, vm_page_wait,
+    kernel_virtual_start, pmap_create, pmap_destroy, pmap_enter,
+    pmap_page_protect, pmap_protect, pmap_remove, printf, vm_fault_copy,
+    vm_fault_page, vm_fault_unwire, vm_object_allocate, vm_object_coalesce,
+    vm_object_collapse, vm_object_copy_slowly, vm_object_copy_strategically,
+    vm_object_copy_temporary, vm_object_deallocate, vm_object_name,
+    vm_object_page_remove, vm_object_pager_create, vm_object_pmap_protect,
+    vm_object_pmap_remove, vm_object_reference, vm_object_shadow,
+    vm_page_activate, vm_page_free, vm_page_lookup, vm_page_mem_size,
+    vm_page_more_fictitious, vm_page_queue_lock, vm_page_remove,
+    vm_page_replace, vm_page_wait,
 };
 use crate::ipc::{IpcPort, IpcSpace, ipc_port};
 use crate::kern::list::{List, entry as list_entry};
@@ -36,6 +36,7 @@ use crate::utils::cell::SyncCell;
 use crate::vm::error::{
     Error, KERN_SUCCESS, error_from_kern_return, kern_return,
 };
+use crate::vm::memory_object_proxy;
 use crate::vm::types::{
     PAGE_MASK, PAGE_SIZE, Pmap, VmInherit, VmObject, VmPage, VmProt,
 };
@@ -6174,31 +6175,23 @@ impl VmMap {
             start,
         } = locked?;
 
-        let mut object = pager.map_or(ptr::null_mut(), IpcPort::as_ptr);
-        let mut offset: VmOffset = 0;
-        let mut start = start;
-        let mut len = len;
-        let mut port: *mut c_void = ptr::null_mut();
-        // SAFETY: the C call's contract is one object, one offset, one start
-        // and one length, and a writable out-port.
+        let object = pager.map_or(ptr::null_mut(), IpcPort::as_ptr);
+        let offset: VmOffset = 0;
+        // SAFETY: the proxy call's contract is one object, one offset, one
+        // start and one length, and no lock is held.
         let result = unsafe {
-            memory_object_create_proxy(
-                space.map_or(ptr::null_mut(), IpcSpace::as_ptr),
-                max_protection.bits(),
-                &mut object,
-                1,
-                &mut offset,
-                1,
-                &mut start,
-                1,
-                &mut len,
-                1,
-                &mut port,
+            memory_object_proxy::create_proxy(
+                space,
+                max_protection,
+                &[object],
+                &[offset],
+                &[start],
+                &[len],
             )
         };
 
-        match error_from_kern_return(result) {
-            Ok(()) => Ok(IpcPort::new(port)),
+        match result {
+            Ok(port) => Ok(Some(port)),
             Err(error) => {
                 if let Some(pager) = pager {
                     // SAFETY: `pager` is the send right copied above and still

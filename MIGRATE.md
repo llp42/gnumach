@@ -94,20 +94,18 @@ kernel's `copyinmsg()`, now `src/ipc/copy_user.rs`; the i386 kernel takes
 that entry point from `i386/i386/locore.S`, and the file's `USER32` half
 never compiled in either configured build (§8, §9).
 
-### `vm/` (4 files, 3,397 LOC)
+### `vm/` (1 file, 2,024 LOC)
 
 | File | LOC | Free | Holds the rest |
 |---|---:|---:|---|
-| `memory_object_proxy.c` | 227 | 0 | cache statics |
-| `vm_debug.c` | 541 | 0 | the `hash_info_bucket_t` mirror landed; re-derive the rest |
 | `vm_fault.c` | 2024 | 0 | the pinned toolchain folds the copy-object null test (§9) |
-| `vm_user.c` | 605 | 0 | `vm_page` fields for the rest |
 
-`memory_object.c`, `vm_resident.c`, `vm_kern.c` and `vm_pageout.c` are
-whole: the `memory_manager_default` port and its lock, the
-`vm_page_bucket_t` hash table, the fictitious-page list,
-`virtual_space_start`/`virtual_space_end`, the kernel map globals, the
-pageout daemon's statics and the file-private statics moved with them
+`memory_object.c`, `vm_resident.c`, `vm_kern.c`, `vm_pageout.c`,
+`vm_user.c`, `vm_debug.c` and `memory_object_proxy.c` are whole: the
+`memory_manager_default` port and its lock, the `vm_page_bucket_t` hash
+table, the fictitious-page list, `virtual_space_start`/`virtual_space_end`,
+the kernel map globals, the pageout daemon's statics, the `vm_stat` block,
+the VM-debug info records and the proxy slab cache all moved with them
 (§9).  `vm_fault.c` was attempted and put back whole; the blocker is
 recorded in §9.
 
@@ -215,11 +213,10 @@ it sized (§9).
 `host_ipc_marequest_info` and `host_virtual_physical_table_info` needed a
 `hash_info_bucket_t` mirror; the `HashInfoBucket` in `src/ipc/mod.rs`
 landed with the `ipc_marequest.c` port, and the `mach_debug.c` batch
-moved `host_ipc_marequest_info`; `host_virtual_physical_table_info` in
-`vm/vm_debug.c` still waits on the `struct vm_page` seg walk.  The
-`struct pmap` story now exists: the
-whole of `i386/intel/pmap.c`, its `static` `phys_attribute_*` helpers
-included, moved to `src/arch/i386/pmap.rs` (§9).
+moved `host_ipc_marequest_info`; `host_virtual_physical_table_info` went
+with the whole-file `vm_debug.c` port.  The `struct pmap` story now
+exists: the whole of `i386/intel/pmap.c`, its `static` `phys_attribute_*`
+helpers included, moved to `src/arch/i386/pmap.rs` (§9).
 The `vm/vm_object.c` port completed the `struct vm_object` field mirror
 (`src/vm/types.rs`) and moved the module to `src/vm/vm_object.rs`, so the
 object's lock, flags and page list are Rust; the C files that still call
@@ -449,6 +446,9 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `i386/i386at/model_dep.c` whole, with the `boot_info`, `kernel_cmdline` and `rebootflag` globals and the `ElfShdr` and `GdtDescrTmp` mirrors its boot path reads | `src/arch/i386/model_dep.rs`, `model_dep_ffi.rs` | pending |
 | `i386/i386/mp_desc.c` whole, with the NCPUS-sized `int_stack_base`, `int_stack_top`, `solid_intstack`, `mp_desc_table`, `mp_ktss` and `mp_gdt` it owned, the `apboot_addr` global, and the `RealGate` and `MpDescTable` mirrors `idt.c`, `int_init.c`, `gdt.c`, `ldt.c` and `ktss.c` still read | `src/arch/i386/mp_desc.rs`, `mp_desc_ffi.rs` | pending |
 | `i386/i386/debug_i386.c` whole, with the `debug_trace_buf`/`debug_trace_pos`, `syscall_trace`/`syscall_trace_task` globals and the `DebugTraceEntry` and `MachTrap` mirrors, and `dump_ss` re-homed out of `glue` for `trap.rs` | `src/arch/i386/debug_i386.rs`, `debug_i386_ffi.rs` | pending |
+| `vm/memory_object_proxy.c` whole, with the `memory_object_proxy_cache` slab cache and the `struct memory_object_proxy` record it owned | `src/vm/memory_object_proxy.rs`, `memory_object_proxy_ffi.rs` | pending |
+| `vm/vm_debug.c` whole, with the `VmRegionInfo`, `VmObjectInfo`, `VmPageInfo` and `VmPagePhysInfo` mirrors of `mach_debug/vm_info.h` its bodies fill | `src/vm/vm_debug.rs`, `vm_debug_ffi.rs` | pending |
+| `vm/vm_user.c` whole, with the `vm_stat` block it owned and the `VmCacheStatistics` mirror of `mach/vm_cache_statistics.h` | `src/vm/vm_user.rs`, `vm_user_ffi.rs` | pending |
 
 `vm/vm_fault.c` was ported whole and rolled back in the same pass: the pinned
 toolchain turns the copy-object loop's `first_object->copy` null test into an

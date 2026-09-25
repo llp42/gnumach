@@ -133,11 +133,9 @@ libkernel_a_SOURCES += \
 #
 
 libkernel_a_SOURCES += \
-	vm/memory_object_proxy.c \
 	vm/memory_object_proxy.h \
 	vm/memory_object.h \
 	vm/pmap.h \
-	vm/vm_debug.c \
 	vm/vm_external.h \
 	vm/vm_fault.c \
 	vm/vm_fault.h \
@@ -149,7 +147,6 @@ libkernel_a_SOURCES += \
 	vm/vm_pageout.h \
 	vm/vm_resident.h \
 	vm/vm_types.h \
-	vm/vm_user.c \
 	vm/vm_user.h
 EXTRA_DIST += \
 	vm/memory_object_default.cli \
