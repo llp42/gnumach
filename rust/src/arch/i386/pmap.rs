@@ -83,6 +83,9 @@ const VM_PROT_ALL: c_int = 0x7;
 
 /// `CPU_FEATURE_PGE` of <i386/locore.h>: the global-page bit.
 pub(crate) const CPU_FEATURE_PGE: u32 = 13;
+/// `CPU_FEATURE_SEP` of <i386/locore.h>: the `sysenter`/`sysexit` pair.
+#[cfg(target_pointer_width = "64")]
+pub(crate) const CPU_FEATURE_SEP: u32 = 11;
 #[cfg(target_arch = "x86_64")]
 const CPU_FEATURE_PAE: u32 = 6;
 

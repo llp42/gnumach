@@ -18,22 +18,17 @@ libkernel_a_SOURCES += \
 	i386/i386/ast_types.h \
 	i386/i386/cpu.h \
 	i386/i386/cpu_number.h \
-	i386/i386/db_interface.c \
 	i386/i386/db_interface.h \
 	i386/i386/db_machdep.h \
 	i386/i386/debug.h \
 	i386/i386/eflags.h \
 	i386/i386/fpu.h \
-	i386/i386/gdt.c \
 	i386/i386/gdt.h \
 	i386/i386/idt-gen.h \
-	i386/i386/idt.c \
 	i386/i386/io_perm.h \
 	i386/i386/ipl.h \
-	i386/i386/ktss.c \
 	i386/i386/ktss.h \
 	i386/i386/kttd_machdep.h \
-	i386/i386/ldt.c \
 	i386/i386/ldt.h \
 	i386/i386/locore.h \
 	i386/i386/loose_ends.h \
@@ -55,7 +50,6 @@ libkernel_a_SOURCES += \
 	i386/i386/time_stamp.h \
 	i386/i386/trap.h \
 	i386/i386/tss.h \
-	i386/i386/user_ldt.c \
 	i386/i386/user_ldt.h \
 	i386/i386/vm_param.h \
 	i386/intel/pmap.h \

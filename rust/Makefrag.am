@@ -10,10 +10,18 @@ MACH_RS_SRCS = \
 	rust/src/arch/i386/biosmem.rs \
 	rust/src/arch/i386/com.rs \
 	rust/src/arch/i386/com_ffi.rs \
+	rust/src/arch/i386/db_interface.rs \
+	rust/src/arch/i386/db_interface_ffi.rs \
 	rust/src/arch/i386/debug_i386.rs \
 	rust/src/arch/i386/debug_i386_ffi.rs \
 	rust/src/arch/i386/fpu.rs \
 	rust/src/arch/i386/fpu_ffi.rs \
+	rust/src/arch/i386/gdt.rs \
+	rust/src/arch/i386/gdt_ffi.rs \
+	rust/src/arch/i386/idt.rs \
+	rust/src/arch/i386/idt_ffi.rs \
+	rust/src/arch/i386/int_init.rs \
+	rust/src/arch/i386/int_init_ffi.rs \
 	rust/src/arch/i386/io_perm.rs \
 	rust/src/arch/i386/io_perm_ffi.rs \
 	rust/src/arch/i386/io_req.rs \
@@ -28,6 +36,10 @@ MACH_RS_SRCS = \
 	rust/src/arch/i386/kd/tty.rs \
 	rust/src/arch/i386/kd_event.rs \
 	rust/src/arch/i386/kd_mouse.rs \
+	rust/src/arch/i386/ktss.rs \
+	rust/src/arch/i386/ktss_ffi.rs \
+	rust/src/arch/i386/ldt.rs \
+	rust/src/arch/i386/ldt_ffi.rs \
 	rust/src/arch/i386/machine_task.rs \
 	rust/src/arch/i386/mbinfo.rs \
 	rust/src/arch/i386/mem.rs \
@@ -44,10 +56,13 @@ MACH_RS_SRCS = \
 	rust/src/arch/i386/pit.rs \
 	rust/src/arch/i386/pmap.rs \
 	rust/src/arch/i386/rtc.rs \
+	rust/src/arch/i386/seg.rs \
 	rust/src/arch/i386/smp.rs \
 	rust/src/arch/i386/smp_ffi.rs \
 	rust/src/arch/i386/trap.rs \
 	rust/src/arch/i386/trap_ffi.rs \
+	rust/src/arch/i386/user_ldt.rs \
+	rust/src/arch/i386/user_ldt_ffi.rs \
 	rust/src/arch/types.rs \
 	rust/src/arch/vm_param.rs \
 	rust/src/config.rs \

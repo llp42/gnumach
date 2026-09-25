@@ -123,25 +123,18 @@ recorded in §9.
 | `net_io.c` | 1665 | 0 | `ifnet` fields for the hash and receive paths |
 | `subrs.c` | 53 | 0 | `ifnet` fields |
 
-### `i386/` (17 files, 2,167 LOC)
+### `i386/` (10 files, 1,157 LOC)
 
 | File | LOC | Free | Holds the rest |
 |---|---:|---:|---|
-| `i386/db_interface.c` | 103 | 0 | `struct pcb` fields |
-| `i386/gdt.c` | 141 | 0 | static `gdt_fill`, `reload_segs` |
 | `i386/hardclock.c` | 69 | 0 | `machine_slot` and interrupt plumbing |
-| `i386/idt.c` | 80 | 0 | static `idt_fill` |
-| `i386/ktss.c` | 86 | 0 | static `ktss_fill` |
-| `i386/ldt.c` | 100 | 0 | static `ldt_fill` |
 | `i386/machine_task.c` | 70 | 0 | `task.machine` fields |
 | `i386/percpu.c` | 31 | 0 | `struct percpu.self` field |
 | `i386/phys.c` | 164 | 0 | mapped-window internals for `pmap_copy_page` etc. |
 | `i386/pic.c` | 270 | 0 | not compiled in the APIC configuration |
-| `i386/user_ldt.c` | 422 | 0 | `struct pcb` and descriptor structs |
 | `i386at/autoconf.c` | 127 | 0 | `bus_device`/`bus_ctlr` fields |
 | `i386at/conf.c` | 144 | 0 | static tables |
 | `i386at/cons_conf.c` | 48 | 0 | static tables |
-| `i386at/int_init.c` | 78 | 0 | static `int_fill` |
 | `i386at/pic_isa.c` | 56 | 0 | not compiled in the APIC configuration |
 | `intel/read_fault.c` | 178 | 0 | dead: body is `#if`-ed out on every supported CPU |
 
@@ -449,6 +442,10 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `i386/i386at/model_dep.c` whole, with the `boot_info`, `kernel_cmdline` and `rebootflag` globals and the `ElfShdr` and `GdtDescrTmp` mirrors its boot path reads | `src/arch/i386/model_dep.rs`, `model_dep_ffi.rs` | pending |
 | `i386/i386/mp_desc.c` whole, with the NCPUS-sized `int_stack_base`, `int_stack_top`, `solid_intstack`, `mp_desc_table`, `mp_ktss` and `mp_gdt` it owned, the `apboot_addr` global, and the `RealGate` and `MpDescTable` mirrors `idt.c`, `int_init.c`, `gdt.c`, `ldt.c` and `ktss.c` still read | `src/arch/i386/mp_desc.rs`, `mp_desc_ffi.rs` | pending |
 | `i386/i386/debug_i386.c` whole, with the `debug_trace_buf`/`debug_trace_pos`, `syscall_trace`/`syscall_trace_task` globals and the `DebugTraceEntry` and `MachTrap` mirrors, and `dump_ss` re-homed out of `glue` for `trap.rs` | `src/arch/i386/debug_i386.rs`, `debug_i386_ffi.rs` | pending |
+| `i386/i386/gdt.c`, `i386/i386/idt.c`, `i386/i386/ktss.c` and `i386/i386/ldt.c` whole, with the `gdt`, `idt`, `ktss` and `ldt` tables and the `gdt_fill`/`idt_fill`/`ktss_fill`/`ldt_fill` statics they owned, and the `seg.h` descriptor fillers, loaders and selector constants in a new `src/arch/i386/seg.rs`; adds the `RealDescriptor64` and `PseudoDescriptor` mirrors and the `IdtInitEntry` mirror with size, align and offset asserts from both built kernels | `src/arch/i386/gdt.rs`, `gdt_ffi.rs`, `idt.rs`, `idt_ffi.rs`, `ktss.rs`, `ktss_ffi.rs`, `ldt.rs`, `ldt_ffi.rs`, `seg.rs` | pending |
+| `i386/i386at/int_init.c` whole, with the static `int_fill` and the `int_entry_table` walk | `src/arch/i386/int_init.rs`, `int_init_ffi.rs` | pending |
+| `i386/i386/user_ldt.c` whole, with the `struct descriptor` mirror and the `user_ldt_free` entry `pcb.rs` calls | `src/arch/i386/user_ldt.rs`, `user_ldt_ffi.rs` | pending |
+| `i386/i386/db_interface.c` whole, with the `zero_dr` static and the `ddb_regs` global | `src/arch/i386/db_interface.rs`, `db_interface_ffi.rs` | pending |
 
 `vm/vm_fault.c` was ported whole and rolled back in the same pass: the pinned
 toolchain turns the copy-object loop's `first_object->copy` null test into an
@@ -501,3 +498,8 @@ the i686 and x86_64 configurations the ABI pack gates.  The removed
 otherwise.  A user32 build would need `--cfg user32` plumbed through
 `rust/configfrag.ac` before that native-width declaration is correct
 again.
+
+The `gdt.c`/`idt.c`/`ktss.c`/`ldt.c`/`int_init.c` port declared
+`idt_inittab`, `int_entry_table`, `syscall` and `syscall64` in the same
+block; those are the generated tables and asm entries the port reads,
+which writes no C and is not debt.
