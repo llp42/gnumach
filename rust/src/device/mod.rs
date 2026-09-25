@@ -10,6 +10,7 @@ pub mod dev_name;
 pub mod dev_pager;
 pub mod device_init;
 pub mod ds_routines;
+pub mod ds_routines_ffi;
 pub mod intr;
 pub mod kmsg;
 pub mod net_io;

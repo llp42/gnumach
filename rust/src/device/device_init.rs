@@ -7,6 +7,7 @@
 //! and <device/device_init.h> declares.
 
 use crate::device::chario;
+use crate::device::ds_routines_ffi::{io_done_thread, mach_device_init};
 use crate::glue;
 use crate::ipc::{IpcPort, ipc_port, ipc_space};
 use core::ffi::c_int;
@@ -51,7 +52,7 @@ pub unsafe extern "C" fn device_service_create() {
     // module state; the C ran them in this order, before starting the threads
     // below.
     unsafe {
-        glue::mach_device_init();
+        mach_device_init();
         glue::dev_lookup_init();
         glue::net_io_init();
         glue::device_pager_init();
@@ -64,7 +65,7 @@ pub unsafe extern "C" fn device_service_create() {
         crate::kern::thread::kernel_thread(
             crate::kern::task::kernel_task,
             c"io_done".as_ptr(),
-            Some(glue::io_done_thread),
+            Some(io_done_thread),
             ptr::null_mut(),
         );
         crate::kern::thread::kernel_thread(

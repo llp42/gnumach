@@ -590,7 +590,7 @@ impl MachMsgHeader {
     }
 
     /// `msgh_remote_port` of <mach/message.h>.
-    fn remote(&self) -> usize {
+    pub(crate) fn remote(&self) -> usize {
         self.remote_port
     }
 
@@ -613,7 +613,7 @@ impl MachMsgHeader {
     }
 
     /// `msgh_id` of <mach/message.h>.
-    fn id(&self) -> c_int {
+    pub(crate) fn id(&self) -> c_int {
         self.id
     }
 }

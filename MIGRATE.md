@@ -127,7 +127,7 @@ file, or `—` when the rest is ready too.
 | `vm_resident.c` | 948 | 0 | the `vm_page_bucket_t` table, the fictitious-page statics and `vm_page_order` |
 | `vm_user.c` | 602 | 0 | `vm_page` fields for the rest |
 
-### `device/` (11 files, 7,057 LOC)
+### `device/` (10 files, 5,203 LOC)
 
 | File | LOC | Free | Holds the rest |
 |---|---:|---:|---|
@@ -137,7 +137,6 @@ file, or `—` when the rest is ready too.
 | `dev_lookup.c` | 365 | 0 | `mach_device` fields |
 | `dev_name.c` | 166 | 0 | `dev_ops`/`dev_indirect` fields |
 | `dev_pager.c` | 565 | 0 | hash and device fields |
-| `ds_routines.c` | 1854 | 0 | `struct io_req` fields |
 | `intr.c` | 375 | 0 | `struct irqdev`/`user_intr_t` fields |
 | `kmsg.c` | 237 | 0 | — (the rest is message plumbing) |
 | `net_io.c` | 2168 | 0 | `ifnet`/`net_hash_entry` fields |
@@ -401,7 +400,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `i386/i386/pcb.c` (`stack_detach`, `load_context`, `pcb_collect`), `i386/i386/phys.c` (`kvtophys`) | `src/arch/i386/pcb.rs`, `phys.rs` | pending |
 | `i386/i386/apic.c` (`apic_lapic_init`, `apic_get_cpu_kernel_id`, `apic_get_lapic`, `apic_get_current_cpu`, `hpet_init`, `hpet_udelay`, `hpet_mdelay`, `hpclock_read_counter`, `hpclock_get_counter_period_nsec`) | `src/arch/i386/apic.rs` | pending |
 | `i386/i386at/acpi_parse_apic.c` (`acpi_print_info`), `i386/i386at/ioapic.c` (`intnull`) | `src/arch/i386/acpi_parse_apic.rs`, `ioapic.rs` | pending |
-| `device/chario.c` (`tty_queue_completion`), `device/device_init.c` (`device_service_create`), `device/ds_routines.c` (`ds_device_open_new`), `device/intr.c` (`irqgetstat`), `device/kmsg.c` (`kmsggetstat`) | `src/device/chario.rs`, `device_init.rs`, `ds_routines.rs`, `intr.rs`, `kmsg.rs` | pending |
+| `device/chario.c` (`tty_queue_completion`), `device/device_init.c` (`device_service_create`), `device/intr.c` (`irqgetstat`), `device/kmsg.c` (`kmsggetstat`) | `src/device/chario.rs`, `device_init.rs`, `intr.rs`, `kmsg.rs` | pending |
 | `kern/host.c` (`host_processor_set_priv`, `processor_set_processors`) | `src/kern/host.rs` | pending |
 | `kern/ipc_host.c` (`ipc_processor_init`, `ipc_pset_init`, `ipc_pset_enable`, `ipc_pset_disable`, `ipc_pset_terminate`, `processor_set_default`) | `src/kern/ipc_host.rs` | pending |
 | `kern/ipc_mig.c` (`mach_msg_abort_rpc`, `mig_get_reply_port`, `mig_deallocate`, `thread_set_self_state`) | `src/kern/ipc_mig.rs` | pending |
@@ -437,6 +436,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `ipc/ipc_init.c`, `ipc/ipc_target.c`, `ipc/ipc_space.c`, `ipc/ipc_entry.c` and `ipc/ipc_object.c` whole, with the `ipc_space_cache`, `ipc_entry_cache`, `ipc_object_caches`, `ipc_space_kernel`, `ipc_space_reply`, `ipc_kernel_map` and `ipc_kernel_map_size` globals | `src/ipc/ipc_init.rs`, `ipc_target.rs`, `ipc_space.rs`, `ipc_space_ffi.rs`, `ipc_entry.rs`, `ipc_entry_ffi.rs`, `ipc_object.rs`, `ipc_object_ffi.rs` | pending |
 | `ipc/ipc_kmsg.c` whole, with the `ipc_kmsg_cache` per-CPU array it owned and the `mach_msg_type_t`/`mach_msg_type_long_t` descriptor view its body walks use | `src/ipc/ipc_kmsg.rs`, `ipc_kmsg_ffi.rs`, `src/ipc/mod.rs` | pending |
 | `ipc/ipc_right.c` whole, with the `ipc_reverse_insert`/`ipc_reverse_remove` inlines its capability switches used | `src/ipc/ipc_right.rs`, `ipc_right_ffi.rs`, `ipc_space.rs` | pending |
+| `device/ds_routines.c` whole, with the `struct io_req`, `struct device`, `struct mach_device`, `struct dev_ops` and `struct device_emulation_ops` mirrors it owned, and its `device_io_map`, `io_inband_cache`, `io_trap_cache`, `io_done_list` and `mach_device_emulation_ops` globals | `src/device/ds_routines.rs`, `ds_routines_ffi.rs`, `src/arch/i386/io_req.rs` | pending |
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `i386/i386at/kd_glue.c`
