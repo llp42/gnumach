@@ -42,8 +42,8 @@ header comment of the test that found them; this file is the index.
   panics); `vm_object_pager_create` panics rather than failing, so the
   error returns below it are unreachable (`vm/vm_map.c:5122`).
 - [ ] `device_intr_register` reports a duplicate registration as
-  `D_NO_MEMORY` (`device/ds_routines.c:360`, `device/intr.c:186`) and
-  queues the entry before `install_user_intr_handler` can fail
+  `D_NO_MEMORY` (`rust/src/device/ds_routines.rs:979`, `device/intr.c:186`)
+  and queues the entry before `install_user_intr_handler` can fail
   (`device/intr.c:201`), risking an unbalanced reference.
 - [ ] i386 user LDT: installing descriptors on a running x86_64 thread
   truncates the base; an unaligned out-of-line `i386_set_ldt` installs

@@ -370,6 +370,39 @@ assert_layout!(VmMap, 96, 4, {
 });
 
 impl VmMap {
+    /// The zero image a C `static` of `struct vm_map` began with; the boot
+    /// path fills it through `vm_map_init()` or `kmem_submap()`.
+    pub(crate) const fn zeroed() -> Self {
+        Self {
+            lock: LockData::zeroed(),
+            hdr: VmMapHeader {
+                links: VmMapLinks {
+                    prev: None,
+                    next: None,
+                    start: 0,
+                    end: 0,
+                },
+                tree: Rbtree::new(),
+                gap_tree: Rbtree::new(),
+                nentries: 0,
+            },
+            pmap: ptr::null_mut(),
+            size: 0,
+            size_wired: 0,
+            size_none: 0,
+            ref_count: UnsafeCell::new(0),
+            ref_lock: SimpleLock::new(),
+            hint: UnsafeCell::new(ptr::null_mut()),
+            hint_lock: SimpleLock::new(),
+            first_free: ptr::null_mut(),
+            flags: 0,
+            timestamp: 0,
+            name: ptr::null(),
+            size_cur_limit: 0,
+            size_max_limit: 0,
+        }
+    }
+
     /// The sentinel entry of this map's chain; `vm_map_to_entry()` in C.
     pub fn to_entry(&self) -> NonNull<VmMapEntry> {
         self.hdr.to_entry()
@@ -1467,12 +1500,24 @@ impl VmMapCopy {
         }
     }
 
+    /// `vm_map_copy_has_cont()` in C.
+    ///
+    /// # Safety
+    ///
+    /// `copy` must be a live page-list copy.
+    pub(crate) unsafe fn has_cont(copy: NonNull<VmMapCopy>) -> bool {
+        // SAFETY: the caller promises the live PAGE_LIST variant.
+        let pages = unsafe { VmMapCopy::page_list(copy) };
+        // SAFETY: `pages` names the live variant.
+        unsafe { (*pages).cont.is_some() }
+    }
+
     /// `vm_map_copy_abort_cont()` in C.
     ///
     /// # Safety
     ///
     /// `copy` must be a live page-list copy.
-    unsafe fn abort_cont(copy: NonNull<VmMapCopy>) {
+    pub(crate) unsafe fn abort_cont(copy: NonNull<VmMapCopy>) {
         // SAFETY: the caller promises a live page-list copy.
         unsafe { VmMapCopy::page_discard(copy) };
 
@@ -1503,7 +1548,7 @@ impl VmMapCopy {
     ///
     /// `copy` must be a live page-list copy with a continuation, and the
     /// caller must own it and every copy its continuation chain returns.
-    unsafe fn invoke_cont(
+    pub(crate) unsafe fn invoke_cont(
         copy: NonNull<VmMapCopy>,
     ) -> (c_int, *mut VmMapCopy) {
         // SAFETY: the caller promises a live page-list copy.

@@ -245,43 +245,85 @@ unsafe extern "C" {
         new_name: *mut *mut ProcessorSet,
     ) -> c_int;
 
-    pub fn iodone(ior: *mut c_void);
-    pub fn device_read_alloc(ior: *mut c_void, size: usize) -> c_int;
-    pub fn ds_read_done(ior: *mut c_void) -> c_int;
-
-    pub fn mach_device_init();
     pub fn dev_lookup_init();
     pub fn net_io_init();
     pub fn device_pager_init();
-    pub fn io_done_thread();
     pub fn net_thread();
-    pub fn ds_device_open(
-        open_port: *mut c_void,
-        reply_port: *mut c_void,
-        reply_port_type: c_uint,
-        mode: c_uint,
-        name: *const c_char,
-        devp: *mut *mut c_void,
-    ) -> c_int;
-    pub fn device_reference(device: *mut c_void);
-    pub fn device_deallocate(device: *mut c_void);
-    pub fn dev_port_lookup(port: *mut c_void) -> *mut c_void;
-    pub fn ds_device_write_trap(
-        dev: *mut c_void,
-        mode: c_uint,
-        recnum: c_ulong,
-        data: VmOffset,
-        count: VmSize,
-    ) -> c_int;
-    pub fn ds_device_writev_trap(
-        dev: *mut c_void,
-        mode: c_uint,
-        recnum: c_ulong,
-        iovec: *mut c_void,
-        count: VmSize,
-    ) -> c_int;
 
     pub static mut master_device_port: *mut c_void;
+
+    pub fn device_lookup(name: *const c_char) -> *mut c_void;
+    pub fn dev_port_lookup(port: *mut c_void) -> *mut c_void;
+    pub fn dev_port_enter(device: *mut c_void);
+    pub fn dev_port_remove(device: *mut c_void);
+    pub fn mach_device_reference(device: *mut c_void);
+    pub fn mach_device_deallocate(device: *mut c_void);
+    pub fn device_pager_setup(
+        device: *mut c_void,
+        prot: c_int,
+        offset: VmOffset,
+        size: VmSize,
+        pager: *mut VmOffset,
+    ) -> c_int;
+    pub fn insert_intr_entry(
+        dev: *mut c_void,
+        id: c_int,
+        receive_port: *mut c_void,
+    ) -> *mut c_void;
+    pub fn install_user_intr_handler(
+        dev: *mut c_void,
+        id: c_int,
+        flags: c_ulong,
+        entry: *mut c_void,
+    ) -> c_int;
+    pub fn irq_acknowledge(receive_port: *mut c_void) -> c_int;
+    pub static mut irqtab: c_void;
+    pub fn kmem_alloc(
+        map: *mut VmMap,
+        addrp: *mut VmOffset,
+        size: VmSize,
+    ) -> c_int;
+    pub fn kmem_io_map_copyout(
+        map: *mut VmMap,
+        data: *mut VmOffset,
+        new_addr: *mut VmOffset,
+        alloc_size: *mut VmSize,
+        copy: *mut c_void,
+        min_size: VmSize,
+    ) -> c_int;
+    pub fn ds_device_open_reply(
+        reply_port: *mut c_void,
+        reply_port_type: c_uint,
+        return_code: c_int,
+        device_port: *mut c_void,
+    ) -> c_int;
+    pub fn ds_device_write_reply(
+        reply_port: *mut c_void,
+        reply_port_type: c_uint,
+        return_code: c_int,
+        bytes_written: c_int,
+    ) -> c_int;
+    pub fn ds_device_write_reply_inband(
+        reply_port: *mut c_void,
+        reply_port_type: c_uint,
+        return_code: c_int,
+        bytes_written: c_int,
+    ) -> c_int;
+    pub fn ds_device_read_reply(
+        reply_port: *mut c_void,
+        reply_port_type: c_uint,
+        return_code: c_int,
+        data: *mut c_char,
+        data_count: c_uint,
+    ) -> c_int;
+    pub fn ds_device_read_reply_inband(
+        reply_port: *mut c_void,
+        reply_port_type: c_uint,
+        return_code: c_int,
+        data: *mut c_char,
+        data_count: c_uint,
+    ) -> c_int;
+
     pub fn spl0() -> c_int;
     pub fn splhi() -> c_int;
     pub fn splsched() -> c_int;

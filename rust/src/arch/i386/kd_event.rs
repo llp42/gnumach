@@ -12,6 +12,9 @@ use super::io_req::{
     DEV_GET_SIZE_RECORD_SIZE, DevT, IoReq, KERN_SUCCESS, drain,
 };
 use crate::arch::i386::pio::Port;
+use crate::device::ds_routines_ffi::{
+    device_read_alloc, ds_read_done, iodone,
+};
 use crate::device::r#return::{
     DeviceError, DeviceSuccess, IoResult, IoResultExt,
 };
@@ -133,7 +136,7 @@ fn enqueue_event(s: &mut State, ev: &KdEvent) {
         match entry {
             // SAFETY: each link is an `io_req` (its chain is the first field),
             // still owned by the device layer and valid for `iodone()`.
-            Some(entry) => unsafe { glue::iodone(entry.as_ptr().cast()) },
+            Some(entry) => unsafe { iodone(entry.as_ptr().cast::<IoReq>()) },
             None => break,
         }
     }
@@ -286,7 +289,7 @@ pub unsafe extern "C" fn kbdread(_dev: DevT, ior: *mut IoReq) -> c_int {
         return Err(DeviceError::InvalidSize).as_io_return();
     }
     // SAFETY: the request is the caller's, as the C assumed.
-    let err = unsafe { glue::device_read_alloc(ior.cast(), wanted as usize) };
+    let err = unsafe { device_read_alloc(ior, wanted as usize) };
     if err != KERN_SUCCESS {
         return err;
     }
@@ -330,7 +333,7 @@ unsafe extern "C" fn kbd_read_done(ior: *mut IoReq) -> c_int {
     unsafe { glue::splx(sp) };
     unsafe { (*ior).set_residual((*ior).count() - count) };
     // SAFETY: the request is complete; its data buffer is populated.
-    unsafe { glue::ds_read_done(ior.cast()) };
+    unsafe { ds_read_done(ior) };
     1
 }
 

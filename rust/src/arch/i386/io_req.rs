@@ -6,12 +6,15 @@
 //   Copyright 1988, 1989 by Olivetti Advanced Technology Center, Inc.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! `struct io_req` of <device/io_req.h>, as the x86 drivers share it.
+//! `struct io_req` of <device/io_req.h>, the request the device layer and the
+//! x86 drivers share.
 
+use crate::kern::lock::SimpleLock;
 use crate::kern::queue::QueueEntry;
 use crate::utils::kd_queue::{KdEvent, KdEventQueue};
+use crate::vm::vm_map::VmMapCopy;
 use core::ffi::{c_char, c_int, c_long, c_uint, c_ulong, c_void};
-use core::mem::{offset_of, size_of};
+use core::mem::{align_of, offset_of, size_of};
 use core::pin::Pin;
 use core::ptr::{self, NonNull};
 
@@ -21,28 +24,92 @@ pub type DevT = u16;
 /// `boolean_t (*)(io_req_t)`, the C type of `io_done`.
 pub type IoDone = unsafe extern "C" fn(*mut IoReq) -> c_int;
 
-/// The part of `struct io_req` of <device/io_req.h> the drivers touch.
+/// `struct io_req` of <device/io_req.h>: the IO request a driver is handed,
+/// and the queue node its first two fields form.
 #[repr(C)]
-#[allow(dead_code)]
 pub struct IoReq {
-    next: *mut IoReq,
-    prev: *mut IoReq,
-    device: *mut c_void,
-    dev_ptr: *mut c_char,
-    unit: c_int,
-    op: c_int,
-    mode: c_uint,
-    recnum: c_ulong,
-    data: *mut c_char,
-    count: c_long,
-    alloc_size: usize,
-    residual: c_long,
-    error: c_int,
-    done: Option<IoDone>,
+    pub next: *mut IoReq,
+    pub prev: *mut IoReq,
+    pub device: *mut c_void,
+    pub dev_ptr: *mut c_char,
+    pub unit: c_int,
+    pub op: c_int,
+    pub mode: c_uint,
+    pub recnum: c_ulong,
+    pub data: *mut c_char,
+    pub count: c_long,
+    pub alloc_size: usize,
+    pub residual: c_long,
+    pub error: c_int,
+    pub done: Option<IoDone>,
+    pub reply_port: *mut c_void,
+    pub reply_port_type: c_uint,
+    pub link: *mut IoReq,
+    pub rlink: *mut IoReq,
+    pub copy: *mut VmMapCopy,
+    pub total: c_long,
+    pub lock: SimpleLock,
+    pub physrec: c_long,
+    pub rectotal: c_long,
 }
 
-const _: () = assert!(offset_of!(IoReq, next) == 0);
-const _: () = assert!(offset_of!(IoReq, prev) == size_of::<*mut c_void>());
+#[cfg(target_pointer_width = "64")]
+const _: () = {
+    assert!(size_of::<IoReq>() == 176);
+    assert!(align_of::<IoReq>() == 8);
+    assert!(offset_of!(IoReq, next) == 0);
+    assert!(offset_of!(IoReq, prev) == 8);
+    assert!(offset_of!(IoReq, device) == 16);
+    assert!(offset_of!(IoReq, dev_ptr) == 24);
+    assert!(offset_of!(IoReq, unit) == 32);
+    assert!(offset_of!(IoReq, op) == 36);
+    assert!(offset_of!(IoReq, mode) == 40);
+    assert!(offset_of!(IoReq, recnum) == 48);
+    assert!(offset_of!(IoReq, data) == 56);
+    assert!(offset_of!(IoReq, count) == 64);
+    assert!(offset_of!(IoReq, alloc_size) == 72);
+    assert!(offset_of!(IoReq, residual) == 80);
+    assert!(offset_of!(IoReq, error) == 88);
+    assert!(offset_of!(IoReq, done) == 96);
+    assert!(offset_of!(IoReq, reply_port) == 104);
+    assert!(offset_of!(IoReq, reply_port_type) == 112);
+    assert!(offset_of!(IoReq, link) == 120);
+    assert!(offset_of!(IoReq, rlink) == 128);
+    assert!(offset_of!(IoReq, copy) == 136);
+    assert!(offset_of!(IoReq, total) == 144);
+    assert!(offset_of!(IoReq, lock) == 152);
+    assert!(offset_of!(IoReq, physrec) == 160);
+    assert!(offset_of!(IoReq, rectotal) == 168);
+};
+
+#[cfg(target_pointer_width = "32")]
+const _: () = {
+    assert!(size_of::<IoReq>() == 92);
+    assert!(align_of::<IoReq>() == 4);
+    assert!(offset_of!(IoReq, next) == 0);
+    assert!(offset_of!(IoReq, prev) == 4);
+    assert!(offset_of!(IoReq, device) == 8);
+    assert!(offset_of!(IoReq, dev_ptr) == 12);
+    assert!(offset_of!(IoReq, unit) == 16);
+    assert!(offset_of!(IoReq, op) == 20);
+    assert!(offset_of!(IoReq, mode) == 24);
+    assert!(offset_of!(IoReq, recnum) == 28);
+    assert!(offset_of!(IoReq, data) == 32);
+    assert!(offset_of!(IoReq, count) == 36);
+    assert!(offset_of!(IoReq, alloc_size) == 40);
+    assert!(offset_of!(IoReq, residual) == 44);
+    assert!(offset_of!(IoReq, error) == 48);
+    assert!(offset_of!(IoReq, done) == 52);
+    assert!(offset_of!(IoReq, reply_port) == 56);
+    assert!(offset_of!(IoReq, reply_port_type) == 60);
+    assert!(offset_of!(IoReq, link) == 64);
+    assert!(offset_of!(IoReq, rlink) == 68);
+    assert!(offset_of!(IoReq, copy) == 72);
+    assert!(offset_of!(IoReq, total) == 76);
+    assert!(offset_of!(IoReq, lock) == 80);
+    assert!(offset_of!(IoReq, physrec) == 84);
+    assert!(offset_of!(IoReq, rectotal) == 88);
+};
 
 impl IoReq {
     /// `io_count`: the byte count the caller asked for.

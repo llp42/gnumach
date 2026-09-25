@@ -646,7 +646,7 @@ impl MachMsgHeader {
     }
 
     /// `msgh_id` of <mach/message.h>.
-    fn id(&self) -> c_int {
+    pub(crate) fn id(&self) -> c_int {
         self.id
     }
 }

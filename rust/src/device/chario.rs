@@ -6,9 +6,11 @@
 //! The tty delayed-reply completion and PDMA table setup, which
 //! `device/chario.c` used to define.
 
+use crate::arch::i386::io_req::IoReq;
+use crate::device::ds_routines_ffi::iodone;
 use crate::glue;
 use crate::kern::queue::QueueEntry;
-use core::ffi::{c_int, c_void};
+use core::ffi::c_int;
 use core::pin::Pin;
 use core::ptr::NonNull;
 
@@ -75,7 +77,7 @@ unsafe fn complete(mut head: Pin<&mut QueueEntry>) {
         };
         // SAFETY: every entry of these queues is an `io_req`, whose chain is
         // its first two fields.
-        unsafe { glue::iodone(ior.as_ptr().cast::<c_void>()) };
+        unsafe { iodone(ior.as_ptr().cast::<IoReq>()) };
     }
 }
 

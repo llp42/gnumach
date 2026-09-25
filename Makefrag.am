@@ -204,7 +204,6 @@ libkernel_a_SOURCES += \
 	device/device_init.h \
 	device/device_port.h \
 	device/device_types_kernel.h \
-	device/ds_routines.c \
 	device/ds_routines.h \
 	device/if_ether.h \
 	device/if_hdr.h \
