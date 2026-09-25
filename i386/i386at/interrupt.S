@@ -12,18 +12,15 @@
  * CONDITION.  THE AUTHOR DISCLAIMS ANY LIABILITY OF ANY KIND FOR
  * ANY DAMAGES WHATSOEVER RESULTING FROM THE USE OF THIS SOFTWARE.
  */
+/*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
 
 #include <mach/machine/asm.h>
 
 #include <i386/ipl.h>
-#ifdef APIC
-# include <i386/apic.h>
-#else
-# include <i386/pic.h>
-#endif
+#include <i386/apic.h>
 #include <i386/i386asm.h>
-
-#define READ_ISR	(OCW_TEMPLATE|READ_NEXT_RD|READ_IS_ONRD)
 
 /*
  * Generic interrupt handler.
@@ -63,46 +60,8 @@ ENTRY(interrupt)
 	jnz	_call_handler		/* yes: handle before eoi */
 
 _eoi:
-#ifndef APIC
-	movl	$1,%eax
-	shll	%cl,%eax		/* get corresponding IRQ mask */
-	orl	EXT(curr_pic_mask),%eax /* add current mask */
-
-	cmpl	$8,%ecx			/* do we need to ack slave? */
-	jl	1f			/* no, only master */
-
-	/* EOI on slave */
-	movb	%ah,%al
-	outb	%al,$(PIC_SLAVE_OCW)	/* mask slave out */
-
-	movb	$(SPECIFIC_EOI),%al	/* specific EOI for this irq */
-	andb	$7,%cl			/* irq number for the slave */
-	orb	%cl,%al			/* combine them */
-	outb	%al,$(PIC_SLAVE_ICW)	/* ack interrupt to slave */
-
-	movb	$(SPECIFIC_EOI + I_AM_SLAVE_2),%al	/* specific master EOI for cascaded slave */
-	outb	%al,$(PIC_MASTER_ICW)	/* ack interrupt to master */
-
-	movl	EXT(curr_pic_mask),%eax /* restore original mask */
-	movb	%ah,%al
-	outb	%al,$(PIC_SLAVE_OCW)	/* unmask slave */
-	jmp	2f
-
-1:
-	/* EOI on master */
-	outb	%al,$(PIC_MASTER_OCW)	/* mask master out */
-
-	movb	$(SPECIFIC_EOI),%al	/* specific EOI for this irq */
-	orb	%cl,%al			/* combine with irq number */
-	outb	%al,$(PIC_MASTER_ICW)	/* ack interrupt to master */
-
-	movl	EXT(curr_pic_mask),%eax /* restore original mask */
-	outb	%al,$(PIC_MASTER_OCW)	/* unmask master */
-2:
-#else
 	movl	%ecx,(%esp)		/* load irq number as 1st arg */
 	call	EXT(ioapic_irq_eoi)	/* ioapic irq specific EOI */
-#endif
 
 	movl	S_IRQ,%ecx		/* restore irq number */
 	movb	EXT(irqinfo)(,%ecx,2),%al	/* look up irq_info[irq].trigger */

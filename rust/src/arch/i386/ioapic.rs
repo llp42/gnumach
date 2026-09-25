@@ -148,13 +148,13 @@ const APIC_IRQ_OVERRIDE_LEVEL_TRIGGERED: u16 = 8;
 
 /// `ACPI_PICMODE_APIC` of <device/irq_status.h>.
 const ACPI_PICMODE_APIC: c_int = 1;
-/// `PIC_SLAVE_OCW` of <i386/pic.h>.
+/// `PIC_SLAVE_OCW` of the removed <i386/pic.h>: the 8259 slave OCW port.
 const PIC_SLAVE_OCW: u16 = 0xa1;
-/// `PIC_MASTER_OCW` of <i386/pic.h>.
+/// `PIC_MASTER_OCW` of the removed <i386/pic.h>: the 8259 master OCW port.
 const PIC_MASTER_OCW: u16 = 0x21;
-/// `PICS_MASK` of <i386/pic.h>.
+/// `PICS_MASK` of the removed <i386/pic.h>: every slave line masked.
 const PICS_MASK: u8 = 0xff;
-/// `PICM_MASK` of <i386/pic.h>.
+/// `PICM_MASK` of the removed <i386/pic.h>: every master line masked.
 const PICM_MASK: u8 = 0xff;
 /// `SPLHI` of <i386/ipl.h>.
 const SPLHI: c_int = 7;

@@ -752,8 +752,8 @@ pub(crate) fn c_boot_entry(bi: VmOffset) {
 
 /// `startrtclock()` of <i386/i386/model_dep.h>.
 pub(crate) fn startrtclock() {
-    // The C's non-APIC branch (`clkstart()` plus `unmask_irq(0)`) is not part
-    // of either configured kernel; both define `APIC`.
+    // The C's non-APIC branch (`clkstart()` plus `unmask_irq(0)`) went with
+    // the 8259 driver; APIC support is unconditional now.
     // SAFETY: `timer_pin` is read after `ioapic_configure` picked it, and the
     // boot path is single-threaded.
     let pin = unsafe { ioapic::timer_pin };

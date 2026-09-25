@@ -113,14 +113,12 @@ Rust now: `ConsDev` in `src/arch/i386/kd/mod.rs`, `DevOps` in
 declarations in `src/device/dev_name.rs` and `glue`, `IfNet` in
 `src/device/net_io.rs`, and `IrqDev`/`UserIntr` in `src/arch/i386/irq.rs`.
 
-### `i386/` (5 files, 696 LOC)
+### `i386/` (2 files, 192 LOC)
 
 | File | LOC | Free | Holds the rest |
-|---|---:|---:|---|
-| `i386/pic.c` | 270 | 0 | not compiled in the APIC configuration |
+|---|---|---:|---:|---|
 | `i386at/conf.c` | 144 | 0 | static tables |
 | `i386at/cons_conf.c` | 48 | 0 | static tables |
-| `i386at/pic_isa.c` | 56 | 0 | not compiled in the APIC configuration |
 
 `chips/busses.c` moved to `src/arch/i386/busses.rs`; the `struct bus_device`,
 `struct bus_ctlr` and `struct bus_driver` mirrors it reads stay in
@@ -303,9 +301,12 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
   configured builds, so they were deleted with the file rather than ported.
   The header beside them had already lost its last C caller and went with
   it.
-* `i386/i386/pic.c` and `i386/i386at/pic_isa.c` are not compiled in the
-  APIC configuration.  They stay until the non-APIC configuration is
-  either built or dropped; they are not port targets.
+* `i386/i386/pic.c`, `i386/i386/pic.h` and `i386/i386at/pic_isa.c` are
+  deleted with the non-APIC configuration.  `configfrag-first.ac` rejects
+  `--enable-ncpus` below 2 and `i386/configfrag.ac` then forced
+  `enable_apic=yes`, so the 8259 driver and the `if !enable_apic` blocks
+  that built it were unreachable; `APIC` is now unconditional, and the
+  8259-specific arms of `interrupt.S` and `irq.h` went with it.
 
 ## 9. Already moved (for reference)
 

@@ -11,16 +11,15 @@
  * CONDITION.  THE FREE SOFTWARE FOUNDATION DISCLAIMS ANY LIABILITY OF ANY KIND
  * FOR ANY DAMAGES WHATSOEVER RESULTING FROM THE USE OF THIS SOFTWARE.
  */
+/*
+ * Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+ */
 
 #ifndef _I386_IRQ_H
 #define _I386_IRQ_H
 
 
-#ifdef APIC
-# include <i386/apic.h>
-#else
-# include <i386/pic.h>
-#endif
+#include <i386/apic.h>
 
 typedef unsigned int irq_t;
 
