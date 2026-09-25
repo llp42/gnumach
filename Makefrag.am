@@ -76,8 +76,6 @@ libkernel_a_SOURCES += \
 	kern/mach_factor.h \
 	kern/machine.h \
 	kern/macros.h \
-	kern/printf.c \
-	kern/printf.h \
 	kern/priority.h \
 	kern/processor.h \
 	kern/queue.h \

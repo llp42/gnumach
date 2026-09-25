@@ -206,15 +206,16 @@ Also deleted as dead: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), `i386/intel/read_fault.c` (body
 `#if`-ed out on every supported CPU), `ipc/copy_user.c`'s `USER32` half
 (`copyoutmsg()` included), which never compiled in either configured
-build, and `kern/debug.c`, whose `Panic` lost its last caller when
-`vm_fault_unwire` moved to Rust.
+build, `kern/debug.c`, whose `Panic` lost its last caller when
+`vm_fault_unwire` moved to Rust, and `kern/printf.c` with its header,
+whose last caller went when `vm_fault_page` did.
 
 **Next:** a good candidate is a leaf, needs no allocation, and has a C
-definition that can be deleted in the same commit. `MIGRATE.md` §4 rates every
-file in `kern/` by friction and names the blocker for each. The standing gaps
-are an allocator over `kalloc`/`kmem_cache`, an RAII lock/IRQ layer, and a
-per-CPU accessor — each is a design conversation, not something to add quietly
-to land one patch.
+definition that can be deleted in the same commit. `MIGRATE.md` §9 is the
+remaining-work table, and `vm/vm_fault.c`'s three state functions are the
+only C source left. The standing gaps are an allocator over
+`kalloc`/`kmem_cache`, an RAII lock/IRQ layer, and a per-CPU accessor — each
+is a design conversation, not something to add quietly to land one patch.
 
 **When you update this section, update `MIGRATE.md` §9 in the same commit.**
 This table drifted badly once already.
@@ -616,7 +617,7 @@ rediscovering them per port:
   the `cnputc()` core; `CStrArg` is how a NUL-terminated C string becomes a
   `{}` argument, `write_cstr` is the `snprintf()` replacement, and
   `kpanic!` is the Rust `Panic()`. No C caller of the C `printf` path is
-  left; `kern/printf.c` remains only until its deletion pass.
+  left; `kern/printf.c` and `kern/printf.h` are deleted.
 
 ### Edition 2024
 

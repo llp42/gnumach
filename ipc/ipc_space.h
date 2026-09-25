@@ -47,7 +47,6 @@
 #include <kern/lock.h>
 #include <kern/rdxtree.h>
 #include <kern/slab.h>
-#include <kern/printf.h>
 #include <ipc/ipc_entry.h>
 #include <ipc/ipc_port.h>
 #include <ipc/ipc_types.h>
@@ -152,20 +151,6 @@ ipc_entry_lookup(
 }
 
 extern volatile boolean_t mach_port_deallocate_debug;
-
-#define ipc_entry_lookup_failed(msg, port_name)				\
-MACRO_BEGIN								\
-	if (MACH_PORT_NAME_VALID(port_name)) {				\
-		printf("task %.*s looked up a bogus port %lu for %d, "	\
-		       "most probably a bug.\n",			\
-			(int) sizeof current_task()->name, 		\
-		        current_task()->name,				\
-		        (unsigned long) (port_name),			\
-			(msg)->msgh_id);				\
-		if (mach_port_deallocate_debug)				\
-			SoftDebugger("ipc_entry_lookup");		\
-	}								\
-MACRO_END
 
 /*
  *	Routine:	ipc_entry_get

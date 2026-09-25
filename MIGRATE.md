@@ -66,14 +66,9 @@ order.
 
 ## 4. `kern/` — file-by-file
 
-LOC is the current file; friction is carried from the 2026-09 audit and
-is a guide, not a measurement.  "Free" is the number of functions in
-§6.1; "holds the rest" names the thing that blocks the next port in the
-file, or `—` when the rest is ready too.
-
-| File | LOC | Friction | Free | Holds the rest |
-|---|---:|---:|---:|---|
-| `printf.c` | 497 | 5 | 0 | `printf`/`_doprnt`/`vprintf` have no caller left after `vm_fault_page` moved to `kprint!`; removing the file is a deletion pass (§11) |
+There are no C files left under `kern/`.  `debug.c` went with the dead
+`Panic` (§8) and `printf.c` with its last caller, `vm_fault_page`, now
+`kprint!` in Rust (§11).
 
 ## 5. Outside `kern/`
 
@@ -269,10 +264,9 @@ classes.  A derivation is a snapshot of one afternoon's tree.
 Exit criterion for every step: both qemu architectures green, `rustfmt`
 and clippy clean, no new undefined symbols, and no new C.
 
-**`kern/printf.c` is C only for `vm_fault.c`.**  Every Rust caller moved
-to the `core::fmt` console (§11); the `printf`, `vprintf` and `_doprnt`
-definitions stay until that file moves, and `printnum`/`safe_gets` are
-Rust already (see §9).  The unused variadic leaves are deleted.
+**`kern/printf.c` is deleted.**  Every caller moved to the `core::fmt`
+console (§11), and the last two, `vm_fault_page`'s pager diagnostics,
+went with its port; `printnum` and `safe_gets` are Rust (see §9).
 
 ## 8. Deletions
 
@@ -482,9 +476,12 @@ variadic leaves of `kern/printf.c` (`sprintf`, `snprintf`, `vsnprintf`,
 <kern/printf.h>, and `kern/debug.c`'s `log` and its prototype went when
 their last Rust callers moved to `src/kern/console.rs` (§11).
 `kern/debug.c` itself, its `Panic`, `panicstr` and `paniccpu` included,
-went with the `vm_fault_unwire` panic call that became `kpanic!`.  The
-two unused `static inline` helpers of `ipc/port.h` that expanded the
-`panic()` macro went with it.
+went with the `vm_fault_unwire` panic call that became `kpanic!`, and
+`kern/printf.c` with `kern/printf.h` went when `vm_fault_page`'s pager
+diagnostics became `kprint!`.  The two unused `static inline` helpers of
+`ipc/port.h` that expanded the `panic()` macro, and the unused
+`ipc_entry_lookup_failed` macro of `ipc/ipc_space.h` that expanded
+`printf()`, went with the files that declared the functions.
 
 ## 10. The glue debt
 
@@ -553,11 +550,11 @@ path:
   C-variadic edge for the `locore.S` call under `#ifdef DEBUG` and reads
   the arguments with `VaList::next_arg`.
 
-`vm_fault_page()`'s two diagnostics now format through `kprint!` in
-`src/vm/vm_fault.rs`, so no C caller of `printf` remains and `printf.c`
-with its variadic declarations is deletable in a deletion pass; no C
-caller of `Panic` remains either.  `debug.c` and the `Panic` declaration
-are already deleted.
+`vm_fault_page()`'s two diagnostics format through `kprint!` in
+`src/vm/vm_fault.rs`, so no C caller of `printf` remains: `printf.c`,
+`printf.h` and the variadic declarations are deleted.  No C caller of
+`Panic` remains either, and `debug.c` with the `Panic` declaration
+preceded them.
 
 A boot-time differential harness formatted the same values through the C
 `_doprnt` and through `core::fmt`.  The differences below are the accepted
