@@ -29,7 +29,8 @@ use crate::ipc::{IpcPort, MachMsgHeader, ipc_object, ipc_port, ipc_space};
 use crate::kern::lock::SimpleLock;
 use crate::kern::queue::QueueEntry;
 use crate::kern::sched_prim::{
-    THREAD_AWAKENED, assert_wait, thread_sleep, thread_wakeup_prim,
+    THREAD_AWAKENED, assert_wait, thread_block, thread_sleep,
+    thread_wakeup_prim,
 };
 use crate::kern::slab::KmemCache;
 use crate::kern::slab_ffi::{
@@ -2300,7 +2301,7 @@ unsafe extern "C" fn io_done_thread_continue() {
         }
         // SAFETY: the caller runs this as the io-done kernel thread; the
         // continuation is this routine.
-        unsafe { glue::thread_block(Some(io_done_thread_continue)) };
+        unsafe { thread_block(Some(io_done_thread_continue)) };
     }
 }
 
@@ -2389,7 +2390,7 @@ pub(crate) unsafe extern "C" fn iowait(ior: *mut IoReq) {
             }
             assert_wait(ior.cast::<c_void>(), 0);
             (*ior).lock.unlock();
-            glue::thread_block(None);
+            thread_block(None);
             (*ior).lock.lock();
         }
         (*ior).lock.unlock();

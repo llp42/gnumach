@@ -14,6 +14,7 @@
 
 use crate::config::NCPUS;
 use crate::kern::smp::smp_get_numcpus;
+use crate::kern::thread::Thread;
 use core::ffi::c_int;
 
 /// `AST_HALT` in <kern/ast.h>: the thread has been asked to halt at a clean
@@ -23,6 +24,14 @@ pub const AST_HALT: c_int = 0x1;
 pub const AST_TERMINATE: c_int = 0x2;
 /// `AST_BLOCK` in <kern/ast.h>: the scheduling AST reason.
 pub const AST_BLOCK: usize = 0x4;
+/// `AST_SCHEDULING` in <kern/ast.h>: the reasons the scheduler holds back
+/// while the idle loop waits.
+pub const AST_SCHEDULING: usize =
+    (AST_HALT | AST_TERMINATE) as usize | AST_BLOCK;
+
+/// `AST_PER_THREAD` in <kern/ast.h>: the reasons reset from the thread at a
+/// context switch.
+const AST_PER_THREAD: usize = (AST_HALT | AST_TERMINATE) as usize;
 
 unsafe extern "C" {
     static mut need_ast: [usize; NCPUS];
@@ -51,6 +60,38 @@ pub fn ast_off(cpu: c_int, reasons: usize) {
     unsafe {
         let cell = slot(cpu);
         cell.write_volatile(cell.read_volatile() & !reasons);
+    }
+}
+
+/// Whether CPU `cpu` has an AST other than the scheduling reasons, which the
+/// idle loop handles itself.
+pub fn ast_scheduling_pending(cpu: c_int) -> bool {
+    ast_needed(cpu) & !AST_SCHEDULING != 0
+}
+
+/// The `need_ast[mycpu] &= ~AST_SCHEDULING` of kern/sched_prim.c.
+pub fn ast_clear_scheduling(cpu: c_int) {
+    // SAFETY: as `ast_needed()`.
+    unsafe {
+        let cell = slot(cpu);
+        cell.write_volatile(cell.read_volatile() & !AST_SCHEDULING);
+    }
+}
+
+/// The `ast_context()` macro of <kern/ast.h>: replace the per-thread reasons
+/// of `cpu` with `thread`'s pending ones.
+///
+/// # Safety
+///
+/// `thread` must be a live thread, and `cpu` a CPU number below
+/// [`smp_get_numcpus()`].
+pub unsafe fn ast_context(thread: *mut Thread, cpu: c_int) {
+    // SAFETY: the caller promises a live thread and CPU, and `slot()` serves
+    // the same `need_ast` array the C macro touched.
+    unsafe {
+        let cell = slot(cpu);
+        let per_thread = cell.read_volatile() & !AST_PER_THREAD;
+        cell.write_volatile(per_thread | (*thread).ast as usize);
     }
 }
 

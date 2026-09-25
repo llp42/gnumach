@@ -129,6 +129,7 @@ MACH_RS_SRCS = \
 	rust/src/kern/rdxtree_ffi.rs \
 	rust/src/kern/sched.rs \
 	rust/src/kern/sched_prim.rs \
+	rust/src/kern/sched_prim_ffi.rs \
 	rust/src/kern/slab.rs \
 	rust/src/kern/slab_ffi.rs \
 	rust/src/kern/smp.rs \
@@ -137,6 +138,7 @@ MACH_RS_SRCS = \
 	rust/src/kern/task.rs \
 	rust/src/kern/task_ffi.rs \
 	rust/src/kern/timer.rs \
+	rust/src/kern/timer_ffi.rs \
 	rust/src/kern/thread.rs \
 	rust/src/kern/thread_ffi.rs \
 	rust/src/kern/thread_swap.rs \

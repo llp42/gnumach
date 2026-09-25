@@ -26,7 +26,7 @@ use crate::kern::lock::SimpleLock;
 use crate::kern::machine::MachineSlot;
 use crate::kern::processor::PROCESSOR_IDLE;
 use crate::kern::queue::QueueEntry;
-use crate::kern::sched_prim::thread_bind;
+use crate::kern::sched_prim::{thread_bind, thread_block};
 use crate::kern::timer::Timer;
 use crate::kern::types::KernError;
 use core::ffi::{c_int, c_uint, c_void};
@@ -802,7 +802,7 @@ pub(crate) fn set_time64(
     if current_processor() != master {
         // SAFETY: the thread is bound to `master`, so the block resumes
         // there; the C passed `thread_no_continuation`, a null continuation.
-        unsafe { glue::thread_block(None) };
+        unsafe { thread_block(None) };
     }
 
     // SAFETY: `splhigh()` is the real asm routine, and its value is only
@@ -848,7 +848,7 @@ pub(crate) fn adjust_time(
     if current_processor() != master {
         // SAFETY: the thread is bound to `master`, so the block resumes
         // there; the C passed `thread_no_continuation`, a null continuation.
-        unsafe { glue::thread_block(None) };
+        unsafe { thread_block(None) };
     }
 
     // SAFETY: `splclock()` is the real asm routine, and its return value is

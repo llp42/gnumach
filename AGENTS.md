@@ -158,6 +158,8 @@ link error, not a fallback.
 | `kern/gsync.c` | `src/kern/gsync.rs`, `src/kern/gsync_ffi.rs` |
 | `i386/i386/fpu.c` | `src/arch/i386/fpu.rs`, `src/arch/i386/fpu_ffi.rs` |
 | `i386/i386/pcb.c` | `src/arch/i386/pcb.rs`, `src/arch/i386/pcb_ffi.rs` |
+| `kern/sched_prim.c` | `src/kern/sched_prim.rs`, `src/kern/sched_prim_ffi.rs` |
+| `kern/timer.c` | `src/kern/timer.rs`, `src/kern/timer_ffi.rs` |
 
 Also deleted as dead: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `ipc/copy_user.c`'s `USER32`

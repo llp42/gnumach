@@ -12,12 +12,12 @@ use crate::arch::i386::percpu::current_thread;
 use crate::arch::i386::pmap::pmap_pageable;
 use crate::arch::types::{VmOffset, VmSize};
 use crate::glue::{
-    Panic, assert_wait, kernel_map, kernel_object, kernel_pmap,
-    kernel_virtual_end, kernel_virtual_start, memory_object_create_proxy,
-    pmap_create, pmap_destroy, pmap_enter, pmap_page_protect, pmap_protect,
-    pmap_remove, printf, thread_block, vm_fault_copy, vm_fault_page,
-    vm_fault_unwire, vm_object_allocate, vm_object_coalesce,
-    vm_object_collapse, vm_object_copy_slowly, vm_object_copy_strategically,
+    Panic, kernel_map, kernel_object, kernel_pmap, kernel_virtual_end,
+    kernel_virtual_start, memory_object_create_proxy, pmap_create,
+    pmap_destroy, pmap_enter, pmap_page_protect, pmap_protect, pmap_remove,
+    printf, vm_fault_copy, vm_fault_page, vm_fault_unwire,
+    vm_object_allocate, vm_object_coalesce, vm_object_collapse,
+    vm_object_copy_slowly, vm_object_copy_strategically,
     vm_object_copy_temporary, vm_object_deallocate, vm_object_name,
     vm_object_page_remove, vm_object_pager_create, vm_object_pmap_protect,
     vm_object_pmap_remove, vm_object_reference, vm_object_shadow,
@@ -29,7 +29,9 @@ use crate::ipc::{IpcPort, IpcSpace, ipc_port};
 use crate::kern::list::{List, entry as list_entry};
 use crate::kern::lock::{LockData, SimpleLock};
 use crate::kern::rbtree::{RBTREE_LEFT, RBTREE_RIGHT, Rbtree, RbtreeNode};
-use crate::kern::sched_prim::{THREAD_AWAKENED, thread_wakeup_prim};
+use crate::kern::sched_prim::{
+    THREAD_AWAKENED, assert_wait, thread_block, thread_wakeup_prim,
+};
 use crate::kern::slab::{CacheInitFlags, KmemCache, kalloc, kfree};
 use crate::utils::cell::SyncCell;
 use crate::vm::error::{

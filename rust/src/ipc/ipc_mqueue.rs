@@ -23,6 +23,7 @@ use crate::ipc::{
 use crate::kern::ipc_sched::{
     thread_go, thread_will_wait, thread_will_wait_with_timeout,
 };
+use crate::kern::sched_prim::thread_block;
 use crate::kern::task::current_task;
 use crate::kern::thread::{IpcKmsgQueue, Thread};
 use core::ffi::{c_int, c_uint, c_void};
@@ -260,7 +261,7 @@ pub(crate) unsafe fn send(
 
         // SAFETY: the caller's stack may be discarded here, as the C
         // documented.
-        unsafe { glue::thread_block(None) };
+        unsafe { thread_block(None) };
 
         // SAFETY: the port is live; the wakeup left it unlocked.
         unsafe { port.lock() };
@@ -580,7 +581,7 @@ pub(crate) unsafe fn receive(
 
             // SAFETY: the caller's stack may be discarded here, as the C
             // documented; the continuation resumes this receive.
-            unsafe { glue::thread_block(continuation) };
+            unsafe { thread_block(continuation) };
         }
 
         after_block = false;

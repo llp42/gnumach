@@ -31,6 +31,7 @@ use crate::kern::queue::{
 use crate::kern::sched::{
     BASEPRI_SYSTEM, NRQS, RunQueue, SCHED_SCALE, invalid_pri,
 };
+use crate::kern::sched_prim::min_quantum;
 use crate::kern::slab::CacheInitFlags;
 use crate::kern::thread::Thread;
 use crate::kern::types::KernError;
@@ -396,15 +397,14 @@ impl ProcessorSet {
             (*pset).pset_name_self = ptr::null_mut();
             (*pset).max_priority = BASEPRI_SYSTEM;
             (*pset).policies = POLICY_TIMESHARE;
-            // SAFETY: `min_quantum` is the live C global <kern/sched.h>
-            // declares and kern/sched_prim.c sets; `pset_sys_bootstrap` runs
-            // after it is set.
-            let min_quantum = glue::min_quantum;
-            (*pset).set_quantum = min_quantum;
+            // The quantum is set by `sched_init()` before
+            // `pset_sys_bootstrap()` calls this init.
+            let quantum_min = min_quantum();
+            (*pset).set_quantum = quantum_min;
             (*pset).quantum_adj_index = 0;
             init_lock(&raw mut (*pset).quantum_adj_lock);
             for quantum in (*pset).machine_quantum.iter_mut() {
-                *quantum = min_quantum;
+                *quantum = quantum_min;
             }
             (*pset).mach_factor = 0;
             (*pset).load_average = 0;
@@ -540,13 +540,13 @@ impl ProcessorSet {
         let ncpus = self.processor_count;
         let runq_count = self.runq.count;
 
-        // SAFETY: `min_quantum` is the live C global <kern/sched.h> declares
-        // and kern/sched_prim.c sets.
-        let min_quantum = unsafe { glue::min_quantum };
+        // The quantum `sched_init()` stored before `pset_sys_bootstrap()`
+        // built this set.
+        let quantum_min = min_quantum();
 
         for i in 1..=ncpus {
             let quantum =
-                min_quantum.wrapping_mul(ncpus).wrapping_add(i / 2) / i;
+                quantum_min.wrapping_mul(ncpus).wrapping_add(i / 2) / i;
             // The C indexed with an `int`; the cast cannot wrap because
             // `1 <= i <= ncpus`, and a set holds at most `NCPUS` processors.
             let Some(slot) = self.machine_quantum.get_mut(i as usize) else {

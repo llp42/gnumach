@@ -16,7 +16,7 @@ use crate::glue::{
     self, Panic, ipc_kobject_set, memory_manager_default_reference,
     memory_object_copy, memory_object_create, memory_object_init,
     memory_object_terminate, pmap_is_modified, pmap_page_protect, printf,
-    thread_block, vm_fault_cleanup, vm_fault_page, vm_object_external_count,
+    vm_fault_cleanup, vm_fault_page, vm_object_external_count,
     vm_page_fictitious_addr, vm_page_free, vm_page_grab_fictitious,
     vm_page_insert, vm_page_lookup, vm_page_more_fictitious,
     vm_page_queue_lock, vm_pageout_page, vm_stat,
@@ -27,7 +27,8 @@ use crate::kern::queue::{
     QueueEntry, queue_enter_tail, queue_init, queue_next, queue_remove_generic,
 };
 use crate::kern::sched_prim::{
-    THREAD_AWAKENED, assert_wait, thread_sleep, thread_wakeup_prim,
+    THREAD_AWAKENED, assert_wait, thread_block, thread_sleep,
+    thread_wakeup_prim,
 };
 use crate::kern::slab::{CacheInitFlags, KmemCache};
 use crate::vm::error::Error;

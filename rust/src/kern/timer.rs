@@ -7,9 +7,10 @@
 //! `kern/timer.h`.
 
 use crate::config::NCPUS;
-use crate::glue;
 use crate::glue::time_value::TimeValue64;
 use crate::kern::thread::Thread;
+use crate::utils::cell::SyncCell;
+use core::cell::UnsafeCell;
 use core::ffi::c_uint;
 use core::mem::offset_of;
 use core::ptr;
@@ -41,7 +42,25 @@ pub struct TimerSave {
     pub high: c_uint,
 }
 
+/// `current_timer[NCPUS]` of kern/timer.c: the timer each CPU charges.
+static CURRENT_TIMER: SyncCell<[*mut Timer; NCPUS]> =
+    SyncCell(UnsafeCell::new([ptr::null_mut(); NCPUS]));
+
+/// `kernel_timer[NCPUS]` of kern/timer.c: the timer each CPU runs on.
+static KERNEL_TIMER: SyncCell<[Timer; NCPUS]> =
+    SyncCell(UnsafeCell::new([Timer::zeroed(); NCPUS]));
+
 impl Timer {
+    /// The zero image a C `static` of `struct timer` began with.
+    const fn zeroed() -> Self {
+        Self {
+            low_bits: 0,
+            high_bits: 0,
+            high_bits_check: 0,
+            tstamp: 0,
+        }
+    }
+
     /// Zero every field, as `timer_init()` of <kern/timer.c> did.
     pub fn init(&mut self) {
         self.low_bits = 0;
@@ -107,7 +126,7 @@ fn grab(timer: &Timer, save: &mut TimerSave) {
 
 /// Take the difference between `save` and the live `timer`, updating `save` to
 /// the reading, as `timer_delta()` of <kern/timer.c> did.
-fn delta(timer: &Timer, save: &mut TimerSave) -> c_uint {
+pub(crate) fn delta(timer: &Timer, save: &mut TimerSave) -> c_uint {
     let mut new_save = TimerSave::default();
     grab(timer, &mut new_save);
     let result = new_save
@@ -120,33 +139,61 @@ fn delta(timer: &Timer, save: &mut TimerSave) -> c_uint {
     result
 }
 
-/// Read `timer` as seconds and nanoseconds, as `timer_read()` of
-/// <kern/timer.c> did.
-fn read(timer: &Timer) -> TimeValue64 {
-    let mut save = TimerSave::default();
-    grab(timer, &mut save);
+/// The `TIMER_TO_TIME_VALUE64` macro of kern/timer.c.
+fn to_time_value(save: &TimerSave) -> TimeValue64 {
     TimeValue64 {
         seconds: i64::from(save.high.wrapping_add(save.low / TIMER_RATE)),
         nanoseconds: i64::from(save.low % TIMER_RATE * 1000),
     }
 }
 
+/// Read `timer` as seconds and nanoseconds, as `timer_read()` of
+/// <kern/timer.c> did.
+pub(crate) fn read(timer: &Timer) -> TimeValue64 {
+    let mut save = TimerSave::default();
+    grab(timer, &mut save);
+    to_time_value(&save)
+}
+
 /// Read a thread's user and system times, as `thread_read_times()` of
 /// <kern/timer.c> did.
-fn read_times(thread: &Thread) -> (TimeValue64, TimeValue64) {
+pub(crate) fn read_times(thread: &Thread) -> (TimeValue64, TimeValue64) {
     (read(&thread.user_timer), read(&thread.system_timer))
+}
+
+/// `db_timer_grab()` of kern/timer.c: the C's nonblocking grab, with no
+/// coherence check.
+fn db_grab(timer: &Timer, save: &mut TimerSave) {
+    save.high = timer.high_bits;
+    save.low = timer.low_bits;
+}
+
+/// `nonblocking_timer_read()` of kern/timer.c.
+fn nonblocking_read(timer: &Timer) -> TimeValue64 {
+    let mut temp = TimerSave::default();
+    db_grab(timer, &mut temp);
+    to_time_value(&temp)
+}
+
+/// Read a thread's user and system times without blocking, as
+/// `db_thread_read_times()` of <kern/timer.c> did for the debugger.
+pub(crate) fn db_read_times(thread: &Thread) -> (TimeValue64, TimeValue64) {
+    (
+        nonblocking_read(&thread.user_timer),
+        nonblocking_read(&thread.system_timer),
+    )
 }
 
 /// Zero every kernel timer and clear every current-timer pointer, as
 /// `init_timers()` of kern/timer.c did.
-fn init_all() {
-    let timers = (&raw mut glue::kernel_timer).cast::<Timer>();
-    let current = (&raw mut glue::current_timer).cast::<*mut Timer>();
+pub(crate) unsafe fn init_timers() {
+    // SAFETY: the caller runs this once at boot, so the two arrays are
+    // unshared.
+    unsafe {
+        let timers = KERNEL_TIMER.0.get() as *mut Timer;
+        let current = CURRENT_TIMER.0.get() as *mut *mut Timer;
 
-    for i in 0..NCPUS {
-        // SAFETY: `i` is below `NCPUS`, the length of both C arrays, and this
-        // boot step is their only writer until the other CPUs come up.
-        unsafe {
+        for i in 0..NCPUS {
             (*timers.add(i)).init();
             current.add(i).write(ptr::null_mut());
         }
@@ -154,94 +201,6 @@ fn init_all() {
 
     // The C `start_timer()` is an empty macro in <kern/timer.h>, so its call
     // after the loop expands to nothing.
-}
-
-/// `init_timers()` of kern/timer.c.
-///
-/// # Safety
-///
-/// `kern/startup.c` is the only caller; it runs this during boot, before any
-/// other CPU starts its timers.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn init_timers() {
-    init_all();
-}
-
-/// `timer_init()` in C.
-///
-/// # Safety
-///
-/// `timer` must point at writable storage for a [`Timer`] that no other thread
-/// can see yet.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn timer_init(timer: *mut Timer) {
-    // SAFETY: the caller promises writable, unshared storage.
-    unsafe { (*timer).init() };
-}
-
-/// `timer_normalize()` in C.
-///
-/// # Safety
-///
-/// `timer` must point at a live [`Timer`], and the caller must serialize the
-/// normalize against every other writer, as the CPU owning the timer does.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn timer_normalize(timer: *mut Timer) {
-    // SAFETY: the caller promises a live timer it owns for writing.
-    unsafe { (*timer).normalize() };
-}
-
-/// `timer_delta()` in C.
-///
-/// # Safety
-///
-/// `timer` and `save` must be the live pair of one thread, must not overlap
-/// each other, and the caller must serialize updates to them, as the thread
-/// lock does.
-#[unsafe(no_mangle)]
-#[must_use]
-pub unsafe extern "C" fn timer_delta(
-    timer: *mut Timer,
-    save: *mut TimerSave,
-) -> c_uint {
-    // SAFETY: the caller promises the live pair and its serialization.
-    unsafe { delta(&*timer, &mut *save) }
-}
-
-/// `timer_read()` in C.
-///
-/// # Safety
-///
-/// `timer` must point at a live [`Timer`] that does not overlap `tv`, and `tv`
-/// must be valid for a write.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn timer_read(timer: *mut Timer, tv: *mut TimeValue64) {
-    // SAFETY: the caller promises a live timer.
-    let value = read(unsafe { &*timer });
-    // SAFETY: the caller promises `tv` is valid for a write.
-    unsafe { tv.write(value) };
-}
-
-/// `thread_read_times()` in C.
-///
-/// # Safety
-///
-/// `thread` must point at a live [`Thread`], and both output pointers must be
-/// valid for writes and must not overlap `thread`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn thread_read_times(
-    thread: *mut Thread,
-    user_time_p: *mut TimeValue64,
-    system_time_p: *mut TimeValue64,
-) {
-    // SAFETY: the caller promises a live thread.
-    let (user, system) = read_times(unsafe { &*thread });
-    // SAFETY: the caller promises both pointers are valid for writes, and
-    // neither overlaps the thread the reads just finished.
-    unsafe {
-        user_time_p.write(user);
-        system_time_p.write(system);
-    }
 }
 
 const _: () = assert!(size_of::<Timer>() == 16);
