@@ -99,7 +99,6 @@ libkernel_a_SOURCES += \
 	kern/slab.h \
 	kern/smp.h \
 	kern/sched.h \
-	kern/sched_prim.c \
 	kern/sched_prim.h \
 	kern/shuttle.h \
 	kern/startup.c \
@@ -113,7 +112,6 @@ libkernel_a_SOURCES += \
 	kern/task.h \
 	kern/thread.h \
 	kern/thread_swap.h \
-	kern/timer.c \
 	kern/timer.h \
 	kern/boot_script.c
 EXTRA_DIST += \

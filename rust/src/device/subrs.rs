@@ -7,9 +7,8 @@
 //! <device/subrs.h> and <device/if_ether.h>.
 
 use crate::arch::types::VmOffset;
-use crate::glue;
 use crate::kern::sched_prim::{
-    THREAD_AWAKENED, assert_wait, thread_wakeup_prim,
+    THREAD_AWAKENED, assert_wait, thread_block, thread_wakeup_prim,
 };
 use crate::utils::cell::SyncCell;
 use core::cell::UnsafeCell;
@@ -74,7 +73,7 @@ pub unsafe extern "C" fn sleep(channel: VmOffset, _priority: c_int) {
     // with nothing to run.
     unsafe {
         assert_wait(event(channel), 0);
-        glue::thread_block(None);
+        thread_block(None);
     }
 }
 

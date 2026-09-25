@@ -21,6 +21,7 @@ use crate::device::r#return::{DeviceError, DeviceSuccess, IoResultExt};
 use crate::device::subrs;
 use crate::glue;
 use crate::kern::queue::QueueEntry;
+use crate::kern::sched_prim::{assert_wait, thread_block};
 use crate::utils::kd_queue::{KdEvent, KdEventQueue, KevType, MouseMotion};
 use core::cell::UnsafeCell;
 use core::ffi::{c_int, c_long, c_uint};
@@ -288,10 +289,10 @@ fn read_char(s: &mut State) -> c_int {
         s.mouse_char_wanted = true;
         // SAFETY: the wait channel is the driver's own buffer, and the handler
         // wakes this exact address.
-        unsafe { glue::assert_wait(ptr::addr_of_mut!(s.mousebuf).cast(), 0) };
+        unsafe { assert_wait(ptr::addr_of_mut!(s.mousebuf).cast(), 0) };
         // SAFETY: no thread state to hand over; the caller resumes after the
         // wakeup.
-        unsafe { glue::thread_block(None) };
+        unsafe { thread_block(None) };
     }
     let ch = s.mousebuf[s.mouse_char_index as usize];
     s.mouse_char_index += 1;

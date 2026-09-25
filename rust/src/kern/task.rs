@@ -33,12 +33,13 @@ use crate::kern::queue::{
 };
 use crate::kern::sched::invalid_pri;
 use crate::kern::sched_prim::{
-    THREAD_AWAKENED, assert_wait, compute_priority, thread_wakeup_prim,
+    THREAD_AWAKENED, assert_wait, compute_priority, sched_tick, thread_block,
+    thread_wakeup_prim,
 };
 use crate::kern::slab::{CacheInitFlags, KmemCache, kalloc, kfree};
 use crate::kern::syscall_emulation::eml_init;
 use crate::kern::thread::Thread;
-use crate::kern::timer::thread_read_times;
+use crate::kern::timer::read_times;
 use crate::kern::types::KernError;
 use crate::vm::types::Pmap;
 use crate::vm::vm_map::{VmMap, round_page, trunc_page};
@@ -900,7 +901,7 @@ pub(crate) unsafe fn terminate(task: *mut Task) -> Result<(), KernError> {
                 (*task).lock.unlock();
                 Thread::force_terminate(thread);
                 Thread::deallocate(thread);
-                glue::thread_block(None);
+                thread_block(None);
                 thread = next;
                 (*task).lock.lock();
                 if queue_end(list, thread.cast()) != 0 {
@@ -1411,13 +1412,7 @@ pub(crate) unsafe fn info(
 
                     let s = glue::splsched();
                     (*thread).lock.lock();
-                    let mut user_time = TimeValue64::default();
-                    let mut system_time = TimeValue64::default();
-                    thread_read_times(
-                        thread,
-                        addr_of_mut!(user_time),
-                        addr_of_mut!(system_time),
-                    );
+                    let (user_time, system_time) = read_times(&*thread);
                     (*thread).lock.unlock();
                     glue::splx(s);
 
@@ -1476,7 +1471,7 @@ pub(crate) unsafe fn assign(
                 c_int::from(true),
             );
             (*task).lock.unlock();
-            glue::thread_block(None);
+            thread_block(None);
             (*task).lock.lock();
         }
 
@@ -1802,12 +1797,10 @@ pub(crate) unsafe fn consider_collect() {
 
     let last_tick = unsafe { TASK_COLLECT_LAST_TICK };
     let deadline = last_tick.wrapping_add(max_rate / hz);
-    if unsafe { TASK_COLLECT_ALLOWED } != 0
-        && unsafe { glue::sched_tick } > deadline
-    {
+    if unsafe { TASK_COLLECT_ALLOWED } != 0 && sched_tick() > deadline {
         // SAFETY: as above.
         unsafe {
-            TASK_COLLECT_LAST_TICK = glue::sched_tick;
+            TASK_COLLECT_LAST_TICK = sched_tick();
             collect_scan();
         }
     }

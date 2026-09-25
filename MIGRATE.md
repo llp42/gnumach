@@ -54,7 +54,7 @@ column is what exists in the tree today, not a plan.
 | **L1 types** | structs read field-by-field, sometimes by asm | `Thread`, `Processor`, `ProcessorSet`, `RunQueue`, `Timer`, `Timeout`, `QueueEntry`, `SimpleLock`, `TimeValue`/`TimeValue64`, `VmMap`/`VmMapEntry`/`VmMapHeader`/`VmMapLinks`, `VmPage`, `VmObject`, `Task`/`MachineTask`, `KmemCache`, `MachineSlot`, `struct ipc_port` (with its `ipc_target` and `ipc_mqueue`), `struct ipc_space`, `struct ipc_kmsg`, `struct ipc_entry`, `struct ipc_marequest`, `ApicLocalUnit`, `ApicIoUnit`, `ApicInfo`, `IoApicData` and the packed ACPI tables are `#[repr(C)]` mirrors with size, alignment and offset asserts.  `struct pcb` and the driver structs have no field mirror. |
 | **L2 locks/IRQ/percpu** | `simple_lock`, `spl*`, `percpu_get`, `current_thread()` | done: `kern/lock.c` and `i386/i386/lock.h` are gone, `SimpleLock` is `src/kern/lock.rs`, `spl*` are real asm functions in `glue`, and `current_thread()`, `cpu_number()` and `percpu_get` live in `src/arch/i386/percpu.rs`.  An RAII `IrqGuard` is a Rust-side type to write when wanted. |
 | **L3 memory** | `kalloc`/`kfree`, `kmem_cache_*` | done: `kern/slab.c` is gone, `src/kern/slab.rs` owns the allocator and `src/kern/slab_ffi.rs` exports its C symbols.  A `GlobalAlloc` over `kalloc` remains a design conversation. |
-| **L4 runnable** | `thread_block`, `assert_wait`, continuations | the wait/wake primitives are Rust, and so are `set_timeout` and the timeout wheel; `thread_block` and `assert_wait` are real C symbols in `glue`; `switch_context`, `call_continuation` and `stack_handoff` stay C. |
+| **L4 runnable** | `thread_block`, `assert_wait`, continuations | the scheduler is Rust whole: `sched_prim.rs` owns the wait/wake primitives, `thread_block`/`thread_invoke`/`thread_select`/`thread_run`, the run-queue and stuck-thread scans, and `timer.rs` owns the statistical timers, with `sched_prim_ffi.rs`/`timer_ffi.rs` exporting the C symbols; only the asm entry points (`call_continuation`, `Switch_context`) stay C. |
 | **L5 IPC/VM** | ports, spaces, kmsgs, maps, objects, pages | `vm_map` and `vm_object` are Rust-native, and `struct task` is mirrored; the rest have no field mirrors, and `vm/vm_map_glue.c` exists for the page and task fields the map's C edges still read. |
 | **L6 arch/MIG** | MIG output, trap table, pmap, locore | stays C.  MIG routines are not generated: the generated server calls the hand-written definition, so a Rust port replaces only that definition. |
 
@@ -85,12 +85,10 @@ file, or `—` when the rest is ready too.
 | `printf.c` | 592 | 5 | 0 | C-variadic definitions; blocked (see §8) |
 | `priority.c` | 196 | 4 | 0 | pset tail and `struct slock_irq` |
 | `processor.c` | 465 | 4 | 0 | `processor_set_things`'s allocation and port conversions |
-| `sched_prim.c` | 1238 | 5 | 0 | static `thread_select`/`do_runq_scan`; continuations |
 | `startup.c` | 290 | 5 | 0 | `machine_info`, NCPUS loops, boot |
 | `syscall_emulation.c` | 446 | 4 | 0 | `struct eml_dispatch` and task fields |
 | `syscall_subr.c` | 251 | 4 | 0 | static continuations (`swtch_continue`, ...) |
 | `syscall_sw.c` | 220 | 3 | 0 | trap table ABI; static stubs |
-| `timer.c` | 93 | 3 | 0 | `db_thread_read_times` and its static helpers |
 
 ## 5. Outside `kern/`
 
@@ -407,8 +405,8 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `kern/bootstrap.c` (`boot_script_free_task`) | `src/kern/bootstrap.rs` | pending |
 | `kern/printf.c` (`printnum`, `safe_gets`) | `src/kern/printf.rs` | pending |
 | `kern/rdxtree.c` with the `struct rdxtree`/`rdxtree_iter` mirrors | `src/kern/rdxtree.rs`, `rdxtree_ffi.rs` | pending |
-| `kern/timer.c` (`thread_read_times`) | `src/kern/timer.rs` | pending |
-| `kern/sched_prim.c` (`thread_set_timeout`, `thread_bind`, `thread_continue`, `compute_priority`, `compute_my_priority`, `recompute_priorities`, `set_pri`, `choose_pset_thread`) and `kern/syscall_subr.c` (`thread_depress_priority`, `thread_depress_timeout`, `thread_depress_abort`) | `src/kern/sched_prim.rs`, `src/kern/syscall_subr.rs` | pending |
+| `kern/sched_prim.c` whole, with the wait hash table, `wait_shift`, the stuck-thread scan statics, `sched_tick`/`min_quantum` and the continuations it owned, and `kern/timer.c` whole, with `current_timer`/`kernel_timer` and the nonblocking debug reads | `src/kern/sched_prim.rs`, `sched_prim_ffi.rs`, `src/kern/timer.rs`, `timer_ffi.rs` | pending |
+| `kern/syscall_subr.c` (`thread_depress_priority`, `thread_depress_timeout`, `thread_depress_abort`) | `src/kern/syscall_subr.rs` | pending |
 | `kern/thread.c` (`stack_alloc_try`, `stack_alloc`, `stack_free`, `stack_collect`, `stack_privilege`) | `src/kern/thread.rs` | pending |
 | `kern/thread.c` (`thread_reference`, `thread_force_terminate`, `thread_hold`, `thread_release`, `thread_resume`, `thread_abort`, `thread_start`, `thread_unfreeze`, `thread_get_assignment`) | `src/kern/thread.rs` | pending |
 | `kern/ipc_host.c`, `kern/host.c` and `kern/exception.c` whole, with the `Host`/`realhost` object, the host-info record views, the `struct mach_exception` record, the four `mach_msg_type_t` protos and the `exception_raise_misses` counter | `src/kern/ipc_host.rs`, `ipc_host_ffi.rs`, `host.rs`, `host_ffi.rs`, `exception.rs`, `exception_ffi.rs` | pending |

@@ -11,8 +11,8 @@ use crate::glue;
 use crate::kern::lock::SimpleLock;
 use crate::kern::queue::QueueEntry;
 use crate::kern::sched_prim::{
-    THREAD_AWAKENED, assert_wait, thread_continue, thread_setrun,
-    thread_wakeup_prim,
+    THREAD_AWAKENED, assert_wait, thread_block, thread_continue,
+    thread_setrun, thread_wakeup_prim,
 };
 use crate::kern::thread::{
     TH_RUN, TH_SW_COMING_IN, TH_SWAP_STATE, TH_SWAPPED, Thread,
@@ -197,7 +197,7 @@ unsafe extern "C" fn swapin_thread_continue() -> ! {
             assert_wait(swapin_event(), 0);
             SWAPPER_LOCK.unlock();
             glue::splx(s);
-            glue::thread_block(Some(swapin_thread_continuation));
+            thread_block(Some(swapin_thread_continuation));
         }
     }
 }

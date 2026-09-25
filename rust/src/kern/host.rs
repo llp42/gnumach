@@ -299,9 +299,7 @@ pub(crate) fn info(
             }
 
             let tick = crate::kern::mach_clock::tick;
-            // SAFETY: `min_quantum` is the C global `kern/startup.c`
-            // initialized before this entry can run.
-            let min_quantum = unsafe { *ptr::addr_of!(glue::min_quantum) };
+            let min_quantum = crate::kern::sched_prim::min_quantum();
             info[0] = tick / 1000;
             // The C overflowed an `int` the same way; the clock and the
             // quantum are both small at run time.

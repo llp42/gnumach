@@ -12,11 +12,11 @@ use crate::arch::i386::percpu::current_thread;
 use crate::arch::i386::pmap::pmap_pageable;
 use crate::arch::types::{VmOffset, VmSize};
 use crate::glue::{
-    Panic, assert_wait, kernel_map, kernel_object, kernel_pmap,
-    kernel_virtual_end, kernel_virtual_start, memory_object_create_proxy,
-    pmap_create, pmap_destroy, pmap_protect, pmap_remove, printf,
-    thread_block, vm_fault_copy, vm_fault_page, vm_fault_unwire, vm_map_cache,
-    vm_map_copy_cache, vm_map_entry_cache, vm_map_glue_page_activate_if_idle,
+    Panic, kernel_map, kernel_object, kernel_pmap, kernel_virtual_end,
+    kernel_virtual_start, memory_object_create_proxy, pmap_create,
+    pmap_destroy, pmap_protect, pmap_remove, printf, vm_fault_copy,
+    vm_fault_page, vm_fault_unwire, vm_map_cache, vm_map_copy_cache,
+    vm_map_entry_cache, vm_map_glue_page_activate_if_idle,
     vm_map_glue_page_clear_busy, vm_map_glue_page_is_absent,
     vm_map_glue_page_is_busy, vm_map_glue_page_is_error,
     vm_map_glue_page_is_fictitious, vm_map_glue_page_is_precious,
@@ -37,7 +37,9 @@ use crate::ipc::{IpcPort, IpcSpace, ipc_port};
 use crate::kern::list::{List, entry as list_entry};
 use crate::kern::lock::{LockData, SimpleLock};
 use crate::kern::rbtree::{RBTREE_LEFT, RBTREE_RIGHT, Rbtree, RbtreeNode};
-use crate::kern::sched_prim::{THREAD_AWAKENED, thread_wakeup_prim};
+use crate::kern::sched_prim::{
+    THREAD_AWAKENED, assert_wait, thread_block, thread_wakeup_prim,
+};
 use crate::kern::slab::{CacheInitFlags, kalloc, kfree};
 use crate::vm::error::{
     Error, KERN_SUCCESS, error_from_kern_return, kern_return,

@@ -43,14 +43,15 @@ use crate::kern::sched::{
 use crate::kern::sched_prim::{
     TH_RUN_SUSP, TH_RUN_SUSP_UNINT, TH_RUN_WAIT_SUSP, TH_RUN_WAIT_SUSP_UNINT,
     TH_WAIT_SUSP, TH_WAIT_SUSP_UNINT, THREAD_AWAKENED, THREAD_INTERRUPTED,
-    assert_wait, clear_wait, compute_priority, thread_setrun, thread_sleep,
-    thread_timeout_setup, thread_wakeup_prim,
+    assert_wait, clear_wait, compute_priority, rem_runq, sched_tick,
+    thread_block, thread_setrun, thread_sleep, thread_timeout_setup,
+    thread_wakeup_prim, update_priority,
 };
 use crate::kern::slab::{CacheInitFlags, KmemCache, kalloc, kfree};
 use crate::kern::smp::smp_get_numcpus;
 use crate::kern::syscall_subr::thread_depress_abort;
 use crate::kern::task::{Task, add_time64, current_task, kernel_task};
-use crate::kern::timer::{TIMER_RATE, Timer, TimerSave, thread_read_times};
+use crate::kern::timer::{TIMER_RATE, Timer, TimerSave, read_times};
 use crate::kern::types::KernError;
 use crate::utils::string::strncpy;
 use crate::vm::vm_map::{VmMap, round_page};
@@ -1624,7 +1625,7 @@ impl Thread {
                 (*new_thread).vm_privilege = 1;
             }
             (*new_thread).lock.init();
-            (*new_thread).sched_stamp = glue::sched_tick;
+            (*new_thread).sched_stamp = sched_tick();
             thread_timeout_setup(new_thread);
             crate::arch::i386::pcb::pcb_init(parent_task, new_thread);
             ipc_thread_init(new_thread);
@@ -1795,13 +1796,7 @@ impl Thread {
             reset_timeout_check(ptr::addr_of_mut!((*thread).depress_timer));
             (*thread).depress_priority = -1;
 
-            let mut user_time = TimeValue64::default();
-            let mut system_time = TimeValue64::default();
-            thread_read_times(
-                thread,
-                ptr::addr_of_mut!(user_time),
-                ptr::addr_of_mut!(system_time),
-            );
+            let (user_time, system_time) = read_times(&*thread);
             add_time64(&mut (*task).total_user_time, user_time);
             add_time64(&mut (*task).total_system_time, system_time);
 
@@ -2228,7 +2223,7 @@ impl Thread {
                     0,
                     THREAD_AWAKENED,
                 );
-                glue::thread_block(Some(walking_zombie));
+                thread_block(Some(walking_zombie));
             } else {
                 let s = glue::splsched();
                 (*thread).lock.lock();
@@ -2236,7 +2231,7 @@ impl Thread {
                 (*thread).ast &= !AST_HALT;
                 (*thread).lock.unlock();
                 glue::splx(s);
-                glue::thread_block(continuation);
+                thread_block(continuation);
             }
         }
     }
@@ -2278,7 +2273,7 @@ impl Thread {
                 match (*thread).state() & TH_SCHED_STATE {
                     TH_SUSP | TH_WAIT_SUSP => (),
                     TH_RUN_SUSP => {
-                        if glue::rem_runq(thread) != RUN_QUEUE_NULL {
+                        if rem_runq(thread) != RUN_QUEUE_NULL {
                             (*thread).set_state((*thread).state() & !TH_RUN);
                             need_wakeup = (*thread).wake_active();
                             (*thread).set_wake_active(false);
@@ -2351,7 +2346,7 @@ impl Thread {
             while (*thread).state() & TH_UNINT != 0 {
                 assert_wait((*thread).state_event(), c_int::from(true));
                 (*thread).lock.unlock();
-                glue::thread_block(None);
+                thread_block(None);
                 (*thread).lock.lock();
             }
 
@@ -2417,18 +2412,12 @@ impl Thread {
                     (*thread).lock.lock();
 
                     if (*thread).state() & TH_RUN == 0
-                        && (*thread).sched_stamp != glue::sched_tick
+                        && (*thread).sched_stamp != sched_tick()
                     {
-                        glue::update_priority(thread);
+                        update_priority(thread);
                     }
 
-                    let mut user_time = TimeValue64::default();
-                    let mut system_time = TimeValue64::default();
-                    thread_read_times(
-                        thread,
-                        ptr::addr_of_mut!(user_time),
-                        ptr::addr_of_mut!(system_time),
-                    );
+                    let (user_time, system_time) = read_times(&*thread);
                     ptr::addr_of_mut!((*basic).user_time)
                         .write(RpcTimeValue::from(TimeValue::from(user_time)));
                     ptr::addr_of_mut!((*basic).system_time).write(
@@ -2500,7 +2489,7 @@ impl Thread {
                     } else {
                         // The C stored the `unsigned` difference into an
                         // `integer_t`; the `as` keeps the low bits.
-                        glue::sched_tick.wrapping_sub((*thread).sched_stamp)
+                        sched_tick().wrapping_sub((*thread).sched_stamp)
                             as c_int
                     };
                     ptr::addr_of_mut!((*basic).sleep_time).write(sleep_time);
@@ -2890,7 +2879,7 @@ pub(crate) unsafe extern "C" fn reaper_thread_continue() {
             assert_wait(ptr::addr_of_mut!(REAPER_QUEUE).cast::<c_void>(), 0);
             (*ptr::addr_of_mut!(REAPER_LOCK)).unlock();
             glue::splx(s);
-            glue::thread_block(Some(reaper_thread_continue));
+            thread_block(Some(reaper_thread_continue));
         }
     }
 }
@@ -2950,12 +2939,10 @@ pub(crate) unsafe fn consider_collect() {
 
     let last_tick = unsafe { THREAD_COLLECT_LAST_TICK };
     let deadline = last_tick.wrapping_add(max_rate / hz);
-    if unsafe { THREAD_COLLECT_ALLOWED } != 0
-        && unsafe { glue::sched_tick } > deadline
-    {
+    if unsafe { THREAD_COLLECT_ALLOWED } != 0 && sched_tick() > deadline {
         // SAFETY: as above.
         unsafe {
-            THREAD_COLLECT_LAST_TICK = glue::sched_tick;
+            THREAD_COLLECT_LAST_TICK = sched_tick();
         }
         unsafe { Thread::collect_scan() };
     }

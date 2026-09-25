@@ -16,7 +16,7 @@ use crate::kern::ipc_sched::{
 use crate::kern::kmutex::KMutex;
 use crate::kern::list::{List, entry as list_entry};
 use crate::kern::sched_prim::{
-    THREAD_AWAKENED, THREAD_INTERRUPTED, clear_wait,
+    THREAD_AWAKENED, THREAD_INTERRUPTED, clear_wait, thread_block,
 };
 use crate::kern::task::{Task, current_task};
 use crate::kern::thread::Thread;
@@ -426,7 +426,7 @@ pub(crate) fn wait(
     unsafe { (*bucketp).lock.unlock() };
     // SAFETY: the thread is marked waiting, so the block yields until the
     // wakeup or timeout the wait armed.
-    unsafe { glue::thread_block(None) };
+    unsafe { thread_block(None) };
 
     // SAFETY: the waker wrote `wait_result` under the thread lock before
     // waking us.

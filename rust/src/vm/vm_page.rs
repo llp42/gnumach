@@ -12,11 +12,10 @@ use crate::arch::types::{VmOffset, VmSize};
 use crate::arch::vm_param::{PAGE_SHIFT, PAGE_SIZE};
 use crate::config::NCPUS;
 use crate::glue::{
-    Panic, assert_wait, kernel_pmap, memory_manager_default,
-    memory_manager_default_port, pmap_clear_modify, pmap_clear_reference,
-    pmap_extract, pmap_is_modified, pmap_is_referenced, pmap_page_protect,
-    printf, thread_block, vm_object_collapse, vm_object_collect,
-    vm_object_pager_create, vm_page_active_count,
+    Panic, kernel_pmap, memory_manager_default, memory_manager_default_port,
+    pmap_clear_modify, pmap_clear_reference, pmap_extract, pmap_is_modified,
+    pmap_is_referenced, pmap_page_protect, printf, vm_object_collapse,
+    vm_object_collect, vm_object_pager_create, vm_page_active_count,
     vm_page_external_laundry_count, vm_page_fictitious_addr, vm_page_free,
     vm_page_inactive_count, vm_page_insert, vm_page_laundry_count,
     vm_page_queue_free_lock, vm_page_queue_lock, vm_page_remove,
@@ -25,7 +24,9 @@ use crate::glue::{
 use crate::kern::list::{List, entry};
 use crate::kern::lock::SimpleLock;
 use crate::kern::queue::QueueEntry;
-use crate::kern::sched_prim::{THREAD_AWAKENED, thread_wakeup_prim};
+use crate::kern::sched_prim::{
+    THREAD_AWAKENED, assert_wait, thread_block, thread_wakeup_prim,
+};
 use crate::utils::cell::SyncCell;
 use crate::vm::types::{VmObject, VmProt};
 use crate::vm::vm_resident;

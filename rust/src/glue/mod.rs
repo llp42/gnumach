@@ -14,16 +14,12 @@ use crate::arch::types::{VmOffset, VmSize};
 use crate::config::NCPUS;
 use crate::device::ds_routines::DevOps;
 use crate::kern::lock::SimpleLock;
-use crate::kern::mach_clock::Timeout;
 use crate::kern::machine::{MachineInfo, MachineSlot};
 use crate::kern::processor::{Processor, ProcessorSet};
 use crate::kern::queue::QueueEntry;
-use crate::kern::sched::RunQueue;
-use crate::kern::sched_prim::NUMQUEUES;
 use crate::kern::slab::KmemCache;
 use crate::kern::task::Task;
 use crate::kern::thread::{Continuation, Thread};
-use crate::kern::timer::Timer;
 use crate::vm::types::{Pmap, VmObject, VmPage, VmProt, VmStatistics};
 use crate::vm::vm_map::{VmMap, VmMapEntry};
 use core::ffi::{c_char, c_int, c_long, c_uint, c_ulong, c_ushort, c_void};
@@ -61,10 +57,6 @@ unsafe extern "C" {
     pub fn kd_slmscu(from: *mut c_void, to: *mut c_void, count: c_int);
     pub fn kd_slmscd(from: *mut c_void, to: *mut c_void, count: c_int);
 
-    pub fn assert_wait(event: *mut c_void, interruptible: c_int);
-    pub fn thread_block(continuation: Option<unsafe extern "C" fn()>);
-    pub fn update_priority(thread: *mut Thread);
-    pub fn rem_runq(th: *mut Thread) -> *mut RunQueue;
     pub fn thread_exception_return();
     pub fn thread_handoff(
         self_: *mut Thread,
@@ -157,24 +149,26 @@ unsafe extern "C" {
     pub fn smp_remote_ast(logical_id: c_uint);
     pub fn smp_pmap_update(logical_id: c_uint);
 
-    pub static mut sched_tick: c_uint;
-    pub static mut recompute_priorities_timer: Timeout;
-    pub static mut sched_thread_id: *mut Thread;
-
-    pub static mut current_timer: [*mut Timer; NCPUS];
-    pub static mut kernel_timer: [Timer; NCPUS];
-
-    pub static mut wait_queue: [QueueEntry; NUMQUEUES];
-    pub static mut wait_lock: [SimpleLock; NUMQUEUES];
-
     pub fn thread_bootstrap_return();
     pub fn Load_context(new: *mut Thread) -> !;
-
-    pub static mut min_quantum: c_int;
 
     pub static mut all_psets: QueueEntry;
     pub static mut all_psets_lock: SimpleLock;
     pub static mut all_psets_count: c_int;
+
+    pub static mut action_queue: QueueEntry;
+    pub static mut action_lock: SimpleLock;
+
+    pub fn pset_sys_bootstrap();
+
+    /// `ast_taken()` of `kern/ast.c`, which is still C.
+    pub fn ast_taken();
+
+    /// `compute_mach_factor()` of `kern/mach_factor.c`, which is still C.
+    pub fn compute_mach_factor();
+
+    /// `call_continuation()` of `i386/i386/locore.S`, which never returns.
+    pub fn call_continuation(continuation: Continuation) -> !;
 
     pub static mut master_processor: *mut Processor;
 
