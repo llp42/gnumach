@@ -74,8 +74,6 @@ file, or `—` when the rest is ready too.
 | File | LOC | Friction | Free | Holds the rest |
 |---|---:|---:|---:|---|
 | `ast.c` | 215 | 3 | 0 | `ast_taken`/`ast_check` need `net_ast()` and the run-queue walk |
-| `boot_script.c` | 696 | 2 | 0 | `struct cmd` fields; static helpers |
-| `bootstrap.c` | 751 | 5 | 0 | bootstrap data; static helpers |
 | `debug.c` | 121 | 3 | 0 | C variadics (`log`) |
 | `eventcount.c` | 305 | 4 | 0 | `struct eventcounter` has no mirror |
 | `ipc_kobject.c` | 362 | 4 | 0 | `ipc_port` fields |
@@ -313,11 +311,12 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 * `i386/intel/read_fault.c`: the body is
   `#if (__i386__ && !(__i486__ || __i586__ || __i686__))`, compiled out
   on every supported CPU.  Delete, do not port.
-* `#if 0` blocks in `kern/{boot_script,bootstrap,exception,ipc_kobject}.c`,
-  `device/intr.c`, `i386/i386/{smp,trap}.c`,
-  `i386/i386at/{kd,com}.c`.  Delete before porting the surrounding code.
-  `kern/ipc_tt.c`'s four `#if 0` `retrieve_*` bodies went with the file,
-  and `i386/i386/{fpu,pcb}.c`'s went with their whole-file ports.
+* `#if 0` blocks in `kern/{exception,ipc_kobject}.c`,
+  `device/intr.c`, `i386/i386/{smp,trap}.c` and `i386/i386at/kd.c`.
+  Delete before porting the surrounding code.  `kern/boot_script.c`'s and
+  `kern/bootstrap.c`'s prints went with those whole-file ports, as did
+  `i386/i386at/com.c`'s, `kern/ipc_tt.c`'s four `#if 0` `retrieve_*`
+  bodies, and `i386/i386/{fpu,pcb}.c`'s.
 * Dead `#else /* MACH_HOST */` halves of `kern/machine.c:309`;
   `MACH_HOST` is 1 in both configured builds.  The `kern/task.c` and
   `kern/thread.c` halves went with their files.
@@ -399,7 +398,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `kern/gsync.c` whole, with the `gsync_buckets` table, the `union gsync_key`, `struct gsync_waiter` and `struct vm_args` it owned | `src/kern/gsync.rs`, `src/kern/gsync_ffi.rs` | pending |
 | `kern/machine.c` (`action_thread`) | `src/kern/machine.rs` | pending |
 | `kern/task.c` (`task_create`, `task_ras_control`, `register_new_task_notification`) | `src/kern/task.rs` | pending |
-| `kern/bootstrap.c` (`boot_script_free_task`) | `src/kern/bootstrap.rs` | pending |
+| `kern/bootstrap.c` (`boot_script_malloc`, `boot_script_free`, `boot_script_free_task`) | `src/kern/bootstrap.rs`, `bootstrap_ffi.rs` | pending |
 | `kern/printf.c` (`printnum`, `safe_gets`) | `src/kern/printf.rs` | pending |
 | `kern/rdxtree.c` with the `struct rdxtree`/`rdxtree_iter` mirrors | `src/kern/rdxtree.rs`, `rdxtree_ffi.rs` | pending |
 | `kern/sched_prim.c` whole, with the wait hash table, `wait_shift`, the stuck-thread scan statics, `sched_tick`/`min_quantum` and the continuations it owned, and `kern/timer.c` whole, with `current_timer`/`kernel_timer` and the nonblocking debug reads | `src/kern/sched_prim.rs`, `sched_prim_ffi.rs`, `src/kern/timer.rs`, `timer_ffi.rs` | pending |
@@ -437,6 +436,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `i386/i386/fpu.c` whole, with the `fp_kind`, `fp_save_kind`, `fp_xsave_support`, `fp_xsave_size`, `fp_default_state`, `ifps_cache` and `mxcsr_feature_mask` globals it owned and the `I386FpSave`, `I386FpRegs`, `I386XfpSave` and save-state mirrors its bodies read | `src/arch/i386/fpu.rs`, `fpu_ffi.rs` | pending |
 | `i386/i386/pcb.c` whole, with the `pcb_cache` and `kernel_stack` globals it owned and the `Pcb`, `I386SavedState`, `I386InterruptState`, `I386MachineState`, `TaskTss`, `UserLdt` and thread-status mirrors its bodies read | `src/arch/i386/pcb.rs`, `pcb_ffi.rs` | pending |
 | `i386/i386at/com.c` whole, with the NCOM-sized `cominfo`/`com_tty`/`commodom`/`comcarrier`/`comfifo`/`comtimer_state`/`com_std` arrays, the `comdriver` bus record and the `BusDevice`/`BusCtlr`/`BusDriver` mirrors its body reads, and the two `com_base_addr`/`com_irq` shims §10 listed | `src/arch/i386/com.rs`, `src/arch/i386/com_ffi.rs` | pending |
+| `kern/boot_script.c` and `kern/bootstrap.c` whole, with the `struct cmd` mirror of <kern/boot_script.h>, the `struct multiboot_raw_info`/`struct multiboot_raw_module` mirrors of <mach/machine/multiboot.h>, the parser's `cmds`/`symtab` statics and the `boot_host_port`/`boot_device_port` globals they owned | `src/kern/boot_script.rs`, `boot_script_ffi.rs`, `bootstrap.rs`, `bootstrap_ffi.rs` | pending |
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `i386/i386at/kd_glue.c`

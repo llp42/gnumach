@@ -55,7 +55,6 @@ libkernel_a_SOURCES += \
 	kern/ast.h \
 	kern/atomic.h \
 	kern/boot_script.h \
-	kern/bootstrap.c \
 	kern/bootstrap.h \
 	kern/cpu_number.h \
 	kern/debug.c \
@@ -112,8 +111,7 @@ libkernel_a_SOURCES += \
 	kern/task.h \
 	kern/thread.h \
 	kern/thread_swap.h \
-	kern/timer.h \
-	kern/boot_script.c
+	kern/timer.h
 EXTRA_DIST += \
 	kern/exc.defs \
 	kern/mach.srv \
