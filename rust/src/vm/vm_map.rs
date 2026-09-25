@@ -12,11 +12,11 @@ use crate::arch::i386::percpu::current_thread;
 use crate::arch::i386::pmap::pmap_pageable;
 use crate::arch::types::{VmOffset, VmSize};
 use crate::glue::{
-    Panic, kernel_map, kernel_object, kernel_pmap, kernel_virtual_end,
+    kernel_map, kernel_object, kernel_pmap, kernel_virtual_end,
     kernel_virtual_start, pmap_create, pmap_destroy, pmap_enter,
-    pmap_page_protect, pmap_protect, pmap_remove, printf, vm_fault_copy,
-    vm_fault_page, vm_fault_unwire, vm_object_allocate, vm_object_coalesce,
-    vm_object_collapse, vm_object_copy_slowly, vm_object_copy_strategically,
+    pmap_page_protect, pmap_protect, pmap_remove, vm_fault_page,
+    vm_object_allocate, vm_object_coalesce, vm_object_collapse,
+    vm_object_copy_slowly, vm_object_copy_strategically,
     vm_object_copy_temporary, vm_object_deallocate, vm_object_name,
     vm_object_page_remove, vm_object_pager_create, vm_object_pmap_protect,
     vm_object_pmap_remove, vm_object_reference, vm_object_shadow,
@@ -25,6 +25,8 @@ use crate::glue::{
     vm_page_replace, vm_page_wait,
 };
 use crate::ipc::{IpcPort, IpcSpace, ipc_port};
+use crate::kern::console::{CStrArg, kprint};
+use crate::kern::debug::kpanic;
 use crate::kern::list::{List, entry as list_entry};
 use crate::kern::lock::{LockData, SimpleLock};
 use crate::kern::rbtree::{RBTREE_LEFT, RBTREE_RIGHT, Rbtree, RbtreeNode};
@@ -1163,19 +1165,14 @@ impl VmMap {
             // The switch is written only by a debugger, so a relaxed read is
             // enough; nothing orders against it.
             if VM_MAP_PMAP_ENTER_PRINT.load(Ordering::Relaxed) != 0 {
-                // SAFETY: `printf` only formats, and the map, object and
-                // offsets are live.
-                unsafe {
-                    printf(c"vm_map_pmap_enter:".as_ptr());
-                    printf(
-                        c"map: %p, addr: %zx, object: %p, offset: %zx\n"
-                            .as_ptr(),
-                        ptr::from_ref(self).cast_mut().cast::<c_void>(),
-                        addr,
-                        object,
-                        offset,
-                    );
-                }
+                kprint!(
+                    "vm_map_pmap_enter:map: {:x}, addr: {:x}, object: {:x}, \
+                     offset: {:x}\n",
+                    ptr::from_ref(self).expose_provenance(),
+                    addr,
+                    object.expose_provenance(),
+                    offset,
+                );
             }
 
             // SAFETY: the page is present and marked busy under the object
@@ -1727,16 +1724,7 @@ impl VmMapCopy {
         let Some(new_copy) = unsafe { (*map_copy_cache()).alloc() }
             .map(|buf| buf.cast::<VmMapCopy>())
         else {
-            // SAFETY: the C dereferences the null allocation; halt as
-            // `VmMapEntry::create()` does.
-            unsafe {
-                Panic(
-                    c"rust/src/vm/vm_map.rs".as_ptr(),
-                    line!() as c_int,
-                    c"VmMapCopy::duplicate".as_ptr(),
-                    c"vm_map_copy_copy".as_ptr(),
-                )
-            }
+            kpanic!("VmMapCopy::duplicate", "vm_map_copy_copy")
         };
 
         // SAFETY: both are live copies; the fresh allocation is overwritten
@@ -1784,16 +1772,7 @@ impl VmMapCopy {
         let Some(copy) = unsafe { (*map_copy_cache()).alloc() }
             .map(|buf| buf.cast::<VmMapCopy>())
         else {
-            // SAFETY: the C dereferences the null allocation, which halts the
-            // kernel.
-            unsafe {
-                Panic(
-                    c"rust/src/vm/vm_map.rs".as_ptr(),
-                    line!() as c_int,
-                    c"VmMapCopy::new_entry_list".as_ptr(),
-                    c"vm_map_copyin".as_ptr(),
-                )
-            }
+            kpanic!("VmMapCopy::new_entry_list", "vm_map_copyin")
         };
 
         // SAFETY: the fresh allocation is unshared storage; the chain closes
@@ -1832,16 +1811,7 @@ impl VmMapCopy {
         let Some(copy) = unsafe { (*map_copy_cache()).alloc() }
             .map(|buf| buf.cast::<VmMapCopy>())
         else {
-            // SAFETY: the C dereferences the null allocation, which halts the
-            // kernel.
-            unsafe {
-                Panic(
-                    c"rust/src/vm/vm_map.rs".as_ptr(),
-                    line!() as c_int,
-                    c"VmMapCopy::copyin_object".as_ptr(),
-                    c"vm_map_copyin_object".as_ptr(),
-                )
-            }
+            kpanic!("VmMapCopy::copyin_object", "vm_map_copyin_object")
         };
 
         // SAFETY: the type word below selects the `OBJECT` variant, whose
@@ -1873,16 +1843,7 @@ impl VmMapCopy {
         let Some(copy) = unsafe { (*map_copy_cache()).alloc() }
             .map(|buf| buf.cast::<VmMapCopy>())
         else {
-            // SAFETY: the C dereferences the null allocation, which halts the
-            // kernel.
-            unsafe {
-                Panic(
-                    c"rust/src/vm/vm_map.rs".as_ptr(),
-                    line!() as c_int,
-                    c"VmMapCopy::new_page_list".as_ptr(),
-                    c"vm_map_copyin_page_list".as_ptr(),
-                )
-            }
+            kpanic!("VmMapCopy::new_page_list", "vm_map_copyin_page_list")
         };
 
         // SAFETY: the fresh allocation is unshared storage, and every field is
@@ -1969,16 +1930,7 @@ impl VmMapEntry {
             .map(|buf| buf.cast::<VmMapEntry>())
         {
             Some(entry) => entry,
-            // SAFETY: the C code panics on allocation failure, which halts the
-            // kernel.
-            None => unsafe {
-                Panic(
-                    c"rust/src/vm/vm_map.rs".as_ptr(),
-                    line!() as c_int,
-                    c"VmMapEntry::create".as_ptr(),
-                    c"vm_map_entry_create".as_ptr(),
-                )
-            },
+            None => kpanic!("VmMapEntry::create", "vm_map_entry_create"),
         }
     }
 }
@@ -2181,14 +2133,13 @@ impl VmMap {
 
     /// The C allocation-failure diagnostic.
     fn no_room(&self) {
-        // SAFETY: `printf` only formats.
-        unsafe {
-            printf(
-                c"no more room in %p (%s)\n".as_ptr(),
-                ptr::from_ref(self).cast_mut().cast::<c_void>(),
-                self.name,
-            )
-        };
+        // SAFETY: `self.name` is the map's NUL-terminated name.
+        let name = unsafe { CStrArg::from_ptr(self.name) };
+        kprint!(
+            "no more room in {:x} ({})\n",
+            ptr::from_ref(self).expose_provenance(),
+            name,
+        );
     }
 
     /// `vm_map_enforce_limit()` in C.
@@ -2233,8 +2184,7 @@ impl VmMap {
             max = 1usize << (second1 - 1);
 
             if himask.wrapping_add(max) != 0 {
-                // SAFETY: `printf` only formats.
-                unsafe { printf(c"invalid mask %zx\n".as_ptr(), mask) };
+                kprint!("invalid mask {:x}\n", mask);
                 return None;
             }
 
@@ -2275,16 +2225,12 @@ impl VmMap {
 
             let max_size = size.wrapping_add(mask);
             if max_size < size {
-                // SAFETY: `printf` only formats.
-                unsafe {
-                    printf(
-                        c"max_size %zd got smaller than size %zd with mask %zd\n"
-                            .as_ptr(),
-                        max_size,
-                        size,
-                        mask,
-                    )
-                };
+                kprint!(
+                    "max_size {} got smaller than size {} with mask {}\n",
+                    max_size,
+                    size,
+                    mask,
+                );
                 self.no_room();
                 return None;
             }
@@ -2330,10 +2276,7 @@ impl VmMap {
             let start = entry_end.wrapping_add(mask) & !mask;
             let end = start.wrapping_add(size);
             if end > max {
-                // SAFETY: `printf` only formats.
-                unsafe {
-                    printf(c"%lx does not respect %lx\n".as_ptr(), end, max)
-                };
+                kprint!("{:x} does not respect {:x}\n", end, max);
                 return None;
             }
 
@@ -2707,12 +2650,7 @@ impl VmMap {
             if unsafe { (*entry.as_ptr()).wired_count } != 0 {
                 self.entry_reset_wired(entry);
                 // SAFETY: the map and the linked entry are valid.
-                unsafe {
-                    vm_fault_unwire(
-                        ptr::from_mut(self).cast::<c_void>(),
-                        entry.as_ptr().cast::<c_void>(),
-                    );
-                }
+                unsafe { vm_fault::unwire(self, entry) };
             }
 
             if object == unsafe { kernel_object } {
@@ -2789,19 +2727,12 @@ impl VmMap {
             && (start < unsafe { kernel_virtual_start }
                 || end > unsafe { kernel_virtual_end })
         {
-            // SAFETY: the C code halts here; the format has two arguments as
-            // the C does.
-            unsafe {
-                Panic(
-                    c"rust/src/vm/vm_map.rs".as_ptr(),
-                    line!() as c_int,
-                    c"VmMap::delete".as_ptr(),
-                    c"vm_map_delete(%lx-%lx) falls in physical memory area!\n"
-                        .as_ptr(),
-                    start,
-                    end,
-                )
-            };
+            kpanic!(
+                "VmMap::delete",
+                "vm_map_delete({:x}-{:x}) falls in physical memory area!\n",
+                start,
+                end
+            );
         }
 
         let sentinel = self.to_entry();
@@ -3050,10 +2981,7 @@ impl VmMap {
                 if (*entry.as_ptr()).wired_access == VmProt::NONE {
                     if (*entry.as_ptr()).wired_count != 0 {
                         self.entry_reset_wired(entry);
-                        vm_fault_unwire(
-                            ptr::from_mut(self).cast::<c_void>(),
-                            entry.as_ptr().cast::<c_void>(),
-                        );
+                        vm_fault::unwire(self, entry);
                     }
                     entry = next;
                     continue;
@@ -3065,10 +2993,7 @@ impl VmMap {
                         continue;
                     }
                     self.entry_reset_wired(entry);
-                    vm_fault_unwire(
-                        ptr::from_mut(self).cast::<c_void>(),
-                        entry.as_ptr().cast::<c_void>(),
-                    );
+                    vm_fault::unwire(self, entry);
                     entry = next;
                     continue;
                 }
@@ -3825,16 +3750,7 @@ impl VmMap {
         while old_entry != sentinel {
             // SAFETY: `old_entry` is a live entry of the locked map.
             if unsafe { (*old_entry.as_ptr()).is_sub_map() } {
-                // SAFETY: the C halts here; `Panic` never returns.
-                unsafe {
-                    Panic(
-                        c"rust/src/vm/vm_map.rs".as_ptr(),
-                        // The line number always fits `c_int`.
-                        line!() as c_int,
-                        c"VmMap::fork".as_ptr(),
-                        c"vm_map_fork: encountered a submap".as_ptr(),
-                    )
-                };
+                kpanic!("VmMap::fork", "vm_map_fork: encountered a submap");
             }
 
             // SAFETY: as above.
@@ -4502,15 +4418,7 @@ fn set_page_list_cont(
     let Some(args) = kalloc(size_of::<VmMapCopyinArgs>())
         .map(|buf| buf.cast::<VmMapCopyinArgs>())
     else {
-        // SAFETY: `Panic` only halts the kernel.
-        unsafe {
-            Panic(
-                c"rust/src/vm/vm_map.rs".as_ptr(),
-                line!() as c_int,
-                c"set_page_list_cont".as_ptr(),
-                c"vm_map_copyin_page_list".as_ptr(),
-            )
-        }
+        kpanic!("set_page_list_cont", "vm_map_copyin_page_list")
     };
 
     // SAFETY: `args` is fresh storage, and every field is written before the
@@ -4550,15 +4458,7 @@ unsafe extern "C" fn vm_map_copyin_page_list_cont(
     let src_destroy_only = args.src_len == 0;
 
     let Some(map) = NonNull::new(args.map) else {
-        // SAFETY: `Panic` only halts the kernel.
-        unsafe {
-            Panic(
-                c"rust/src/vm/vm_map.rs".as_ptr(),
-                line!() as c_int,
-                c"vm_map_copyin_page_list_cont".as_ptr(),
-                c"vm_map_copyin_page_list".as_ptr(),
-            )
-        }
+        kpanic!("vm_map_copyin_page_list_cont", "vm_map_copyin_page_list")
     };
 
     let mut result = KERN_SUCCESS;
@@ -5012,16 +4912,10 @@ impl VmMap {
                             // entry.
                             let (found, entry) = self.lookup_entry(page_vaddr);
                             if !found {
-                                // SAFETY: `Panic` only halts the kernel.
-                                unsafe {
-                                    Panic(
-                                        c"rust/src/vm/vm_map.rs".as_ptr(),
-                                        line!() as c_int,
-                                        c"VmMap::copyin_page_list".as_ptr(),
-                                        c"vm_map_copyin_page_list: missing wired map entry"
-                                            .as_ptr(),
-                                    )
-                                }
+                                kpanic!(
+                                    "VmMap::copyin_page_list",
+                                    "vm_map_copyin_page_list: missing wired map entry"
+                                )
                             }
                             src_entry = entry;
                             // SAFETY: `src_entry` contains `page_vaddr` and
@@ -5238,12 +5132,10 @@ impl VmMap {
                             || (*page).wire_count() == 0
                             || (*page).is_absent()
                         {
-                            Panic(
-                                c"rust/src/vm/vm_map.rs".as_ptr(),
-                                line!() as c_int,
-                                c"VmMap::copyout_entry_list".as_ptr(),
-                                c"vm_map_copyout: wiring %p".as_ptr(),
-                                page,
+                            kpanic!(
+                                "VmMap::copyout_entry_list",
+                                "vm_map_copyout: wiring {:x}",
+                                page.expose_provenance()
                             );
                         }
 
@@ -5490,15 +5382,7 @@ impl VmMap {
             let mut offset = 0;
             while offset < size {
                 let Some(current_copy) = current else {
-                    // SAFETY: `Panic` only halts the kernel.
-                    unsafe {
-                        Panic(
-                            c"rust/src/vm/vm_map.rs".as_ptr(),
-                            line!() as c_int,
-                            c"VmMap::copyout_page_list".as_ptr(),
-                            c"missing page copy".as_ptr(),
-                        )
-                    }
+                    kpanic!("VmMap::copyout_page_list", "missing page copy")
                 };
 
                 // SAFETY: the caller bounds each copy's `npages` by the
@@ -5624,15 +5508,10 @@ impl VmMap {
         } else {
             let (found, mut entry) = self.lookup_entry(start);
             if !found {
-                // SAFETY: `Panic` only halts the kernel.
-                unsafe {
-                    Panic(
-                        c"rust/src/vm/vm_map.rs".as_ptr(),
-                        line!() as c_int,
-                        c"VmMap::copyout_page_list".as_ptr(),
-                        c"vm_map_copyout_page_list: missing entry".as_ptr(),
-                    )
-                };
+                kpanic!(
+                    "VmMap::copyout_page_list",
+                    "vm_map_copyout_page_list: missing entry"
+                );
             }
             let sentinel = self.to_entry();
             while entry != sentinel
@@ -5918,7 +5797,7 @@ impl VmMap {
                 // SAFETY: the entry holds a reference to the object.
                 unsafe { vm_object_reference(dst_object) };
                 // SAFETY: the map is locked, so the timestamp is stable.
-                let mut version = VmMapVersion {
+                let version = VmMapVersion {
                     main_timestamp: unsafe { (*map.as_ptr()).timestamp },
                 };
 
@@ -5929,15 +5808,15 @@ impl VmMap {
                 // reference), the map is unlocked and the version, size and
                 // map are valid, as `vm_fault_copy` requires.
                 let r = unsafe {
-                    vm_fault_copy(
+                    vm_fault::copy(
                         (*copy_entry.as_ptr()).object.vm_object,
                         (*copy_entry.as_ptr()).offset,
                         &mut copy_entry_size,
                         dst_object,
                         dst_offset,
-                        map.as_ptr().cast::<c_void>(),
-                        ptr::from_mut(&mut version).cast::<c_void>(),
-                        0,
+                        map,
+                        &version,
+                        false,
                     )
                 };
 

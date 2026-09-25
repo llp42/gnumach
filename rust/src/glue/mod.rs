@@ -7,41 +7,21 @@ pub mod mig;
 pub mod time_value;
 
 use crate::arch::i386::idt::IdtInitEntry;
-use crate::arch::i386::kd::ConsDev;
 use crate::arch::i386::model_dep::GdtDescrTmp;
 use crate::arch::i386::trap::Recovery;
 use crate::arch::types::{VmOffset, VmSize};
-use crate::device::dev_name::DevIndirect;
-use crate::device::ds_routines::DevOps;
 use crate::ipc::MachMsgHeader;
 use crate::kern::lock::SimpleLock;
 use crate::kern::processor::Processor;
 use crate::kern::thread::{Continuation, Thread};
 use crate::vm::types::{Pmap, VmObject, VmPage, VmProt};
-use crate::vm::vm_map::{VmMap, VmMapEntry};
+use crate::vm::vm_map::VmMap;
 use core::ffi::{c_char, c_int, c_uint, c_ulong, c_ushort, c_void};
 
 // The raw pointers below are to `#[repr(C)]` mirrors.
 #[expect(improper_ctypes)]
 unsafe extern "C" {
-    pub fn Panic(
-        file: *const c_char,
-        line: c_int,
-        fun: *const c_char,
-        s: *const c_char,
-        ...
-    ) -> !;
-
-    pub fn printf(fmt: *const c_char, ...) -> c_int;
-
     pub fn SoftDebugger(message: *const c_char);
-
-    pub fn snprintf(
-        str: *mut c_char,
-        size: usize,
-        format: *const c_char,
-        ...
-    ) -> c_int;
 
     pub fn cpu_shutdown();
     pub fn action_thread_continue() -> !;
@@ -159,28 +139,8 @@ unsafe extern "C" {
     /// label `hardclock()` compares an interrupt's return address against.
     pub static return_to_iret: c_char;
 
-    /// `constab[]` of `i386/i386at/cons_conf.c`: the console table
-    /// `cninit()` walks to its null entry.
-    pub static mut constab: ConsDev;
-
-    /// `dev_name_list[]` of `i386/i386at/conf.c`: the major-device table
-    /// `dev_name_lookup()` searches.
-    pub static mut dev_name_list: DevOps;
-
-    /// `dev_name_count` of `i386/i386at/conf.c`.
-    pub static dev_name_count: c_int;
-
-    /// `dev_indirect_list[]` of `i386/i386at/conf.c`: the indirect-device
-    /// table `dev_name_lookup()` falls back to.
-    pub static mut dev_indirect_list: DevIndirect;
-
-    /// `dev_indirect_count` of `i386/i386at/conf.c`.
-    pub static dev_indirect_count: c_int;
-
     /// `discover_x86_cpu_type()` of `i386/i386/locore.S`.
     pub fn discover_x86_cpu_type() -> c_int;
-
-    pub static mut master_device_port: *mut c_void;
 
     /// `r_memory_object_data_error()` of the MIG `memory_object_reply`
     /// user stubs.
@@ -503,7 +463,6 @@ unsafe extern "C" {
     );
     pub fn pmap_zero_page(pa: VmOffset);
     pub fn pmap_copy_page(src: VmOffset, dst: VmOffset);
-    pub fn vm_fault_unwire(map: *mut c_void, entry: *mut c_void);
     pub fn vm_fault(
         map: *mut VmMap,
         va: VmOffset,
@@ -512,12 +471,6 @@ unsafe extern "C" {
         resume: c_int,
         continuation: Option<unsafe extern "C" fn(c_int)>,
     ) -> c_int;
-    pub fn vm_fault_wire_fast(
-        map: *mut VmMap,
-        va: VmOffset,
-        entry: *mut VmMapEntry,
-    ) -> c_int;
-
     pub fn vm_fault_page(
         first_object: *mut VmObject,
         first_offset: VmOffset,
@@ -529,19 +482,6 @@ unsafe extern "C" {
         top_page: *mut *mut VmPage,
         resume: c_int,
         continuation: Option<unsafe extern "C" fn()>,
-    ) -> c_int;
-
-    pub fn vm_fault_cleanup(object: *mut VmObject, top_page: *mut VmPage);
-
-    pub fn vm_fault_copy(
-        src_object: *mut VmObject,
-        src_offset: VmOffset,
-        src_size: *mut VmSize,
-        dst_object: *mut VmObject,
-        dst_offset: VmOffset,
-        dst_map: *mut c_void,
-        dst_version: *mut c_void,
-        interruptible: c_int,
     ) -> c_int;
 
     pub fn vm_object_shadow(

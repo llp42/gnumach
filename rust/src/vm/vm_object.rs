@@ -13,15 +13,16 @@ use crate::arch::i386::percpu::current_thread;
 use crate::arch::types::{VmOffset, VmSize};
 use crate::arch::vm_param::{PAGE_SHIFT, PAGE_SIZE};
 use crate::glue::{
-    self, Panic, memory_manager_default_reference, memory_object_copy,
+    self, memory_manager_default_reference, memory_object_copy,
     memory_object_create, memory_object_init, memory_object_terminate,
-    pmap_is_modified, pmap_page_protect, printf, vm_fault_cleanup,
-    vm_fault_page, vm_page_fictitious_addr, vm_page_free,
-    vm_page_grab_fictitious, vm_page_insert, vm_page_lookup,
-    vm_page_more_fictitious, vm_page_queue_lock,
+    pmap_is_modified, pmap_page_protect, vm_fault_page,
+    vm_page_fictitious_addr, vm_page_free, vm_page_grab_fictitious,
+    vm_page_insert, vm_page_lookup, vm_page_more_fictitious,
+    vm_page_queue_lock,
 };
 use crate::ipc::{IpcPort, ipc_port, ipc_space};
-use crate::kern::debug::SoftDebugger;
+use crate::kern::console::kprint;
+use crate::kern::debug::{SoftDebugger, kpanic};
 use crate::kern::ipc_kobject;
 use crate::kern::queue::{
     QueueEntry, queue_enter_tail, queue_init, queue_next, queue_remove_generic,
@@ -35,8 +36,8 @@ use crate::vm::error::Error;
 use crate::vm::types::{Pmap, VmObject, VmPage, VmProt};
 use crate::vm::vm_pageout_ffi::vm_pageout_page;
 use crate::vm::vm_user::vm_stat;
-use crate::vm::{vm_external, vm_page, vm_resident};
-use core::ffi::{CStr, c_int, c_uint, c_void};
+use crate::vm::{vm_external, vm_fault, vm_page, vm_resident};
+use core::ffi::{c_int, c_uint, c_void};
 use core::mem::{offset_of, size_of};
 use core::ptr::{self, NonNull, addr_of, addr_of_mut, null_mut};
 use core::sync::atomic::{AtomicI32, AtomicIsize, AtomicU32, Ordering};
@@ -140,20 +141,9 @@ static PAGE_REMOVE_LOOKUP: AtomicU32 = AtomicU32::new(0);
 #[unsafe(export_name = "vm_object_page_remove_iterate")]
 static PAGE_REMOVE_ITERATE: AtomicU32 = AtomicU32::new(0);
 
-/// `panic()` of vm/vm_object.c at the caller's line.
-#[track_caller]
-fn die(func: &'static CStr, message: &'static CStr) -> ! {
-    let location = core::panic::Location::caller();
-    // SAFETY: `Panic` does not return; the file, function and message are
-    // this module's, and the line fits the `c_int` the format takes.
-    unsafe {
-        Panic(
-            c"rust/src/vm/vm_object.rs".as_ptr(),
-            location.line() as c_int,
-            func.as_ptr(),
-            message.as_ptr(),
-        )
-    }
+/// `panic()` of vm/vm_object.c.
+fn die(func: &'static str, message: &'static str) -> ! {
+    kpanic!(func, "{}", message)
 }
 
 /// [`KmemCache::alloc`] of the object cache.
@@ -429,7 +419,7 @@ pub(crate) unsafe fn make_shared(object: *mut VmObject) {
 ///
 /// `page` must be a live page that the caller owns, and the page-queues lock
 /// must not be held.
-unsafe fn page_free(page: *mut VmPage) {
+pub(crate) unsafe fn page_free(page: *mut VmPage) {
     // SAFETY: the caller promises the live page; the queue lock is the C
     // macro's, and `vm_page_free()` is the C's.
     unsafe {
@@ -506,7 +496,7 @@ pub(crate) unsafe fn allocate(size: VmSize) -> Option<NonNull<VmObject>> {
     // SAFETY: the caller runs after `vm_object_bootstrap()`.
     let object = unsafe { allocate_internal(size) };
     let object = NonNull::new(object)
-        .unwrap_or_else(|| die(c"vm_object_allocate", c"vm_object_allocate"));
+        .unwrap_or_else(|| die("vm_object_allocate", "vm_object_allocate"));
 
     // SAFETY: the caller runs after the IPC package is up; the port is the
     // object's name port, as in the C.
@@ -514,7 +504,7 @@ pub(crate) unsafe fn allocate(size: VmSize) -> Option<NonNull<VmObject>> {
         let port = ipc_port::alloc_special(ipc_space::kernel())
             .map_or(ptr::null_mut(), IpcPort::as_ptr);
         if port.is_null() {
-            die(c"vm_object_allocate", c"vm_object_allocate");
+            die("vm_object_allocate", "vm_object_allocate");
         }
         (*object.as_ptr()).pager_name = port;
         ipc_kobject::set(port, object.as_ptr().addr(), IKOT_PAGING_NAME);
@@ -1069,7 +1059,7 @@ pub(crate) unsafe fn copy_slowly(
 
     // SAFETY: the caller runs in a context where the allocator may block.
     let Some(new_object) = (unsafe { allocate(size) }) else {
-        die(c"vm_object_copy_slowly", c"vm_object_allocate");
+        die("vm_object_copy_slowly", "vm_object_allocate");
     };
 
     let mut src_offset = src_offset;
@@ -1138,7 +1128,7 @@ pub(crate) unsafe fn copy_slowly(
                         }
                         vm_page::activate(new_page.as_ptr());
                         (*addr_of_mut!(vm_page_queue_lock)).unlock();
-                        vm_fault_cleanup((*result_page).object, top_page);
+                        vm_fault::cleanup((*result_page).object, top_page);
                         break;
                     }
                     VM_FAULT_RETRY => (),
@@ -1299,7 +1289,7 @@ unsafe fn copy_call(
     // SAFETY: the new port carries the object the C looked up.
     let Some(new_object) = (unsafe { enter(new_memory_object, size, false) })
     else {
-        die(c"vm_object_copy_call", c"vm_object_enter");
+        die("vm_object_copy_call", "vm_object_enter");
     };
 
     // SAFETY: the object is fresh and owned here.
@@ -1323,7 +1313,7 @@ pub(crate) unsafe fn copy_delayed(
 ) -> NonNull<VmObject> {
     // SAFETY: the caller promises the live, unlocked source.
     let Some(new_copy) = (unsafe { allocate((*src_object).size) }) else {
-        die(c"vm_object_copy_delayed", c"vm_object_allocate");
+        die("vm_object_copy_delayed", "vm_object_allocate");
     };
 
     // SAFETY: the source is live and unlocked on entry, as the C requires.
@@ -1488,8 +1478,8 @@ pub(crate) unsafe fn shadow(
     // SAFETY: the caller runs in a context where the allocator may block.
     let Some(result) = (unsafe { allocate(length) }) else {
         die(
-            c"vm_object_shadow",
-            c"vm_object_shadow: no object for shadowing",
+            "vm_object_shadow",
+            "vm_object_shadow: no object for shadowing",
         );
     };
 
@@ -1657,7 +1647,7 @@ pub(crate) unsafe fn enter(
                 if new_object.is_null() {
                     cache_unlock();
                     let Some(object) = allocate(size) else {
-                        die(c"vm_object_enter", c"vm_object_allocate");
+                        die("vm_object_enter", "vm_object_allocate");
                     };
                     new_object = object.as_ptr();
                     cache_lock();
@@ -1702,7 +1692,7 @@ pub(crate) unsafe fn enter(
             if must_init {
                 let pager = ipc_port::copy_send(pager);
                 if !port_valid(pager) {
-                    die(c"vm_object_enter", c"vm_object_enter: port died");
+                    die("vm_object_enter", "vm_object_enter: port died");
                 }
 
                 (*object).set_pager_created(true);
@@ -1712,8 +1702,8 @@ pub(crate) unsafe fn enter(
                     .map_or(ptr::null_mut(), IpcPort::as_ptr);
                 if request.is_null() {
                     die(
-                        c"vm_object_enter",
-                        c"vm_object_enter: pager request alloc",
+                        "vm_object_enter",
+                        "vm_object_enter: pager request alloc",
                     );
                 }
                 (*object).pager_request = request;
@@ -1792,8 +1782,8 @@ pub(crate) unsafe fn pager_create(object: *mut VmObject) {
             .map_or(ptr::null_mut(), IpcPort::as_ptr);
         if pager.is_null() {
             die(
-                c"vm_object_pager_create",
-                c"vm_object_pager_create: allocate pager port",
+                "vm_object_pager_create",
+                "vm_object_pager_create: allocate pager port",
             );
         }
 
@@ -1803,10 +1793,7 @@ pub(crate) unsafe fn pager_create(object: *mut VmObject) {
         if enter(pager, (*object).size, true).map(NonNull::as_ptr)
             != Some(object)
         {
-            die(
-                c"vm_object_pager_create",
-                c"vm_object_pager_create: mismatch",
-            );
+            die("vm_object_pager_create", "vm_object_pager_create: mismatch");
         }
 
         ipc_port::release_send(IpcPort::from_raw(pager));
@@ -1831,7 +1818,7 @@ pub(crate) unsafe fn remove(object: *mut VmObject) {
             if kotype == IKOT_PAGER {
                 ipc_kobject::set(pager, 0, IKOT_PAGER_TERMINATING);
             } else if kotype != IKOT_NONE {
-                die(c"vm_object_remove", c"vm_object_remove: bad object port");
+                die("vm_object_remove", "vm_object_remove: bad object port");
             }
         }
 
@@ -1842,10 +1829,7 @@ pub(crate) unsafe fn remove(object: *mut VmObject) {
             if kotype == IKOT_PAGING_REQUEST {
                 ipc_kobject::set(request, 0, IKOT_NONE);
             } else if kotype != IKOT_NONE {
-                die(
-                    c"vm_object_remove",
-                    c"vm_object_remove: bad request port",
-                );
+                die("vm_object_remove", "vm_object_remove: bad request port");
             }
         }
 
@@ -1856,7 +1840,7 @@ pub(crate) unsafe fn remove(object: *mut VmObject) {
             if kotype == IKOT_PAGING_NAME {
                 ipc_kobject::set(name, 0, IKOT_NONE);
             } else if kotype != IKOT_NONE {
-                die(c"vm_object_remove", c"vm_object_remove: bad name port");
+                die("vm_object_remove", "vm_object_remove: bad name port");
             }
         }
     }
@@ -2008,8 +1992,8 @@ pub(crate) unsafe fn collapse(object: *mut VmObject) {
                     && !(*(*object).shadow).copy.is_null()
                 {
                     die(
-                        c"vm_object_collapse",
-                        c"vm_object_collapse: we collapsed a copy-object!",
+                        "vm_object_collapse",
+                        "vm_object_collapse: we collapsed a copy-object!",
                     );
                 }
 
@@ -2084,18 +2068,16 @@ unsafe fn collapse_print(
     backing_object: *mut VmObject,
     object: *mut VmObject,
 ) {
-    // SAFETY: the caller promises both objects live, and `printf` only
-    // formats.
-    unsafe {
-        printf(
-            c"vm_object_collapse: %p (pager %p, request %p) up to %p\n"
-                .as_ptr(),
-            backing_object,
-            (*backing_object).pager,
-            (*backing_object).pager_request,
-            object,
-        );
-    }
+    // SAFETY: the caller promises both objects live.
+    let (pager, request) =
+        unsafe { ((*backing_object).pager, (*backing_object).pager_request) };
+    kprint!(
+        "vm_object_collapse: {:x} (pager {:x}, request {:x}) up to {:x}\n",
+        backing_object.expose_provenance(),
+        pager.expose_provenance(),
+        request.expose_provenance(),
+        object.expose_provenance(),
+    );
 }
 
 /// `vm_object_page_remove()` of the C.
@@ -2284,10 +2266,7 @@ pub(crate) unsafe fn page_map(
     map_fn_data: *mut c_void,
 ) -> Result<(), Error> {
     let Some(map_fn) = map_fn else {
-        die(
-            c"vm_object_page_map",
-            c"vm_object_page_map: no map function",
-        );
+        die("vm_object_page_map", "vm_object_page_map: no map function");
     };
 
     let num_pages = atop(size);
