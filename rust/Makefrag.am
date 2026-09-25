@@ -10,6 +10,8 @@ MACH_RS_SRCS = \
 	rust/src/arch/i386/biosmem.rs \
 	rust/src/arch/i386/com.rs \
 	rust/src/arch/i386/com_ffi.rs \
+	rust/src/arch/i386/debug_i386.rs \
+	rust/src/arch/i386/debug_i386_ffi.rs \
 	rust/src/arch/i386/fpu.rs \
 	rust/src/arch/i386/fpu_ffi.rs \
 	rust/src/arch/i386/io_perm.rs \
@@ -31,7 +33,9 @@ MACH_RS_SRCS = \
 	rust/src/arch/i386/mem.rs \
 	rust/src/arch/i386/mod.rs \
 	rust/src/arch/i386/model_dep.rs \
+	rust/src/arch/i386/model_dep_ffi.rs \
 	rust/src/arch/i386/mp_desc.rs \
+	rust/src/arch/i386/mp_desc_ffi.rs \
 	rust/src/arch/i386/pcb.rs \
 	rust/src/arch/i386/pcb_ffi.rs \
 	rust/src/arch/i386/percpu.rs \

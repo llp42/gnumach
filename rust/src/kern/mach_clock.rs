@@ -1004,8 +1004,8 @@ pub(crate) unsafe fn wallclock() -> TimeValue64 {
     unsafe { TIME }
 }
 
-/// Replace the wall clock: what the C `i386/i386at/model_dep.c` did with
-/// `time` under `splhigh()`.
+/// Replace the wall clock: what `model_dep.rs`'s `set_wallclock()` does
+/// under `splhigh()`.
 ///
 /// # Safety
 ///

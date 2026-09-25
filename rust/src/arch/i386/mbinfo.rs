@@ -60,7 +60,7 @@ static MB_INFO: SyncCell<MultibootRawInfo> =
 ///
 /// # Safety
 ///
-/// Called once by `model_dep.c` with the block the loader left.
+/// Called once by `src/arch/i386/model_dep.rs` with the block the loader left.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mbinfo_register_boot_data(
     mbi: *const MultibootRawInfo,

@@ -6,6 +6,7 @@
 #![no_std]
 #![no_builtins]
 #![deny(unsafe_op_in_unsafe_fn)]
+#![feature(c_variadic)]
 
 pub mod arch;
 pub mod config;

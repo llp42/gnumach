@@ -139,7 +139,7 @@ const _: () = {
 };
 
 /// `struct multiboot_raw_info` of <mach/machine/multiboot.h>, field for
-/// field.  The C `boot_info` of `i386/i386at/model_dep.c` still has this
+/// field.  The `boot_info` global of `src/arch/i386/model_dep.rs` has this
 /// type, and both kernels' debug info shows the layout below.
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
@@ -909,7 +909,10 @@ unsafe extern "C" fn user_bootstrap_compat() {
     let mut flag_buf = [0u8; 1024];
     let mut root_buf = [0u8; 1024];
     // SAFETY: the boot command line is a live NUL-terminated string.
-    let cmdline = unsafe { CStr::from_ptr(glue::kernel_cmdline) }.to_bytes();
+    let cmdline = unsafe {
+        CStr::from_ptr(crate::arch::i386::model_dep::kernel_cmdline)
+    }
+    .to_bytes();
     get_compat_strings(&mut flag_buf, &mut root_buf, cmdline);
 
     let argv: [*const c_char; 5] = [
@@ -1003,11 +1006,13 @@ unsafe fn exec_compat(module: *mut MultibootRawModule) {
 pub(crate) unsafe fn create() {
     // SAFETY: `boot_info` is the C global `i386at_init()` filled; the mirror
     // is packed, so every read is a copy.
-    let flags = unsafe { glue::boot_info.flags };
+    let flags = unsafe { crate::arch::i386::model_dep::boot_info.flags };
     // SAFETY: as above.
-    let mods_count = unsafe { glue::boot_info.mods_count };
+    let mods_count =
+        unsafe { crate::arch::i386::model_dep::boot_info.mods_count };
     // SAFETY: as above.
-    let mods_addr = unsafe { glue::boot_info.mods_addr };
+    let mods_addr =
+        unsafe { crate::arch::i386::model_dep::boot_info.mods_addr };
     let mods = kv_ptr_mut::<MultibootRawModule>(phystokv(address(mods_addr)));
     if flags & MULTIBOOT_MODS == 0 || mods_count == 0 {
         // SAFETY: `Panic()` does not return.
@@ -1107,7 +1112,8 @@ pub(crate) unsafe fn create() {
             boot_script::set_variable(
                 c"kernel-command-line".as_ptr(),
                 boot_script::VAL_STR,
-                glue::kernel_cmdline.expose_provenance() as c_long,
+                crate::arch::i386::model_dep::kernel_cmdline
+                    .expose_provenance() as c_long,
             )
         } {
             // SAFETY: `Panic()` does not return.
@@ -1123,8 +1129,10 @@ pub(crate) unsafe fn create() {
         }
 
         // SAFETY: the boot command line is a live NUL-terminated string.
-        let cmdline =
-            unsafe { CStr::from_ptr(glue::kernel_cmdline) }.to_bytes();
+        let cmdline = unsafe {
+            CStr::from_ptr(crate::arch::i386::model_dep::kernel_cmdline)
+        }
+        .to_bytes();
         let mut flag_buf = [0u8; 1024];
         let mut root_buf = [0u8; 1024];
         get_compat_strings(&mut flag_buf, &mut root_buf, cmdline);
@@ -1166,8 +1174,10 @@ pub(crate) unsafe fn create() {
         // Turn each `FOO=BAR` word in the command line into a boot script
         // variable `${FOO}` with value BAR.  The symbol table keeps pointers
         // into this copy, so it is freed only after `boot_script::exec()`.
-        let cmdline_copy = unsafe { CStr::from_ptr(glue::kernel_cmdline) }
-            .to_bytes_with_nul();
+        let cmdline_copy = unsafe {
+            CStr::from_ptr(crate::arch::i386::model_dep::kernel_cmdline)
+        }
+        .to_bytes_with_nul();
         let Some(buf) = kalloc(cmdline_copy.len()) else {
             // SAFETY: `Panic()` does not return.
             unsafe {

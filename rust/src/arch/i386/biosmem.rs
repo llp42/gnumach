@@ -11,7 +11,7 @@ use crate::arch::i386::mbinfo::MultibootRawInfo;
 use crate::arch::i386::pmap::{VM_KERNEL_MAP_SIZE, VM_MAX_KERNEL_ADDRESS};
 use crate::arch::types::{VmOffset, VmSize};
 use crate::arch::vm_param::{PAGE_SHIFT, PAGE_SIZE};
-use crate::glue::{self, Panic, printf};
+use crate::glue::{Panic, printf};
 use crate::utils::cell::SyncCell;
 use crate::vm::vm_kern::VM_MIN_KERNEL_ADDRESS;
 use crate::vm::vm_map::{round_page, trunc_page};
@@ -748,7 +748,7 @@ fn bootstrap_common(s: &mut State) {
 
     // SAFETY: `apboot_addr` is <i386/model_dep.h>'s global, written once
     // here, on the only CPU running.
-    unsafe { glue::apboot_addr = phys_start };
+    unsafe { crate::arch::i386::mp_desc::apboot_addr = phys_start };
 
     let phys_start = phys_start.wrapping_add(PAGE_SIZE);
     set_segment(s, vm_page::SEG_DMA, phys_start, phys_end);

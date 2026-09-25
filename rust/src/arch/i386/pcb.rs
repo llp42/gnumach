@@ -894,7 +894,9 @@ pub(crate) unsafe fn switch_ktss(pcb: *mut Pcb) {
 
     // SAFETY: `mp_ktss` holds one live TSS per CPU, and `mycpu` names the
     // CPU this code runs on.
-    let ktss = unsafe { (*ptr::addr_of!(glue::mp_ktss))[mycpu as usize] };
+    let ktss = unsafe {
+        (*ptr::addr_of!(crate::arch::i386::mp_desc::mp_ktss))[mycpu as usize]
+    };
     // SAFETY: as above; the field is the one the architecture uses for the
     // ring-0 stack.
     #[cfg(target_pointer_width = "64")]
@@ -914,12 +916,14 @@ pub(crate) unsafe fn switch_ktss(pcb: *mut Pcb) {
                 set_ldt(KERNEL_LDT);
             }
         } else {
-            let gdt = (*ptr::addr_of!(glue::mp_gdt))[mycpu as usize];
+            let gdt = (*ptr::addr_of!(crate::arch::i386::mp_desc::mp_gdt))
+                [mycpu as usize];
             *gdt.add(sel_idx(USER_LDT)) = (*tldt).desc;
             set_ldt(USER_LDT);
         }
 
-        let gdt = (*ptr::addr_of!(glue::mp_gdt))[mycpu as usize];
+        let gdt = (*ptr::addr_of!(crate::arch::i386::mp_desc::mp_gdt))
+            [mycpu as usize];
         *gdt.add(sel_idx(USER_GDT)) = (*pcb).ims.user_gdt[0];
         *gdt.add(sel_idx(USER_GDT) + 1) = (*pcb).ims.user_gdt[1];
     }
@@ -946,8 +950,10 @@ pub(crate) unsafe fn switch_ktss(pcb: *mut Pcb) {
 /// `new_iopb` must be readable for `size` bytes when it is non-null.
 pub(crate) unsafe fn update_ktss_iopb(new_iopb: *mut u8, size: c_ushort) {
     // SAFETY: `mp_ktss` holds one live TSS per CPU.
-    let tss =
-        unsafe { (*ptr::addr_of!(glue::mp_ktss))[cpu_number() as usize] };
+    let tss = unsafe {
+        (*ptr::addr_of!(crate::arch::i386::mp_desc::mp_ktss))
+            [cpu_number() as usize]
+    };
     if !new_iopb.is_null() && size > 0 {
         let offset = offset_of!(TaskTss, barrier) - usize::from(size);
         // SAFETY: the task's `iopb_size` is an `IOPB_MAX`-wide port count, so

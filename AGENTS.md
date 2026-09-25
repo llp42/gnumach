@@ -41,7 +41,8 @@ routine at a time. The target is a Rust kernel, not a kernel with Rust in it.
 The build is GNU Autotools plus a hand-written `rustc` invocation — no Cargo,
 no lock file, no network. The Rust half compiles to `libmach-rs.a`, which is
 linked between two passes over `libkernel.a`, so Rust may call C and C may
-call Rust. As of 2026-09-25 the Rust half is 174 files and about 85,000 lines.
+call Rust. As of 2026-09-25 the Rust half is 201 files and about 106,400
+lines.
 
 ### The idea
 
@@ -172,6 +173,9 @@ link error, not a fallback.
 | `kern/processor.c` | `src/kern/processor.rs`, `src/kern/processor_ffi.rs` |
 | `kern/machine.c` | `src/kern/machine.rs`, `src/kern/machine_ffi.rs` |
 | `kern/eventcount.c` | `src/kern/eventcount.rs`, `src/kern/eventcount_ffi.rs` |
+| `i386/i386at/model_dep.c` | `src/arch/i386/model_dep.rs`, `src/arch/i386/model_dep_ffi.rs` |
+| `i386/i386/mp_desc.c` | `src/arch/i386/mp_desc.rs`, `src/arch/i386/mp_desc_ffi.rs` |
+| `i386/i386/debug_i386.c` | `src/arch/i386/debug_i386.rs`, `src/arch/i386/debug_i386_ffi.rs` |
 
 Also deleted as dead: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `ipc/copy_user.c`'s `USER32`

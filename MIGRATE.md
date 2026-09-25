@@ -123,19 +123,17 @@ recorded in §9.
 | `net_io.c` | 2168 | 0 | `ifnet`/`net_hash_entry` fields |
 | `subrs.c` | 53 | 0 | `ifnet` fields |
 
-### `i386/` (20 files, 3,109 LOC)
+### `i386/` (17 files, 2,167 LOC)
 
 | File | LOC | Free | Holds the rest |
 |---|---:|---:|---|
 | `i386/db_interface.c` | 103 | 0 | `struct pcb` fields |
-| `i386/debug_i386.c` | 178 | 0 | `i386_saved_state` fields |
 | `i386/gdt.c` | 141 | 0 | static `gdt_fill`, `reload_segs` |
 | `i386/hardclock.c` | 69 | 0 | `machine_slot` and interrupt plumbing |
 | `i386/idt.c` | 80 | 0 | static `idt_fill` |
 | `i386/ktss.c` | 86 | 0 | static `ktss_fill` |
 | `i386/ldt.c` | 100 | 0 | static `ldt_fill` |
 | `i386/machine_task.c` | 70 | 0 | `task.machine` fields |
-| `i386/mp_desc.c` | 296 | 0 | `int_stack_base`/`int_stack_top` are NCPUS-sized |
 | `i386/percpu.c` | 31 | 0 | `struct percpu.self` field |
 | `i386/phys.c` | 164 | 0 | mapped-window internals for `pmap_copy_page` etc. |
 | `i386/pic.c` | 270 | 0 | not compiled in the APIC configuration |
@@ -144,7 +142,6 @@ recorded in §9.
 | `i386at/conf.c` | 144 | 0 | static tables |
 | `i386at/cons_conf.c` | 48 | 0 | static tables |
 | `i386at/int_init.c` | 78 | 0 | static `int_fill` |
-| `i386at/model_dep.c` | 468 | 0 | init/boot state |
 | `i386at/pic_isa.c` | 56 | 0 | not compiled in the APIC configuration |
 | `intel/read_fault.c` | 178 | 0 | dead: body is `#if`-ed out on every supported CPU |
 
@@ -210,7 +207,9 @@ deleted (§9, §10).  Five of the 20 moved in a follow-up pass:
 went with the `pmap.c` port, `picdisable` and the four `i386/i386/irq.c`
 accessors went with the whole-file `irq.c`/`ioapic.c` ports (§9), and the
 eight `i386/i386at/com.c` entries went with that whole-file port.  The
-rest is still C: `interrupt_stack_alloc`.
+last of the NCPUS-sized functions, `interrupt_stack_alloc`, went with the
+whole-file `i386/i386/mp_desc.c` port, which also carried the two arrays
+it sized (§9).
 
 **Mirror gaps.**
 `host_ipc_marequest_info` and `host_virtual_physical_table_info` needed a
@@ -446,6 +445,9 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `kern/processor.c` whole, with the `master_cpu`, `default_pset`, `all_psets`, `all_psets_count`, `all_psets_lock`, `master_processor`, `pset_cache` and `slave_pset` globals it owned and the `processor_set_things` allocation and port conversions | `src/kern/processor.rs`, `processor_ffi.rs` | pending |
 | `kern/machine.c` whole, with the `machine_info`, `machine_slot`, `action_queue` and `action_lock` globals it owned and the static `cpu_down`, `processor_request_action` and `processor_doaction` helpers | `src/kern/machine.rs`, `machine_ffi.rs` | pending |
 | `kern/eventcount.c` whole, with the `all_eventcounters[MAX_EVCS]` table and the file-private `struct evc` | `src/kern/eventcount.rs`, `eventcount_ffi.rs` | pending |
+| `i386/i386at/model_dep.c` whole, with the `boot_info`, `kernel_cmdline` and `rebootflag` globals and the `ElfShdr` and `GdtDescrTmp` mirrors its boot path reads | `src/arch/i386/model_dep.rs`, `model_dep_ffi.rs` | pending |
+| `i386/i386/mp_desc.c` whole, with the NCPUS-sized `int_stack_base`, `int_stack_top`, `solid_intstack`, `mp_desc_table`, `mp_ktss` and `mp_gdt` it owned, the `apboot_addr` global, and the `RealGate` and `MpDescTable` mirrors `idt.c`, `int_init.c`, `gdt.c`, `ldt.c` and `ktss.c` still read | `src/arch/i386/mp_desc.rs`, `mp_desc_ffi.rs` | pending |
+| `i386/i386/debug_i386.c` whole, with the `debug_trace_buf`/`debug_trace_pos`, `syscall_trace`/`syscall_trace_task` globals and the `DebugTraceEntry` and `MachTrap` mirrors, and `dump_ss` re-homed out of `glue` for `trap.rs` | `src/arch/i386/debug_i386.rs`, `debug_i386_ffi.rs` | pending |
 
 `vm/vm_fault.c` was ported whole and rolled back in the same pass: the pinned
 toolchain turns the copy-object loop's `first_object->copy` null test into an

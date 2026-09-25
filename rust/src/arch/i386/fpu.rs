@@ -27,6 +27,14 @@ use core::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 
 /// `CR0_NE` of <i386/proc_reg.h>.
 const CR0_NE: usize = 0x20;
+/// `CR0_PG` of <i386/proc_reg.h>.
+pub(crate) const CR0_PG: usize = 0x8000_0000;
+/// `CR0_CD` of <i386/proc_reg.h>.
+pub(crate) const CR0_CD: usize = 0x4000_0000;
+/// `CR0_NW` of <i386/proc_reg.h>.
+pub(crate) const CR0_NW: usize = 0x2000_0000;
+/// `CR0_WP` of <i386/proc_reg.h>.
+pub(crate) const CR0_WP: usize = 0x0001_0000;
 /// `CR0_TS` of <i386/proc_reg.h>.
 const CR0_TS: usize = 0x08;
 /// `CR0_EM` of <i386/proc_reg.h>.
@@ -34,6 +42,11 @@ const CR0_EM: usize = 0x04;
 /// `CR0_MP` of <i386/proc_reg.h>.
 const CR0_MP: usize = 0x02;
 
+/// `CR4_PAE` of <i386/proc_reg.h>.
+#[cfg(target_pointer_width = "64")]
+pub(crate) const CR4_PAE: usize = 0x0020;
+/// `CR4_PGE` of <i386/proc_reg.h>.
+pub(crate) const CR4_PGE: usize = 0x0080;
 /// `CR4_OSFXSR` of <i386/proc_reg.h>.
 const CR4_OSFXSR: usize = 0x0200;
 /// `CR4_OSXSAVE` of <i386/proc_reg.h>.
@@ -589,7 +602,7 @@ fn set_xcr0(value: u64) {
 }
 
 /// The `get_cr0()` of <i386/proc_reg.h>.
-fn read_cr0() -> usize {
+pub(crate) fn read_cr0() -> usize {
     let value: usize;
     // SAFETY: reading CR0 is legal at CPL0.
     unsafe {
@@ -599,7 +612,7 @@ fn read_cr0() -> usize {
 }
 
 /// The `set_cr0()` of <i386/proc_reg.h>.
-fn write_cr0(value: usize) {
+pub(crate) fn write_cr0(value: usize) {
     // SAFETY: writing CR0 is legal at CPL0.
     unsafe {
         core::arch::asm!("mov cr0, {value}", value = in(reg) value, options(nostack, preserves_flags))
@@ -607,7 +620,7 @@ fn write_cr0(value: usize) {
 }
 
 /// The `get_cr4()` of <i386/proc_reg.h>.
-fn read_cr4() -> usize {
+pub(crate) fn read_cr4() -> usize {
     let value: usize;
     // SAFETY: reading CR4 is legal at CPL0.
     unsafe {
@@ -617,7 +630,7 @@ fn read_cr4() -> usize {
 }
 
 /// The `set_cr4()` of <i386/proc_reg.h>.
-fn write_cr4(value: usize) {
+pub(crate) fn write_cr4(value: usize) {
     // SAFETY: writing CR4 is legal at CPL0.
     unsafe {
         core::arch::asm!("mov cr4, {value}", value = in(reg) value, options(nostack, preserves_flags))
