@@ -20,6 +20,8 @@ use crate::arch::i386::percpu::current_thread;
 use crate::arch::types::{VmOffset, VmSize};
 use crate::arch::vm_param::PAGE_SIZE;
 use crate::config::NINTR;
+use crate::device::dev_lookup;
+use crate::device::dev_lookup_ffi;
 use crate::device::r#return::{DeviceError, IoResultExt};
 use crate::glue;
 use crate::ipc::ipc_port_ffi;
@@ -521,10 +523,10 @@ static IO_DONE_LIST_LOCK: Mutex<()> = Mutex::new(());
 /// `mach_device_emulation_ops` of `device/ds_routines.c`: the native Mach
 /// device emulation every device lookup installs.
 #[unsafe(export_name = "mach_device_emulation_ops")]
-static mut MACH_DEVICE_EMULATION_OPS: DeviceEmulationOps =
+pub(crate) static mut MACH_DEVICE_EMULATION_OPS: DeviceEmulationOps =
     DeviceEmulationOps {
-        reference: Some(glue::mach_device_reference),
-        dealloc: Some(glue::mach_device_deallocate),
+        reference: Some(dev_lookup_ffi::mach_device_reference),
+        dealloc: Some(dev_lookup_ffi::mach_device_deallocate),
         dev_to_port: Some(mach_convert_device_to_port),
         open: Some(device_open),
         close: Some(device_close),
@@ -543,7 +545,7 @@ static mut MACH_DEVICE_EMULATION_OPS: DeviceEmulationOps =
 
 /// The C's implicit `int` to `dev_t` truncation at every driver call; a
 /// device number comes from the device table and fits in sixteen bits.
-fn driver_unit(dev_number: c_int) -> DevT {
+pub(crate) fn driver_unit(dev_number: c_int) -> DevT {
     dev_number as DevT
 }
 
@@ -1052,7 +1054,7 @@ pub(crate) unsafe extern "C" fn ds_notify(msg: *mut c_void) -> c_int {
         if (*header).id() == MACH_NOTIFY_NO_SENDERS {
             let port =
                 ptr::with_exposed_provenance_mut::<c_void>((*header).remote());
-            let dev = glue::dev_port_lookup(port).cast::<Device>();
+            let dev = dev_lookup::port_lookup(port);
             let ops = (*dev).emul_ops;
             if let Some(no_senders) = (*ops).no_senders {
                 no_senders(msg.cast::<c_void>());
@@ -1185,7 +1187,7 @@ unsafe extern "C" fn mach_convert_device_to_port(
         };
         (*device).lock.unlock();
 
-        glue::mach_device_deallocate(device.cast::<c_void>());
+        dev_lookup::deallocate(device);
 
         port
     }
@@ -1205,10 +1207,10 @@ unsafe extern "C" fn device_open(
 ) -> c_int {
     // SAFETY: the caller promises the NUL-terminated name; the lookup returns
     // a live device or null.
-    let device = unsafe { glue::device_lookup(name) }.cast::<MachDevice>();
-    if device.is_null() {
+    let Some(device) = (unsafe { dev_lookup::lookup(name) }) else {
         return Err(DeviceError::NoSuchDevice).as_io_return();
-    }
+    };
+    let device = device.as_ptr();
 
     // SAFETY: a live mach device owns its lock, and the caller promises the
     // writable handle slot.
@@ -1229,7 +1231,7 @@ unsafe extern "C" fn device_open(
         if (*device).state == DEV_STATE_OPEN {
             if (*device).flag & D_EXCL_OPEN != 0 {
                 (*device).lock.unlock();
-                glue::mach_device_deallocate(device.cast::<c_void>());
+                dev_lookup::deallocate(device);
                 return Err(DeviceError::AlreadyOpen).as_io_return();
             }
 
@@ -1257,11 +1259,11 @@ unsafe extern "C" fn device_open(
                 );
             }
             (*device).lock.unlock();
-            glue::mach_device_deallocate(device.cast::<c_void>());
+            dev_lookup::deallocate(device);
             return KERN_RESOURCE_SHORTAGE;
         }
 
-        glue::dev_port_enter(device.cast::<c_void>());
+        dev_lookup::port_enter(device);
 
         let notify = ipc_port_ffi::ipc_port_make_sonce((*device).port);
         let port = IpcPort::from_raw((*device).port);
@@ -1309,7 +1311,7 @@ pub(crate) unsafe extern "C" fn ds_open_done(ior: *mut IoReq) -> c_int {
         let result = (*ior).error;
 
         if result != D_SUCCESS {
-            glue::dev_port_remove(device.cast::<c_void>());
+            dev_lookup::port_remove(device);
             ipc_port::dealloc_special(IpcPort::from_raw((*device).port));
             (*device).port = ptr::null_mut();
 
@@ -1325,7 +1327,7 @@ pub(crate) unsafe extern "C" fn ds_open_done(ior: *mut IoReq) -> c_int {
             }
             (*device).lock.unlock();
 
-            glue::mach_device_deallocate(device.cast::<c_void>());
+            dev_lookup::deallocate(device);
             device = ptr::null_mut();
         } else {
             (*device).lock.lock();
@@ -1350,7 +1352,7 @@ pub(crate) unsafe extern "C" fn ds_open_done(ior: *mut IoReq) -> c_int {
                 mach_convert_device_to_port(device.cast::<c_void>()),
             );
         } else if !device.is_null() {
-            glue::mach_device_deallocate(device.cast::<c_void>());
+            dev_lookup::deallocate(device);
         }
     }
 
@@ -1382,7 +1384,7 @@ unsafe extern "C" fn device_close(dev: *mut c_void) -> c_int {
         (*device).state = DEV_STATE_CLOSING;
         (*device).lock.unlock();
 
-        glue::dev_port_remove(device.cast::<c_void>());
+        dev_lookup::port_remove(device);
         ipc_port::dealloc_special(IpcPort::from_raw((*device).port));
 
         if let Some(d_close) = (*(*device).dev_ops).d_close {
@@ -1441,7 +1443,7 @@ unsafe extern "C" fn device_write(
         (*ior).reply_port_type = reply_port_type;
         (*ior).copy = ptr::null_mut();
 
-        glue::mach_device_reference(device.cast::<c_void>());
+        dev_lookup::reference(device);
 
         let result = loop {
             let d_write = (*(*device).dev_ops).d_write;
@@ -1463,7 +1465,7 @@ unsafe extern "C" fn device_write(
 
         bytes_written.write(((*ior).total - (*ior).residual) as c_int);
 
-        glue::mach_device_deallocate(device.cast::<c_void>());
+        dev_lookup::deallocate(device);
 
         io_req_free(ior);
         result
@@ -1509,7 +1511,7 @@ unsafe extern "C" fn device_write_inband(
         (*ior).reply_port = reply_port;
         (*ior).reply_port_type = reply_port_type;
 
-        glue::mach_device_reference(device.cast::<c_void>());
+        dev_lookup::reference(device);
 
         let d_write = (*(*device).dev_ops).d_write;
         let result = match d_write {
@@ -1523,7 +1525,7 @@ unsafe extern "C" fn device_write_inband(
 
         bytes_written.write(((*ior).total - (*ior).residual) as c_int);
 
-        glue::mach_device_deallocate(device.cast::<c_void>());
+        dev_lookup::deallocate(device);
 
         io_req_free(ior);
         result
@@ -1754,7 +1756,7 @@ pub(crate) unsafe extern "C" fn ds_write_done(ior: *mut IoReq) -> c_int {
                 );
             }
         }
-        glue::mach_device_deallocate((*ior).device);
+        dev_lookup::deallocate((*ior).device.cast::<MachDevice>());
     }
 
     c_int::from(true)
@@ -1804,7 +1806,7 @@ unsafe extern "C" fn device_read(
         (*ior).reply_port = reply_port;
         (*ior).reply_port_type = reply_port_type;
 
-        glue::mach_device_reference(device.cast::<c_void>());
+        dev_lookup::reference(device);
 
         let d_read = (*(*device).dev_ops).d_read;
         let result = match d_read {
@@ -1875,7 +1877,7 @@ unsafe extern "C" fn device_read_inband(
         (*ior).reply_port = reply_port;
         (*ior).reply_port_type = reply_port_type;
 
-        glue::mach_device_reference(device.cast::<c_void>());
+        dev_lookup::reference(device);
 
         let d_read = (*(*device).dev_ops).d_read;
         let result = match d_read {
@@ -2041,7 +2043,7 @@ pub(crate) unsafe extern "C" fn ds_read_done(ior: *mut IoReq) -> c_int {
             }
         }
 
-        glue::mach_device_deallocate((*ior).device);
+        dev_lookup::deallocate((*ior).device.cast::<MachDevice>());
     }
 
     c_int::from(true)
@@ -2157,7 +2159,9 @@ unsafe extern "C" fn device_map(
     dev: *mut c_void,
     protection: c_int,
     offset: VmOffset,
-    size: VmSize,
+    // The C's `device_pager_setup()` stored the size and never read it
+    // back, so the core does not take it.
+    _size: VmSize,
     pager: *mut *mut c_void,
     _unmap: c_int,
 ) -> c_int {
@@ -2172,13 +2176,13 @@ unsafe extern "C" fn device_map(
             return Err(DeviceError::NoSuchDevice).as_io_return();
         }
 
-        glue::device_pager_setup(
-            device.cast::<c_void>(),
-            protection,
-            offset,
-            size,
-            pager.cast::<VmOffset>(),
-        )
+        match crate::device::dev_pager::setup(device, protection, offset) {
+            Ok(port) => {
+                *pager = port.as_ptr();
+                KERN_SUCCESS
+            }
+            Err(error) => error.code(),
+        }
     }
 }
 
@@ -2433,7 +2437,7 @@ unsafe extern "C" fn ds_trap_write_done(ior: *mut IoReq) -> c_int {
         let dev = (*ior).device;
 
         kmem_cache_free(ptr::addr_of_mut!(IO_TRAP_CACHE), ior.addr());
-        glue::mach_device_deallocate(dev);
+        dev_lookup::deallocate(dev.cast::<MachDevice>());
     }
 
     c_int::from(true)
@@ -2485,7 +2489,7 @@ unsafe extern "C" fn device_write_trap(
             );
         }
 
-        glue::mach_device_reference(device.cast::<c_void>());
+        dev_lookup::reference(device);
 
         let d_write = (*(*device).dev_ops).d_write;
         let result = match d_write {
@@ -2497,7 +2501,7 @@ unsafe extern "C" fn device_write_trap(
             return MIG_NO_REPLY;
         }
 
-        glue::mach_device_deallocate(device.cast::<c_void>());
+        dev_lookup::deallocate(device);
 
         kmem_cache_free(ptr::addr_of_mut!(IO_TRAP_CACHE), ior.addr());
         result
@@ -2578,7 +2582,7 @@ unsafe extern "C" fn device_writev_trap(
             }
         }
 
-        glue::mach_device_reference(device.cast::<c_void>());
+        dev_lookup::reference(device);
 
         let d_write = (*(*device).dev_ops).d_write;
         let result = match d_write {
@@ -2590,7 +2594,7 @@ unsafe extern "C" fn device_writev_trap(
             return MIG_NO_REPLY;
         }
 
-        glue::mach_device_deallocate(device.cast::<c_void>());
+        dev_lookup::deallocate(device);
 
         kmem_cache_free(ptr::addr_of_mut!(IO_TRAP_CACHE), ior.addr());
         result

@@ -116,15 +116,13 @@ never compiled in either configured build (§8, §9).
 | `vm_resident.c` | 948 | 0 | the `vm_page_bucket_t` table, the fictitious-page statics and `vm_page_order` |
 | `vm_user.c` | 602 | 0 | `vm_page` fields for the rest |
 
-### `device/` (9 files, 4,205 LOC)
+### `device/` (7 files, 3,275 LOC)
 
 | File | LOC | Free | Holds the rest |
 |---|---:|---:|---|
 | `cons.c` | 176 | 0 | `cn_tab` static table |
 | `device_init.c` | 49 | 0 | — |
-| `dev_lookup.c` | 365 | 0 | `mach_device` fields |
 | `dev_name.c` | 166 | 0 | `dev_ops`/`dev_indirect` fields |
-| `dev_pager.c` | 565 | 0 | hash and device fields |
 | `intr.c` | 375 | 0 | `struct irqdev`/`user_intr_t` fields |
 | `kmsg.c` | 237 | 0 | — (the rest is message plumbing) |
 | `net_io.c` | 2168 | 0 | `ifnet`/`net_hash_entry` fields |
@@ -366,6 +364,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `kern/ast.h` (`ast_on`, `ast_off`, `ast_needed`) | `src/kern/ast.rs` | `6a6281be` |
 | `kern/ipc_mig.c`, `kern/host.c`, `kern/syscall_subr.c` (leaves) | `src/kern/ipc_mig.rs`, `host.rs`, `syscall_subr.rs` | `c1cf99d4` |
 | `device/dev_pager.c`, `kern/debug.c`, `kern/boot_script.c`, `kern/bootstrap.c` (leaves) | `src/device/dev_pager.rs`, `src/kern/debug.rs`, `boot_script.rs`, `bootstrap.rs` | `eecdf229` |
+| `device/dev_lookup.c` and `device/dev_pager.c` whole, with the device-number table, the two pager hash tables, the `dev_hdr_cache`/`dev_pager_cache`/`dev_device_hash_cache` slab caches and the `mach_device_reference`/`mach_device_deallocate`/`dev_port_*` entries they owned; `device/dev_pager.h` deleted with them | `src/device/dev_lookup.rs`, `dev_lookup_ffi.rs`, `dev_pager.rs`, `dev_pager_ffi.rs` | pending |
 | `kern/mach_clock.c`, `syscall_emulation.c`, `ipc/ipc_target.c`, `kern/task.c`, `kern/thread.c` (stubs) | `src/kern/mach_clock.rs`, `syscall_emulation.rs`, `src/ipc/ipc_target.rs`, `src/kern/task.rs`, `thread.rs` | `5bc0c535` |
 | `i386/i386/machine_task.c`, `i386/i386at/model_dep.c`, `i386/intel/pmap.c` (leaves) | `src/arch/i386/machine_task.rs`, `model_dep.rs`, `pmap.rs` | `8dbc4e8e` |
 | `i386/i386at/model_dep.c` (`machine_idle`, `machine_relax`, `timemmap`, `inittodr`, `resettodr`, `init_alloc_aligned`, `pmap_grab_page`) | `src/arch/i386/model_dep.rs` | pending |

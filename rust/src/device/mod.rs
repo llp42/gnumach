@@ -7,8 +7,11 @@
 pub mod chario;
 pub mod chario_ffi;
 pub mod cirbuf;
+pub mod dev_lookup;
+pub mod dev_lookup_ffi;
 pub mod dev_name;
 pub mod dev_pager;
+pub mod dev_pager_ffi;
 pub mod device_init;
 pub mod ds_routines;
 pub mod ds_routines_ffi;

@@ -779,7 +779,7 @@ pub(crate) unsafe extern "C" fn char_write_done(ior: *mut IoReq) -> c_int {
     }
     // SAFETY: `device_reference()`/`device_deallocate()`'s contract; the
     // request owns its reference on the device.
-    unsafe { glue::mach_device_deallocate(ior.device) };
+    unsafe { crate::device::dev_lookup::deallocate(ior.device.cast()) };
     c_int::from(true)
 }
 

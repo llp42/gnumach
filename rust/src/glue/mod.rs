@@ -9,6 +9,7 @@ pub mod time_value;
 use crate::arch::i386::irq::{IrqDev, UserIntr};
 use crate::arch::types::{VmOffset, VmSize};
 use crate::config::NCPUS;
+use crate::device::ds_routines::DevOps;
 use crate::kern::lock::SimpleLock;
 use crate::kern::mach_clock::Timeout;
 use crate::kern::machine::{MachineInfo, MachineSlot};
@@ -201,25 +202,33 @@ unsafe extern "C" {
         new_name: *mut *mut ProcessorSet,
     ) -> c_int;
 
-    pub fn dev_lookup_init();
     pub fn net_io_init();
-    pub fn device_pager_init();
     pub fn net_thread();
 
     pub static mut master_device_port: *mut c_void;
 
-    pub fn device_lookup(name: *const c_char) -> *mut c_void;
-    pub fn dev_port_lookup(port: *mut c_void) -> *mut c_void;
-    pub fn dev_port_enter(device: *mut c_void);
-    pub fn dev_port_remove(device: *mut c_void);
-    pub fn mach_device_reference(device: *mut c_void);
-    pub fn mach_device_deallocate(device: *mut c_void);
-    pub fn device_pager_setup(
-        device: *mut c_void,
-        prot: c_int,
+    /// `dev_name_lookup()` of `device/dev_name.c`, which is still C.
+    pub fn dev_name_lookup(
+        name: *const c_char,
+        ops: *mut *mut DevOps,
+        unit: *mut c_int,
+    ) -> c_int;
+
+    /// `r_memory_object_data_error()` of the MIG `memory_object_reply`
+    /// user stubs.
+    pub fn r_memory_object_data_error(
+        memory_control: *mut c_void,
         offset: VmOffset,
         size: VmSize,
-        pager: *mut VmOffset,
+        error_value: c_int,
+    ) -> c_int;
+
+    /// `r_memory_object_ready()` of the MIG `memory_object_reply` user
+    /// stubs.
+    pub fn r_memory_object_ready(
+        memory_control: *mut c_void,
+        may_cache: c_int,
+        copy_strategy: c_int,
     ) -> c_int;
     pub fn insert_intr_entry(
         dev: *mut IrqDev,

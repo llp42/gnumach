@@ -40,8 +40,11 @@ MACH_RS_SRCS = \
 	rust/src/device/chario.rs \
 	rust/src/device/chario_ffi.rs \
 	rust/src/device/cirbuf.rs \
+	rust/src/device/dev_lookup.rs \
+	rust/src/device/dev_lookup_ffi.rs \
 	rust/src/device/dev_name.rs \
 	rust/src/device/dev_pager.rs \
+	rust/src/device/dev_pager_ffi.rs \
 	rust/src/device/device_init.rs \
 	rust/src/device/ds_routines.rs \
 	rust/src/device/ds_routines_ffi.rs \
