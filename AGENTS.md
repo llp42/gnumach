@@ -191,9 +191,11 @@ link error, not a fallback.
 | `i386/i386at/int_init.c` | `src/arch/i386/int_init.rs`, `src/arch/i386/int_init_ffi.rs` |
 | `i386/i386/user_ldt.c` | `src/arch/i386/user_ldt.rs`, `src/arch/i386/user_ldt_ffi.rs` |
 | `i386/i386/db_interface.c` | `src/arch/i386/db_interface.rs`, `src/arch/i386/db_interface_ffi.rs` |
+| `chips/busses.c` | `src/arch/i386/busses.rs` |
 
 Also deleted as dead: `device/blkio.c`, the `#if 0` profiling facility
-(`profil.h`, `profilparam.h`, `mpqueue`), and `ipc/copy_user.c`'s `USER32`
+(`profil.h`, `profilparam.h`, `mpqueue`), `i386/intel/read_fault.c` (body
+`#if`-ed out on every supported CPU), and `ipc/copy_user.c`'s `USER32`
 half (`copyoutmsg()` included), which never compiled in either configured
 build.
 

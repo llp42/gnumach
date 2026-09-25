@@ -115,7 +115,7 @@ recorded in §9.
 | `kmsg.c` | 237 | 0 | — (the rest is message plumbing) |
 | `subrs.c` | 53 | 0 | `ifnet` fields |
 
-### `i386/` (10 files, 1,157 LOC)
+### `i386/` (9 files, 979 LOC)
 
 | File | LOC | Free | Holds the rest |
 |---|---:|---:|---|
@@ -128,11 +128,11 @@ recorded in §9.
 | `i386at/conf.c` | 144 | 0 | static tables |
 | `i386at/cons_conf.c` | 48 | 0 | static tables |
 | `i386at/pic_isa.c` | 56 | 0 | not compiled in the APIC configuration |
-| `intel/read_fault.c` | 178 | 0 | dead: body is `#if`-ed out on every supported CPU |
 
-`chips/busses.c` (232 LOC) is still C, but the `struct bus_device`,
-`struct bus_ctlr` and `struct bus_driver` mirrors it reads now exist in
-`src/arch/i386/com.rs`, asserts included, so its field gap is closed.
+`chips/busses.c` moved to `src/arch/i386/busses.rs`; the `struct bus_device`,
+`struct bus_ctlr` and `struct bus_driver` mirrors it reads stay in
+`src/arch/i386/com.rs`, asserts included (§9).  `i386/intel/read_fault.c` was
+deleted as dead, its body being `#if`-ed out on every supported CPU (§9).
 There are no C files under `x86_64/`.
 
 ## 6. What to port next — the objective test
@@ -290,9 +290,6 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 
 ## 8. Deletions
 
-* `i386/intel/read_fault.c`: the body is
-  `#if (__i386__ && !(__i486__ || __i586__ || __i686__))`, compiled out
-  on every supported CPU.  Delete, do not port.
 * `#if 0` blocks in `kern/exception.c`, `device/intr.c`,
   and `i386/i386at/kd.c`.  Delete before porting the surrounding code.
   The `#if 0` bodies of `kern/{boot_script,bootstrap}.c`,
@@ -445,6 +442,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `i386/i386at/int_init.c` whole, with the static `int_fill` and the `int_entry_table` walk | `src/arch/i386/int_init.rs`, `int_init_ffi.rs` | pending |
 | `i386/i386/user_ldt.c` whole, with the `struct descriptor` mirror and the `user_ldt_free` entry `pcb.rs` calls | `src/arch/i386/user_ldt.rs`, `user_ldt_ffi.rs` | pending |
 | `i386/i386/db_interface.c` whole, with the `zero_dr` static and the `ddb_regs` global | `src/arch/i386/db_interface.rs`, `db_interface_ffi.rs` | pending |
+| `chips/busses.c` whole, with the `bus_master_init[]`/`bus_device_init[]` walks and the `BusCtlr`/`BusDevice`/`BusDriver` mirrors it reads, which stay in `src/arch/i386/com.rs` | `src/arch/i386/busses.rs` | pending |
 
 `vm/vm_fault.c` was ported whole and rolled back in the same pass: the pinned
 toolchain turns the copy-object loop's `first_object->copy` null test into an
@@ -454,9 +452,11 @@ that loop is the trigger; `vm_fault.c` stays C until the toolchain or the loop
 shape changes.
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
-(`profil.h`, `profilparam.h`, `mpqueue`), and `i386/i386at/kd_glue.c`
-(`018c9cd8`).  `kern/rdxtree.c`'s `rdxtree_check_alignment`, never called
-by either build, went with that file's port.
+(`profil.h`, `profilparam.h`, `mpqueue`), `i386/i386at/kd_glue.c`
+(`018c9cd8`), and `i386/intel/read_fault.c`, whose body is
+`#if (__i386__ && !(__i486__ || __i586__ || __i686__))` and so is compiled
+out on every supported CPU.  `kern/rdxtree.c`'s `rdxtree_check_alignment`,
+never called by either build, went with that file's port.
 
 ## 10. The glue debt
 

@@ -6,7 +6,7 @@
 pub mod mig;
 pub mod time_value;
 
-use crate::arch::i386::com::BusDevice;
+use crate::arch::i386::com::{BusCtlr, BusDevice};
 use crate::arch::i386::debug_i386::MachTrap;
 use crate::arch::i386::idt::IdtInitEntry;
 use crate::arch::i386::irq::{IrqDev, UserIntr};
@@ -288,6 +288,10 @@ unsafe extern "C" {
 
     /// `main_intr_queue` of <device/intr.h>: the queue `irqtab` points at.
     pub static mut main_intr_queue: QueueEntry;
+
+    /// `bus_master_init[]` of `i386/i386at/autoconf.c`: the AT-bus
+    /// controller table, incomplete in C, so this declares its first element.
+    pub static mut bus_master_init: BusCtlr;
 
     /// `bus_device_init[]` of `i386/i386at/autoconf.c`: the AT-bus device
     /// table, incomplete in C, so this declares its first element.

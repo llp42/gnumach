@@ -97,7 +97,6 @@ endif
 #
 
 libkernel_a_SOURCES += \
-	chips/busses.c \
 	chips/busses.h
 
 #
