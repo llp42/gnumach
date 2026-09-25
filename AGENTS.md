@@ -136,6 +136,8 @@ link error, not a fallback.
 | `ipc/ipc_kmsg.c` | `src/ipc/ipc_kmsg.rs`, `ipc_kmsg_ffi.rs` |
 | `ipc/mach_port.c` | `src/ipc/mach_port.rs`, `src/ipc/mach_port_ffi.rs` |
 | `ipc/ipc_right.c` | `src/ipc/ipc_right.rs`, `src/ipc/ipc_right_ffi.rs` |
+| `i386/i386/apic.c` | `src/arch/i386/apic.rs` |
+| `i386/i386at/acpi_parse_apic.c` | `src/arch/i386/acpi_parse_apic.rs` |
 
 Also deleted as dead: `device/blkio.c` and the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`).
