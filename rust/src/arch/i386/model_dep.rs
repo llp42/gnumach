@@ -15,7 +15,8 @@
 //! The `extern "C"` edge is in [`model_dep_ffi`].
 
 use crate::arch::i386::{
-    apic, biosmem, fpu, ioapic, irq, mbinfo, mp_desc, percpu, pit, pmap, rtc,
+    apic, biosmem, fpu, gdt, idt, int_init, ioapic, irq, ktss, ldt, mbinfo,
+    mp_desc, percpu, pit, pmap, rtc,
 };
 use crate::arch::types::{VmOffset, VmSize};
 use crate::arch::vm_param::{PAGE_MASK, PAGE_SHIFT};
@@ -667,17 +668,16 @@ fn i386at_init() {
     }
     mp_desc::flush_instr_queue();
 
-    // SAFETY: the descriptor tables are the real C routines of `gdt.c`,
-    // `idt.c`, `int_init.c`, `ldt.c` and `ktss.c`, and this runs on the boot
-    // CPU before any other one starts.
-    unsafe {
-        glue::gdt_init();
-        glue::idt_init();
-        glue::int_init();
-        glue::ldt_init();
-        glue::ktss_init();
-        glue::init_percpu(0);
-    }
+    // The descriptor tables are built on the boot CPU before any other one
+    // starts.
+    gdt::gdt_init();
+    idt::idt_init();
+    int_init::int_init();
+    ldt::ldt_init();
+    ktss::ktss_init();
+    // SAFETY: `init_percpu` is the real C routine of `i386/i386/percpu.c`,
+    // and this runs on the boot CPU.
+    unsafe { glue::init_percpu(0) };
     mp_desc::mp_desc_init(0);
 
     pmap::pmap_remove_temporary_mapping();

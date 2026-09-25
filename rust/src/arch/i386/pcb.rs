@@ -17,6 +17,7 @@ use crate::arch::i386::percpu::{
     cpu_number, current_stack, current_thread, set_active_thread,
 };
 use crate::arch::i386::pmap::{activate_user, deactivate_user};
+use crate::arch::i386::{db_interface, user_ldt};
 use crate::arch::types::{VmOffset, VmSize};
 use crate::arch::vm_param::{KERNEL_STACK_SIZE, VM_MAX_USER_ADDRESS};
 use crate::glue;
@@ -81,11 +82,27 @@ const V86_IF_PENDING: c_ushort = 0x8000;
 const SEL_PL: c_uint = 0x03;
 const SEL_PL_U: c_uint = 0x03;
 
-/// `MSR_REG_FSBASE` and `MSR_REG_KGSBASE` of <i386/msr.h>.
+/// `MSR_REG_FSBASE`, `MSR_REG_GSBASE` and `MSR_REG_KGSBASE` of <i386/msr.h>;
+/// the other registers below are the ones `ldt.rs` and `gdt.rs` write.
 #[cfg(target_pointer_width = "64")]
-const MSR_REG_FSBASE: u32 = 0xc000_0100;
+pub(crate) const MSR_REG_FSBASE: u32 = 0xc000_0100;
 #[cfg(target_pointer_width = "64")]
-const MSR_REG_KGSBASE: u32 = 0xc000_0102;
+pub(crate) const MSR_REG_GSBASE: u32 = 0xc000_0101;
+#[cfg(target_pointer_width = "64")]
+pub(crate) const MSR_REG_KGSBASE: u32 = 0xc000_0102;
+/// `MSR_REG_EFER`, `MSR_REG_STAR`, `MSR_REG_LSTAR` and `MSR_REG_FMASK` of
+/// <i386/msr.h>.
+#[cfg(target_pointer_width = "64")]
+pub(crate) const MSR_REG_EFER: u32 = 0xc000_0080;
+#[cfg(target_pointer_width = "64")]
+pub(crate) const MSR_REG_STAR: u32 = 0xc000_0081;
+#[cfg(target_pointer_width = "64")]
+pub(crate) const MSR_REG_LSTAR: u32 = 0xc000_0082;
+#[cfg(target_pointer_width = "64")]
+pub(crate) const MSR_REG_FMASK: u32 = 0xc000_0084;
+/// `MSR_EFER_SCE` of <i386/msr.h>: enable `syscall`/`sysret`.
+#[cfg(target_pointer_width = "64")]
+pub(crate) const MSR_EFER_SCE: u64 = 0x1;
 
 /// The thread-state flavors of <mach/i386/thread_status.h>.
 pub(crate) const I386_THREAD_STATE: c_int = 1;
@@ -403,6 +420,29 @@ const _: () = {
 pub struct RealDescriptor {
     pub limit_low_base_low: u32,
     pub access_and_base_high: u32,
+}
+
+impl RealDescriptor {
+    /// An all-zero descriptor, the image a C `static` began with.
+    pub(crate) const ZERO: Self = Self {
+        limit_low_base_low: 0,
+        access_and_base_high: 0,
+    };
+
+    /// The `access` byte of the C's `desc->access`.
+    pub(crate) const fn access(&self) -> u8 {
+        (self.access_and_base_high >> 8) as u8
+    }
+
+    /// The `granularity` nibble of the C's `desc->granularity`.
+    pub(crate) const fn granularity(&self) -> u8 {
+        ((self.access_and_base_high >> 20) & 0xf) as u8
+    }
+
+    /// The `limit_low` half of the C's `desc->limit_low`.
+    pub(crate) const fn limit_low(&self) -> u16 {
+        self.limit_low_base_low as u16
+    }
 }
 
 const _: () = {
@@ -783,14 +823,6 @@ fn stack_iel(stack: VmOffset) -> *mut I386ExceptionLink {
     )
 }
 
-/// The `kern_return_t` a C error code stands for.
-fn kern_error(code: c_int) -> Result<(), KernError> {
-    match u8::try_from(code) {
-        Ok(code) => KernError::from_u8(code),
-        Err(_) => Err(KernError::Failure),
-    }
-}
-
 /// The C's `get_ldt()` of <i386/proc_reg.h>.
 fn get_ldt() -> c_ushort {
     let segment: c_ushort;
@@ -812,7 +844,7 @@ fn set_ldt(segment: c_ushort) {
 
 /// The C's `wrmsr()` of <i386/msr.h>.
 #[cfg(target_pointer_width = "64")]
-fn write_msr(register: u32, value: u64) {
+pub(crate) fn write_msr(register: u32, value: u64) {
     // SAFETY: `wrmsr` writes a model-specific register at CPL0; the caller
     // names one the CPU has.
     unsafe {
@@ -824,6 +856,25 @@ fn write_msr(register: u32, value: u64) {
             options(nostack),
         )
     };
+}
+
+/// The C's `rdmsr()` of <i386/msr.h>.
+#[cfg(target_pointer_width = "64")]
+pub(crate) fn read_msr(register: u32) -> u64 {
+    let low: u32;
+    let high: u32;
+    // SAFETY: `rdmsr` reads a model-specific register at CPL0; the caller
+    // names one the CPU has.
+    unsafe {
+        core::arch::asm!(
+            "rdmsr",
+            in("ecx") register,
+            out("eax") low,
+            out("edx") high,
+            options(nostack),
+        )
+    };
+    (u64::from(high) << 32) | u64::from(low)
 }
 
 /// `fpu_save_context()` of <i386/fpu.h>: save the registers if they are live.
@@ -938,7 +989,7 @@ pub(crate) unsafe fn switch_ktss(pcb: *mut Pcb) {
 
     // SAFETY: the caller promises a live pcb, which `db_load_context()`
     // only reads.
-    unsafe { glue::db_load_context(pcb) };
+    unsafe { db_interface::load_context(pcb) };
 }
 
 /// `update_ktss_iopb()` of `i386/i386/pcb.h`, which `i386/i386/pcb.c`
@@ -1156,7 +1207,7 @@ pub(crate) unsafe fn pcb_terminate(thread: *mut Thread) {
             fpu::free_fp_state((*pcb).ims.ifps);
         }
         if !(*pcb).ims.ldt.is_null() {
-            glue::user_ldt_free((*pcb).ims.ldt);
+            user_ldt::free((*pcb).ims.ldt);
         }
         if let Some(buf) = NonNull::new(pcb.cast::<u8>()) {
             (*ptr::addr_of_mut!(PCB_CACHE)).free(buf);
@@ -1368,13 +1419,12 @@ pub(crate) unsafe fn thread_setstatus(
                 return Err(KernError::InvalidArgument);
             }
             // SAFETY: the caller promises the state record and a live pcb.
-            let code = unsafe {
-                glue::db_set_debug_state(
+            unsafe {
+                db_interface::set_debug_state(
                     (*thread).pcb,
                     tstate.cast::<I386DebugState>(),
                 )
-            };
-            kern_error(code)
+            }
         }
 
         #[cfg(target_pointer_width = "64")]
@@ -1637,7 +1687,7 @@ pub(crate) unsafe fn thread_getstatus(
             }
             // SAFETY: the caller promises the state record and a live pcb.
             unsafe {
-                glue::db_get_debug_state(
+                db_interface::get_debug_state(
                     (*thread).pcb,
                     tstate.cast::<I386DebugState>(),
                 );

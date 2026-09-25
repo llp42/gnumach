@@ -15,7 +15,7 @@ use crate::arch::i386::fpu;
 use crate::arch::i386::model_dep;
 use crate::arch::i386::pcb::{RealDescriptor, TaskTss};
 use crate::arch::i386::percpu::cpu_number;
-use crate::arch::i386::{pmap, smp};
+use crate::arch::i386::{gdt, idt, int_init, ktss, ldt, pmap, smp};
 use crate::arch::types::VmOffset;
 use crate::config::NCPUS;
 use crate::glue;
@@ -50,7 +50,7 @@ const INTSTACK_SIZE: usize = 4096;
 const _: () = assert!(INTSTACK_SIZE == 4096);
 
 /// `IDTSZ` of <i386at/idt.h>.
-const IDTSZ: usize = 0x100;
+pub(crate) const IDTSZ: usize = 0x100;
 
 /// `GDTSZ` of <i386/gdt.h>: `sel_idx(0x70)`, the eight-byte descriptors up to
 /// the per-CPU segment.
@@ -79,6 +79,15 @@ const _: () = {
     assert!(offset_of!(RealGate, word_count_access_offset_high) == 4);
 };
 
+#[cfg(target_pointer_width = "32")]
+impl RealGate {
+    /// An all-zero gate, the image a C `static` began with.
+    pub(crate) const ZERO: Self = Self {
+        offset_low_selector: 0,
+        word_count_access_offset_high: 0,
+    };
+}
+
 /// `struct real_gate` of <i386/seg.h>, the 64-bit layout: the same two words
 /// followed by the offset extension and its reserved word.
 #[cfg(target_pointer_width = "64")]
@@ -103,8 +112,19 @@ const _: () = {
     assert!(offset_of!(RealGate, reserved) == 12);
 };
 
+#[cfg(target_pointer_width = "64")]
+impl RealGate {
+    /// An all-zero gate, the image a C `static` began with.
+    pub(crate) const ZERO: Self = Self {
+        offset_low_selector: 0,
+        word_count_access_offset_high: 0,
+        offset_ext: 0,
+        reserved: 0,
+    };
+}
+
 /// `struct mp_desc_table` of <i386/mp_desc.h>: one CPU's descriptor tables,
-/// read by `i386/i386/idt.c`, `int_init.c`, `gdt.c`, `ldt.c` and `ktss.c`.
+/// which the `gdt`, `idt`, `ktss` and `ldt` modules fill.
 ///
 /// The sizes, offsets and alignment below were read from both built kernels'
 /// debug information.
@@ -255,11 +275,11 @@ pub(crate) fn interrupt_stack_alloc() {
 /// `mp_desc_init()` of <i386/mp_desc.h>.
 pub(crate) fn mp_desc_init(mycpu: c_int) -> c_int {
     if mycpu == 0 {
-        // SAFETY: the boot CPU uses the tables `gdt.c` and `ktss.c` built,
+        // SAFETY: the boot CPU uses the tables `gdt.rs` and `ktss.rs` built,
         // and `mp_desc_init` runs on each CPU only once.
         unsafe {
-            mp_ktss[0] = ptr::addr_of_mut!(glue::ktss);
-            mp_gdt[0] = ptr::addr_of_mut!(glue::gdt).cast::<RealDescriptor>();
+            mp_ktss[0] = ptr::addr_of_mut!(ktss::ktss);
+            mp_gdt[0] = ptr::addr_of_mut!(gdt::gdt).cast::<RealDescriptor>();
         }
         return 0;
     }
@@ -350,22 +370,21 @@ fn cpu_setup(cpu: c_int) -> ! {
     mp_desc_init(cpu);
     ap_stage(cpu, c"mpdesc");
 
-    // SAFETY: each `ap_*_init` is the real C routine of its file, and the
-    // AP runs one CPU's copy of each table.
-    unsafe {
-        glue::ap_gdt_init(cpu);
-        ap_stage(cpu, c"gdt");
-        glue::ap_idt_init(cpu);
-        ap_stage(cpu, c"idt");
-        glue::ap_int_init(cpu);
-        ap_stage(cpu, c"int");
-        glue::ap_ldt_init(cpu);
-        ap_stage(cpu, c"ldt");
-        glue::ap_ktss_init(cpu);
-        ap_stage(cpu, c"ktss");
+    // The AP runs one CPU's copy of each descriptor table.
+    gdt::ap_gdt_init(cpu);
+    ap_stage(cpu, c"gdt");
+    idt::ap_idt_init(cpu);
+    ap_stage(cpu, c"idt");
+    int_init::ap_int_init(cpu);
+    ap_stage(cpu, c"int");
+    ldt::ap_ldt_init(cpu);
+    ap_stage(cpu, c"ldt");
+    ktss::ap_ktss_init(cpu);
+    ap_stage(cpu, c"ktss");
 
-        // SAFETY: as above; the slot is this CPU's to fill while the BSP's
-        // type is already recorded.
+    // SAFETY: the slot is this CPU's to fill while the BSP's type is already
+    // recorded.
+    unsafe {
         let slot = crate::kern::machine::slot(cpu as usize);
         (*slot).cpu_subtype = CPU_SUBTYPE_AT386;
         (*slot).cpu_type = (*crate::kern::machine::slot(0)).cpu_type;

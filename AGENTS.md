@@ -41,7 +41,8 @@ routine at a time. The target is a Rust kernel, not a kernel with Rust in it.
 The build is GNU Autotools plus a hand-written `rustc` invocation — no Cargo,
 no lock file, no network. The Rust half compiles to `libmach-rs.a`, which is
 linked between two passes over `libkernel.a`, so Rust may call C and C may
-call Rust. As of 2026-09-25 the Rust half is 209 files and about 109,600
+call Rust. As of 2026-09-25 the Rust half is 217 files and about 109,800
+lines.
 lines.
 
 ### The idea
@@ -185,6 +186,10 @@ link error, not a fallback.
 | `kern/startup.c` | `src/kern/startup.rs`, `src/kern/startup_ffi.rs` |
 | `kern/syscall_emulation.c` | `src/kern/syscall_emulation.rs`, `src/kern/syscall_emulation_ffi.rs` |
 | `kern/syscall_subr.c` | `src/kern/syscall_subr.rs`, `src/kern/syscall_subr_ffi.rs` |
+| `i386/i386/gdt.c`, `i386/i386/idt.c`, `i386/i386/ktss.c`, `i386/i386/ldt.c` | `src/arch/i386/gdt.rs`, `gdt_ffi.rs`, `idt.rs`, `idt_ffi.rs`, `ktss.rs`, `ktss_ffi.rs`, `ldt.rs`, `ldt_ffi.rs`, `seg.rs` |
+| `i386/i386at/int_init.c` | `src/arch/i386/int_init.rs`, `src/arch/i386/int_init_ffi.rs` |
+| `i386/i386/user_ldt.c` | `src/arch/i386/user_ldt.rs`, `src/arch/i386/user_ldt_ffi.rs` |
+| `i386/i386/db_interface.c` | `src/arch/i386/db_interface.rs`, `src/arch/i386/db_interface_ffi.rs` |
 
 Also deleted as dead: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `ipc/copy_user.c`'s `USER32`

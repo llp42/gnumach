@@ -8,12 +8,9 @@ pub mod time_value;
 
 use crate::arch::i386::com::BusDevice;
 use crate::arch::i386::debug_i386::MachTrap;
+use crate::arch::i386::idt::IdtInitEntry;
 use crate::arch::i386::irq::{IrqDev, UserIntr};
 use crate::arch::i386::model_dep::GdtDescrTmp;
-use crate::arch::i386::mp_desc::GDTSZ;
-use crate::arch::i386::pcb::{
-    I386DebugState, Pcb, RealDescriptor, TaskTss, UserLdt,
-};
 use crate::arch::i386::trap::Recovery;
 use crate::arch::types::{VmOffset, VmSize};
 use crate::device::ds_routines::DevOps;
@@ -101,14 +98,10 @@ unsafe extern "C" {
     /// syscall-return path, which never comes back to its caller.
     pub fn thread_syscall_return(retval: c_int) -> !;
 
-    pub fn user_ldt_free(ldt: *mut UserLdt);
-
-    pub fn db_load_context(pcb: *mut Pcb);
-    pub fn db_set_debug_state(
-        pcb: *mut Pcb,
-        state: *const I386DebugState,
-    ) -> c_int;
-    pub fn db_get_debug_state(pcb: *mut Pcb, state: *mut I386DebugState);
+    /// `syscall` and `syscall64` of `i386/i386/locore.S` and
+    /// `x86_64/locore.S`: the entry points `i386/i386/ldt.c` installs.
+    pub fn syscall() -> c_int;
+    pub fn syscall64() -> c_int;
 
     /// `inst_fetch()` of `i386/i386/locore.S` and `x86_64/locore.S`: fetch
     /// one instruction byte with the recovery tables' fault handling.
@@ -173,11 +166,6 @@ unsafe extern "C" {
     pub static mut gdt_descr_tmp: GdtDescrTmp;
     pub static mut apboot_jmp_offset: u32;
 
-    /// `gdt` and `ktss` of `i386/i386/gdt.c` and `i386/i386/ktss.c`: the
-    /// boot CPU's descriptor tables, which the other CPUs get copies of.
-    pub static mut gdt: [RealDescriptor; GDTSZ];
-    pub static mut ktss: TaskTss;
-
     /// `version[]` of the generated version object: the kernel's release
     /// string, printed by `c_boot_entry()`.
     pub static version: c_char;
@@ -186,20 +174,13 @@ unsafe extern "C" {
     /// `syscall_trace_print()` indexes.
     pub static mach_trap_table: MachTrap;
 
-    /// `gdt_init()` and friends of `i386/i386/gdt.c`, `i386/i386/idt.c`,
-    /// `i386/i386/ldt.c`, `i386/i386/ktss.c` and
-    /// `i386/i386at/int_init.c`: build the boot CPU's descriptor tables, and
-    /// `ap_*_init` the copy an AP loads.
-    pub fn gdt_init();
-    pub fn ap_gdt_init(cpu: c_int);
-    pub fn idt_init();
-    pub fn ap_idt_init(cpu: c_int);
-    pub fn ldt_init();
-    pub fn ap_ldt_init(cpu: c_int);
-    pub fn ktss_init();
-    pub fn ap_ktss_init(cpu: c_int);
-    pub fn int_init();
-    pub fn ap_int_init(cpu: c_int);
+    /// `idt_inittab[]` of `i386/i386/idt_inittab.S` and
+    /// `x86_64/idt_inittab.S`: the generated gate table `idt_fill()` walks.
+    pub static mut idt_inittab: IdtInitEntry;
+
+    /// `int_entry_table[]` of `i386/i386/locore.S` and `x86_64/locore.S`:
+    /// the generated interrupt entry points `int_fill()` installs.
+    pub static int_entry_table: VmOffset;
 
     /// `init_percpu()` of `i386/i386/percpu.c`: fill one CPU's per-CPU block.
     pub fn init_percpu(cpu: c_int);
