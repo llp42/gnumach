@@ -13,6 +13,7 @@ use crate::arch::i386::com_ffi::comintr;
 use crate::arch::i386::{com, ioapic, irq};
 use crate::arch::types::VmOffset;
 use crate::glue;
+use crate::kern::console::{CStrArg, kprint};
 use core::ffi::{c_char, c_int, c_void};
 use core::ptr;
 
@@ -230,28 +231,24 @@ pub(crate) fn take_dev_irq(dev: &BusDevice) {
             Some(handler) => handler as *const c_void,
             None => ptr::null(),
         };
-        // SAFETY: literal format strings with the values the C printed; `%p`
-        // takes the handler address, `%s` the NUL-terminated name.
-        unsafe {
-            glue::printf(
-                c"The device below will clobber IRQ %d (%p).\n".as_ptr(),
-                pic,
-                holder,
-            );
-            glue::printf(c"You have two devices at the same IRQ.\n".as_ptr());
-            glue::printf(
-                c"This won't work.  Reconfigure your hardware and try again.\n"
-                    .as_ptr(),
-            );
-            glue::printf(
-                c"%s%d: port = %zx, spl = %zd, pic = %d.\n".as_ptr(),
-                dev.name,
-                dev.unit,
-                dev.address,
-                dev.sysdep,
-                dev.sysdep1,
-            );
-        }
+        kprint!(
+            "The device below will clobber IRQ {} ({:x}).\n",
+            pic,
+            holder.expose_provenance(),
+        );
+        kprint!("You have two devices at the same IRQ.\n");
+        kprint!(
+            "This won't work.  Reconfigure your hardware and try again.\n"
+        );
+        // SAFETY: the device's name is NUL-terminated.
+        kprint!(
+            "{}{}: port = {:x}, spl = {}, pic = {}.\n",
+            unsafe { CStrArg::from_ptr(dev.name.cast_const()) },
+            dev.unit,
+            dev.address,
+            dev.sysdep,
+            dev.sysdep1,
+        );
         loop {
             core::hint::spin_loop();
         }

@@ -15,6 +15,7 @@ use crate::arch::i386::apic::{
 use crate::arch::types::{VmOffset, VmSize};
 use crate::config::NCPUS;
 use crate::glue;
+use crate::kern::console::kprint;
 use crate::vm::types::VmProt;
 use crate::vm::vm_kern::{self, VM_MIN_KERNEL_ADDRESS};
 use crate::vm::vm_map::VmMap;
@@ -50,13 +51,6 @@ const ACPI_APIC_ENTRY_IRQ_OVERRIDE: u8 = 2;
 
 /// The byte count the C searches between `0xe0000` and `0x100000`.
 const BIOS_SEARCH_LENGTH: u32 = 0x100000 - 0xe0000;
-
-/// The offset of the first RSDT/XSDT entry, past the packed header.
-const TABLE_ENTRY_OFFSET: usize = size_of::<AcpiDhdr>();
-
-/// The byte offset of `struct acpi_hpet.address.addr64`.
-const HPET_ADDRESS_ADDR64: usize =
-    offset_of!(AcpiHpet, address) + offset_of!(AcpiAddress, addr64);
 
 /// A 32-bit table field as a `usize`; `usize` holds every `u32` on both
 /// targets, so the widening loses nothing.
@@ -121,20 +115,22 @@ struct AcpiDhdr {
     creator_revision: u32,
 }
 
-/// `struct acpi_rsdt` of <i386at/acpi_parse_apic.h>; its entries are the
-/// `u32`s at [`TABLE_ENTRY_OFFSET`].
+/// `struct acpi_rsdt` of <i386at/acpi_parse_apic.h>: the header and the C's
+/// trailing `entry[0]`, one `u32` per table.
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 struct AcpiRsdt {
     header: AcpiDhdr,
+    entry: [u32; 0],
 }
 
-/// `struct acpi_xsdt` of <i386at/acpi_parse_apic.h>; its entries are the
-/// `u64`s at [`TABLE_ENTRY_OFFSET`].
+/// `struct acpi_xsdt` of <i386at/acpi_parse_apic.h>: the header and the C's
+/// trailing `entry[0]`, one `u64` per table.
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 struct AcpiXsdt {
     header: AcpiDhdr,
+    entry: [u64; 0],
 }
 
 /// `struct acpi_address` of <i386at/acpi_parse_apic.h>.
@@ -156,13 +152,15 @@ struct AcpiApicDhdr {
     length: u8,
 }
 
-/// `struct acpi_apic` of <i386at/acpi_parse_apic.h>: the MADT itself.
+/// `struct acpi_apic` of <i386at/acpi_parse_apic.h>: the MADT itself, whose
+/// trailing `entry[0]` holds one [`AcpiApicDhdr`] per interrupt controller.
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 struct AcpiApic {
     header: AcpiDhdr,
     lapic_addr: u32,
     flags: u32,
+    entry: [AcpiApicDhdr; 0],
 }
 
 /// `struct acpi_apic_lapic` of <i386at/acpi_parse_apic.h>.
@@ -240,8 +238,10 @@ const _: () = {
 
     assert!(size_of::<AcpiRsdt>() == 36);
     assert!(align_of::<AcpiRsdt>() == 1);
+    assert!(offset_of!(AcpiRsdt, entry) == 36);
     assert!(size_of::<AcpiXsdt>() == 36);
     assert!(align_of::<AcpiXsdt>() == 1);
+    assert!(offset_of!(AcpiXsdt, entry) == 36);
 
     assert!(size_of::<AcpiAddress>() == 12);
     assert!(align_of::<AcpiAddress>() == 1);
@@ -261,6 +261,7 @@ const _: () = {
     assert!(offset_of!(AcpiApic, header) == 0);
     assert!(offset_of!(AcpiApic, lapic_addr) == 36);
     assert!(offset_of!(AcpiApic, flags) == 40);
+    assert!(offset_of!(AcpiApic, entry) == 44);
 
     assert!(size_of::<AcpiApicLapic>() == 8);
     assert!(align_of::<AcpiApicLapic>() == 1);
@@ -293,8 +294,6 @@ const _: () = {
     assert!(offset_of!(AcpiHpet, sequence) == 52);
     assert!(offset_of!(AcpiHpet, minimum_tick) == 53);
     assert!(offset_of!(AcpiHpet, flags) == 55);
-
-    assert!(HPET_ADDRESS_ADDR64 == 44);
 };
 
 /// `hpet_addr` of <i386/apic.h>: the mapped HPET register window.
@@ -350,11 +349,7 @@ unsafe fn checksum_table(addr: *const u8, length: u32) -> u8 {
 unsafe fn header_length(header: *const AcpiDhdr) -> u32 {
     // SAFETY: the caller promises the header is mapped; the packed read is
     // unaligned.
-    unsafe {
-        ptr::read_unaligned(
-            header.cast::<u8>().add(offset_of!(AcpiDhdr, length)).cast(),
-        )
-    }
+    unsafe { ptr::read_unaligned(ptr::addr_of!((*header).length)) }
 }
 
 /// The packed `header.signature` of a descriptor header.
@@ -379,10 +374,7 @@ unsafe fn rsdt_entry(rsdt: *const AcpiRsdt, index: usize) -> VmOffset {
     // read unaligned, as the C's `entry[0]` access is.
     let entry = unsafe {
         ptr::read_unaligned(
-            rsdt.cast::<u8>()
-                .add(TABLE_ENTRY_OFFSET)
-                .cast::<u32>()
-                .add(index),
+            ptr::addr_of!((*rsdt).entry).cast::<u32>().add(index),
         )
     };
     from_u32(entry)
@@ -398,10 +390,7 @@ unsafe fn xsdt_entry(xsdt: *const AcpiXsdt, index: usize) -> VmOffset {
     // read unaligned, as the C's `entry[0]` access is.
     let entry = unsafe {
         ptr::read_unaligned(
-            xsdt.cast::<u8>()
-                .add(TABLE_ENTRY_OFFSET)
-                .cast::<u64>()
-                .add(index),
+            ptr::addr_of!((*xsdt).entry).cast::<u64>().add(index),
         )
     };
     // The C passes the `uint64_t` entry to a `phys_addr_t` parameter, so a
@@ -424,9 +413,7 @@ fn check_rsdp(addr: VmOffset) -> Option<(u8, VmOffset)> {
 
     match rsdp.v1.revision {
         0 => {
-            // SAFETY: `printf` is the real C routine; the format has no
-            // conversion specifier.
-            unsafe { glue::printf(c"ACPI v1.0\n".as_ptr()) };
+            kprint!("ACPI v1.0\n");
             // SAFETY: as above; the v1 checksum covers the 20-byte table.
             let bytes = unsafe {
                 slice::from_raw_parts(
@@ -440,8 +427,7 @@ fn check_rsdp(addr: VmOffset) -> Option<(u8, VmOffset)> {
             Some((1, from_u32(rsdp.v1.rsdt_addr)))
         }
         2 => {
-            // SAFETY: as above.
-            unsafe { glue::printf(c"ACPI >= v2.0\n".as_ptr()) };
+            kprint!("ACPI >= v2.0\n");
             // SAFETY: as above; the v2 checksum covers the 36-byte table.
             let bytes = unsafe {
                 slice::from_raw_parts(
@@ -504,8 +490,8 @@ fn get_rsdt(rsdp_phys: VmOffset) -> Option<(NonNull<AcpiRsdt>, c_int)> {
 
     // SAFETY: as above.
     let length = unsafe { header_length(rsdt.as_ptr().cast()) };
-    let entries =
-        from_u32(length).wrapping_sub(TABLE_ENTRY_OFFSET) / size_of::<u32>();
+    let entries = from_u32(length).wrapping_sub(size_of::<AcpiRsdt>())
+        / size_of::<u32>();
     // The C assigns the `size_t` quotient to an `int`, so a malformed length
     // truncates the same way.
     Some((rsdt, entries as c_int))
@@ -524,8 +510,8 @@ fn get_xsdt(rsdp_phys: VmOffset) -> Option<(NonNull<AcpiXsdt>, c_int)> {
 
     // SAFETY: as above.
     let length = unsafe { header_length(xsdt.as_ptr().cast()) };
-    let entries =
-        from_u32(length).wrapping_sub(TABLE_ENTRY_OFFSET) / size_of::<u64>();
+    let entries = from_u32(length).wrapping_sub(size_of::<AcpiXsdt>())
+        / size_of::<u64>();
     // The C assigns the `size_t` quotient to an `int`, so a malformed length
     // truncates the same way.
     Some((xsdt, entries as c_int))
@@ -549,14 +535,9 @@ fn inspect_entry(phys: VmOffset, madt: &mut Option<NonNull<AcpiApic>>) {
     if signature == ACPI_HPET_SIG {
         // SAFETY: the mapped descriptor header begins the packed HPET table,
         // whose `address.addr64` field the C reads the same way.
+        let hpet = header.cast::<AcpiHpet>();
         let address = unsafe {
-            ptr::read_unaligned(
-                header
-                    .as_ptr()
-                    .cast::<u8>()
-                    .add(HPET_ADDRESS_ADDR64)
-                    .cast::<u64>(),
-            )
+            ptr::read_unaligned(ptr::addr_of!((*hpet.as_ptr()).address.addr64))
         };
         // The C passes the `uint64_t` address to `kmem_map_aligned_table`,
         // so a high address truncates on the 32-bit build.
@@ -569,14 +550,7 @@ fn inspect_entry(phys: VmOffset, madt: &mut Option<NonNull<AcpiApic>>) {
         unsafe {
             hpet_addr = mapped.map_or(ptr::null_mut(), NonNull::as_ptr);
         };
-        // SAFETY: `printf` is the real C routine; `%llx` takes the C's own
-        // `unsigned long long` vararg.
-        unsafe {
-            glue::printf(
-                c"HPET at physical address 0x%llx\n".as_ptr(),
-                address,
-            )
-        };
+        kprint!("HPET at physical address 0x{:x}\n", address);
     }
 }
 
@@ -658,14 +632,15 @@ fn parse_table(apic: NonNull<AcpiApic>) {
     let start = apic.as_ptr().cast::<u8>();
     // SAFETY: the first entry follows the 44-byte packed MADT header, which
     // the mapping covers.
-    let mut entry = unsafe { start.add(size_of::<AcpiApic>()) };
+    let mut entry =
+        unsafe { ptr::addr_of_mut!((*apic.as_ptr()).entry).cast::<u8>() };
     let end = start as usize + from_u32(length);
 
-    // SAFETY: `printf` is the real C routine; `%p` prints the entry address,
-    // and `%x` reads the low half of the C's `vm_offset_t` vararg.
-    unsafe {
-        glue::printf(c"APIC entry=0x%p end=0x%x\n".as_ptr(), entry, end)
-    };
+    kprint!(
+        "APIC entry=0x{:x} end=0x{:x}\n",
+        entry.expose_provenance(),
+        end,
+    );
 
     let mut numcpus = apic::numcpus();
     while (entry as usize) < end {
@@ -675,10 +650,11 @@ fn parse_table(apic: NonNull<AcpiApic>) {
         // SAFETY: as above.
         let entry_length = unsafe { ptr::read(entry.add(1)) };
 
-        // SAFETY: as above, and this is the C's per-entry line.
-        unsafe {
-            glue::printf(c"APIC entry=0x%p end=0x%x\n".as_ptr(), entry, end)
-        };
+        kprint!(
+            "APIC entry=0x{:x} end=0x{:x}\n",
+            entry.expose_provenance(),
+            end,
+        );
 
         match type_ {
             ACPI_APIC_ENTRY_LAPIC => {
@@ -705,14 +681,7 @@ fn parse_table(apic: NonNull<AcpiApic>) {
                 add_irq_override(override_entry);
             }
             _ => {
-                // SAFETY: `printf` is the real C routine; the one `%x` takes
-                // the matching `c_int`.
-                unsafe {
-                    glue::printf(
-                        c"Unhandled APIC entry type 0x%x\n".as_ptr(),
-                        c_int::from(type_),
-                    )
-                };
+                kprint!("Unhandled APIC entry type 0x{:x}\n", type_);
             }
         }
 
@@ -728,12 +697,7 @@ fn setup(apic: NonNull<AcpiApic>) -> Result<(), AcpiError> {
     // SAFETY: the caller passes the mapped MADT, and `lapic_addr` sits inside
     // its packed header.
     let address = unsafe {
-        ptr::read_unaligned(
-            apic.as_ptr()
-                .cast::<u8>()
-                .add(offset_of!(AcpiApic, lapic_addr))
-                .cast::<u32>(),
-        )
+        ptr::read_unaligned(ptr::addr_of!((*apic.as_ptr()).lapic_addr))
     };
     // SAFETY: `lapic_addr` is the C global <i386at/acpi_parse_apic.h>
     // declares, written once at boot.
@@ -838,21 +802,13 @@ fn init() -> Result<(), AcpiError> {
 /// Report the physical RSDP address, the mapped RSDT or XSDT address and the
 /// number of entries the table holds.
 fn print_info(rsdp: VmOffset, rsdt: *mut c_void, acpi_rsdt_n: c_int) {
-    // SAFETY: `printf` is the real C routine <kern/printf.h> declares, and
-    // this format has no conversion specifier.
-    unsafe { glue::printf(c"ACPI:\n".as_ptr()) };
-    // SAFETY: as above; the one conversion `%llx` takes the C's own widening
-    // of `rsdp` to `unsigned long long`.
-    unsafe { glue::printf(c" rsdp = 0x%llx\n".as_ptr(), rsdp as u64) };
-    // SAFETY: as above; `%p` prints the pointer without following it, and `%d`
-    // takes the entry count, one `c_int` for one vararg.
-    unsafe {
-        glue::printf(
-            c" rsdt/xsdt = 0x%p (n = %d)\n".as_ptr(),
-            rsdt,
-            acpi_rsdt_n,
-        )
-    };
+    kprint!("ACPI:\n");
+    kprint!(" rsdp = 0x{:x}\n", rsdp as u64);
+    kprint!(
+        " rsdt/xsdt = 0x{:x} (n = {})\n",
+        rsdt.expose_provenance(),
+        acpi_rsdt_n,
+    );
 }
 
 /// Report the ACPI tables the MADT parse found, at boot.

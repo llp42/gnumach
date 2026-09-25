@@ -17,6 +17,7 @@ use crate::glue::{
     vm_page_queue_lock,
 };
 use crate::ipc::{IpcPort, ipc_port};
+use crate::kern::debug::kpanic;
 use crate::kern::host::Host;
 use crate::kern::lock::SimpleLock;
 use crate::kern::sched_prim::{
@@ -28,7 +29,7 @@ use crate::vm::types::{VmObject, VmPage, VmProt};
 use crate::vm::vm_map::{VmMapCopy, round_page};
 use crate::vm::vm_pageout_ffi::vm_pageout_setup;
 use crate::vm::{vm_external, vm_object, vm_page, vm_resident};
-use core::ffi::{CStr, c_int, c_uint, c_void};
+use core::ffi::{c_int, c_uint, c_void};
 use core::ptr::{NonNull, addr_of_mut, null_mut};
 use core::sync::atomic::Ordering;
 
@@ -150,20 +151,9 @@ const fn atop(address: VmOffset) -> usize {
     address >> PAGE_SHIFT
 }
 
-/// `panic()` of vm/memory_object.c at the caller's line.
-#[track_caller]
-fn die(func: &'static CStr, message: &'static CStr) -> ! {
-    let location = core::panic::Location::caller();
-    // SAFETY: `Panic` does not return; the file, function and message are
-    // this module's, and the line fits the `c_int` the format takes.
-    unsafe {
-        crate::glue::Panic(
-            c"rust/src/vm/memory_object.rs".as_ptr(),
-            location.line() as c_int,
-            func.as_ptr(),
-            message.as_ptr(),
-        )
-    }
+/// `panic()` of vm/memory_object.c.
+fn die(func: &'static str, message: &'static str) -> ! {
+    kpanic!(func, "{}", message)
 }
 
 /// `VM_PAGE_FREE()` of <vm/vm_page.h>.
@@ -654,7 +644,7 @@ pub(crate) unsafe fn data_supply(
                 || (*data_m).is_fictitious()
         };
         if bad {
-            die(c"memory_object_data_supply", c"Data_supply: bad page");
+            die("memory_object_data_supply", "Data_supply: bad page");
         }
 
         // SAFETY: the object is live and locked, as `lookup` requires.

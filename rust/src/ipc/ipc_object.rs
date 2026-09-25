@@ -6,7 +6,6 @@
 //! The IPC object routines, which `ipc/ipc_object.c` used to define and
 //! `ipc/ipc_object.h` declares.
 
-use crate::glue;
 use crate::ipc::ipc_entry;
 use crate::ipc::ipc_notify;
 use crate::ipc::ipc_right;
@@ -14,10 +13,11 @@ use crate::ipc::{
     IE_BITS_TYPE_MASK, IO_BITS_ACTIVE, IOT_PORT, IOT_PORT_SET, IpcObject,
     IpcPort, IpcSpace, IpcTarget,
 };
+use crate::kern::debug::kpanic;
 use crate::kern::slab::KmemCache;
 use crate::kern::slab_ffi::kmem_cache_init;
 use crate::kern::types::KernError;
-use core::ffi::{CStr, c_int, c_uint, c_void};
+use core::ffi::{c_uint, c_void};
 use core::mem::size_of;
 use core::ptr::{self, NonNull};
 
@@ -90,19 +90,8 @@ impl MsgTypeName {
 }
 
 /// The C `default: panic()` arm of a rights switch.
-fn strange_rights(fun: &'static CStr, message: &'static CStr) -> ! {
-    // SAFETY: `Panic` does not return; the file is the one the switch belongs
-    // to, the line is this Rust file's, and `fun` and `message` are the C's
-    // own tags.
-    unsafe {
-        glue::Panic(
-            c"ipc/ipc_object.c".as_ptr(),
-            // Only `c_int` widths can reach `Panic`'s varargs.
-            line!() as c_int,
-            fun.as_ptr(),
-            message.as_ptr(),
-        )
-    }
+fn strange_rights(fun: &'static str, message: &'static str) -> ! {
+    kpanic!(fun, "{}", message)
 }
 
 /// `MACH_PORT_TYPE(right)` of <mach/port.h>: `1 << (right + 16)`.
@@ -535,8 +524,8 @@ pub(crate) unsafe fn copyin_from_kernel(
             }
         }
         Some(MsgTypeName::Null) | None => strange_rights(
-            c"ipc_object_copyin_from_kernel",
-            c"ipc_object_copyin_from_kernel: strange rights",
+            "ipc_object_copyin_from_kernel",
+            "ipc_object_copyin_from_kernel: strange rights",
         ),
     }
 }
@@ -766,8 +755,8 @@ pub(crate) unsafe fn copyout_dest(
             }
         }
         _ => strange_rights(
-            c"ipc_object_copyout_dest",
-            c"ipc_object_copyout_dest: strange rights",
+            "ipc_object_copyout_dest",
+            "ipc_object_copyout_dest: strange rights",
         ),
     }
 }
@@ -826,14 +815,14 @@ pub(crate) unsafe fn rename(
 ///
 /// # Panics
 ///
-/// Halts through [`glue::Panic`] when `msgt_name` is not one of the names the
+/// Halts through [`kpanic!`] when `msgt_name` is not one of the names the
 /// C accepted, which the C `panic()`ed on.
 pub(crate) fn copyin_type(msgt_name: c_uint) -> c_uint {
     match MsgTypeName::from_u32(msgt_name) {
         Some(name) => name.received() as c_uint,
         None => strange_rights(
-            c"ipc_object_copyin_type",
-            c"ipc_object_copyin_type: strange rights",
+            "ipc_object_copyin_type",
+            "ipc_object_copyin_type: strange rights",
         ),
     }
 }
@@ -865,8 +854,8 @@ unsafe fn destroy(port: IpcPort, name: MsgTypeName) {
         | MsgTypeName::CopySend
         | MsgTypeName::MakeSend
         | MsgTypeName::MakeSendOnce => strange_rights(
-            c"ipc_object_destroy",
-            c"ipc_object_destroy: strange rights",
+            "ipc_object_destroy",
+            "ipc_object_destroy: strange rights",
         ),
     }
 }
@@ -888,8 +877,8 @@ pub(crate) unsafe fn destroy_object(object: *mut c_void, msgt_name: c_uint) {
             unsafe { destroy(port, name) };
         }
         None => strange_rights(
-            c"ipc_object_destroy",
-            c"ipc_object_destroy: strange rights",
+            "ipc_object_destroy",
+            "ipc_object_destroy: strange rights",
         ),
     }
 }

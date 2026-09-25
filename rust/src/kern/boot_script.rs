@@ -11,8 +11,8 @@
 //! into it in the command list, so the line must stay mapped until the
 //! [`exec()`] that consumes the list returns, exactly as the C required.
 
-use crate::glue;
 use crate::kern::bootstrap;
+use crate::kern::console::{CStrArg, kprint};
 use crate::kern::slab::{kalloc, kfree};
 use crate::kern::task::Task;
 use crate::spin::Mutex;
@@ -1182,13 +1182,9 @@ unsafe fn exec_body(lists: &State) -> Result<(), Error> {
                     sym = word_ptr(unsafe { (*sym).val }).cast::<Sym>();
                 }
                 if unsafe { (*sym).type_ } == Type::None {
-                    // SAFETY: `printf` takes the format and one string.
-                    unsafe {
-                        glue::printf(
-                            c"bootstrap script missing symbol '%s'\n".as_ptr(),
-                            (*sym).name,
-                        )
-                    };
+                    // SAFETY: a symbol's `name` is NUL-terminated.
+                    let name = unsafe { CStrArg::from_ptr((*sym).name) };
+                    kprint!("bootstrap script missing symbol '{}'\n", name);
                     return Err(Error::UndefSym);
                 }
                 unsafe {

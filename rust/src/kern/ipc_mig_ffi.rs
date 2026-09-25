@@ -8,7 +8,7 @@
 //! declares.
 
 use crate::arch::types::{VmOffset, VmSize};
-use crate::glue;
+use crate::kern::debug::kpanic;
 use crate::kern::ipc_mig::{self, KERN_SUCCESS};
 use crate::kern::thread::Thread;
 use core::ffi::{c_char, c_int, c_uint, c_ulong, c_void};
@@ -37,27 +37,17 @@ pub extern "C" fn mig_put_reply_port(_reply_port: VmOffset) {}
 ///
 /// # Panics
 ///
-/// Always halts through [`glue::Panic`].
+/// Always halts through [`kpanic!`].
 #[unsafe(no_mangle)]
 pub extern "C" fn mig_dealloc_reply_port(_reply_port: VmOffset) {
-    // SAFETY: `Panic` does not return; the file, function and message tags
-    // are the C `panic()` macro's, and the line is this Rust file's.
-    unsafe {
-        glue::Panic(
-            c"kern/ipc_mig.c".as_ptr(),
-            // Only `c_int` widths can reach `Panic`'s varargs.
-            line!() as c_int,
-            c"mig_dealloc_reply_port".as_ptr(),
-            c"mig_dealloc_reply_port".as_ptr(),
-        )
-    }
+    kpanic!("mig_dealloc_reply_port", "mig_dealloc_reply_port")
 }
 
 /// `mach_msg_rpc_from_kernel()` of kern/ipc_mig.c.
 ///
 /// # Panics
 ///
-/// Always halts through [`glue::Panic`]: this kernel has never implemented
+/// Always halts through [`kpanic!`]: this kernel has never implemented
 /// the call, and the C body was the same one `panic()`.
 #[unsafe(no_mangle)]
 pub extern "C" fn mach_msg_rpc_from_kernel(
@@ -65,17 +55,7 @@ pub extern "C" fn mach_msg_rpc_from_kernel(
     _send_size: c_uint,
     _reply_size: c_uint,
 ) -> c_int {
-    // SAFETY: `Panic` does not return; the file, function and message tags
-    // are the C `panic()` macro's, and the line is this Rust file's.
-    unsafe {
-        glue::Panic(
-            c"kern/ipc_mig.c".as_ptr(),
-            // Only `c_int` widths can reach `Panic`'s varargs.
-            line!() as c_int,
-            c"mach_msg_rpc_from_kernel".as_ptr(),
-            c"mach_msg_rpc_from_kernel".as_ptr(),
-        )
-    }
+    kpanic!("mach_msg_rpc_from_kernel", "mach_msg_rpc_from_kernel")
 }
 
 /// `mach_msg_abort_rpc()` of kern/ipc_mig.c.

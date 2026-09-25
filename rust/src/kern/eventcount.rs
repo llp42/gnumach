@@ -10,6 +10,8 @@
 
 use crate::arch::i386::percpu::current_thread;
 use crate::glue;
+use crate::kern::console::kprint;
+use crate::kern::debug::kpanic;
 use crate::kern::lock::SimpleLock;
 use crate::kern::sched_prim::{assert_wait, thread_block, thread_setrun};
 use crate::kern::thread::{
@@ -132,7 +134,7 @@ pub(crate) unsafe fn init(ev: *mut EventCounter) {
             }
         }
         let Some(index) = free else {
-            glue::printf(c"Too many eventcounters\n".as_ptr());
+            kprint!("Too many eventcounters\n");
             return;
         };
         let Ok(id) = c_uint::try_from(index) else {
@@ -306,16 +308,7 @@ pub(crate) unsafe fn signal(ev: *mut EventCounter) {
                         (*thread).lock.unlock();
                         break;
                     }
-                    _ => {
-                        // SAFETY: `Panic` does not return; the message and the
-                        // function tag are the C `panic()` call's.
-                        glue::Panic(
-                            c"kern/eventcount.c".as_ptr(),
-                            line!() as c_int,
-                            c"evc_signal".as_ptr(),
-                            c"evc_signal.3".as_ptr(),
-                        );
-                    }
+                    _ => kpanic!("evc_signal", "evc_signal.3"),
                 }
             }
         }

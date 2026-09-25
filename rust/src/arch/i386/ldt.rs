@@ -20,6 +20,8 @@ use crate::arch::i386::seg;
 use crate::arch::types::VmOffset;
 use crate::arch::vm_param::VM_MAX_USER_ADDRESS;
 use crate::glue;
+#[cfg(target_pointer_width = "64")]
+use crate::kern::debug::kpanic;
 use core::ffi::c_int;
 use core::mem::size_of;
 use core::ptr;
@@ -70,15 +72,7 @@ pub(crate) unsafe fn entry(index: usize) -> RealDescriptor {
 #[cfg(target_pointer_width = "64")]
 fn enable_syscall() {
     if !pmap::cpu_has_feature(pmap::CPU_FEATURE_SEP) {
-        // SAFETY: `Panic` does not return.
-        unsafe {
-            glue::Panic(
-                c"i386/i386/ldt.c".as_ptr(),
-                line!() as c_int,
-                c"ldt_fill".as_ptr(),
-                c"syscall support is missing on 64 bit".as_ptr(),
-            )
-        }
+        kpanic!("ldt_fill", "syscall support is missing on 64 bit")
     }
 
     let efer = pcb::read_msr(pcb::MSR_REG_EFER) | pcb::MSR_EFER_SCE;

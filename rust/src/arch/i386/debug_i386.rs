@@ -17,6 +17,7 @@ use crate::arch::i386::pcb::I386SavedState;
 use crate::arch::i386::percpu;
 use crate::arch::i386::trap;
 use crate::glue;
+use crate::kern::console::{CStrArg, kprint};
 use crate::kern::task::{Task, current_task};
 use core::ffi::{VaList, c_char, c_int, c_long, c_uint, c_ulong};
 use core::mem::{align_of, offset_of, size_of};
@@ -80,63 +81,62 @@ pub static mut syscall_trace_task: *mut Task = ptr::null_mut();
 pub(crate) unsafe fn dump_ss(st: *const I386SavedState) {
     // SAFETY: the caller promises `st` is live.
     let st = unsafe { &*st };
-    // SAFETY: `%p` takes the pointer, and the literals name the C's format.
-    unsafe { glue::printf(c"Dump of i386_saved_state %p:\n".as_ptr(), st) };
+    kprint!(
+        "Dump of i386_saved_state {:x}:\n",
+        ptr::from_ref(st).expose_provenance(),
+    );
 
     #[cfg(target_pointer_width = "64")]
-    // SAFETY: each `%016lx` takes the matching `c_ulong`.
-    unsafe {
-        glue::printf(
-            c"RAX %016lx RBX %016lx RCX %016lx RDX %016lx\n".as_ptr(),
+    {
+        kprint!(
+            "RAX {:016x} RBX {:016x} RCX {:016x} RDX {:016x}\n",
             st.eax,
             st.ebx,
             st.ecx,
             st.edx,
         );
-        glue::printf(
-            c"RSI %016lx RDI %016lx RBP %016lx RSP %016lx\n".as_ptr(),
+        kprint!(
+            "RSI {:016x} RDI {:016x} RBP {:016x} RSP {:016x}\n",
             st.esi,
             st.edi,
             st.ebp,
             st.uesp,
         );
-        glue::printf(
-            c"R8  %016lx R9  %016lx R10 %016lx R11 %016lx\n".as_ptr(),
+        kprint!(
+            "R8  {:016x} R9  {:016x} R10 {:016x} R11 {:016x}\n",
             st.r8,
             st.r9,
             st.r10,
             st.r11,
         );
-        glue::printf(
-            c"R12 %016lx R13 %016lx R14 %016lx R15 %016lx\n".as_ptr(),
+        kprint!(
+            "R12 {:016x} R13 {:016x} R14 {:016x} R15 {:016x}\n",
             st.r12,
             st.r13,
             st.r14,
             st.r15,
         );
-        glue::printf(c"RIP %016lx EFLAGS %08lx\n".as_ptr(), st.eip, st.efl);
+        kprint!("RIP {:016x} EFLAGS {:08x}\n", st.eip, st.efl);
     }
 
     #[cfg(target_pointer_width = "32")]
-    // SAFETY: each `%08lx` takes the matching `c_ulong`.
-    unsafe {
-        glue::printf(
-            c"EAX %08lx EBX %08lx ECX %08lx EDX %08lx\n".as_ptr(),
+    {
+        kprint!(
+            "EAX {:08x} EBX {:08x} ECX {:08x} EDX {:08x}\n",
             st.eax,
             st.ebx,
             st.ecx,
             st.edx,
         );
-        glue::printf(
-            c"ESI %08lx EDI %08lx EBP %08lx ESP %08lx\n".as_ptr(),
+        kprint!(
+            "ESI {:08x} EDI {:08x} EBP {:08x} ESP {:08x}\n",
             st.esi,
             st.edi,
             st.ebp,
             st.uesp,
         );
-        glue::printf(
-            c"CS %04lx SS %04lx DS %04lx ES %04lx FS %04lx GS %04lx\n"
-                .as_ptr(),
+        kprint!(
+            "CS {:04x} SS {:04x} DS {:04x} ES {:04x} FS {:04x} GS {:04x}\n",
             st.cs & 0xffff,
             st.ss & 0xffff,
             st.ds & 0xffff,
@@ -144,27 +144,22 @@ pub(crate) unsafe fn dump_ss(st: *const I386SavedState) {
             st.fs & 0xffff,
             st.gs & 0xffff,
         );
-        glue::printf(
-            c"v86:            DS %04lx ES %04lx FS %04lx GS %04lx\n".as_ptr(),
+        kprint!(
+            "v86:            DS {:04x} ES {:04x} FS {:04x} GS {:04x}\n",
             st.v86_segs.v86_ds & 0xffff,
             st.v86_segs.v86_es & 0xffff,
             st.v86_segs.v86_gs & 0xffff,
             st.v86_segs.v86_gs & 0xffff,
         );
-        glue::printf(c"EIP %08lx EFLAGS %08lx\n".as_ptr(), st.eip, st.efl);
+        kprint!("EIP {:08x} EFLAGS {:08x}\n", st.eip, st.efl);
     }
 
-    // SAFETY: the `%ld`, `%s` and `%08lx` take the `c_long`, the
-    // NUL-terminated name and the `c_ulong`, and `trap_name` returns a
-    // `'static` C string.
-    unsafe {
-        glue::printf(
-            c"trapno %ld: %s, error %08lx\n".as_ptr(),
-            st.trapno as c_long,
-            trap::trap_name(st.trapno as c_uint).as_ptr(),
-            st.err,
-        )
-    };
+    kprint!(
+        "trapno {}: {}, error {:08x}\n",
+        st.trapno as c_long,
+        CStrArg::from(trap::trap_name(st.trapno as c_uint)),
+        st.err,
+    );
 }
 
 /// `debug_trace_reset()` of <i386/debug.h>.
@@ -201,19 +196,16 @@ fn print_entry(i: usize, col: &mut c_int) {
         p = unsafe { p.add(1) };
     }
 
-    // SAFETY: `%9s` takes the pointer and `%-4d` the `c_int`; `i` is in
-    // bounds.
-    unsafe {
-        glue::printf(
-            c" %9s:%-4d".as_ptr(),
-            filename,
-            debug_trace_buf[i].linenum,
-        )
-    };
+    // SAFETY: the trace entry names a NUL-terminated file string, and `i` is
+    // below `DEBUG_TRACE_LEN` at every call site.
+    kprint!(
+        " {:>9}:{:<4}",
+        unsafe { CStrArg::from_ptr(filename.cast_const()) },
+        unsafe { debug_trace_buf[i].linenum },
+    );
     *col += 1;
     if *col == 5 {
-        // SAFETY: the message holds no conversion specifier.
-        unsafe { glue::printf(c"\n".as_ptr()) };
+        kprint!("\n");
         *col = 0;
     }
 }
@@ -224,8 +216,7 @@ pub(crate) fn debug_trace_dump() {
     let s = unsafe { glue::splhigh() };
     let mut col: c_int = 0;
 
-    // SAFETY: the message holds no conversion specifier.
-    unsafe { glue::printf(c"Debug trace dump ".as_ptr()) };
+    kprint!("Debug trace dump ");
 
     // If the wrapper left the last entry's name non-null, the buffer is full:
     // print from the current position around to just before it, then the rest.
@@ -234,15 +225,13 @@ pub(crate) fn debug_trace_dump() {
     // SAFETY: as above.
     let pos = unsafe { debug_trace_pos };
     if !last.is_null() {
-        // SAFETY: the message holds no conversion specifier.
-        unsafe { glue::printf(c"(full):\n".as_ptr()) };
+        kprint!("(full):\n");
 
         for i in (pos as usize)..DEBUG_TRACE_LEN {
             print_entry(i, &mut col);
         }
     } else {
-        // SAFETY: the `%d` takes the matching `c_int`.
-        unsafe { glue::printf(c"(%d entries):\n".as_ptr(), pos) };
+        kprint!("({} entries):\n", pos);
     }
 
     for i in 0..(pos as usize) {
@@ -250,8 +239,7 @@ pub(crate) fn debug_trace_dump() {
     }
 
     if col != 0 {
-        // SAFETY: the message holds no conversion specifier.
-        unsafe { glue::printf(c"\n".as_ptr()) };
+        kprint!("\n");
     }
 
     debug_trace_reset();
@@ -280,39 +268,30 @@ pub(crate) fn trace_print(syscallvec: c_int, args: &mut VaList<'_>) -> c_int {
         return syscallvec;
     }
 
-    // SAFETY: `%08x` takes the low `c_uint` of each pointer and `%s` the
-    // table's NUL-terminated name, as the C passed them.
-    unsafe {
-        glue::printf(
-            c"0x%08x:0x%08x:%s(".as_ptr(),
-            task.expose_provenance() as c_uint,
-            percpu::current_thread().expose_provenance() as c_uint,
-            trap.mach_trap_name,
-        )
-    };
+    // SAFETY: the table's name is a NUL-terminated string.
+    kprint!(
+        "0x{:08x}:0x{:08x}:{}(",
+        task.expose_provenance() as c_uint,
+        percpu::current_thread().expose_provenance() as c_uint,
+        unsafe { CStrArg::from_ptr(trap.mach_trap_name) },
+    );
 
     let count = trap.mach_trap_arg_count;
     for i in 0..count {
         // SAFETY: the caller's `va_arg` order matches the syscall's argument
         // count, which the table holds.
         let value: c_ulong = unsafe { args.next_arg() };
-        // SAFETY: `%x` takes the low `c_uint` and `%d` the `c_int`, as the C
-        // passed the `unsigned long`.
-        unsafe {
-            if value > 1024 {
-                glue::printf(c"0x%08x".as_ptr(), value as c_uint);
-            } else {
-                glue::printf(c"%d".as_ptr(), value as c_int);
-            }
+        if value > 1024 {
+            kprint!("0x{:08x}", value as c_uint);
+        } else {
+            kprint!("{}", value as c_int);
         }
 
         if i + 1 < count {
-            // SAFETY: the message holds no conversion specifier.
-            unsafe { glue::printf(c", ".as_ptr()) };
+            kprint!(", ");
         }
     }
-    // SAFETY: the message holds no conversion specifier.
-    unsafe { glue::printf(c")\n".as_ptr()) };
+    kprint!(")\n");
 
     syscallvec
 }

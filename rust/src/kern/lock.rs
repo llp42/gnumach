@@ -8,7 +8,7 @@
 //! The locks of `kern/lock.h`, which `kern/lock.c` used to define.
 
 use crate::arch::i386::percpu::current_thread;
-use crate::glue;
+use crate::kern::debug::kpanic;
 use crate::kern::sched_prim::{
     THREAD_AWAKENED, thread_sleep, thread_wakeup_prim,
 };
@@ -493,16 +493,10 @@ impl LockData {
         self.interlock.lock();
 
         if !self.want_write() {
-            // SAFETY: `Panic` does not return; the message and arguments are
-            // the C `panic()` macro's.
-            unsafe {
-                glue::Panic(
-                    c"kern/lock.c".as_ptr(),
-                    line!() as c_int,
-                    c"lock_set_recursive".as_ptr(),
-                    c"lock_set_recursive: don't have write lock".as_ptr(),
-                )
-            }
+            kpanic!(
+                "lock_set_recursive",
+                "lock_set_recursive: don't have write lock"
+            )
         }
         self.set_thread(current_thread().cast::<c_void>());
         self.interlock.unlock();
@@ -512,16 +506,10 @@ impl LockData {
     pub(crate) fn clear_recursive(&self) {
         self.interlock.lock();
         if !self.owned_by_current() {
-            // SAFETY: `Panic` does not return; the message and arguments are
-            // the C `panic()` macro's.
-            unsafe {
-                glue::Panic(
-                    c"kern/lock.c".as_ptr(),
-                    line!() as c_int,
-                    c"lock_clear_recursive".as_ptr(),
-                    c"lock_clear_recursive: wrong thread".as_ptr(),
-                )
-            }
+            kpanic!(
+                "lock_clear_recursive",
+                "lock_clear_recursive: wrong thread"
+            )
         }
         if self.recursion_depth() == 0 {
             self.set_thread(NO_THREAD);

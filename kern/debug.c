@@ -98,17 +98,3 @@ Panic(const char *file, int line, const char *fun, const char *s, ...)
 	halt_all_cpus (reboot_on_panic);
 }
 
-/*
- * We'd like to use BSD's log routines here...
- */
-/*VARARGS2*/
-void
-log(int level, const char *fmt, ...)
-{
-	va_list	listp;
-
-	va_start(listp, fmt);
-	_doprnt(fmt, listp, do_cnputc, 16, 0);
-	va_end(listp);
-}
-

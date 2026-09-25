@@ -9,6 +9,7 @@
 
 use crate::arch::i386::pio::Port;
 use crate::glue;
+use crate::kern::console::kprint;
 use crate::kern::mach_clock;
 use core::ffi::c_int;
 use core::mem::{align_of, offset_of, size_of};
@@ -254,30 +255,21 @@ fn read_todc() -> Result<u64, RtcError> {
     };
 
     if yr >= CENTURY_START + 90 {
-        // SAFETY: `printf` is variadic; the format's one conversion is `%u`,
-        // and the argument is the unsigned constant the C passed.
-        unsafe {
-            glue::printf(
-                c"FIXME: we are approaching %u, update CENTURY_START\n"
-                    .as_ptr(),
-                CENTURY_START,
-            );
-        }
-    }
-
-    // SAFETY: `printf` is variadic and every `%u` takes one of the unsigned
-    // fields in the order the C passed them.
-    unsafe {
-        glue::printf(
-            c"RTC time is %04u-%02u-%02u %02u:%02u:%02u\n".as_ptr(),
-            yr,
-            mon,
-            dom,
-            hr,
-            min,
-            sec,
+        kprint!(
+            "FIXME: we are approaching {}, update CENTURY_START\n",
+            CENTURY_START,
         );
     }
+
+    kprint!(
+        "RTC time is {:04}-{:02}-{:02} {:02}:{:02}:{:02}\n",
+        yr,
+        mon,
+        dom,
+        hr,
+        min,
+        sec,
+    );
 
     let mut days = 0_u64;
     let months = month_lengths(yeartoday(yr) == 366);

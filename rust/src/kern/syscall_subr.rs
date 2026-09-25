@@ -11,6 +11,7 @@
 use crate::arch::i386::percpu::{current_processor, current_thread};
 use crate::glue;
 use crate::ipc::{IpcPort, IpcSpace, ipc_object};
+use crate::kern::console::{CStrArg, kprint};
 use crate::kern::ipc_kobject::IKOT_THREAD;
 use crate::kern::ipc_sched::{
     ipc_timeout_to_ticks, thread_will_wait_with_timeout,
@@ -44,9 +45,9 @@ const MACH_PORT_RIGHT_SEND: c_uint = 0;
 /// `s` must point at a NUL-terminated string that stays readable for the
 /// duration of the call.
 pub(crate) unsafe fn print(s: *const c_char) {
-    // SAFETY: the caller promises a readable NUL-terminated `s`, and the
-    // format string is the C call's literal, which matches it.
-    unsafe { glue::printf(c"%s".as_ptr(), s) };
+    // SAFETY: the caller promises a readable NUL-terminated `s`.
+    let s = unsafe { CStrArg::from_ptr(s) };
+    kprint!("{}", s);
 }
 
 /// `thread_depress_priority()` in C.

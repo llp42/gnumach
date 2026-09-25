@@ -9,7 +9,7 @@
 use crate::arch::i386::percpu::percpu_at;
 use crate::arch::types::VmOffset;
 use crate::config::NCPUS;
-use crate::glue;
+use crate::kern::debug::kpanic;
 use crate::kern::ipc_host::pset_name_to_port;
 use crate::kern::mach_factor;
 use crate::kern::machine;
@@ -178,16 +178,7 @@ pub(crate) fn processors(
     }
 
     if count == 0 {
-        // SAFETY: `Panic` does not return; the tags reproduce the C
-        // `panic()` call's file, function and message.
-        unsafe {
-            glue::Panic(
-                c"kern/host.c".as_ptr(),
-                line!() as c_int,
-                c"host_processors".as_ptr(),
-                c"host_processors".as_ptr(),
-            )
-        }
+        kpanic!("host_processors", "host_processors")
     }
 
     // The C count holds at most `NCPUS` slots, so the widening cannot lose a

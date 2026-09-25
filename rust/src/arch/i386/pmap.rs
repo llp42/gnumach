@@ -26,6 +26,8 @@ use crate::arch::types::{VmOffset, VmSize};
 use crate::arch::vm_param::{PAGE_SHIFT, PAGE_SIZE};
 use crate::config::NCPUS;
 use crate::glue;
+use crate::kern::console::kprint;
+use crate::kern::debug::kpanic;
 use crate::kern::lock::{LockData, SimpleLock};
 use crate::kern::machine::slot as machine_slot;
 use crate::kern::slab::{CacheInitFlags, KmemCache};
@@ -1091,14 +1093,9 @@ pub extern "C" fn pmap_pageable(
 
 /// Unmap the page at virtual address zero so that a null reference faults.
 fn unmap_page_zero() {
-    // SAFETY: `printf` is the real C routine <kern/printf.h> declares, and
-    // this format has no conversion specifier.
-    unsafe {
-        glue::printf(
-            c"Unmapping the zero page.  Some BIOS functions may not be working any more.\n"
-                .as_ptr(),
-        )
-    };
+    kprint!(
+        "Unmapping the zero page.  Some BIOS functions may not be working any more.\n"
+    );
     // SAFETY: `kernel_pmap` is the kernel's live pmap from `pmap_bootstrap()`
     // on, and `pmap_pte()` returns null rather than something invalid for an
     // address with no page-table entry.
@@ -1168,15 +1165,7 @@ unsafe fn map_bd(
         // SAFETY: the kernel map is live, as `map_bd`'s caller promised.
         let pte = unsafe { pte_of(kernel_pmap_ptr(), virt) };
         if pte.is_null() {
-            // SAFETY: `Panic` does not return, and the message is the C's.
-            unsafe {
-                glue::Panic(
-                    c"i386/intel/pmap.c".as_ptr(),
-                    line!() as c_int,
-                    c"pmap_map_bd".as_ptr(),
-                    c"pmap_map_bd: Invalid kernel address\n".as_ptr(),
-                )
-            }
+            kpanic!("pmap_map_bd", "pmap_map_bd: Invalid kernel address\n");
         }
         // SAFETY: `pmap_pte()` returned a live entry for `virt`.
         unsafe { *pte = template };
@@ -1265,15 +1254,9 @@ pub extern "C" fn pmap_bootstrap() {
         }
     }
 
-    // SAFETY: `printf` is the real routine, and the two values are the
-    // addresses just computed.
-    unsafe {
-        glue::printf(
-            c"kernel virtual area: %lx-%lx\n".as_ptr(),
-            kernel_virtual_start,
-            kernel_virtual_end,
-        )
-    };
+    // SAFETY: the kernel virtual range was just written above.
+    let (start, end) = unsafe { (kernel_virtual_start, kernel_virtual_end) };
+    kprint!("kernel virtual area: {:x}-{:x}\n", start, end);
 
     #[cfg(target_arch = "x86_64")]
     bootstrap_pae();
@@ -1388,13 +1371,9 @@ pub unsafe extern "C" fn pmap_get_mapwindow(
             map = map.wrapping_add(1);
         }
         if map == end {
-            // SAFETY: `Panic` does not return; the message is the C's
-            // condition, which the C left undefined.
-            glue::Panic(
-                c"i386/intel/pmap.c".as_ptr(),
-                line!() as c_int,
-                c"pmap_get_mapwindow".as_ptr(),
-                c"pmap_get_mapwindow: no free map window\n".as_ptr(),
+            kpanic!(
+                "pmap_get_mapwindow",
+                "pmap_get_mapwindow: no free map window\n"
             )
         }
         *(*map).entry = entry;
@@ -1461,15 +1440,7 @@ pub extern "C" fn pmap_init() {
         glue::kmem_alloc_wired(glue::kernel_map.cast(), &mut addr, size)
     };
     if result != KERN_SUCCESS {
-        // SAFETY: `Panic` does not return; the message is the C's.
-        unsafe {
-            glue::Panic(
-                c"i386/intel/pmap.c".as_ptr(),
-                line!() as c_int,
-                c"pmap_init".as_ptr(),
-                c"pmap_init\n".as_ptr(),
-            )
-        }
+        kpanic!("pmap_init", "pmap_init\n");
     }
     // SAFETY: `kmem_alloc_wired()` returned `size` writable bytes at `addr`.
     unsafe { ptr::write_bytes(addr as *mut u8, 0, size) };
@@ -1634,12 +1605,7 @@ pub unsafe extern "C" fn pmap_create(size: VmSize) -> *mut Pmap {
 
             let l4base = cache_alloc(&raw mut L4_CACHE).cast::<VmOffset>();
             if l4base.is_null() {
-                glue::Panic(
-                    c"i386/intel/pmap.c".as_ptr(),
-                    line!() as c_int,
-                    c"pmap_create".as_ptr(),
-                    c"pmap_create\n".as_ptr(),
-                )
+                kpanic!("pmap_create", "pmap_create\n");
             }
             ptr::write_bytes(l4base.cast::<u8>(), 0, PAGE_SIZE);
             *l4base.wrapping_add(lin2l4num(VM_MIN_KERNEL_ADDRESS)) =
@@ -1814,19 +1780,12 @@ unsafe fn remove_range(
         && (va < unsafe { kernel_virtual_start }
             || end > unsafe { kernel_virtual_end })
     {
-        // SAFETY: `Panic` does not return; the message and two values are the
-        // C's.
-        unsafe {
-            glue::Panic(
-                c"i386/intel/pmap.c".as_ptr(),
-                line!() as c_int,
-                c"pmap_remove_range".as_ptr(),
-                c"pmap_remove_range(%lx-%lx) falls in physical memory area!\n"
-                    .as_ptr(),
-                va,
-                end,
-            )
-        }
+        kpanic!(
+            "pmap_remove_range",
+            "pmap_remove_range({:x}-{:x}) falls in physical memory area!\n",
+            va,
+            end,
+        );
     }
 
     let mut num_removed: c_int = 0;
@@ -1893,12 +1852,9 @@ unsafe fn remove_range(
         unsafe {
             let pv_h = pv_head(pai);
             if (*pv_h).pmap.is_null() {
-                glue::Panic(
-                    c"i386/intel/pmap.c".as_ptr(),
-                    line!() as c_int,
-                    c"pmap_remove".as_ptr(),
-                    c"pmap_remove: null pv_list for pai %lx at va %lx!"
-                        .as_ptr(),
+                kpanic!(
+                    "pmap_remove",
+                    "pmap_remove: null pv_list for pai {:x} at va {:x}!",
                     pai,
                     va,
                 )
@@ -1918,11 +1874,9 @@ unsafe fn remove_range(
                     prev = cur;
                     cur = (*prev).next;
                     if cur.is_null() {
-                        glue::Panic(
-                            c"i386/intel/pmap.c".as_ptr(),
-                            line!() as c_int,
-                            c"pmap_remove".as_ptr(),
-                            c"pmap-remove: mapping not in pv_list!".as_ptr(),
+                        kpanic!(
+                            "pmap_remove",
+                            "pmap-remove: mapping not in pv_list!"
                         )
                     }
                     if (*cur).va == va && (*cur).pmap == pmap {
@@ -2220,17 +2174,11 @@ unsafe fn expand_level(
         }
 
         if pmap == kernel_pmap_ptr() {
-            // SAFETY: `Panic` does not return; the message and value are the
-            // C's.
-            unsafe {
-                glue::Panic(
-                    c"i386/intel/pmap.c".as_ptr(),
-                    line!() as c_int,
-                    c"pmap_expand_level".as_ptr(),
-                    c"pmap_expand kernel pmap to %#zx".as_ptr(),
-                    v,
-                )
-            }
+            kpanic!(
+                "pmap_expand_level",
+                "pmap_expand kernel pmap to 0x{:x}",
+                v
+            )
         }
 
         // SAFETY: the caller holds the map's lock.
@@ -2384,9 +2332,7 @@ unsafe fn enter(
     wired: bool,
 ) {
     if PMAP_DEBUG.load(Ordering::Relaxed) != 0 {
-        // SAFETY: `printf` is the real routine and this format has two
-        // integer conversions for the two values.
-        unsafe { glue::printf(c"pmap(%zx, %llx)\n".as_ptr(), v, pa) };
+        kprint!("pmap({:x}, {:x})\n", v, pa);
     }
     if pmap.is_null() {
         return;
@@ -2396,19 +2342,12 @@ unsafe fn enter(
         && (v < unsafe { kernel_virtual_start }
             || v >= unsafe { kernel_virtual_end })
     {
-        // SAFETY: `Panic` does not return; the message and values are the
-        // C's.
-        unsafe {
-            glue::Panic(
-                c"i386/intel/pmap.c".as_ptr(),
-                line!() as c_int,
-                c"pmap_enter".as_ptr(),
-                c"pmap_enter(%lx, %llx) falls in physical memory area!\n"
-                    .as_ptr(),
-                v,
-                pa,
-            )
-        }
+        kpanic!(
+            "pmap_enter",
+            "pmap_enter({:x}, {:x}) falls in physical memory area!\n",
+            v,
+            pa,
+        );
     }
 
     let mut pv_e: *mut PvEntry = ptr::null_mut();
@@ -2568,15 +2507,7 @@ unsafe fn change_wiring(map: *mut Pmap, v: VmOffset, wired: bool) {
     // SAFETY: the map is live and locked.
     let pte = unsafe { pte_of(map, v) };
     if pte.is_null() {
-        // SAFETY: `Panic` does not return; the message is the C's.
-        unsafe {
-            glue::Panic(
-                c"i386/intel/pmap.c".as_ptr(),
-                line!() as c_int,
-                c"pmap_change_wiring".as_ptr(),
-                c"pmap_change_wiring: pte missing".as_ptr(),
-            )
-        }
+        kpanic!("pmap_change_wiring", "pmap_change_wiring: pte missing");
     }
 
     if wired && unsafe { *pte } & INTEL_PTE_WIRED == 0 {
@@ -3173,15 +3104,7 @@ pub extern "C" fn pmap_set_page_dir() {
             kvtophys_early(unsafe { (*kernel_pmap_ptr()).l4base }.addr());
         write_cr3(physical);
         if !cpu_has_feature(CPU_FEATURE_PAE) {
-            // SAFETY: `Panic` does not return; the message is the C's.
-            unsafe {
-                glue::Panic(
-                    c"i386/intel/pmap.c".as_ptr(),
-                    line!() as c_int,
-                    c"pmap_set_page_dir".as_ptr(),
-                    c"CPU doesn't have support for PAE.".as_ptr(),
-                )
-            }
+            kpanic!("pmap_set_page_dir", "CPU doesn't have support for PAE.");
         }
         write_cr4(read_cr4() | CR4_PAE);
     }

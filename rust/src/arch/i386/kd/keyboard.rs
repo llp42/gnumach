@@ -16,6 +16,7 @@ use crate::arch::i386::kd_event::kd_enqsc;
 use crate::arch::i386::kd_mouse;
 use crate::arch::i386::pio::Port;
 use crate::glue;
+use crate::kern::console::kprint;
 use core::ffi::{c_int, c_uint};
 
 /// The `which_button[]` table of `kd_kbd_magic()`: index to event type
@@ -130,10 +131,7 @@ pub(crate) fn handle_ack() {
         }
         Ack::Data => state().kd_ack = Ack::NotWaiting,
         Ack::NotWaiting => {
-            // SAFETY: a literal format with no arguments.
-            unsafe {
-                glue::printf(c"unexpected ACK from keyboard\n".as_ptr())
-            };
+            kprint!("unexpected ACK from keyboard\n");
         }
     }
 }
@@ -141,8 +139,7 @@ pub(crate) fn handle_ack() {
 /// Resend a missed keyboard command or data byte.
 pub(crate) fn resend() {
     if state().kd_ack == Ack::NotWaiting {
-        // SAFETY: a literal format with no arguments.
-        unsafe { glue::printf(c"unexpected RESEND from keyboard\n".as_ptr()) };
+        kprint!("unexpected RESEND from keyboard\n");
     } else {
         senddata(state().last_sent);
     }
@@ -210,8 +207,7 @@ fn motion(dx: c_int, dy: c_int) {
 /// `kd_kbd_magic()`: the keyboard-as-mouse sequences.
 pub(crate) fn kbd_magic(scancode: c_int) -> c_int {
     if state().kd_kbd_mouse == 2 {
-        // SAFETY: a literal format with one integer.
-        unsafe { glue::printf(c"sc = %x\n".as_ptr(), scancode) };
+        kprint!("sc = {:x}\n", scancode);
     }
 
     match scancode {
@@ -301,8 +297,7 @@ fn intr() {
         if kd_mouse::mouse_in_use() != 0 {
             kd_mouse::mouse_handle_byte(sc);
         } else {
-            // SAFETY: a literal format with one integer.
-            unsafe { glue::printf(c"M%xI".as_ptr(), sc as c_int) };
+            kprint!("M{:x}I", sc as c_int);
         }
         return;
     }
@@ -396,14 +391,7 @@ pub(crate) fn mouse_drain() {
     let mut i = Port::new(K_STATUS).read_u8();
     while i & K_OBUF_FUL != 0 {
         let data = Port::new(K_RDWR).read_u8();
-        // SAFETY: a literal format with two integers.
-        unsafe {
-            glue::printf(
-                c"kbd: S = %x D = %x\n".as_ptr(),
-                i as c_int,
-                data as c_int,
-            )
-        };
+        kprint!("kbd: S = {:x} D = {:x}\n", i as c_int, data as c_int);
         i = Port::new(K_STATUS).read_u8();
     }
 }

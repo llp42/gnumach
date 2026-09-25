@@ -22,6 +22,7 @@ use crate::ipc::{
     MigReplyHeader,
 };
 use crate::kern::ast::{AST_HALT, AST_TERMINATE};
+use crate::kern::debug::kpanic;
 use crate::kern::ipc_sched;
 use crate::kern::ipc_tt::{
     retrieve_task_self_fast, retrieve_thread_self_fast,
@@ -252,16 +253,7 @@ pub(crate) unsafe fn no_server() -> ! {
         Thread::halt_self(Some(exception_return));
     }
 
-    // SAFETY: `Panic` does not return; the file, function and message tags are
-    // the C `panic()` macro's, and the line is this Rust file's.
-    unsafe {
-        glue::Panic(
-            c"kern/exception.c".as_ptr(),
-            line!() as c_int,
-            c"exception_no_server".as_ptr(),
-            c"terminating the task didn't kill us".as_ptr(),
-        )
-    }
+    kpanic!("exception_no_server", "terminating the task didn't kill us")
 }
 
 /// `exception()` of kern/exception.c: make an up-call to the thread's
@@ -274,16 +266,7 @@ pub(crate) unsafe fn exception(
     let self_ = current_thread();
 
     if exception_ == KERN_SUCCESS {
-        // SAFETY: `Panic` does not return; the tags reproduce the C
-        // `panic("exception")`.
-        unsafe {
-            glue::Panic(
-                c"kern/exception.c".as_ptr(),
-                line!() as c_int,
-                c"exception".as_ptr(),
-                c"exception".as_ptr(),
-            )
-        }
+        kpanic!("exception", "exception")
     }
 
     // SAFETY: the running thread is live; the IPC lock covers
@@ -825,16 +808,7 @@ pub(crate) unsafe fn raise(
 
     // SAFETY: nothing is locked, and `cache_alloc()` returns a live message.
     let Some(kmsg) = ipc_kmsg::cache_alloc() else {
-        // SAFETY: `Panic` does not return; the tags reproduce the C
-        // `panic("exception_raise")`.
-        unsafe {
-            glue::Panic(
-                c"kern/exception.c".as_ptr(),
-                line!() as c_int,
-                c"exception_raise".as_ptr(),
-                c"exception_raise".as_ptr(),
-            )
-        }
+        kpanic!("exception_raise", "exception_raise")
     };
 
     // SAFETY: the running thread is live; its IPC lock covers
@@ -847,26 +821,12 @@ pub(crate) unsafe fn raise(
             (*self_).ith_lock_data.unlock();
             let Some(port) = ipc_port::alloc_special(ipc_space::reply())
             else {
-                // SAFETY: `Panic` does not return; the tags reproduce the C
-                // `panic("exception_raise")`.
-                glue::Panic(
-                    c"kern/exception.c".as_ptr(),
-                    line!() as c_int,
-                    c"exception_raise".as_ptr(),
-                    c"exception_raise".as_ptr(),
-                )
+                kpanic!("exception_raise", "exception_raise")
             };
             raw = port.as_ptr();
             (*self_).ith_lock_data.lock();
             if !(*self_).ith_rpc_reply.is_null() {
-                // SAFETY: `Panic` does not return; the tags reproduce the C
-                // `panic("exception_raise")`.
-                glue::Panic(
-                    c"kern/exception.c".as_ptr(),
-                    line!() as c_int,
-                    c"exception_raise".as_ptr(),
-                    c"exception_raise".as_ptr(),
-                )
+                kpanic!("exception_raise", "exception_raise")
             }
             (*self_).ith_rpc_reply = raw;
         }

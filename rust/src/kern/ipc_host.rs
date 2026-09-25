@@ -11,11 +11,12 @@
 use crate::arch::types::VmOffset;
 use crate::glue;
 use crate::ipc::{IpcPort, IpcSpace, ipc_port, ipc_space};
+use crate::kern::debug::kpanic;
 use crate::kern::host::{self, Host};
 use crate::kern::processor::{self, Processor, ProcessorSet};
 use crate::kern::task::current_task;
 use crate::kern::types::KernError;
-use core::ffi::{c_int, c_uint, c_void};
+use core::ffi::{c_uint, c_void};
 use core::ptr;
 use core::ptr::NonNull;
 
@@ -40,21 +41,12 @@ const MACH_PORT_NULL: c_uint = 0;
 
 /// Allocate a special port in the kernel's IPC space, halting when the
 /// allocator fails as the C callers did.
-fn alloc_kernel_port(function: &core::ffi::CStr) -> NonNull<c_void> {
+fn alloc_kernel_port(function: &'static str) -> NonNull<c_void> {
     // SAFETY: the kernel's space is live from `ipc_init()` on, and the
     // allocator takes its own locks.
     let port = unsafe { ipc_port::alloc_special(ipc_space::kernel()) };
     let Some(port) = port else {
-        // SAFETY: `Panic` does not return; the tags reproduce the C `panic()`
-        // call's file, function and message.
-        unsafe {
-            glue::Panic(
-                c"kern/ipc_host.c".as_ptr(),
-                line!() as c_int,
-                function.as_ptr(),
-                function.as_ptr(),
-            )
-        }
+        kpanic!(function, "{}", function)
     };
     // SAFETY: `IpcPort` always holds a non-null pointer.
     unsafe { NonNull::new_unchecked(port.as_ptr()) }
@@ -63,7 +55,7 @@ fn alloc_kernel_port(function: &core::ffi::CStr) -> NonNull<c_void> {
 /// `ipc_host_init()` of kern/ipc_host.c: the two host ports, the default
 /// set's two ports, and the master processor's two ports.
 pub(crate) unsafe fn init() {
-    let port = alloc_kernel_port(c"ipc_host_init");
+    let port = alloc_kernel_port("ipc_host_init");
     // SAFETY: `realhost` is the one host object, and the freshly allocated
     // port can be bound to it before anything else can reach it.
     unsafe {
@@ -75,7 +67,7 @@ pub(crate) unsafe fn init() {
         (*host::realhost()).host_self = port.as_ptr();
     }
 
-    let port = alloc_kernel_port(c"ipc_host_init");
+    let port = alloc_kernel_port("ipc_host_init");
     // SAFETY: as above for the privilege port.
     unsafe {
         glue::ipc_kobject_set(
@@ -118,7 +110,7 @@ pub(crate) unsafe fn mach_host_self() -> c_uint {
 
 /// `ipc_processor_init()` of kern/ipc_host.c.
 pub(crate) fn processor_init(processor: &mut Processor) {
-    let port = alloc_kernel_port(c"ipc_processor_init");
+    let port = alloc_kernel_port("ipc_processor_init");
     processor.processor_self = port.as_ptr();
     // SAFETY: `port` is the special port just allocated and nothing else can
     // reach it yet; `processor` is the live object the C bound.
@@ -130,7 +122,7 @@ pub(crate) fn processor_init(processor: &mut Processor) {
         );
     }
 
-    let port = alloc_kernel_port(c"ipc_processor_init");
+    let port = alloc_kernel_port("ipc_processor_init");
     processor.processor_name_self = port.as_ptr();
     // SAFETY: as above for the second, name port.
     unsafe {
@@ -144,10 +136,10 @@ pub(crate) fn processor_init(processor: &mut Processor) {
 
 /// `ipc_pset_init()` of kern/ipc_host.c.
 pub(crate) fn pset_init(pset: &mut ProcessorSet) {
-    let port = alloc_kernel_port(c"ipc_pset_init");
+    let port = alloc_kernel_port("ipc_pset_init");
     pset.pset_self = port.as_ptr();
 
-    let port = alloc_kernel_port(c"ipc_pset_init");
+    let port = alloc_kernel_port("ipc_pset_init");
     pset.pset_name_self = port.as_ptr();
 }
 

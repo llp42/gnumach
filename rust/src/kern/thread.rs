@@ -20,6 +20,8 @@ use crate::glue::time_value::{RpcTimeValue, TimeValue, TimeValue64};
 use crate::ipc::IpcSpace;
 use crate::ipc::mach_port;
 use crate::kern::ast::{AST_BLOCK, AST_HALT, AST_TERMINATE, ast_on};
+use crate::kern::console::kprint;
+use crate::kern::debug::kpanic;
 use crate::kern::eventcount;
 use crate::kern::ipc_mig::abort_rpc;
 use crate::kern::ipc_tt::{
@@ -1248,16 +1250,7 @@ impl Thread {
     /// The caller must be running on `self`; the C halts the kernel otherwise.
     pub(crate) unsafe fn stack_privilege(&mut self) {
         if current_thread() != ptr::from_mut(self) {
-            // SAFETY: `Panic` halts the kernel and never returns; the
-            // arguments are the C `panic()` macro's.
-            unsafe {
-                glue::Panic(
-                    c"kern/thread.c".as_ptr(),
-                    line!() as c_int,
-                    c"stack_privilege".as_ptr(),
-                    c"stack_privilege".as_ptr(),
-                )
-            }
+            kpanic!("stack_privilege", "stack_privilege")
         }
 
         if self.stack_privilege == 0 {
@@ -1819,22 +1812,12 @@ impl Thread {
         // one here, and an unreferenced thread is suspended.
         unsafe {
             if thread == current_thread() {
-                glue::Panic(
-                    c"kern/thread.c".as_ptr(),
-                    line!() as c_int,
-                    c"thread_deallocate".as_ptr(),
-                    c"thread deallocating itself".as_ptr(),
-                )
+                kpanic!("thread_deallocate", "thread deallocating itself")
             }
             if (*thread).state() & !(TH_RUN | TH_HALTED | TH_SWAPPED)
                 != TH_SUSP
             {
-                glue::Panic(
-                    c"kern/thread.c".as_ptr(),
-                    line!() as c_int,
-                    c"thread_deallocate".as_ptr(),
-                    c"unstopped thread destroyed!".as_ptr(),
-                )
+                kpanic!("thread_deallocate", "unstopped thread destroyed!")
             }
         }
 
@@ -2015,16 +1998,10 @@ impl Thread {
         let cur_thread = current_thread();
 
         if thread == cur_thread {
-            // SAFETY: `Panic` does not return; the file, function and message
-            // tags are the C `panic()` macro's, and the line is this file's.
-            unsafe {
-                glue::Panic(
-                    c"kern/thread.c".as_ptr(),
-                    line!() as c_int,
-                    c"thread_halt".as_ptr(),
-                    c"thread_halt: trying to halt current thread.".as_ptr(),
-                )
-            }
+            kpanic!(
+                "thread_halt",
+                "thread_halt: trying to halt current thread."
+            )
         }
 
         // SAFETY: the caller promises a live thread, and the current thread
@@ -2174,12 +2151,7 @@ impl Thread {
                 s = glue::splsched();
                 (*thread).lock.lock();
                 if (*thread).state() & TH_SCHED_STATE != TH_SUSP {
-                    glue::Panic(
-                        c"kern/thread.c".as_ptr(),
-                        line!() as c_int,
-                        c"thread_halt".as_ptr(),
-                        c"thread_halt".as_ptr(),
-                    )
+                    kpanic!("thread_halt", "thread_halt")
                 }
                 (*thread).set_state((*thread).state() | TH_RUN | TH_UNINT);
                 thread_setrun(thread, 0);
@@ -2246,16 +2218,7 @@ impl Thread {
         must_halt: bool,
     ) -> Result<(), KernError> {
         if thread == current_thread() {
-            // SAFETY: `Panic` does not return; the file, function and message
-            // tags are the C `panic()` macro's, and the line is this file's.
-            unsafe {
-                glue::Panic(
-                    c"kern/thread.c".as_ptr(),
-                    line!() as c_int,
-                    c"thread_dowait".as_ptr(),
-                    c"thread_dowait".as_ptr(),
-                )
-            }
+            kpanic!("thread_dowait", "thread_dowait")
         }
 
         let mut need_wakeup = false;
@@ -2824,10 +2787,8 @@ impl Thread {
                     .cast::<Thread>();
             }
 
-            // SAFETY: `printf` is the C variadic; each format string takes
-            // the one `int` argument passed, as the C did.
-            glue::printf(c"%d total threads.\n".as_ptr(), total);
-            glue::printf(c"%d using rpc_reply.\n".as_ptr(), rpcreply);
+            kprint!("{} total threads.\n", total);
+            kprint!("{} using rpc_reply.\n", rpcreply);
         }
     }
 }
@@ -2835,16 +2796,7 @@ impl Thread {
 /// `walking_zombie()` of kern/thread.c, the private continuation of a
 /// terminating thread.
 unsafe extern "C" fn walking_zombie() {
-    // SAFETY: `Panic` does not return; the file, function and message tags
-    // are the C `panic()` macro's.
-    unsafe {
-        glue::Panic(
-            c"kern/thread.c".as_ptr(),
-            line!() as c_int,
-            c"walking_zombie".as_ptr(),
-            c"the zombie walks!".as_ptr(),
-        )
-    }
+    kpanic!("walking_zombie", "the zombie walks!")
 }
 
 /// `reaper_thread_continue()` of kern/thread.c: the reaper's loop, which the

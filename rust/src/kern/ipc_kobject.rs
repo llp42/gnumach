@@ -12,6 +12,8 @@ use crate::glue::MigRoutine;
 use crate::ipc::ipc_kmsg::{self, Kmsg};
 use crate::ipc::ipc_port;
 use crate::ipc::{IpcPort, MachMsgHeader, MachMsgType, MigReplyHeader};
+use crate::kern::console::kprint;
+use crate::kern::debug::kpanic;
 use crate::kern::task::kernel_task;
 use core::ffi::{c_int, c_uint, c_void};
 use core::mem::size_of;
@@ -149,17 +151,14 @@ pub(crate) unsafe fn destroy(port: *mut c_void) {
             }
         }
         kotype => {
-            // SAFETY: the format string is the C's, and its arguments match
-            // it: a port pointer, a `vm_offset_t` and an `int`.
-            unsafe {
-                glue::printf(
-                    c"ipc_kobject_destroy: port 0x%p, kobj 0x%zd, type %d\n"
-                        .as_ptr(),
-                    port.as_ptr(),
-                    port.kobject().addr(),
-                    kotype,
-                )
-            };
+            // SAFETY: a port of this type names a live kobject.
+            let kobject = unsafe { port.kobject() };
+            kprint!(
+                "ipc_kobject_destroy: port 0x{:x}, kobj 0x{}, type {}\n",
+                port.as_ptr().expose_provenance(),
+                kobject.addr(),
+                kotype,
+            );
         }
     }
 }
@@ -222,10 +221,9 @@ pub(crate) unsafe fn notify(
 pub(crate) unsafe fn server(request: Kmsg) -> Option<Kmsg> {
     let reply_body = MAX_REPLY_BODY - ipc_kmsg::IKM_OVERHEAD;
     let Some(reply) = ipc_kmsg::ikm_alloc(reply_body) else {
-        // SAFETY: the format string is the C's; the request is owned and
-        // live.
+        // SAFETY: the request is owned and live.
         unsafe {
-            glue::printf(c"ipc_kobject_server: dropping request\n".as_ptr());
+            kprint!("ipc_kobject_server: dropping request\n");
             ipc_kmsg::destroy(request);
         }
         return None;
@@ -335,15 +333,10 @@ pub(crate) unsafe fn server(request: Kmsg) -> Option<Kmsg> {
 
 /// The C `default: panic()` of the destination-rights switch.
 fn strange_destination() -> ! {
-    // SAFETY: `Panic` does not return; the tags are the C panic macro's.
-    unsafe {
-        glue::Panic(
-            c"kern/ipc_kobject.c".as_ptr(),
-            line!() as c_int,
-            c"ipc_kobject_server".as_ptr(),
-            c"ipc_object_destroy: strange destination rights".as_ptr(),
-        )
-    }
+    kpanic!(
+        "ipc_kobject_server",
+        "ipc_object_destroy: strange destination rights"
+    )
 }
 
 /// The `*_server_routine()` inline functions of the generated `*.server.h`

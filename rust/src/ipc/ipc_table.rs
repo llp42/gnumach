@@ -8,10 +8,10 @@
 
 use crate::arch::types::{VmOffset, VmSize};
 use crate::arch::vm_param::PAGE_SIZE;
-use crate::glue;
 use crate::ipc::IpcPortRequest;
+use crate::kern::debug::kpanic;
 use crate::kern::slab::{kalloc, kfree};
-use core::ffi::{c_int, c_uint};
+use core::ffi::c_uint;
 use core::mem::offset_of;
 use core::num::NonZeroUsize;
 use core::ptr::{self, NonNull, with_exposed_provenance_mut};
@@ -45,20 +45,11 @@ pub static mut ipc_table_dnrequests: *mut IpcTableSize = ptr::null_mut();
 ///
 /// # Panics
 ///
-/// Halts through [`glue::Panic`] when `elemsize` is zero, which the C would
+/// Halts through [`kpanic!`] when `elemsize` is zero, which the C would
 /// divide by.
 fn fill(its: &mut [IpcTableSize], min: c_uint, elemsize: VmSize) {
     let Some(elemsize) = NonZeroUsize::new(elemsize) else {
-        // SAFETY: `Panic` does not return; the message names the C function
-        // whose division the zero would fault.
-        unsafe {
-            glue::Panic(
-                c"ipc/ipc_table.c".as_ptr(),
-                line!() as c_int,
-                c"ipc_table_fill".as_ptr(),
-                c"ipc_table_fill: zero element size".as_ptr(),
-            )
-        }
+        kpanic!("ipc_table_fill", "ipc_table_fill: zero element size")
     };
     let elemsize = elemsize.get();
 
@@ -112,7 +103,7 @@ fn fill(its: &mut [IpcTableSize], min: c_uint, elemsize: VmSize) {
 ///
 /// # Panics
 ///
-/// Halts through [`glue::Panic`] when `elemsize` is zero, as the C would
+/// Halts through [`kpanic!`] when `elemsize` is zero, as the C would
 /// divide by zero.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ipc_table_fill(
@@ -146,15 +137,10 @@ pub unsafe extern "C" fn ipc_table_init() {
     // multiple of the record.
     let Some(table) = kalloc(bytes).map(|buf| buf.cast::<IpcTableSize>())
     else {
-        // SAFETY: `Panic` does not return.
-        unsafe {
-            glue::Panic(
-                c"ipc/ipc_table.c".as_ptr(),
-                line!() as c_int,
-                c"ipc_table_init".as_ptr(),
-                c"ipc_table_init: cannot allocate dnrequests table".as_ptr(),
-            )
-        }
+        kpanic!(
+            "ipc_table_init",
+            "ipc_table_init: cannot allocate dnrequests table"
+        )
     };
 
     // SAFETY: this is the only writer, and it runs before any reader.

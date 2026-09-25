@@ -7,7 +7,7 @@
 //! `i386/i386/smp.h` declares.
 
 use crate::arch::i386::{apic, pit};
-use crate::glue;
+use crate::kern::console::kprint;
 use crate::kern::machine;
 use crate::kern::smp as kern_smp;
 use core::arch::asm;
@@ -133,8 +133,7 @@ fn send_ipi_init(bsp_apic_id: c_uint) -> c_int {
 
     let error = error_status();
     if error != 0 {
-        // SAFETY: `printf` accepts the C format and arguments.
-        unsafe { glue::printf(c"ESR error upon INIT 0x%x\n".as_ptr(), error) };
+        kprint!("ESR error upon INIT 0x{:x}\n", error);
     }
     0
 }
@@ -172,16 +171,10 @@ fn send_ipi_startup_twice(bsp_apic_id: c_uint, vector: c_uint) -> c_int {
     }
 
     if send_err != 0 {
-        // SAFETY: `printf` accepts the C format and arguments.
-        unsafe {
-            glue::printf(c"ESR error: DID NOT SEND? 0x%x\n".as_ptr(), send_err)
-        };
+        kprint!("ESR error: DID NOT SEND? 0x{:x}\n", send_err);
     }
     if accept_err != 0 {
-        // SAFETY: as above.
-        unsafe {
-            glue::printf(c"ESR error: delivery 0x%x\n".as_ptr(), accept_err)
-        };
+        kprint!("ESR error: delivery 0x{:x}\n", accept_err);
     }
 
     // Every defined error-status bit fits a byte, so the conversion is exact.
@@ -204,13 +197,7 @@ pub(crate) fn startup_cpus(bsp_apic_id: c_uint, start_eip: c_ulong) -> c_int {
     // memory clobber of the C macro is the default.
     unsafe { asm!("wbinvd", options(nostack, preserves_flags)) };
 
-    // SAFETY: `printf` accepts the C format and arguments.
-    unsafe {
-        glue::printf(
-            c"Sending IPIs from BSP APIC ID %u...\n".as_ptr(),
-            bsp_apic_id,
-        )
-    };
+    kprint!("Sending IPIs from BSP APIC ID {}...\n", bsp_apic_id);
 
     send_ipi_init(bsp_apic_id);
     // The C passed the shifted address through an `int`; only the vector
@@ -218,15 +205,13 @@ pub(crate) fn startup_cpus(bsp_apic_id: c_uint, start_eip: c_ulong) -> c_int {
     let vector = (start_eip >> STARTUP_VECTOR_SHIFT) as c_uint;
     let error = send_ipi_startup_twice(bsp_apic_id, vector);
     if error != 0 {
-        // SAFETY: `printf` accepts the C format.
-        unsafe { glue::printf(c"FATAL: APs failed to start\n".as_ptr()) };
+        kprint!("FATAL: APs failed to start\n");
         loop {
             pause();
         }
     }
 
-    // SAFETY: as above.
-    unsafe { glue::printf(c"done\n".as_ptr()) };
+    kprint!("done\n");
     0
 }
 

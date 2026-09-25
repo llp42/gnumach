@@ -8,7 +8,6 @@
 //! The msg-accepted request routines, which `ipc/ipc_marequest.c` used to
 //! define and `ipc/ipc_marequest.h` declares.
 
-use crate::glue;
 use crate::ipc::ipc_kmsg::MsgReturn;
 use crate::ipc::ipc_notify;
 use crate::ipc::ipc_port;
@@ -18,8 +17,9 @@ use crate::ipc::{
     HashInfoBucket, IE_BITS_MAREQUEST, IpcMarequest, IpcMarequestBucket,
     IpcPort, IpcSpace,
 };
+use crate::kern::debug::kpanic;
 use crate::kern::slab::{self, CacheInitFlags, KmemCache};
-use core::ffi::{c_int, c_uint};
+use core::ffi::c_uint;
 use core::mem::size_of;
 use core::ptr::{self, NonNull};
 use core::sync::atomic::{AtomicPtr, AtomicU32, Ordering};
@@ -150,16 +150,10 @@ pub(crate) unsafe fn init() {
     let bytes = size as usize * size_of::<IpcMarequestBucket>();
     // The boot path runs this once, before any request exists.
     let Some(table) = slab::kalloc(bytes) else {
-        // SAFETY: `Panic` takes the same NUL-terminated strings the C
-        // `panic` macro embedded, and does not return.
-        unsafe {
-            glue::Panic(
-                c"ipc/ipc_marequest.c".as_ptr(),
-                line!() as c_int,
-                c"ipc_marequest_init".as_ptr(),
-                c"ipc_marequest_init: no memory for the table".as_ptr(),
-            )
-        };
+        kpanic!(
+            "ipc_marequest_init",
+            "ipc_marequest_init: no memory for the table"
+        )
     };
     let table = table.cast::<IpcMarequestBucket>().as_ptr();
 

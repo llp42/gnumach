@@ -6,7 +6,7 @@
 //! The non-variadic leaves of `kern/printf.c`: `printnum` and `safe_gets`.
 
 use crate::arch::types::VmOffset;
-use crate::glue;
+use crate::kern::console::kprint;
 use core::ffi::{c_char, c_int};
 
 /// `MAXBUF` of <kern/printf.c>: enough for the binary form of a `long long`.
@@ -164,10 +164,7 @@ pub unsafe extern "C" fn safe_gets(str: *mut c_char, maxlen: c_int) {
         unsafe { crate::device::cons_ffi::cngetc() }
     };
     let mut putc = |byte: u8| {
-        // SAFETY: `printf` is the C entry point of <kern/printf.h>, the format
-        // is the one-character literal below, and the character is its only
-        // argument.
-        unsafe { glue::printf(c"%c".as_ptr(), c_int::from(byte)) };
+        kprint!("{}", char::from(byte));
     };
     get_line(line, &mut getc, &mut putc);
 }

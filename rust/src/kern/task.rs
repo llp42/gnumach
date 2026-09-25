@@ -23,6 +23,8 @@ use crate::glue::time_value::{
 use crate::ipc::ipc_space;
 use crate::ipc::{IpcPort, IpcSpace};
 use crate::kern::ast::{AST_BLOCK, ast_on};
+use crate::kern::console::{CStrArg, write_cstr};
+use crate::kern::debug::kpanic;
 use crate::kern::ipc_tt::{
     convert_task_to_port, convert_thread_to_port, ipc_task_disable,
     ipc_task_enable, ipc_task_init, ipc_task_terminate, ipc_thread_disable,
@@ -483,20 +485,16 @@ pub(crate) unsafe fn init() {
     unsafe { machine_task_module_init() };
 
     // SAFETY: the cache is live and the caller holds no locks.
-    let task =
-        match unsafe { create_kernel_task(null_mut(), MapSource::Kernel) } {
-            Ok(task) => task,
-            // The C ignored the failure and dereferenced the null `kernel_task`
-            // on its next line; a shortage this early is fatal either way.
-            Err(_) => unsafe {
-                glue::Panic(
-                    c"kern/task.c".as_ptr(),
-                    line!() as c_int,
-                    c"task_init".as_ptr(),
-                    c"task_init: cannot create the kernel task".as_ptr(),
-                )
-            },
-        };
+    let task = match unsafe {
+        create_kernel_task(null_mut(), MapSource::Kernel)
+    } {
+        Ok(task) => task,
+        // The C ignored the failure and dereferenced the null `kernel_task`
+        // on its next line; a shortage this early is fatal either way.
+        Err(_) => {
+            kpanic!("task_init", "task_init: cannot create the kernel task")
+        }
+    };
     // SAFETY: this is the only writer, and it runs once.
     unsafe { kernel_task = task };
 
@@ -673,21 +671,20 @@ pub(crate) unsafe fn create_kernel_task(
         addr_of_mut!((*task).flags).write(TASK_ACTIVE | TASK_MAY_ASSIGN);
     }
 
-    // SAFETY: both name buffers are live; `snprintf` writes at most its size
-    // argument, and the task's own name is the destination.
-    unsafe {
-        let name = addr_of_mut!((*task).name).cast::<c_char>();
-        if parent.is_null() {
-            glue::snprintf(name, TASK_NAME_SIZE, c"%p".as_ptr(), task);
-        } else {
-            // The C's `(int)(sizeof name - 3)`; 32 always fits an `int`.
-            let precision = TASK_NAME_SIZE as c_int - 3;
-            glue::snprintf(
+    if parent.is_null() {
+        // SAFETY: the task's name buffer is live and unshared in this
+        // initializer.
+        let name = unsafe { &mut (*task).name };
+        write_cstr(name, format_args!("{:x}", task.expose_provenance()));
+    } else {
+        // SAFETY: as above; the parent's name is a live NUL-terminated
+        // string.
+        unsafe {
+            let name = &mut (*task).name;
+            let parent_name = CStrArg::from_ptr((*parent).name.as_ptr());
+            write_cstr(
                 name,
-                TASK_NAME_SIZE,
-                c"(%.*s)".as_ptr(),
-                precision,
-                addr_of!((*parent).name).cast::<c_char>(),
+                format_args!("({:.1$})", parent_name, TASK_NAME_SIZE - 3),
             );
         }
     }

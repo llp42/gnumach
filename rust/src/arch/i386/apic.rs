@@ -15,7 +15,7 @@
 
 use crate::arch::i386::acpi_parse_apic::hpet_addr;
 use crate::config::NCPUS;
-use crate::glue;
+use crate::kern::console::kprint;
 use crate::kern::slab::{kalloc, kfree};
 use core::arch::asm;
 use core::ffi::{c_int, c_uint, c_ulong, c_void};
@@ -784,60 +784,39 @@ pub(crate) fn generate_cpu_id_lut() {
                 }
             }
         } else {
-            // SAFETY: `printf` is the real C routine <kern/printf.h>
-            // declares, and the one `%d` takes the matching `c_int` vararg.
-            unsafe {
-                glue::printf(
-                    c"apic_get_cpu_apic_id(%d) failed...\n".as_ptr(),
-                    i,
-                )
-            };
+            kprint!("apic_get_cpu_apic_id({}) failed...\n", i);
         }
     }
 }
 
 /// `apic_print_info()` in C: list each CPU and IOAPIC with its APIC ID.
 pub(crate) fn print_info() {
-    // SAFETY: `printf` is the real C routine; this format has no conversion
-    // specifier.
-    unsafe { glue::printf(c"CPUS:\n".as_ptr()) };
+    kprint!("CPUS:\n");
     for i in 0..c_int::from(numcpus()) {
         // The C stores the `int` return in a `uint16_t` before printing it.
         let lapic_id = cpu_apic_id(i) as u16;
-        // SAFETY: as above; `%d` and `%x` take `c_int`s and `%p` the mapped
-        // page.
-        unsafe {
-            glue::printf(
-                c" CPU %d - APIC ID %x - addr=0x%p\n".as_ptr(),
-                i,
-                c_int::from(lapic_id),
-                lapic_ptr().cast::<c_void>(),
-            )
-        };
+        kprint!(
+            " CPU {} - APIC ID {:x} - addr=0x{:x}\n",
+            i,
+            c_int::from(lapic_id),
+            lapic_ptr().expose_provenance(),
+        );
     }
-    // SAFETY: as above.
-    unsafe { glue::printf(c"IOAPICS:\n".as_ptr()) };
+    kprint!("IOAPICS:\n");
     for i in 0..c_int::from(num_ioapics()) {
         let Some(ioapic) = ioapic(i) else {
-            // SAFETY: as above; the one `%x` takes the matching `c_int`.
-            unsafe {
-                glue::printf(c"ERROR: invalid IOAPIC ID %x\n".as_ptr(), i)
-            };
+            kprint!("ERROR: invalid IOAPIC ID {:x}\n", i);
             continue;
         };
         // SAFETY: `ioapic` points into `apic_data`.
         let (apic_id, unit) =
             unsafe { ((*ioapic.as_ptr()).apic_id, (*ioapic.as_ptr()).ioapic) };
-        // SAFETY: as above; `%d` and `%x` take `c_int`s and `%p` the mapped
-        // IOAPIC window.
-        unsafe {
-            glue::printf(
-                c" IOAPIC %d - APIC ID %x - addr=0x%p\n".as_ptr(),
-                i,
-                c_int::from(apic_id),
-                unit.cast::<c_void>(),
-            )
-        };
+        kprint!(
+            " IOAPIC {} - APIC ID {:x} - addr=0x{:x}\n",
+            i,
+            c_int::from(apic_id),
+            unit.expose_provenance(),
+        );
     }
 }
 
@@ -907,16 +886,13 @@ pub(crate) fn fix_id_mask() {
     };
 
     if needs_workaround {
-        // SAFETY: `printf` is the real C routine; the format has no
-        // conversion specifier.
-        unsafe { glue::printf(c"WARNING: Only 4 bit APIC ids\n".as_ptr()) };
+        kprint!("WARNING: Only 4 bit APIC ids\n");
         // SAFETY: `apic_id_mask` is written once at boot, here.
         unsafe { apic_id_mask = 0xf };
         return;
     }
 
-    // SAFETY: as the warning above.
-    unsafe { glue::printf(c"8 bit APIC ids\n".as_ptr()) };
+    kprint!("8 bit APIC ids\n");
     // SAFETY: `apic_id_mask` is written once at boot, here.
     unsafe { apic_id_mask = 0xff };
 }
@@ -995,9 +971,7 @@ pub(crate) unsafe fn ioapic_entry_count(unit: *mut ApicIoUnit) -> u8 {
 /// interrupts off.
 fn hpet_setup() {
     let Some(hpet) = Hpet::new() else {
-        // SAFETY: `printf` is the real C routine <kern/printf.h> declares, and
-        // this format has no conversion specifier.
-        unsafe { glue::printf(c"HPET not available\n".as_ptr()) };
+        kprint!("HPET not available\n");
         return;
     };
 
@@ -1005,13 +979,7 @@ fn hpet_setup() {
     let period_nsec = period / FSEC_PER_NSEC;
     // SAFETY: `hpet_period_nsec` is written once, here, at boot.
     unsafe { hpet_period_nsec = period_nsec };
-    // SAFETY: as the message above; the one vararg matches `%d`.
-    unsafe {
-        glue::printf(
-            c"HPET ticks every %d nanoseconds\n".as_ptr(),
-            period_nsec as c_int,
-        )
-    };
+    kprint!("HPET ticks every {} nanoseconds\n", period_nsec as c_int);
 
     let val = hpet.read(HPET_CFG) & !(HPET_LEGACY_ROUTE | HPET_CFG_ENABLE);
     hpet.write(HPET_CFG, val);
@@ -1029,8 +997,7 @@ fn hpet_setup() {
     let val = hpet.read(HPET_CFG) | HPET_CFG_ENABLE;
     hpet.write(HPET_CFG, val);
 
-    // SAFETY: as the first message.
-    unsafe { glue::printf(c"HPET enabled\n".as_ptr()) };
+    kprint!("HPET enabled\n");
 }
 
 /// Busy-wait for `usec` microseconds on the HPET counter.
@@ -1041,17 +1008,11 @@ fn hpet_setup() {
 /// was initialized; the C divided by the same zero and faulted.
 fn delay_us(mut usec: u32) {
     if usec > MAX_DELAY_USEC {
-        // SAFETY: `printf` is the real C routine; the three `%d` specifiers
-        // consume the three varargs, each of which fits `c_int` (the clamp and
-        // the clamp limit are both below `c_int::MAX`).
-        unsafe {
-            glue::printf(
-                c"HPET ERROR: Delay too long, %d usec, truncating to %d usec\n"
-                    .as_ptr(),
-                usec as c_int,
-                MAX_DELAY_USEC as c_int,
-            )
-        };
+        kprint!(
+            "HPET ERROR: Delay too long, {} usec, truncating to {} usec\n",
+            usec as c_int,
+            MAX_DELAY_USEC as c_int,
+        );
         usec = MAX_DELAY_USEC;
     }
 

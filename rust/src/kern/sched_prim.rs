@@ -17,6 +17,8 @@ use crate::kern::ast::{
     AST_BLOCK, ast_clear_scheduling, ast_context, ast_off, ast_on,
     ast_scheduling_pending,
 };
+use crate::kern::console::kprint;
+use crate::kern::debug::kpanic;
 use crate::kern::lock::SimpleLock;
 use crate::kern::mach_clock::{self, reset_timeout_check};
 use crate::kern::mach_factor;
@@ -43,7 +45,7 @@ use crate::kern::thread::{
 use crate::kern::thread_swap::thread_swapin;
 use crate::utils::cell::SyncCell;
 use core::cell::UnsafeCell;
-use core::ffi::{CStr, c_char, c_int, c_uint, c_void};
+use core::ffi::{c_int, c_uint, c_void};
 use core::mem::offset_of;
 use core::ptr::{self, addr_of_mut};
 use core::sync::atomic::{AtomicI32, AtomicPtr, AtomicU32, Ordering};
@@ -304,33 +306,23 @@ fn recompute_timer() -> *mut mach_clock::Timeout {
 fn state_panic(thread: *mut Thread) -> ! {
     // SAFETY: the caller holds the thread lock and `thread` is live.
     let state = unsafe { (*thread).state() };
-    let tag = |bit: u32, on: &'static CStr| -> *const c_char {
-        if state & bit != 0 {
-            on.as_ptr()
-        } else {
-            c"".as_ptr()
-        }
+    let tag = |bit: u32, on: &'static str| -> &'static str {
+        if state & bit != 0 { on } else { "" }
     };
-    // SAFETY: the format is the C one: a thread pointer, the state, and the
-    // eight tag strings.
-    unsafe {
-        glue::Panic(
-            c"kern/sched_prim.c".as_ptr(),
-            line!() as c_int,
-            c"state_panic".as_ptr(),
-            c"thread %p has unexpected state %x (%s%s%s%s%s%s%s%s)".as_ptr(),
-            thread,
-            state,
-            tag(TH_WAIT, c"TH_WAIT|"),
-            tag(TH_SUSP, c"TH_SUSP|"),
-            tag(TH_RUN, c"TH_RUN|"),
-            tag(TH_UNINT, c"TH_UNINT|"),
-            tag(TH_HALTED, c"TH_HALTED|"),
-            tag(TH_IDLE, c"TH_IDLE|"),
-            tag(TH_SWAPPED, c"TH_SWAPPED|"),
-            tag(TH_SW_COMING_IN, c"TH_SW_COMING_IN|"),
-        )
-    }
+    kpanic!(
+        "state_panic",
+        "thread {:x} has unexpected state {:x} ({}{}{}{}{}{}{}{})",
+        thread.expose_provenance(),
+        state,
+        tag(TH_WAIT, "TH_WAIT|"),
+        tag(TH_SUSP, "TH_SUSP|"),
+        tag(TH_RUN, "TH_RUN|"),
+        tag(TH_UNINT, "TH_UNINT|"),
+        tag(TH_HALTED, "TH_HALTED|"),
+        tag(TH_IDLE, "TH_IDLE|"),
+        tag(TH_SWAPPED, "TH_SWAPPED|"),
+        tag(TH_SW_COMING_IN, "TH_SW_COMING_IN|"),
+    )
 }
 
 /// `sched_init()` of kern/sched_prim.c.
@@ -385,10 +377,7 @@ unsafe fn enqueue_run_queue(rq: *mut RunQueue, th: *mut Thread) {
         // negative value fails the bounds check below and is clamped.
         let mut whichq = (*th).sched_pri as c_uint;
         if whichq >= NRQS as c_uint {
-            glue::printf(
-                c"thread_setrun: pri too high (%d)\n".as_ptr(),
-                (*th).sched_pri,
-            );
+            kprint!("thread_setrun: pri too high ({})\n", (*th).sched_pri);
             whichq = NRQS as c_uint - 1;
         }
 
@@ -572,17 +561,11 @@ pub(crate) unsafe fn assert_wait(event: *mut c_void, interruptible: c_int) {
     // raising splsched, so the order stays.
     let wait_event = unsafe { (*thread).wait_event };
     if !wait_event.is_null() {
-        // SAFETY: the C halts here; the format has one pointer argument as the
-        // C does.
-        unsafe {
-            glue::Panic(
-                c"kern/sched_prim.c".as_ptr(),
-                line!() as c_int,
-                c"assert_wait".as_ptr(),
-                c"assert_wait: already asserted event %p\n".as_ptr(),
-                wait_event,
-            )
-        }
+        kpanic!(
+            "assert_wait",
+            "assert_wait: already asserted event {:x}\n",
+            wait_event.expose_provenance()
+        )
     }
     // SAFETY: `splsched()` is the real asm routine of <machine/spl.h>;
     // the value is only handed back to the matching `splx()`.
@@ -908,12 +891,7 @@ unsafe fn thread_select(myprocessor: *mut Processor) -> *mut Thread {
                         // guard keeps a corrupt queue from walking off the
                         // array as the C would.
                         if low >= NRQS as c_int {
-                            glue::Panic(
-                                c"kern/sched_prim.c".as_ptr(),
-                                line!() as c_int,
-                                c"thread_select".as_ptr(),
-                                c"thread_select".as_ptr(),
-                            )
+                            kpanic!("thread_select", "thread_select")
                         }
                         (*runq).low = low;
                         q = &raw mut (*runq).runq[low as usize];
@@ -1242,12 +1220,7 @@ pub(crate) unsafe fn choose_thread(
                 }
                 i += 1;
             }
-            glue::Panic(
-                c"kern/sched_prim.c".as_ptr(),
-                line!() as c_int,
-                c"choose_thread".as_ptr(),
-                c"choose_thread".as_ptr(),
-            )
+            kpanic!("choose_thread", "choose_thread")
         }
         (*runq).lock.unlock();
 
@@ -1382,21 +1355,15 @@ unsafe extern "C" fn idle_thread_continue() {
                     break;
                 }
                 _ => {
-                    // SAFETY: the C prints the state and halts; the format and
-                    // its two arguments are the C pair.
-                    unsafe {
-                        glue::printf(
-                            c" Bad processor state %d (Cpu %d)\n".as_ptr(),
-                            (*myprocessor).state,
-                            mycpu,
-                        );
-                        glue::Panic(
-                            c"kern/sched_prim.c".as_ptr(),
-                            line!() as c_int,
-                            c"idle_thread".as_ptr(),
-                            c"idle_thread".as_ptr(),
-                        )
-                    }
+                    // SAFETY: the processor is live and this arm runs at
+                    // splsched.
+                    let state = unsafe { (*myprocessor).state };
+                    kprint!(
+                        " Bad processor state {} (Cpu {})\n",
+                        state,
+                        mycpu
+                    );
+                    kpanic!("idle_thread", "idle_thread")
                 }
             }
         }
@@ -1508,9 +1475,9 @@ unsafe fn do_runq_scan(runq: *mut RunQueue) -> bool {
                         STUCK_THREADS[index as usize]
                             .store(thread, Ordering::Relaxed);
                         if DO_THREAD_SCAN_DEBUG.load(Ordering::Relaxed) != 0 {
-                            glue::printf(
-                                c"do_runq_scan: adding thread %p\n".as_ptr(),
-                                thread,
+                            kprint!(
+                                "do_runq_scan: adding thread {:x}\n",
+                                thread.expose_provenance()
                             );
                         }
                     }
@@ -1693,11 +1660,9 @@ unsafe fn pset_thread(
                         while queue_empty(q) != 0 {
                             i += 1;
                             if i >= NRQS as c_int {
-                                glue::Panic(
-                                    c"kern/sched_prim.c".as_ptr(),
-                                    line!() as c_int,
-                                    c"choose_pset_thread".as_ptr(),
-                                    c"choose_pset_thread".as_ptr(),
+                                kpanic!(
+                                    "choose_pset_thread",
+                                    "choose_pset_thread"
                                 )
                             }
                             q = &raw mut (*runq).runq[i as usize];
@@ -1709,12 +1674,7 @@ unsafe fn pset_thread(
                 }
                 i += 1;
             }
-            glue::Panic(
-                c"kern/sched_prim.c".as_ptr(),
-                line!() as c_int,
-                c"choose_pset_thread".as_ptr(),
-                c"choose_pset_thread".as_ptr(),
-            )
+            kpanic!("choose_pset_thread", "choose_pset_thread")
         }
         (*runq).lock.unlock();
     }
@@ -1819,11 +1779,9 @@ pub(crate) unsafe extern "C" fn thread_continue(old_thread: *mut Thread) {
     unsafe {
         match continuation {
             Some(continuation) => continuation(),
-            None => glue::Panic(
-                c"kern/sched_prim.c".as_ptr(),
-                line!() as c_int,
-                c"thread_continue".as_ptr(),
-                c"thread_continue: null continuation".as_ptr(),
+            None => kpanic!(
+                "thread_continue",
+                "thread_continue: null continuation"
             ),
         }
     }

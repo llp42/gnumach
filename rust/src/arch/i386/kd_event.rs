@@ -19,6 +19,7 @@ use crate::device::r#return::{
     DeviceError, DeviceSuccess, IoResult, IoResultExt,
 };
 use crate::glue;
+use crate::kern::console::kprint;
 use crate::kern::queue::QueueEntry;
 use crate::utils::kd_queue::{KdEvent, KdEventQueue, Scancode};
 use core::cell::UnsafeCell;
@@ -118,8 +119,7 @@ fn read_queue(s: &mut State) -> Pin<&mut QueueEntry> {
 fn printf_once() {
     static PRINTED: AtomicBool = AtomicBool::new(false);
     if !PRINTED.swap(true, Ordering::Relaxed) {
-        // SAFETY: a literal format string with no arguments.
-        unsafe { glue::printf(c"kbd: queue full\n".as_ptr()) };
+        kprint!("kbd: queue full\n");
     }
 }
 

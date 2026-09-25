@@ -14,7 +14,7 @@ use super::keymap::KEY_MAP;
 use super::*;
 use crate::arch::i386::pio::Port;
 use crate::device::r#return::{DeviceError, DeviceSuccess, IoResult};
-use crate::glue;
+use crate::kern::console::kprint;
 use core::ffi::{c_int, c_uint};
 
 /// `KD_BELLON`/`KD_BELLOFF` of <i386at/kd.h>.
@@ -98,8 +98,7 @@ pub(crate) fn maygetc() -> c_int {
         let mut up = false;
         if Port::new(K_STATUS).read_u8() & K_AUX_OBUF_FUL == K_AUX_OBUF_FUL {
             let sc = Port::new(K_RDWR).read_u8();
-            // SAFETY: a literal format with one integer.
-            unsafe { glue::printf(c"M%xP".as_ptr(), sc as c_int) };
+            kprint!("M{:x}P", sc as c_int);
             continue;
         }
         let mut scancode = Port::new(K_RDWR).read_u8();
@@ -107,13 +106,11 @@ pub(crate) fn maygetc() -> c_int {
             state().kd_extended = true;
             continue;
         } else if scancode == K_RESEND {
-            // SAFETY: a literal format with no arguments.
-            unsafe { glue::printf(c"cngetc: resend".as_ptr()) };
+            kprint!("cngetc: resend");
             super::keyboard::resend();
             continue;
         } else if scancode == K_ACKSC {
-            // SAFETY: a literal format with no arguments.
-            unsafe { glue::printf(c"cngetc: handle_ack".as_ptr()) };
+            kprint!("cngetc: handle_ack");
             super::keyboard::handle_ack();
             continue;
         }

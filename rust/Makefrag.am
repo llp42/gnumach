@@ -142,6 +142,7 @@ MACH_RS_SRCS = \
 	rust/src/kern/boot_script_ffi.rs \
 	rust/src/kern/bootstrap.rs \
 	rust/src/kern/bootstrap_ffi.rs \
+	rust/src/kern/console.rs \
 	rust/src/kern/debug.rs \
 	rust/src/kern/elf_load.rs \
 	rust/src/kern/eventcount.rs \

@@ -12,6 +12,7 @@ use crate::arch::i386::percpu::{
 };
 use crate::glue;
 use crate::kern::ast::ast_context;
+use crate::kern::debug::kpanic;
 use crate::kern::mach_clock::{self, reset_timeout_check};
 use crate::kern::sched_prim::{
     TH_RUN_WAIT, TH_RUN_WAIT_SUSP, TH_RUN_WAIT_SUSP_UNINT, TH_RUN_WAIT_UNINT,
@@ -21,7 +22,7 @@ use crate::kern::sched_prim::{
 use crate::kern::thread::{
     Continuation, TH_RUN, TH_SCHED_STATE, TH_SUSP, TH_SWAPPED, TH_WAIT, Thread,
 };
-use core::ffi::{c_int, c_uint};
+use core::ffi::c_uint;
 
 /// `convert_ipc_timeout_to_ticks()` of <kern/sched_prim.h>: round a
 /// millisecond timeout up to whole ticks.
@@ -193,12 +194,7 @@ pub(crate) unsafe fn thread_handoff(
                     return true;
                 }
             }
-            _ => glue::Panic(
-                c"kern/ipc_sched.c".as_ptr(),
-                line!() as c_int,
-                c"thread_handoff".as_ptr(),
-                c"thread_handoff".as_ptr(),
-            ),
+            _ => kpanic!("thread_handoff", "thread_handoff"),
         }
         (*old).lock.unlock();
         glue::splx(s);

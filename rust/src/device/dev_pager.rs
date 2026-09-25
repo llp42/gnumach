@@ -19,6 +19,8 @@ use crate::device::ds_routines::{MachDevice, driver_unit};
 use crate::device::r#return::DeviceError;
 use crate::glue;
 use crate::ipc::{IpcPort, ipc_port, ipc_space};
+use crate::kern::console::kprint;
+use crate::kern::debug::kpanic;
 use crate::kern::queue::{
     QueueEntry, queue_end, queue_enter_tail, queue_first, queue_init,
     queue_next, queue_remove_generic,
@@ -27,7 +29,7 @@ use crate::kern::slab::{CacheInitFlags, KmemCache};
 use crate::spin::Mutex;
 use crate::vm::error::Error;
 use crate::vm::vm_object;
-use core::ffi::{CStr, c_int, c_ulong, c_void};
+use core::ffi::{c_int, c_void};
 use core::mem::{align_of, offset_of, size_of};
 use core::ptr::{self, NonNull};
 use core::sync::atomic::{AtomicI32, Ordering};
@@ -119,23 +121,6 @@ struct DevDeviceEntry {
     device: *mut MachDevice,
     offset: VmOffset,
     pager: NonNull<DevPager>,
-}
-
-/// Halt the way the C `panic()` of `device/dev_pager.c` did.
-#[track_caller]
-fn die(fun: &'static CStr, message: &'static CStr) -> ! {
-    let location = core::panic::Location::caller();
-    // SAFETY: `Panic` does not return; the file, function and message are
-    // this module's, and the caller's line fits the `c_int` the format
-    // takes.
-    unsafe {
-        glue::Panic(
-            c"device/dev_pager.c".as_ptr(),
-            location.line() as c_int,
-            fun.as_ptr(),
-            message.as_ptr(),
-        )
-    }
 }
 
 /// `dev_hash()` of `device/dev_pager.c`: the C masked the low 24 bits of the
@@ -271,10 +256,7 @@ unsafe fn pager_hash_insert(name: Option<IpcPort>, rec: NonNull<DevPager>) {
     let Some(buf) =
         (unsafe { (*ptr::addr_of_mut!(DEV_PAGER_HASH_CACHE)).alloc() })
     else {
-        die(
-            c"dev_pager_hash_insert",
-            c"dev_pager_hash_insert: no memory",
-        );
+        kpanic!("dev_pager_hash_insert", "dev_pager_hash_insert: no memory");
     };
     let entry = buf.as_ptr().cast::<DevPagerEntry>();
     // SAFETY: the cache object holds a whole entry; the queue links are
@@ -364,9 +346,9 @@ unsafe fn device_hash_insert(
     let Some(buf) =
         (unsafe { (*ptr::addr_of_mut!(DEV_DEVICE_HASH_CACHE)).alloc() })
     else {
-        die(
-            c"dev_device_hash_insert",
-            c"dev_device_hash_insert: no memory",
+        kpanic!(
+            "dev_device_hash_insert",
+            "dev_device_hash_insert: no memory"
         );
     };
     let entry = buf.as_ptr().cast::<DevDeviceEntry>();
@@ -574,26 +556,21 @@ pub(crate) unsafe fn data_request(
     length: VmSize,
 ) {
     if device_pager_debug.load(Ordering::Relaxed) != 0 {
-        // The C printed `vm_offset_t` through `%lx`; the type has the same
-        // width as `c_ulong` on both builds.
-        // SAFETY: `printf` is the kernel's, and the format matches the
-        // arguments.
-        unsafe {
-            glue::printf(
-                c"(device_pager)data_request: pager=%p, offset=0x%lx, length=0x%lx\n"
-                    .as_ptr(),
-                pager.map_or(ptr::null_mut(), IpcPort::as_ptr),
-                offset as c_ulong,
-                length as c_ulong,
-            );
-        }
+        kprint!(
+            "(device_pager)data_request: pager={:x}, offset=0x{:x}, length=0x{:x}\n",
+            pager
+                .map_or(ptr::null_mut(), IpcPort::as_ptr)
+                .expose_provenance(),
+            offset,
+            length,
+        );
     }
 
     // SAFETY: the package is initialized.
     let Some(rec) = (unsafe { pager_hash_lookup(pager) }) else {
-        die(
-            c"device_pager_data_request",
-            c"(device_pager)data_request: lookup failed",
+        kpanic!(
+            "device_pager_data_request",
+            "(device_pager)data_request: lookup failed"
         );
     };
 
@@ -602,9 +579,9 @@ pub(crate) unsafe fn data_request(
     unsafe {
         let record = rec.as_ptr();
         if (*record).pager_request != pager_request {
-            die(
-                c"device_pager_data_request",
-                c"(device_pager)data_request: bad pager_request",
+            kpanic!(
+                "device_pager_data_request",
+                "(device_pager)data_request: bad pager_request"
             );
         }
 
@@ -654,24 +631,25 @@ pub(crate) unsafe fn init_pager(
     pager_name: Option<IpcPort>,
 ) {
     if device_pager_debug.load(Ordering::Relaxed) != 0 {
-        // SAFETY: `printf` is the kernel's, and the format matches the three
-        // port pointers.
-        unsafe {
-            glue::printf(
-                c"(device_pager)init: pager=%p, request=%p, name=%p\n"
-                    .as_ptr(),
-                pager.map_or(ptr::null_mut(), IpcPort::as_ptr),
-                pager_request.map_or(ptr::null_mut(), IpcPort::as_ptr),
-                pager_name.map_or(ptr::null_mut(), IpcPort::as_ptr),
-            );
-        }
+        kprint!(
+            "(device_pager)init: pager={:x}, request={:x}, name={:x}\n",
+            pager
+                .map_or(ptr::null_mut(), IpcPort::as_ptr)
+                .expose_provenance(),
+            pager_request
+                .map_or(ptr::null_mut(), IpcPort::as_ptr)
+                .expose_provenance(),
+            pager_name
+                .map_or(ptr::null_mut(), IpcPort::as_ptr)
+                .expose_provenance(),
+        );
     }
 
     // SAFETY: the package is initialized.
     let Some(rec) = (unsafe { pager_hash_lookup(pager) }) else {
-        die(
-            c"device_pager_init_pager",
-            c"(device_pager)init: lookup failed",
+        kpanic!(
+            "device_pager_init_pager",
+            "(device_pager)init: lookup failed"
         );
     };
 
@@ -701,18 +679,18 @@ pub(crate) unsafe fn terminate(
 ) {
     // SAFETY: the package is initialized.
     let Some(rec) = (unsafe { pager_hash_lookup(pager) }) else {
-        die(
-            c"device_pager_terminate",
-            c"(device_pager)terminate: lookup failed",
+        kpanic!(
+            "device_pager_terminate",
+            "(device_pager)terminate: lookup failed"
         );
     };
 
     let (Some(pager), Some(pager_request), Some(pager_name)) =
         (pager, pager_request, pager_name)
     else {
-        die(
-            c"device_pager_terminate",
-            c"(device_pager)terminate: null port",
+        kpanic!(
+            "device_pager_terminate",
+            "(device_pager)terminate: null port"
         );
     };
 

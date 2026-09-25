@@ -15,6 +15,8 @@ use crate::arch::i386::pmap;
 use crate::device::device_init;
 use crate::glue;
 use crate::ipc::ipc_init;
+use crate::kern::console::write_cstr;
+use crate::kern::debug::kpanic;
 use crate::kern::mach_clock::{self, record_time_stamp};
 use crate::kern::mach_factor;
 use crate::kern::machine;
@@ -42,6 +44,12 @@ const KERNEL_MINOR_VERSION: c_int = 0;
 /// halts.  The C `Panic()` reads the same symbol.
 #[unsafe(export_name = "reboot_on_panic")]
 static REBOOT_ON_PANIC: AtomicU32 = AtomicU32::new(1);
+
+/// The `reboot_on_panic` flag as the panic path takes it.
+pub(crate) fn reboot_on_panic() -> c_int {
+    // The C wrote only 0 or 1 into the `boolean_t` this symbol is.
+    REBOOT_ON_PANIC.load(Ordering::Relaxed) as c_int
+}
 
 /// `setup_main()` in C: start the kernel from the boot processor.
 ///
@@ -149,12 +157,7 @@ pub(crate) unsafe extern "C" fn start_kernel_threads() {
             let _ = thread_ffi::thread_create(kernel_task, &raw mut th);
 
             let mut name = [0 as c_char; 10];
-            let _ = glue::snprintf(
-                name.as_mut_ptr(),
-                name.len(),
-                c"idle/%d".as_ptr(),
-                i as c_int,
-            );
+            write_cstr(&mut name, format_args!("idle/{}", i as c_int));
             let _ = thread_ffi::thread_set_name(th, name.as_ptr());
             sched_prim::thread_bind(th, processor_ptr(i as c_int));
             thread_ffi::thread_start(
@@ -277,13 +280,5 @@ unsafe extern "C" fn action_thread_continuation() {
 
 /// The `panic("cpu_launch_first_thread")` of the C.
 fn panic_no_thread() -> ! {
-    // SAFETY: `Panic` does not return; the tags are the C panic macro's.
-    unsafe {
-        glue::Panic(
-            c"kern/startup.c".as_ptr(),
-            line!() as c_int,
-            c"cpu_launch_first_thread".as_ptr(),
-            c"cpu_launch_first_thread".as_ptr(),
-        )
-    }
+    kpanic!("cpu_launch_first_thread", "cpu_launch_first_thread")
 }

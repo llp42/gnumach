@@ -7,7 +7,7 @@
 //! `vm/vm_page.c` used to define and `vm/vm_page.h` declares.
 
 use crate::arch::types::{VmOffset, VmSize};
-use crate::glue::Panic;
+use crate::kern::debug::kpanic;
 use crate::vm::types::VmPage;
 use crate::vm::vm_page;
 use core::ffi::{c_char, c_int, c_uint, c_ulong, c_ushort};
@@ -23,17 +23,7 @@ use core::ptr::NonNull;
 pub unsafe extern "C" fn vm_page_seg_name(seg_index: c_uint) -> *const c_char {
     match vm_page::seg_name(seg_index) {
         Some(name) => name.as_ptr(),
-        // SAFETY: `Panic` does not return; the file, function and message are
-        // this port's, as the C `panic()` had them.
-        None => unsafe {
-            Panic(
-                c"rust/src/vm/vm_page_ffi.rs".as_ptr(),
-                // Only `c_int` widths can reach `Panic`'s varargs.
-                line!() as c_int,
-                c"vm_page_seg_name".as_ptr(),
-                c"vm_page: invalid segment index".as_ptr(),
-            )
-        },
+        None => kpanic!("vm_page_seg_name", "vm_page: invalid segment index"),
     }
 }
 

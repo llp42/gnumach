@@ -6,7 +6,6 @@
 //! The capability-manipulation routines, which `ipc/ipc_right.c` used to
 //! define and `ipc/ipc_right.h` declares.
 
-use crate::glue;
 use crate::ipc::ipc_entry;
 use crate::ipc::ipc_marequest;
 use crate::ipc::ipc_notify;
@@ -16,8 +15,9 @@ use crate::ipc::ipc_pset;
 use crate::ipc::{
     IE_BITS_TYPE_MASK, IO_DEAD, IpcEntry, IpcPort, IpcSpace, IpcTarget,
 };
+use crate::kern::debug::kpanic;
 use crate::kern::types::KernError;
-use core::ffi::{CStr, c_int, c_uint, c_void};
+use core::ffi::{c_int, c_uint, c_void};
 use core::ptr;
 
 /// `MACH_PORT_NULL` and `MACH_PORT_NAME_NULL` of <mach/port.h>.
@@ -88,19 +88,8 @@ const MACH_MSG_TYPE_MAKE_SEND: c_uint = 20;
 const MACH_MSG_TYPE_MAKE_SEND_ONCE: c_uint = 21;
 
 /// The C `default: panic()` arm of a rights switch.
-fn strange_rights(fun: &'static CStr, message: &'static CStr) -> ! {
-    // SAFETY: `Panic` does not return; the file is the one the switch belongs
-    // to, the line is this Rust file's, and `fun` and `message` are the C's
-    // own tags.
-    unsafe {
-        glue::Panic(
-            c"ipc/ipc_right.c".as_ptr(),
-            // Only `c_int` widths can reach `Panic`'s varargs.
-            line!() as c_int,
-            fun.as_ptr(),
-            message.as_ptr(),
-        )
-    }
+fn strange_rights(fun: &'static str, message: &'static str) -> ! {
+    kpanic!(fun, "{}", message)
 }
 
 /// `MACH_PORT_UREFS_OVERFLOW()` of <ipc/port.h>: the C adds the signed delta
@@ -521,10 +510,9 @@ pub(crate) unsafe fn clean(name: c_uint, entry: *mut IpcEntry) {
             }
         }
 
-        _ => strange_rights(
-            c"ipc_right_clean",
-            c"ipc_right_clean: strange type",
-        ),
+        _ => {
+            strange_rights("ipc_right_clean", "ipc_right_clean: strange type")
+        }
     }
 }
 
@@ -673,8 +661,8 @@ pub(crate) unsafe fn destroy(
         }
 
         _ => strange_rights(
-            c"ipc_right_destroy",
-            c"ipc_right_destroy: strange type",
+            "ipc_right_destroy",
+            "ipc_right_destroy: strange type",
         ),
     }
 }
@@ -1252,10 +1240,9 @@ pub(crate) unsafe fn delta(
             Ok(())
         }
 
-        _ => strange_rights(
-            c"ipc_right_delta",
-            c"ipc_right_delta: strange right",
-        ),
+        _ => {
+            strange_rights("ipc_right_delta", "ipc_right_delta: strange right")
+        }
     }
 }
 
@@ -1352,8 +1339,8 @@ pub(crate) unsafe fn copyin_check(
         }
 
         _ => strange_rights(
-            c"ipc_right_copyin_check",
-            c"ipc_right_copyin_check: strange rights",
+            "ipc_right_copyin_check",
+            "ipc_right_copyin_check: strange rights",
         ),
     }
 }
@@ -1627,8 +1614,8 @@ pub(crate) unsafe fn copyin(
         }
 
         _ => strange_rights(
-            c"ipc_right_copyin",
-            c"ipc_right_copyin: strange rights",
+            "ipc_right_copyin",
+            "ipc_right_copyin: strange rights",
         ),
     }
 }
@@ -1901,8 +1888,8 @@ pub(crate) unsafe fn copyout(
         }
 
         _ => strange_rights(
-            c"ipc_right_copyout",
-            c"ipc_right_copyout: strange rights",
+            "ipc_right_copyout",
+            "ipc_right_copyout: strange rights",
         ),
     }
 }
@@ -2002,8 +1989,8 @@ pub(crate) unsafe fn rename(
         MACH_PORT_TYPE_SEND_ONCE | MACH_PORT_TYPE_DEAD_NAME => (),
 
         _ => strange_rights(
-            c"ipc_right_rename",
-            c"ipc_right_rename: strange rights",
+            "ipc_right_rename",
+            "ipc_right_rename: strange rights",
         ),
     }
 

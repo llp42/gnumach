@@ -16,6 +16,8 @@ use crate::arch::i386::percpu::{cpu_number, current_thread};
 use crate::arch::i386::trap;
 use crate::arch::types::VmSize;
 use crate::glue;
+use crate::kern::console::kprint;
+use crate::kern::debug::kpanic;
 use crate::kern::machine;
 use crate::kern::slab::{CacheInitFlags, KmemCache};
 use crate::kern::thread::Thread;
@@ -383,17 +385,7 @@ fn alloc_fp_state() -> *mut I386FpSaveState {
     // SAFETY: the cache is built by `fpu_module_init()` before any caller.
     match unsafe { (*ptr::addr_of_mut!(IFPS_CACHE)).alloc() } {
         Some(buf) => buf.as_ptr().cast(),
-        None => {
-            // SAFETY: `Panic()` does not return.
-            unsafe {
-                glue::Panic(
-                    c"i386/i386/fpu.c".as_ptr(),
-                    line!() as c_int,
-                    c"kmem_cache_alloc".as_ptr(),
-                    c"fpu: out of FP save areas".as_ptr(),
-                )
-            }
-        }
+        None => kpanic!("kmem_cache_alloc", "fpu: out of FP save areas"),
     }
 }
 
@@ -941,15 +933,7 @@ pub(crate) unsafe fn init_fpu() {
     let control = fnstcw();
 
     if status & 0xff != 0 || control & 0x103f != 0x3f {
-        // SAFETY: `Panic()` does not return.
-        unsafe {
-            glue::Panic(
-                c"i386/i386/fpu.c".as_ptr(),
-                line!() as c_int,
-                c"init_fpu".as_ptr(),
-                c"No FPU!".as_ptr(),
-            )
-        }
+        kpanic!("init_fpu", "No FPU!")
     }
 
     if infinity_has_no_sign() {
@@ -1021,19 +1005,12 @@ pub(crate) unsafe fn init_fpu() {
 
 /// The C's `panic()` for an XSAVE area smaller than the minimum.
 fn panic_xsave_size(size: u32) -> ! {
-    // SAFETY: `Panic()` accepts the C format and arguments, and does not
-    // return.
-    unsafe {
-        glue::Panic(
-            c"i386/i386/fpu.c".as_ptr(),
-            line!() as c_int,
-            c"init_fpu".as_ptr(),
-            c"CPU-provided xstate size %d is smaller than our minimum %d!\n"
-                .as_ptr(),
-            size as c_int,
-            size_of::<I386XfpSave>() as c_int,
-        )
-    }
+    kpanic!(
+        "init_fpu",
+        "CPU-provided xstate size {} is smaller than our minimum {}!\n",
+        size as c_int,
+        size_of::<I386XfpSave>() as c_int,
+    )
 }
 
 /// `i386_get_xstate_size()` of i386/i386/fpu.c.
@@ -1774,7 +1751,7 @@ pub(crate) unsafe fn fp_load(thread: *mut Thread) {
                 fp_status_word(thread) as c_long,
             );
         } else if (*ifps).fp_valid == 0 {
-            glue::printf(c"fp_load: invalid FPU state!\n".as_ptr());
+            kprint!("fp_load: invalid FPU state!\n");
             fninit();
         } else {
             fpu_rstor(ifps);

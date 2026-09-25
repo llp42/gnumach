@@ -16,6 +16,8 @@ use crate::arch::i386::percpu;
 use crate::arch::types::VmOffset;
 use crate::glue;
 use crate::kern::ast;
+use crate::kern::console::{CStrArg, kprint};
+use crate::kern::debug::kpanic;
 use crate::kern::exception as exception_core;
 use crate::kern::thread::Thread;
 use crate::vm::error::KERN_SUCCESS;
@@ -266,46 +268,23 @@ pub(crate) unsafe fn astintr() {
 /// The `badtrap` tail of `kernel_trap()`: report the unhandled trap and
 /// halt.
 fn bad_trap(regs: &I386SavedState, type_: c_ulong, code: c_ulong) -> ! {
-    // SAFETY: `printf` accepts the C format and arguments.
-    unsafe { glue::printf(c"Kernel ".as_ptr()) };
+    kprint!("Kernel ");
     match trap_type(type_) {
-        // SAFETY: `printf` accepts the C format and arguments.
-        Some(name) => unsafe {
-            glue::printf(c"%s trap".as_ptr(), name.as_ptr())
-        },
-        // SAFETY: as above.
-        None => unsafe { glue::printf(c"trap %ld".as_ptr(), type_) },
-    };
-    // SAFETY: as above.
-    unsafe {
-        glue::printf(
-            c", eip 0x%lx, code %lx, cr2 %lx\n".as_ptr(),
-            regs.eip,
-            code,
-            regs.cr2,
-        )
-    };
+        Some(name) => kprint!("{} trap", CStrArg::from(name)),
+        None => kprint!("trap {}", type_),
+    }
+    kprint!(
+        ", eip 0x{:x}, code {:x}, cr2 {:x}\n",
+        regs.eip,
+        code,
+        regs.cr2
+    );
     // SAFETY: `splhigh()` is the real asm routine.
     let _ = unsafe { glue::splhigh() };
-    // SAFETY: as above.
-    unsafe {
-        glue::printf(
-            c"kernel trap, type %ld, code = %lx\n".as_ptr(),
-            type_,
-            code,
-        )
-    };
+    kprint!("kernel trap, type {}, code = {:x}\n", type_, code);
     // SAFETY: `regs` is the live trap frame.
     unsafe { crate::arch::i386::debug_i386::dump_ss(regs) };
-    // SAFETY: `Panic()` does not return.
-    unsafe {
-        glue::Panic(
-            c"i386/i386/trap.c".as_ptr(),
-            line!() as c_int,
-            c"kernel_trap".as_ptr(),
-            c"trap".as_ptr(),
-        )
-    }
+    kpanic!("kernel_trap", "trap")
 }
 
 /// The `T_GENERAL_PROTECTION` recovery path of `kernel_trap()`, shared with
@@ -361,15 +340,11 @@ fn page_fault(
         if trunc_page(subcode) == 0
             || (image_start <= subcode && subcode < image_end)
         {
-            // SAFETY: `printf` accepts the C format and arguments.
-            unsafe {
-                glue::printf(
-                    c"Kernel page fault at address 0x%lx, eip = 0x%lx\n"
-                        .as_ptr(),
-                    subcode,
-                    regs.eip,
-                )
-            };
+            kprint!(
+                "Kernel page fault at address 0x{:x}, eip = 0x{:x}\n",
+                subcode,
+                regs.eip,
+            );
             bad_trap(regs, type_, code);
         }
         map
@@ -383,24 +358,10 @@ fn page_fault(
         if thread.is_null()
             || map == unsafe { glue::kernel_map }.cast::<VmMap>()
         {
-            // SAFETY: `printf` accepts the C format and arguments.
-            unsafe {
-                glue::printf(
-                    c"kernel page fault at %08lx:\n".as_ptr(),
-                    subcode,
-                )
-            };
+            kprint!("kernel page fault at {:08x}:\n", subcode);
             // SAFETY: `regs` is the live trap frame.
             unsafe { crate::arch::i386::debug_i386::dump_ss(regs) };
-            // SAFETY: `Panic()` does not return.
-            unsafe {
-                glue::Panic(
-                    c"i386/i386/trap.c".as_ptr(),
-                    line!() as c_int,
-                    c"kernel_trap".as_ptr(),
-                    c"kernel thread accessed user space!\n".as_ptr(),
-                )
-            };
+            kpanic!("kernel_trap", "kernel thread accessed user space!\n");
         }
         map
     };
@@ -615,25 +576,10 @@ pub(crate) unsafe fn user_trap(regs: &mut I386SavedState) -> c_int {
         _ => {
             // SAFETY: `splhigh()` is the real asm routine.
             let _ = unsafe { glue::splhigh() };
-            // SAFETY: `printf` accepts the C format and arguments.
-            unsafe {
-                glue::printf(
-                    c"user trap, type %ld, code = %lx\n".as_ptr(),
-                    type_,
-                    regs.err,
-                )
-            };
+            kprint!("user trap, type {}, code = {:x}\n", type_, regs.err);
             // SAFETY: `regs` is the live trap frame.
             unsafe { crate::arch::i386::debug_i386::dump_ss(regs) };
-            // SAFETY: `Panic()` does not return.
-            unsafe {
-                glue::Panic(
-                    c"i386/i386/trap.c".as_ptr(),
-                    line!() as c_int,
-                    c"user_trap".as_ptr(),
-                    c"trap".as_ptr(),
-                )
-            };
+            kpanic!("user_trap", "trap");
         }
     };
 
@@ -650,13 +596,5 @@ pub(crate) unsafe fn user_trap(regs: &mut I386SavedState) -> c_int {
 pub(crate) unsafe fn handle_double_fault(regs: &I386SavedState) {
     // SAFETY: `regs` is the live double-fault frame.
     unsafe { crate::arch::i386::debug_i386::dump_ss(regs) };
-    // SAFETY: `Panic()` does not return.
-    unsafe {
-        glue::Panic(
-            c"i386/i386/trap.c".as_ptr(),
-            line!() as c_int,
-            c"handle_double_fault".as_ptr(),
-            c"DOUBLE FAULT! This is critical\n".as_ptr(),
-        )
-    }
+    kpanic!("handle_double_fault", "DOUBLE FAULT! This is critical\n")
 }

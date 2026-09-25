@@ -25,6 +25,7 @@ use crate::ipc::{
     IE_BITS_TYPE_MASK, IpcEntry, IpcKmsg, IpcMarequest, IpcPort, IpcSpace,
     MachMsgHeader,
 };
+use crate::kern::console::{CStrArg, kprint};
 use crate::kern::slab;
 use crate::kern::task;
 use crate::kern::thread::IpcKmsgQueue;
@@ -1211,22 +1212,31 @@ unsafe fn entry_lookup_failed(header: *mut MachMsgHeader, port_name: c_uint) {
         return;
     }
 
-    // SAFETY: the caller promises the live header and a thread context.
-    unsafe {
-        let task = task::current_task();
-        glue::printf(
-            c"task %.*s looked up a bogus port %lu for %d, \
-              most probably a bug.\n"
-                .as_ptr(),
-            size_of_val(&(*task).name) as c_int,
-            ptr::addr_of!((*task).name).cast::<c_char>(),
-            c_ulong::from(port_name),
-            (*header).id(),
-        );
+    // SAFETY: the caller promises a thread context.
+    let task = unsafe { task::current_task() };
+    // SAFETY: the task is live and its name array is NUL-terminated within
+    // the size the format's precision reads.
+    let (name_len, task_name) = unsafe {
+        (
+            size_of_val(&(*task).name),
+            CStrArg::from_ptr(ptr::addr_of!((*task).name).cast::<c_char>()),
+        )
+    };
+    // SAFETY: the caller promises the live header.
+    let header_id = unsafe { (*header).id() };
+    kprint!(
+        "task {:.*} looked up a bogus port {} for {}, \
+         most probably a bug.\n",
+        name_len,
+        task_name,
+        c_ulong::from(port_name),
+        header_id,
+    );
 
-        if mach_port::mach_port_deallocate_debug != 0 {
-            glue::SoftDebugger(c"ipc_entry_lookup".as_ptr());
-        }
+    // SAFETY: the debug switch is written only by the debugger.
+    if unsafe { mach_port::mach_port_deallocate_debug } != 0 {
+        // SAFETY: the C string literal is NUL-terminated.
+        unsafe { glue::SoftDebugger(c"ipc_entry_lookup".as_ptr()) };
     }
 }
 

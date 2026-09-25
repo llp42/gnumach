@@ -30,6 +30,7 @@ use crate::device::chario::{
 };
 use crate::device::r#return::DeviceError;
 use crate::glue;
+use crate::kern::console::{CStrArg, kprint, write_cstr};
 use crate::kern::mach_clock;
 use crate::utils::atoi::mach_atoi;
 use crate::utils::cell::SyncCell;
@@ -498,8 +499,7 @@ pub(crate) fn probe_general(
     let addr = port_addr(address);
 
     let Some(index) = index(unit) else {
-        // SAFETY: a literal format string with one integer.
-        unsafe { glue::printf(c"com %d out of range\n".as_ptr(), unit) };
+        kprint!("com {} out of range\n", unit);
         return false;
     };
 
@@ -551,11 +551,7 @@ pub(crate) fn probe_general(
         }
     }
     if noisy {
-        // SAFETY: a literal format string, one integer and a NUL-terminated
-        // string.
-        unsafe {
-            glue::printf(c"com%d: %s chip.\n".as_ptr(), unit, chip.as_ptr())
-        };
+        kprint!("com{}: {} chip.\n", unit, CStrArg::from(chip));
     }
     true
 }
@@ -635,24 +631,18 @@ pub(crate) fn attach(dev: &BusDevice) {
     let addr = port_addr(dev.address);
 
     if usize::from(unit) >= NCOM {
-        // SAFETY: a literal format string.
-        unsafe {
-            glue::printf(c", disabled by NCOM configuration\n".as_ptr())
-        };
+        kprint!(", disabled by NCOM configuration\n");
         return;
     }
 
     autoconf::take_dev_irq(dev);
-    // SAFETY: a literal format string with the values the C printed.
-    unsafe {
-        glue::printf(
-            c", port = %zx, spl = %zu, pic = %d. (DOS COM%d)".as_ptr(),
-            dev.address,
-            dev.sysdep,
-            dev.sysdep1,
-            c_int::from(unit) + 1,
-        )
-    };
+    kprint!(
+        ", port = {:x}, spl = {}, pic = {}. (DOS COM{})",
+        dev.address,
+        dev.sysdep,
+        dev.sysdep1,
+        c_int::from(unit) + 1,
+    );
     let Some(index) = index(c_int::from(unit)) else {
         return;
     };
@@ -702,16 +692,13 @@ pub(crate) fn cninit(cp: &ConsDev) -> c_int {
     modem_ctl_reg(addr).write_u8(I_DTR | I_RTS | I_OUT2);
 
     let mut msg = [0 as c_char; 128];
-    // SAFETY: the buffer is 128 bytes, and the literal holds one integer and
-    // is NUL-terminated.
-    unsafe {
-        glue::snprintf(
-            msg.as_mut_ptr(),
-            msg.len(),
-            c"    **** using COM port %d for console ****".as_ptr(),
+    write_cstr(
+        &mut msg,
+        format_args!(
+            "    **** using COM port {} for console ****",
             c_int::from(unit) + 1,
-        )
-    };
+        ),
+    );
     let vga = ptr::with_exposed_provenance_mut::<u8>(
         crate::vm::vm_kern::VM_MIN_KERNEL_ADDRESS + 0xb8000,
     );
@@ -997,10 +984,7 @@ pub(crate) fn intr(unit: c_int) {
                     continue;
                 }
                 if status & I_OR != 0 && !com().overrun {
-                    // SAFETY: a literal format string with one integer.
-                    unsafe {
-                        glue::printf(c"com%d: overrun\n".as_ptr(), unit)
-                    };
+                    kprint!("com{}: overrun\n", unit);
                     com().overrun = true;
                 } else if status & (I_FE | I_BRKINTR) != 0 {
                     // The C promoted the signed `char` to `unsigned int`,
@@ -1129,8 +1113,7 @@ pub(crate) fn timer() {
             continue;
         }
         let stuck = ptr::from_mut(tp);
-        // SAFETY: a literal format string with the tty pointer `%p` prints.
-        unsafe { glue::printf(c"Tty %p was stuck\n".as_ptr(), stuck) };
+        kprint!("Tty {:x} was stuck\n", stuck.expose_provenance());
         let nch = tp.t_outq.get().unwrap_or(0xff);
         txrx(tty_addr(tp)).write_u8(nch);
     }
@@ -1260,33 +1243,28 @@ pub(crate) fn stop(tp: &mut Tty) {
 
 /// `compr_addr()` of `i386/i386at/com.c`.
 pub(crate) fn print_regs(addr: VmOffset) {
-    // SAFETY: literal format strings with the register values; the C made
-    // the same unconditional reads.
-    unsafe {
-        glue::printf(
-            c"LINE_STAT(%zu) %x\n".as_ptr(),
-            addr + 5,
-            c_int::from(line_stat(port_addr(addr)).read_u8()),
-        );
-        glue::printf(
-            c"TXRX(%zu) %x, INTR_ENAB(%zu) %x, INTR_ID(%zu) %x, LINE_CTL(%zu) %x,\nMODEM_CTL(%zu) %x, LINE_STAT(%zu) %x, MODEM_STAT(%zu) %x\n"
-                .as_ptr(),
-            addr,
-            c_int::from(txrx(port_addr(addr)).read_u8()),
-            addr + 1,
-            c_int::from(intr_enab(port_addr(addr)).read_u8()),
-            addr + 2,
-            c_int::from(intr_id(port_addr(addr)).read_u8()),
-            addr + 3,
-            c_int::from(line_ctl(port_addr(addr)).read_u8()),
-            addr + 4,
-            c_int::from(modem_ctl_reg(port_addr(addr)).read_u8()),
-            addr + 5,
-            c_int::from(line_stat(port_addr(addr)).read_u8()),
-            addr + 6,
-            c_int::from(modem_stat(port_addr(addr)).read_u8()),
-        );
-    }
+    kprint!(
+        "LINE_STAT({}) {:x}\n",
+        addr + 5,
+        c_int::from(line_stat(port_addr(addr)).read_u8()),
+    );
+    kprint!(
+        "TXRX({}) {:x}, INTR_ENAB({}) {:x}, INTR_ID({}) {:x}, LINE_CTL({}) {:x},\nMODEM_CTL({}) {:x}, LINE_STAT({}) {:x}, MODEM_STAT({}) {:x}\n",
+        addr,
+        c_int::from(txrx(port_addr(addr)).read_u8()),
+        addr + 1,
+        c_int::from(intr_enab(port_addr(addr)).read_u8()),
+        addr + 2,
+        c_int::from(intr_id(port_addr(addr)).read_u8()),
+        addr + 3,
+        c_int::from(line_ctl(port_addr(addr)).read_u8()),
+        addr + 4,
+        c_int::from(modem_ctl_reg(port_addr(addr)).read_u8()),
+        addr + 5,
+        c_int::from(line_stat(port_addr(addr)).read_u8()),
+        addr + 6,
+        c_int::from(modem_stat(port_addr(addr)).read_u8()),
+    );
 }
 
 /// `compr()` of `i386/i386at/com.c`.

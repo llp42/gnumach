@@ -12,7 +12,7 @@
 
 use crate::arch::i386::com::{BusCtlr, BusDevice, BusDriver};
 use crate::arch::types::VmOffset;
-use crate::glue;
+use crate::kern::console::{CStrArg, kprint};
 use core::ffi::{CStr, c_char, c_int};
 use core::ptr::{self, NonNull};
 
@@ -130,16 +130,14 @@ fn configure_master(
         (*driver).minfo.add(master_index).write(entry);
     }
 
-    // SAFETY: a literal format string with two NUL-terminated names.
-    unsafe {
-        glue::printf(
-            c"%s%d: at %s%d\n".as_ptr(),
-            master_name,
-            master_unit,
-            bus_name.as_ptr(),
-            adpt_no,
-        );
-    }
+    // SAFETY: the table's controller name is NUL-terminated.
+    kprint!(
+        "{}{}: at {}{}\n",
+        unsafe { CStrArg::from_ptr(master_name.cast_const()) },
+        master_unit,
+        CStrArg::from(bus_name),
+        adpt_no,
+    );
 
     // SAFETY: `driver` is the live driver record the master names.
     let (slave, mname, dinfo) =
@@ -205,29 +203,26 @@ fn configure_master(
         }
 
         if c_int::from(device_slave) >= 0 {
-            // SAFETY: a literal format string with two NUL-terminated names
-            // and the slave number.
-            unsafe {
-                glue::printf(
-                    c" %s%d: at %s%d slave %d".as_ptr(),
-                    device_name,
-                    device_unit,
-                    mname,
-                    master_unit,
-                    c_int::from(device_slave),
-                );
-            }
+            // SAFETY: the table's device name is NUL-terminated.
+            kprint!(
+                " {}{}: at {}{} slave {}",
+                unsafe { CStrArg::from_ptr(device_name.cast_const()) },
+                device_unit,
+                // SAFETY: the driver's name is NUL-terminated.
+                unsafe { CStrArg::from_ptr(mname.cast_const()) },
+                master_unit,
+                c_int::from(device_slave),
+            );
         } else {
-            // SAFETY: a literal format string with two NUL-terminated names.
-            unsafe {
-                glue::printf(
-                    c" %s%d: at %s%d".as_ptr(),
-                    device_name,
-                    device_unit,
-                    mname,
-                    master_unit,
-                );
-            }
+            // SAFETY: the table's device name is NUL-terminated.
+            kprint!(
+                " {}{}: at {}{}",
+                unsafe { CStrArg::from_ptr(device_name.cast_const()) },
+                device_unit,
+                // SAFETY: the driver's name is NUL-terminated.
+                unsafe { CStrArg::from_ptr(mname.cast_const()) },
+                master_unit,
+            );
         }
 
         // The C called `attach` unconditionally; a table without one leaves
@@ -238,8 +233,7 @@ fn configure_master(
             // live table entry the C passed it.
             unsafe { attach(device.as_ptr()) };
         }
-        // SAFETY: a literal format string.
-        unsafe { glue::printf(c"\n".as_ptr()) };
+        kprint!("\n");
     }
 
     true
@@ -310,16 +304,14 @@ fn configure_device(
         (*entry).adaptor = adpt_no as c_char;
     }
 
-    // SAFETY: a literal format string with two NUL-terminated names.
-    unsafe {
-        glue::printf(
-            c"%s%d: at %s%d".as_ptr(),
-            device_name,
-            device_unit,
-            bus_name.as_ptr(),
-            adpt_no,
-        );
-    }
+    // SAFETY: the table's device name is NUL-terminated.
+    kprint!(
+        "{}{}: at {}{}",
+        unsafe { CStrArg::from_ptr(device_name.cast_const()) },
+        device_unit,
+        CStrArg::from(bus_name),
+        adpt_no,
+    );
 
     // SAFETY: `dinfo` is the driver's array of device slots.
     unsafe { (*driver).dinfo.add(device_index).write(device.as_ptr()) };
@@ -332,8 +324,7 @@ fn configure_device(
         // table entry the C passed it.
         unsafe { attach(device.as_ptr()) };
     }
-    // SAFETY: a literal format string.
-    unsafe { glue::printf(c"\n".as_ptr()) };
+    kprint!("\n");
 
     true
 }

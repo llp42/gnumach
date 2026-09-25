@@ -20,6 +20,7 @@ use crate::ipc::ipc_kmsg;
 use crate::ipc::ipc_mqueue;
 use crate::ipc::ipc_port;
 use crate::ipc::{IpcPort, MachMsgHeader, MachMsgType};
+use crate::kern::console::{CStrArg, kprint};
 use crate::kern::mach_clock::hz;
 use crate::kern::queue::{
     QueueEntry, queue_end, queue_enter_tail, queue_first, queue_init,
@@ -276,30 +277,22 @@ pub(crate) unsafe fn insert_intr_entry(
     // SAFETY: the caller promises the live table and queue.
     let found = unsafe { search_intr(dev, dst_port) }.is_some();
     let result = if found {
-        // SAFETY: `printf` is the real C routine, and the one `%d` and the
-        // one `%p` take the `c_int` and pointer below.
-        unsafe {
-            glue::printf(
-                c"the interrupt entry for irq[%d] and port %p has already been inserted\n"
-                    .as_ptr(),
-                id,
-                dst_port,
-            )
-        };
+        kprint!(
+            "the interrupt entry for irq[{}] and port {:x} has already been inserted\n",
+            id,
+            dst_port.expose_provenance(),
+        );
         None
     } else {
-        // SAFETY: `printf` is the real C routine; the `%d`, `%p` and `%s`
-        // take the values below, and the task name is NUL-terminated.
-        unsafe {
-            glue::printf(
-                c"irq handler [%d]: new delivery port %p entry %p for %s\n"
-                    .as_ptr(),
-                id,
-                dst_port,
-                new.as_ptr(),
-                (*current_task()).name.as_ptr(),
-            )
-        };
+        kprint!(
+            "irq handler [{}]: new delivery port {:x} entry {:x} for {}\n",
+            id,
+            dst_port.expose_provenance(),
+            new.as_ptr().expose_provenance(),
+            // SAFETY: the current task is live and its name is
+            // NUL-terminated.
+            unsafe { CStrArg::from_ptr((*current_task()).name.as_ptr()) },
+        );
         // SAFETY: `new` is fresh, unshared storage, and the lock is held.
         unsafe {
             (*new.as_ptr()).id = id;
@@ -375,15 +368,7 @@ pub(crate) unsafe fn install_user_intr_handler(
     if !is_handler(handler, user_irq_handler)
         && !is_handler(handler, ioapic::intnull)
     {
-        // SAFETY: `printf` is the real C routine; the two `%d`s take `id`
-        // and `irq`.
-        unsafe {
-            glue::printf(
-                c"You can't have this interrupt %d:%d\n".as_ptr(),
-                id,
-                irq,
-            )
-        };
+        kprint!("You can't have this interrupt {}:{}\n", id, irq);
         return Err(DeviceError::AlreadyOpen);
     }
 
@@ -397,7 +382,7 @@ pub(crate) unsafe fn install_user_intr_handler(
     if !old.is_null() {
         // SAFETY: a non-null head points at a live node.
         if unsafe { (*old).flags & flags & SA_SHIRQ } == 0 {
-            unsafe { glue::printf(c"Cannot share irq\n".as_ptr()) };
+            kprint!("Cannot share irq\n");
             return Err(DeviceError::AlreadyOpen);
         }
     }
@@ -548,23 +533,21 @@ pub(crate) unsafe fn intr_thread() {
                         deleted.cast(),
                         offset_of!(UserIntr, chain),
                     );
-                    glue::printf(
-                        c"irq handler [%d]: release a dead delivery port %p entry %p\n"
-                            .as_ptr(),
+                    kprint!(
+                        "irq handler [{}]: release a dead delivery port {:x} entry {:x}\n",
                         (*deleted).id,
-                        (*deleted).dst_port,
-                        deleted,
+                        (*deleted).dst_port.expose_provenance(),
+                        deleted.expose_provenance(),
                     );
                     release_port((*deleted).dst_port);
                     (*deleted).dst_port = ptr::null_mut();
 
                     if (*deleted).n_unacked != 0 {
-                        glue::printf(
-                            c"irq handler [%d]: still %d unacked irqs in entry %p\n"
-                                .as_ptr(),
+                        kprint!(
+                            "irq handler [{}]: still {} unacked irqs in entry {:x}\n",
                             (*deleted).id,
                             (*deleted).n_unacked,
-                            deleted,
+                            deleted.expose_provenance(),
                         );
                     }
                     while (*deleted).n_unacked != 0 {
@@ -622,12 +605,7 @@ pub(crate) unsafe fn irq_acknowledge(
         unsafe { search_intr(ptr::addr_of_mut!(irq::irqtab), receive_port) };
     let result = match entry {
         None => {
-            // SAFETY: `printf` is the real C routine and takes no varargs.
-            unsafe {
-                glue::printf(
-                    c"didn't find user intr for interrupt !?\n".as_ptr(),
-                )
-            };
+            kprint!("didn't find user intr for interrupt !?\n");
             Err(KERN_INVALID_ARGUMENT)
         }
         Some(e) => {

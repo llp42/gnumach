@@ -15,8 +15,9 @@
 //! port while it looks the proxy up.
 
 use crate::arch::types::{VmOffset, VmSize};
-use crate::glue::{ipc_kobject_set, printf};
+use crate::glue::ipc_kobject_set;
 use crate::ipc::{IpcPort, IpcSpace, MachMsgHeader, ipc_port, ipc_space};
+use crate::kern::console::kprint;
 use crate::kern::slab::{CacheInitFlags, KmemCache};
 use crate::vm::error::Error;
 use crate::vm::types::VmProt;
@@ -125,15 +126,10 @@ pub(crate) unsafe fn notify(msg: *mut MachMsgHeader) -> bool {
     let header = unsafe { &*msg };
 
     if header.id() != MACH_NOTIFY_NO_SENDERS {
-        // SAFETY: the format is a literal and the `%d` argument is the
-        // header's id, as the C passed it.
-        unsafe {
-            printf(
-                c"memory_object_proxy_notify: strange notification %d\n"
-                    .as_ptr(),
-                header.id(),
-            )
-        };
+        kprint!(
+            "memory_object_proxy_notify: strange notification {}\n",
+            header.id(),
+        );
         return false;
     }
 

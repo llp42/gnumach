@@ -22,6 +22,7 @@ use crate::ipc::ipc_mqueue_ffi::{
 };
 use crate::ipc::{IpcPort, IpcSpace, MachMsgHeader};
 use crate::ipc::{ipc_object, ipc_port, ipc_space};
+use crate::kern::debug::kpanic;
 use crate::kern::ipc_tt::{self, TaskSpecialPort, mach_reply_port};
 use crate::kern::syscall_subr;
 use crate::kern::task::{self, MapSource, Task};
@@ -177,18 +178,10 @@ fn invalid_name_to_port(name: c_uint) -> *mut c_void {
         MACH_PORT_NAME_NULL => ptr::null_mut(),
         MACH_PORT_NAME_DEAD => IO_DEAD,
         _ => {
-            // SAFETY: `Panic` does not return; the file, function and message
-            // tags are the C inline's.
-            unsafe {
-                glue::Panic(
-                    c"ipc/port.h".as_ptr(),
-                    // Only `c_int` widths can reach `Panic`'s varargs.
-                    line!() as c_int,
-                    c"invalid_name_to_port".as_ptr(),
-                    c"invalid_name_to_port() called with a valid port"
-                        .as_ptr(),
-                )
-            }
+            kpanic!(
+                "invalid_name_to_port",
+                "invalid_name_to_port() called with a valid port"
+            )
         }
     }
 }
@@ -652,17 +645,7 @@ pub(crate) unsafe fn mach_msg_send_from_kernel(
     let kmsg = match unsafe { ipc_kmsg::get_from_kernel(msg, send_size) } {
         Ok(kmsg) => kmsg,
         Err(_) => {
-            // SAFETY: `Panic` does not return; the file, function and message
-            // tags are the C `panic()` macro's.
-            unsafe {
-                glue::Panic(
-                    c"kern/ipc_mig.c".as_ptr(),
-                    // Only `c_int` widths can reach `Panic`'s varargs.
-                    line!() as c_int,
-                    c"mach_msg_send_from_kernel".as_ptr(),
-                    c"mach_msg_send_from_kernel".as_ptr(),
-                )
-            }
+            kpanic!("mach_msg_send_from_kernel", "mach_msg_send_from_kernel")
         }
     };
 
@@ -704,19 +687,7 @@ pub(crate) unsafe fn mach_msg(
         // allocation.
         let kmsg = match unsafe { ipc_kmsg::get_from_kernel(msg, send_size) } {
             Ok(kmsg) => kmsg,
-            Err(_) => {
-                // SAFETY: `Panic` does not return; the file, function and
-                // message tags are the C `panic()` macro's.
-                unsafe {
-                    glue::Panic(
-                        c"kern/ipc_mig.c".as_ptr(),
-                        // Only `c_int` widths can reach `Panic`'s varargs.
-                        line!() as c_int,
-                        c"mach_msg".as_ptr(),
-                        c"mach_msg".as_ptr(),
-                    )
-                }
-            }
+            Err(_) => kpanic!("mach_msg", "mach_msg"),
         };
 
         // SAFETY: the message is live, the space and map are live, and the

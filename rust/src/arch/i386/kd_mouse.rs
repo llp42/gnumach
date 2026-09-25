@@ -21,6 +21,7 @@ use crate::device::ds_routines_ffi::{
 use crate::device::r#return::{DeviceError, DeviceSuccess, IoResultExt};
 use crate::device::subrs;
 use crate::glue;
+use crate::kern::console::kprint;
 use crate::kern::queue::QueueEntry;
 use crate::kern::sched_prim::{assert_wait, thread_block};
 use crate::utils::kd_queue::{KdEvent, KdEventQueue, KevType, MouseMotion};
@@ -181,8 +182,7 @@ fn read_queue(s: &mut State) -> Pin<&mut QueueEntry> {
 fn printf_once() {
     static PRINTED: AtomicBool = AtomicBool::new(false);
     if !PRINTED.swap(true, Ordering::Relaxed) {
-        // SAFETY: a literal format string with no arguments.
-        unsafe { glue::printf(c"mouse: queue full\n".as_ptr()) };
+        kprint!("mouse: queue full\n");
     }
 }
 
@@ -445,15 +445,12 @@ fn packet_ibm_ps2(s: &mut State, buf: &[u8; MOUSEBUFSIZE]) {
         },
     };
     if s.mouse_packets != 0 {
-        // SAFETY: a literal format with three integers.
-        unsafe {
-            glue::printf(
-                c"(%x:%x:%x)".as_ptr(),
-                buf[0] as c_int,
-                buf[1] as c_int,
-                buf[2] as c_int,
-            );
-        }
+        kprint!(
+            "({:x}:{:x}:{:x})",
+            buf[0] as c_int,
+            buf[1] as c_int,
+            buf[2] as c_int,
+        );
         return;
     }
     if moved.mm_delta_x != 0 || moved.mm_delta_y != 0 {
@@ -477,8 +474,7 @@ fn packet_ibm_ps2(s: &mut State, buf: &[u8; MOUSEBUFSIZE]) {
 /// then decode it.
 fn handle_byte(s: &mut State, ch: u8) {
     if s.show_mouse_byte != 0 {
-        // SAFETY: a literal format with two integers.
-        unsafe { glue::printf(c"%x(%c) ".as_ptr(), ch as c_int, ch as c_int) };
+        kprint!("{:x}({}) ", ch as c_int, char::from(ch));
     }
     if s.mouse_char_cmd {
         if s.mousebufindex < s.mousebufsize {
@@ -590,8 +586,7 @@ pub unsafe extern "C" fn mouseopen(
             s.track_man[0] = com::getc((dev & 7) as c_int);
             s.track_man[1] = com::getc((dev & 7) as c_int);
             if s.track_man[0] != 0x4d && s.track_man[1] != 0x33 {
-                // SAFETY: a literal format with no arguments.
-                unsafe { glue::printf(c"LOGITECH_TRACKMAN: NOT M3".as_ptr()) };
+                kprint!("LOGITECH_TRACKMAN: NOT M3");
             }
         }
         IBM_MOUSE => {

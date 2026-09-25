@@ -21,6 +21,9 @@ use crate::arch::i386::{db_interface, user_ldt};
 use crate::arch::types::{VmOffset, VmSize};
 use crate::arch::vm_param::{KERNEL_STACK_SIZE, VM_MAX_USER_ADDRESS};
 use crate::glue;
+#[cfg(target_pointer_width = "64")]
+use crate::kern::console::kprint;
+use crate::kern::debug::kpanic;
 use crate::kern::host::realhost;
 use crate::kern::lock::SimpleLock;
 use crate::kern::slab::{CacheInitFlags, KmemCache};
@@ -1136,15 +1139,7 @@ pub(crate) unsafe fn pcb_module_init() {
 
 /// The C's `panic("pcb_init")` when the slab layer reports no memory.
 fn panic_no_pcb() -> ! {
-    // SAFETY: `Panic()` does not return.
-    unsafe {
-        glue::Panic(
-            c"i386/i386/pcb.c".as_ptr(),
-            line!() as c_int,
-            c"pcb_init".as_ptr(),
-            c"pcb_init".as_ptr(),
-        )
-    }
+    kpanic!("pcb_init", "pcb_init")
 }
 
 /// `pcb_init()` of `i386/i386/pcb.h`, which `i386/i386/pcb.c` defined.
@@ -1436,9 +1431,7 @@ pub(crate) unsafe fn thread_setstatus(
             unsafe {
                 let state = tstate.cast::<I386FsgsBaseState>();
                 if (*state).gs_base & 0x8000_0000_0000_0000 != 0 {
-                    glue::printf(
-                        c"WARNING: negative gs base not allowed\n".as_ptr(),
-                    );
+                    kprint!("WARNING: negative gs base not allowed\n");
                 }
                 (*(*thread).pcb).ims.sbs.fsbase = (*state).fs_base;
                 (*(*thread).pcb).ims.sbs.gsbase =

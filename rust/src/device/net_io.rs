@@ -24,6 +24,8 @@ use crate::ipc::ipc_mqueue;
 use crate::ipc::ipc_port;
 use crate::ipc::{IpcPort, MachMsgHeader, MachMsgType};
 use crate::kern::ast::{AST_NETWORK, ast_off, ast_on};
+use crate::kern::console::kprint;
+use crate::kern::debug::kpanic;
 use crate::kern::lock::SimpleLock;
 use crate::kern::queue::{
     QueueEntry, enqueue_tail, queue_enter_tail, queue_init,
@@ -2859,16 +2861,11 @@ pub(crate) unsafe fn getstat(
             };
             let int_count = byte_count.div_ceil(size_of::<c_int>());
             if unsafe { *count } < int_count as c_uint {
-                // SAFETY: the format takes two `int` arguments, as the C's
-                // arguments are.
-                unsafe {
-                    glue::printf(
-                        c"net_getstat: count: %d, addr_int_count: %d\n"
-                            .as_ptr(),
-                        *count as c_int,
-                        int_count as c_int,
-                    )
-                };
+                kprint!(
+                    "net_getstat: count: {}, addr_int_count: {}\n",
+                    unsafe { *count } as c_int,
+                    int_count as c_int,
+                );
                 return Err(DeviceError::InvalidOperation);
             }
             let bytes = status.cast::<u8>();
@@ -2934,16 +2931,7 @@ pub(crate) unsafe fn write(
         return Err(WriteError::Kern(rc));
     }
     if wait != 0 {
-        // SAFETY: `Panic` does not return; the file and function tags are
-        // the C `panic()` call's.
-        unsafe {
-            glue::Panic(
-                c"device/net_io.c".as_ptr(),
-                line!() as c_int,
-                c"net_write".as_ptr(),
-                c"net_write: VM continuation".as_ptr(),
-            )
-        }
+        kpanic!("net_write", "net_write: VM continuation")
     }
 
     let s = unsafe { glue::splimp() };

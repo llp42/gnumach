@@ -10,11 +10,11 @@
 //! The layouts are fixed, so the senders here build the message where they
 //! send it and `ipc_notify_init()` has nothing left to initialize.
 
-use crate::glue;
 use crate::ipc::ipc_kmsg::{self, Kmsg};
 use crate::ipc::ipc_mqueue;
 use crate::ipc::ipc_port;
 use crate::ipc::{IpcPort, MachMsgHeader};
+use crate::kern::console::kprint;
 use core::ffi::{c_int, c_uint, c_void};
 use core::mem::{offset_of, size_of};
 use core::ptr;
@@ -232,15 +232,11 @@ pub(crate) fn init() {}
 pub(crate) unsafe fn port_deleted(port: *mut c_void, name: c_uint) {
     let Some(kmsg) = (unsafe { build(PORT_DELETED, port, Body::Name(name)) })
     else {
-        // SAFETY: the format is a literal with the `%p` and `%x` arguments
-        // it reads.
-        unsafe {
-            glue::printf(
-                c"dropped port-deleted (0x%p, 0x%x)\n".as_ptr(),
-                port,
-                name,
-            )
-        };
+        kprint!(
+            "dropped port-deleted (0x{:x}, 0x{:x})\n",
+            port.expose_provenance(),
+            name,
+        );
         // SAFETY: the caller promises the send-once right.
         unsafe { ipc_port::release_sonce(IpcPort::from_raw(port)) };
         return;
@@ -259,15 +255,11 @@ pub(crate) unsafe fn port_deleted(port: *mut c_void, name: c_uint) {
 pub(crate) unsafe fn msg_accepted(port: *mut c_void, name: c_uint) {
     let Some(kmsg) = (unsafe { build(MSG_ACCEPTED, port, Body::Name(name)) })
     else {
-        // SAFETY: the format is a literal with the `%p` and `%x` arguments
-        // it reads.
-        unsafe {
-            glue::printf(
-                c"dropped msg-accepted (0x%p, 0x%x)\n".as_ptr(),
-                port,
-                name,
-            )
-        };
+        kprint!(
+            "dropped msg-accepted (0x{:x}, 0x{:x})\n",
+            port.expose_provenance(),
+            name,
+        );
         // SAFETY: the caller promises the send-once right.
         unsafe { ipc_port::release_sonce(IpcPort::from_raw(port)) };
         return;
@@ -288,15 +280,11 @@ pub(crate) unsafe fn port_destroyed(port: *mut c_void, right: *mut c_void) {
     let Some(kmsg) =
         (unsafe { build(PORT_DESTROYED, port, Body::Receive(right)) })
     else {
-        // SAFETY: the format is a literal with the two `%p` arguments it
-        // reads.
-        unsafe {
-            glue::printf(
-                c"dropped port-destroyed (0x%p, 0x%p)\n".as_ptr(),
-                port,
-                right,
-            )
-        };
+        kprint!(
+            "dropped port-destroyed (0x{:x}, 0x{:x})\n",
+            port.expose_provenance(),
+            right.expose_provenance(),
+        );
         // SAFETY: the caller promises both rights.
         unsafe {
             ipc_port::release_sonce(IpcPort::from_raw(port));
@@ -319,15 +307,11 @@ pub(crate) unsafe fn no_senders(port: *mut c_void, mscount: c_uint) {
     let Some(kmsg) =
         (unsafe { build(NO_SENDERS, port, Body::Count(mscount)) })
     else {
-        // SAFETY: the format is a literal with the `%p` and `%u` arguments
-        // it reads.
-        unsafe {
-            glue::printf(
-                c"dropped no-senders (0x%p, %u)\n".as_ptr(),
-                port,
-                mscount,
-            )
-        };
+        kprint!(
+            "dropped no-senders (0x{:x}, {})\n",
+            port.expose_provenance(),
+            mscount,
+        );
         // SAFETY: the caller promises the send-once right.
         unsafe { ipc_port::release_sonce(IpcPort::from_raw(port)) };
         return;
@@ -345,8 +329,7 @@ pub(crate) unsafe fn no_senders(port: *mut c_void, mscount: c_uint) {
 /// consumes; nothing may be locked.
 pub(crate) unsafe fn send_once(port: *mut c_void) {
     let Some(kmsg) = (unsafe { build(SEND_ONCE, port, Body::Bare) }) else {
-        // SAFETY: the format is a literal with the `%p` argument it reads.
-        unsafe { glue::printf(c"dropped send-once (0x%p)\n".as_ptr(), port) };
+        kprint!("dropped send-once (0x{:x})\n", port.expose_provenance());
         // SAFETY: the caller promises the send-once right.
         unsafe { ipc_port::release_sonce(IpcPort::from_raw(port)) };
         return;
@@ -365,15 +348,11 @@ pub(crate) unsafe fn send_once(port: *mut c_void) {
 pub(crate) unsafe fn dead_name(port: *mut c_void, name: c_uint) {
     let Some(kmsg) = (unsafe { build(DEAD_NAME, port, Body::Name(name)) })
     else {
-        // SAFETY: the format is a literal with the `%p` and `%x` arguments
-        // it reads.
-        unsafe {
-            glue::printf(
-                c"dropped dead-name (0x%p, 0x%x)\n".as_ptr(),
-                port,
-                name,
-            )
-        };
+        kprint!(
+            "dropped dead-name (0x{:x}, 0x{:x})\n",
+            port.expose_provenance(),
+            name,
+        );
         // SAFETY: the caller promises the send-once right.
         unsafe { ipc_port::release_sonce(IpcPort::from_raw(port)) };
         return;

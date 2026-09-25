@@ -17,6 +17,7 @@ use crate::ipc::ipc_port;
 use crate::ipc::ipc_pset;
 use crate::ipc::ipc_right;
 use crate::ipc::{IE_BITS_TYPE_MASK, IpcEntry, IpcPort, IpcSpace, IpcTarget};
+use crate::kern::console::{CStrArg, kprint};
 use crate::kern::rdxtree::RdxtreeIter;
 use crate::kern::task::current_task;
 use crate::kern::types::KernError;
@@ -214,8 +215,7 @@ fn printf_once(printed: &AtomicBool, message: &CStr) {
     if !printed.load(Ordering::Relaxed) {
         printed.store(true, Ordering::Relaxed);
 
-        // SAFETY: `message` is a NUL-terminated literal with no arguments.
-        unsafe { glue::printf(message.as_ptr()) };
+        kprint!("{}", CStrArg::from(message));
     }
 }
 
@@ -233,21 +233,26 @@ unsafe fn report_bogus_port(space: IpcSpace, name: c_uint, action: &CStr) {
         return;
     }
 
-    // SAFETY: the task is live and its name array has the size the format's
-    // precision reads; `action` is NUL-terminated.
-    unsafe {
-        glue::printf(
-            c"task %.*s %s a bogus port %lu, most probably a bug.\n".as_ptr(),
-            // The C's `(int) sizeof`.
-            size_of_val(&(*task).name) as c_int,
-            ptr::addr_of!((*task).name).cast::<c_char>(),
-            action.as_ptr(),
-            c_ulong::from(name),
-        );
+    // SAFETY: the task is live and its name array is NUL-terminated within
+    // the size the format's precision reads.
+    let (name_len, task_name) = unsafe {
+        (
+            size_of_val(&(*task).name),
+            CStrArg::from_ptr(ptr::addr_of!((*task).name).cast::<c_char>()),
+        )
+    };
+    kprint!(
+        "task {:.*} {} a bogus port {}, most probably a bug.\n",
+        name_len,
+        task_name,
+        CStrArg::from(action),
+        c_ulong::from(name),
+    );
 
-        if mach_port_deallocate_debug != 0 {
-            glue::SoftDebugger(c"mach_port_deallocate".as_ptr());
-        }
+    // SAFETY: the debug switch is written only by the debugger.
+    if unsafe { mach_port_deallocate_debug } != 0 {
+        // SAFETY: the C string literal is NUL-terminated.
+        unsafe { glue::SoftDebugger(c"mach_port_deallocate".as_ptr()) };
     }
 }
 
@@ -766,32 +771,36 @@ pub(crate) unsafe fn mod_refs(
             if port_name_valid(name)
                 && space.as_ptr() == unsafe { (*task).itk_space }
             {
-                // SAFETY: the format is the C's and the arguments are the
-                // values it reads.
-                unsafe {
-                    glue::printf(
-                        c"task %.*s %screasing a bogus port %u by %d, \
-                          most probably a bug.\n"
-                            .as_ptr(),
-                        // The C's `(int) sizeof`.
-                        size_of_val(&(*task).name) as c_int,
-                        ptr::addr_of!((*task).name).cast::<c_char>(),
-                        if delta < 0 {
-                            c"de".as_ptr()
-                        } else {
-                            c"in".as_ptr()
-                        },
-                        name,
-                        if delta < 0 {
-                            delta.wrapping_neg()
-                        } else {
-                            delta
-                        },
-                    );
+                // SAFETY: the task is live and its name array is NUL-terminated
+                // within the size the format's precision reads.
+                let (name_len, task_name) = unsafe {
+                    (
+                        size_of_val(&(*task).name),
+                        CStrArg::from_ptr(
+                            ptr::addr_of!((*task).name).cast::<c_char>(),
+                        ),
+                    )
+                };
+                kprint!(
+                    "task {:.*} {}creasing a bogus port {} by {}, \
+                 most probably a bug.\n",
+                    name_len,
+                    task_name,
+                    CStrArg::from(if delta < 0 { c"de" } else { c"in" }),
+                    name,
+                    if delta < 0 {
+                        delta.wrapping_neg()
+                    } else {
+                        delta
+                    },
+                );
 
-                    if mach_port_deallocate_debug != 0 {
-                        glue::SoftDebugger(c"mach_port_mod_refs".as_ptr());
-                    }
+                // SAFETY: the debug switch is written only by the debugger.
+                if unsafe { mach_port_deallocate_debug } != 0 {
+                    // SAFETY: the C string literal is NUL-terminated.
+                    unsafe {
+                        glue::SoftDebugger(c"mach_port_mod_refs".as_ptr())
+                    };
                 }
             }
             return Err(error);

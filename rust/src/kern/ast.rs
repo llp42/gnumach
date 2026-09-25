@@ -17,6 +17,7 @@ use crate::arch::i386::percpu::{
 };
 use crate::config::NCPUS;
 use crate::glue;
+use crate::kern::debug::kpanic;
 use crate::kern::policy::POLICY_FIXEDPRI;
 use crate::kern::processor::{
     PROCESSOR_ASSIGN, PROCESSOR_DISPATCHING, PROCESSOR_IDLE,
@@ -324,19 +325,11 @@ fn panic_bad_state(
     processor: *mut crate::kern::processor::Processor,
     state: c_int,
 ) -> ! {
-    // SAFETY: `Panic` does not return; the file and function are the C
-    // panic macro's, and the arguments match its format string.
-    unsafe {
-        glue::Panic(
-            c"kern/ast.c".as_ptr(),
-            // Only `c_int` widths can reach `Panic`'s varargs.
-            line!() as c_int,
-            c"ast_check".as_ptr(),
-            c"ast_check: Bad processor state (cpu %d processor %p) state: %d"
-                .as_ptr(),
-            mycpu,
-            processor,
-            state,
-        )
-    }
+    kpanic!(
+        "ast_check",
+        "ast_check: Bad processor state (cpu {} processor {:x}) state: {}",
+        mycpu,
+        processor.expose_provenance(),
+        state
+    )
 }

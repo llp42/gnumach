@@ -3,9 +3,9 @@
 
 //! IPC facilities; mirrors `ipc/`.
 
-use crate::glue;
 use crate::ipc::ipc_table::IpcTableSize;
 use crate::ipc::ipc_thread::IpcThreadQueue;
+use crate::kern::debug::kpanic;
 use crate::kern::lock::{LockData, SimpleLock};
 use crate::kern::rdxtree::{Lookup, Rdxtree, RdxtreeKey};
 use core::ffi::{c_int, c_uint, c_void};
@@ -128,16 +128,7 @@ impl IpcObject {
                 .get_mut(index)
         };
         let Some(cache) = cache else {
-            // SAFETY: `Panic` does not return; the C `io_free()` would index
-            // the two-entry cache array out of bounds.
-            unsafe {
-                glue::Panic(
-                    c"ipc/ipc_object.h".as_ptr(),
-                    line!() as c_int,
-                    c"io_check_unlock".as_ptr(),
-                    c"io_check_unlock: bad object type".as_ptr(),
-                )
-            }
+            kpanic!("io_check_unlock", "io_check_unlock: bad object type")
         };
 
         // SAFETY: the caller's last reference is gone, so nothing else can

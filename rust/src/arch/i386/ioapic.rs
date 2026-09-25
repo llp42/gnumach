@@ -13,6 +13,7 @@ use crate::arch::i386::percpu::cpu_number;
 use crate::arch::i386::pio::Port;
 use crate::config::{NCPUS, NINTR};
 use crate::glue;
+use crate::kern::console::{CStrArg, kprint};
 use crate::kern::mach_clock::{self, Timeout};
 use crate::kern::queue::QueueEntry;
 use crate::spin::Mutex;
@@ -407,28 +408,22 @@ fn override_irq(over: &apic::IrqOverrideData, entry: &mut RouteEntry) -> u32 {
         }
     }
 
-    // SAFETY: `printf` is the real C routine <kern/printf.h> declares; the
-    // `%d`s take the two integer varargs and the `%s`s the static strings.
-    unsafe {
-        glue::printf(
-            c"IRQ override: pin=%d gsi=%d trigger=%s polarity=%s\n".as_ptr(),
-            c_int::from(over.irq),
-            // The C passed the `uint32_t` to `%d`, which reads the same bits.
-            over.gsi as c_int,
-            if entry.trigger() == IOAPIC_LEVEL_TRIGGERED {
-                c"LEVEL"
-            } else {
-                c"EDGE"
-            }
-            .as_ptr(),
-            if entry.polarity() == IOAPIC_ACTIVE_LOW {
-                c"LOW"
-            } else {
-                c"HIGH"
-            }
-            .as_ptr(),
-        )
-    };
+    kprint!(
+        "IRQ override: pin={} gsi={} trigger={} polarity={}\n",
+        c_int::from(over.irq),
+        // The C passed the `uint32_t` to `%d`, which reads the same bits.
+        over.gsi as c_int,
+        CStrArg::from(if entry.trigger() == IOAPIC_LEVEL_TRIGGERED {
+            c"LEVEL"
+        } else {
+            c"EDGE"
+        }),
+        CStrArg::from(if entry.polarity() == IOAPIC_ACTIVE_LOW {
+            c"LOW"
+        } else {
+            c"HIGH"
+        }),
+    );
     over.gsi
 }
 
@@ -467,9 +462,7 @@ fn measure_10x_apic_hz() -> u32 {
     let unit = apic::lapic_ptr();
     let start = u32::MAX;
 
-    // SAFETY: `printf` is the real C routine <kern/printf.h> declares; this
-    // format has no conversion specifier.
-    unsafe { glue::printf(c"timer calibration...".as_ptr()) };
+    kprint!("timer calibration...");
 
     // SAFETY: `unit` is the mapped local-APIC page.
     unsafe { apic::reg_write(&raw mut (*unit).init_count, start) };
@@ -497,8 +490,7 @@ fn measure_10x_apic_hz() -> u32 {
         );
     }
 
-    // SAFETY: as the first message.
-    unsafe { glue::printf(c" done\n".as_ptr()) };
+    kprint!(" done\n");
 
     // SAFETY: `unit` is the mapped local-APIC page; the subtraction wraps on
     // the 32-bit counter exactly as the C's unsigned arithmetic did.
@@ -551,14 +543,7 @@ fn enable_timer() {
         apic::reg_write(&raw mut (*unit).divider_config, LAPIC_TIMER_DIVIDE_2);
     }
 
-    // SAFETY: `printf` is the real C routine; the one `%d` takes the
-    // matching `c_int` vararg.
-    unsafe {
-        glue::printf(
-            c"LAPIC timer configured on cpu%d\n".as_ptr(),
-            cpu_number(),
-        )
-    };
+    kprint!("LAPIC timer configured on cpu{}\n", cpu_number());
 }
 
 /// The body of `ioapic_configure()` in C: program the IOAPICs from the MADT
@@ -574,9 +559,7 @@ fn configure() {
         HAS_IRQ_SPECIFIC_EOI.store(true, Ordering::Relaxed);
     }
 
-    // SAFETY: `printf` is the real C routine; the one `%x` takes the
-    // matching `c_int` vararg.
-    unsafe { glue::printf(c"IOAPIC version 0x%x\n".as_ptr(), version) };
+    kprint!("IOAPIC version 0x{:x}\n", version);
 
     let unit = apic::lapic_ptr();
     // SAFETY: `unit` is the mapped local-APIC page.
@@ -623,14 +606,7 @@ fn configure() {
         }
     }
 
-    // SAFETY: as the version message; the one `%d` takes the matching
-    // `c_int`.
-    unsafe {
-        glue::printf(
-            c"IOAPIC 0 configured with GSI 0-%d\n".as_ptr(),
-            ngsis - 1,
-        )
-    };
+    kprint!("IOAPIC 0 configured with GSI 0-{}\n", ngsis - 1);
 
     if 1 < apic::num_ioapics() {
         apic = 1;
@@ -648,15 +624,11 @@ fn configure() {
             mask(pin + ngsis);
         }
 
-        // SAFETY: as the version message; the two `%d`s take the matching
-        // `c_int`s.
-        unsafe {
-            glue::printf(
-                c"IOAPIC 1 configured with GSI %d-%d\n".as_ptr(),
-                ngsis,
-                ngsis + ngsis2 - 1,
-            )
-        };
+        kprint!(
+            "IOAPIC 1 configured with GSI {}-{}\n",
+            ngsis,
+            ngsis + ngsis2 - 1,
+        );
     }
 
     apic::setup();
@@ -755,9 +727,7 @@ pub extern "C" fn ioapic_configure() {
 
 /// Report the interrupt on a pin that has no handler.
 fn null(unit: c_int) {
-    // SAFETY: `printf` is the real C routine <kern/printf.h> declares; the one
-    // `%d` conversion takes the matching `c_int` vararg.
-    unsafe { glue::printf(c"intnull(%d)\n".as_ptr(), unit) };
+    kprint!("intnull({})\n", unit);
 }
 
 /// Report the interrupt on a pin that has no handler.

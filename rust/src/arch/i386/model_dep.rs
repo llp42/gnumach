@@ -23,6 +23,8 @@ use crate::arch::vm_param::{PAGE_MASK, PAGE_SHIFT};
 use crate::glue;
 use crate::glue::time_value::TimeValue64;
 use crate::kern::bootstrap::{MultibootRawInfo, MultibootRawModule};
+use crate::kern::console::{CStrArg, kprint};
+use crate::kern::debug::kpanic;
 use crate::kern::mach_clock;
 use crate::vm::types::VmProt;
 use crate::vm::vm_kern::VM_MIN_KERNEL_ADDRESS;
@@ -245,10 +247,7 @@ pub(crate) fn machine_init() {
 
     let err = crate::arch::i386::acpi_parse_apic::acpi_apic_init();
     if err != 0 {
-        // SAFETY: the `%d` takes the matching `c_int`.
-        unsafe {
-            glue::printf(c"acpi_apic_init failed with %d\n".as_ptr(), err)
-        };
+        kprint!("acpi_apic_init failed with {}\n", err);
         loop {
             core::hint::spin_loop();
         }
@@ -331,17 +330,10 @@ pub(crate) fn halt_all_cpus(reboot: c_int) -> ! {
     } else {
         // SAFETY: `rebootflag` has no other writer, and this CPU stops here.
         unsafe { rebootflag = 1 };
-        // SAFETY: both messages hold no conversion specifiers.
-        unsafe {
-            glue::printf(
-                c"Shutdown completed successfully, now in tight loop.\n"
-                    .as_ptr(),
-            );
-            glue::printf(
-                c"You can safely power off the system or hit ctl-alt-del to reboot\n"
-                    .as_ptr(),
-            );
-        }
+        kprint!("Shutdown completed successfully, now in tight loop.\n");
+        kprint!(
+            "You can safely power off the system or hit ctl-alt-del to reboot\n"
+        );
         // SAFETY: `spl0()` is the real asm function <i386/spl.h> declares.
         unsafe { glue::spl0() };
     }
@@ -518,17 +510,10 @@ fn i386at_init() {
             crate::utils::string::strlen(kv_ptr::<c_char>(phystokv(source)))
         } + 1;
         let Some(mem) = alloc_aligned(length) else {
-            // SAFETY: `Panic` does not return, and the message holds no
-            // conversion specifiers.
-            unsafe {
-                glue::Panic(
-                    c"i386/i386at/model_dep.c".as_ptr(),
-                    line!() as c_int,
-                    c"i386at_init".as_ptr(),
-                    c"could not allocate memory for multiboot command line"
-                        .as_ptr(),
-                )
-            }
+            kpanic!(
+                "i386at_init",
+                "could not allocate memory for multiboot command line"
+            )
         };
         // SAFETY: `source` names `length` readable bytes and the boot
         // allocator returned `length` writable ones.
@@ -551,17 +536,10 @@ fn i386at_init() {
         let bytes =
             mods_count.wrapping_mul(size_of::<MultibootRawModule>() as u32);
         let Some(mem) = alloc_aligned(address(bytes)) else {
-            // SAFETY: `Panic` does not return, and the message holds no
-            // conversion specifiers.
-            unsafe {
-                glue::Panic(
-                    c"i386/i386at/model_dep.c".as_ptr(),
-                    line!() as c_int,
-                    c"i386at_init".as_ptr(),
-                    c"could not allocate memory for multiboot modules"
-                        .as_ptr(),
-                )
-            }
+            kpanic!(
+                "i386at_init",
+                "could not allocate memory for multiboot modules"
+            )
         };
         let modules = kv_ptr_mut::<MultibootRawModule>(phystokv(mem));
         // SAFETY: the loader stored `mods_count` records at `mods_addr`, the
@@ -587,17 +565,11 @@ fn i386at_init() {
             };
             let size = end.wrapping_sub(start);
             let Some(image) = alloc_aligned(address(size)) else {
-                // SAFETY: `Panic` does not return, and the `%d` takes `i`.
-                unsafe {
-                    glue::Panic(
-                        c"i386/i386at/model_dep.c".as_ptr(),
-                        line!() as c_int,
-                        c"i386at_init".as_ptr(),
-                        c"could not allocate memory for multiboot module %d"
-                            .as_ptr(),
-                        i,
-                    )
-                }
+                kpanic!(
+                    "i386at_init",
+                    "could not allocate memory for multiboot module {}",
+                    i
+                )
             };
             // SAFETY: `start` names `size` readable bytes and the boot
             // allocator returned `size` writable ones.
@@ -623,17 +595,11 @@ fn i386at_init() {
                 )))
             } + 1;
             let Some(name) = alloc_aligned(length) else {
-                // SAFETY: `Panic` does not return, and the `%d` takes `i`.
-                unsafe {
-                    glue::Panic(
-                        c"i386/i386at/model_dep.c".as_ptr(),
-                        line!() as c_int,
-                        c"i386at_init".as_ptr(),
-                        c"could not allocate memory for multiboot module command line %d"
-                            .as_ptr(),
-                        i,
-                    )
-                }
+                kpanic!(
+                    "i386at_init",
+                    "could not allocate memory for multiboot module command line {}",
+                    i
+                )
             };
             // SAFETY: `string_start` names `length` readable bytes and the
             // boot allocator returned `length` writable ones.
@@ -693,12 +659,11 @@ pub(crate) fn c_boot_entry(bi: VmOffset) {
     // loader's block there is readable.
     unsafe { boot_info = *kv_ptr::<MultibootRawInfo>(phystokv(bi)) };
 
-    // SAFETY: both are the literals of the C, and the second takes no
-    // arguments.
-    unsafe {
-        glue::printf(c"%s".as_ptr(), ptr::addr_of!(glue::version));
-        glue::printf(c"\n".as_ptr());
-    }
+    // SAFETY: `glue::version` is the NUL-terminated version string.
+    kprint!("{}", unsafe {
+        CStrArg::from_ptr(ptr::addr_of!(glue::version))
+    });
+    kprint!("\n");
 
     // SAFETY: `discover_x86_cpu_type` is the real asm routine of
     // `i386/i386/locore.S`.
@@ -731,14 +696,10 @@ pub(crate) fn c_boot_entry(bi: VmOffset) {
             5 => CPU_TYPE_PENTIUM,
             6 | 15 => CPU_TYPE_PENTIUMPRO,
             other => {
-                // SAFETY: the `%d` takes the matching `c_int`.
-                unsafe {
-                    glue::printf(
-                        c"warning: unknown cpu type %d, assuming i386\n"
-                            .as_ptr(),
-                        other,
-                    )
-                };
+                kprint!(
+                    "warning: unknown cpu type {}, assuming i386\n",
+                    other
+                );
                 CPU_TYPE_I386
             }
         };

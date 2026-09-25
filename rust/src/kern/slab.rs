@@ -11,6 +11,8 @@ use crate::arch::i386::phys::kvtophys;
 use crate::arch::types::{VmOffset, VmSize};
 use crate::arch::vm_param::PAGE_SIZE;
 use crate::glue;
+use crate::kern::console::{CStrArg, kprint};
+use crate::kern::debug::kpanic;
 use crate::kern::list::{List, entry as list_entry};
 use crate::kern::lock::SimpleLock;
 use crate::kern::mach_clock;
@@ -551,16 +553,10 @@ impl KmemCache {
             self.flags.insert(CacheFlags::PHYSMEM);
 
             if self.slab_size != PAGE_SIZE {
-                // SAFETY: `Panic` does not return; the file, line, function
-                // and message are the C `panic()` call's.
-                unsafe {
-                    glue::Panic(
-                        c"rust/src/kern/slab.rs".as_ptr(),
-                        line!() as c_int,
-                        c"kmem_cache_compute_properties".as_ptr(),
-                        c"slab: invalid cache parameters".as_ptr(),
-                    )
-                };
+                kpanic!(
+                    "kmem_cache_compute_properties",
+                    "slab: invalid cache parameters"
+                );
             }
         }
 
@@ -978,72 +974,44 @@ impl KmemCache {
 
     /// `kmem_cache_error()` in C: report and halt.
     fn error(&self, buf: *mut u8, error: CacheError, arg: *mut c_void) -> ! {
-        // SAFETY: the name is NUL-terminated by `init()`, and the format is
-        // the C's with the arguments its conversions read.
-        unsafe {
-            glue::printf(
-                c"mem: warning: kmem_cache_error(): cache: %s, buffer: %p\n"
-                    .as_ptr(),
-                self.name.as_ptr(),
-                buf,
-            );
-        }
+        // SAFETY: the name is NUL-terminated by `init()`.
+        let name = unsafe { CStrArg::from_ptr(self.name.as_ptr()) };
+        kprint!(
+            "mem: warning: kmem_cache_error(): cache: {}, buffer: {:x}\n",
+            name,
+            buf.expose_provenance(),
+        );
 
         // The C's `%td` reads a ptrdiff_t; the offset is inside one buffer,
         // far below `isize::MAX`.
         let offset = arg.addr().wrapping_sub(buf.addr());
 
         match error {
-            CacheError::Invalid => unsafe {
-                glue::Panic(
-                    c"rust/src/kern/slab.rs".as_ptr(),
-                    line!() as c_int,
-                    c"kmem_cache_error".as_ptr(),
-                    c"mem: error: kmem_cache_error(): freeing invalid address\n"
-                        .as_ptr(),
-                )
-            },
-            CacheError::DoubleFree => unsafe {
-                glue::Panic(
-                    c"rust/src/kern/slab.rs".as_ptr(),
-                    line!() as c_int,
-                    c"kmem_cache_error".as_ptr(),
-                    c"mem: error: kmem_cache_error(): attempting to free the same address twice\n"
-                        .as_ptr(),
-                )
-            },
-            CacheError::Buftag => unsafe {
-                glue::Panic(
-                    c"rust/src/kern/slab.rs".as_ptr(),
-                    line!() as c_int,
-                    c"kmem_cache_error".as_ptr(),
-                    c"mem: error: kmem_cache_error(): invalid buftag content, buftag state: %p\n"
-                        .as_ptr(),
-                    arg,
-                )
-            },
-            CacheError::Modified => unsafe {
-                glue::Panic(
-                    c"rust/src/kern/slab.rs".as_ptr(),
-                    line!() as c_int,
-                    c"kmem_cache_error".as_ptr(),
-                    c"mem: error: kmem_cache_error(): free buffer modified, fault address: %p, offset in buffer: %td\n"
-                        .as_ptr(),
-                    arg,
-                    offset as isize,
-                )
-            },
-            CacheError::Redzone => unsafe {
-                glue::Panic(
-                    c"rust/src/kern/slab.rs".as_ptr(),
-                    line!() as c_int,
-                    c"kmem_cache_error".as_ptr(),
-                    c"mem: error: kmem_cache_error(): write beyond end of buffer, fault address: %p, offset in buffer: %td\n"
-                        .as_ptr(),
-                    arg,
-                    offset as isize,
-                )
-            },
+            CacheError::Invalid => kpanic!(
+                "kmem_cache_error",
+                "mem: error: kmem_cache_error(): freeing invalid address\n"
+            ),
+            CacheError::DoubleFree => kpanic!(
+                "kmem_cache_error",
+                "mem: error: kmem_cache_error(): attempting to free the same address twice\n"
+            ),
+            CacheError::Buftag => kpanic!(
+                "kmem_cache_error",
+                "mem: error: kmem_cache_error(): invalid buftag content, buftag state: {:x}\n",
+                arg.expose_provenance()
+            ),
+            CacheError::Modified => kpanic!(
+                "kmem_cache_error",
+                "mem: error: kmem_cache_error(): free buffer modified, fault address: {:x}, offset in buffer: {}\n",
+                arg.expose_provenance(),
+                offset as isize
+            ),
+            CacheError::Redzone => kpanic!(
+                "kmem_cache_error",
+                "mem: error: kmem_cache_error(): write beyond end of buffer, fault address: {:x}, offset in buffer: {}\n",
+                arg.expose_provenance(),
+                offset as isize
+            ),
         }
     }
 
@@ -1104,15 +1072,10 @@ impl KmemSlab {
                     glue::vm_page_lookup_pa(kvtophys(slab_buf.as_ptr().addr()))
                 };
                 let Some(page) = NonNull::new(page) else {
-                    // SAFETY: `Panic` does not return.
-                    unsafe {
-                        glue::Panic(
-                            c"rust/src/kern/slab.rs".as_ptr(),
-                            line!() as c_int,
-                            c"kmem_slab_create".as_ptr(),
-                            c"kmem_slab_create: missing page".as_ptr(),
-                        )
-                    }
+                    kpanic!(
+                        "kmem_slab_create",
+                        "kmem_slab_create: missing page"
+                    )
                 };
                 // SAFETY: the page is live and this cache owns its private
                 // field.
@@ -1483,15 +1446,10 @@ unsafe fn pagefree_physmem(addr: VmOffset, _size: VmSize) {
     // finds it.
     let page = unsafe { glue::vm_page_lookup_pa(kvtophys(addr)) };
     let Some(page) = NonNull::new(page) else {
-        // SAFETY: `Panic` does not return.
-        unsafe {
-            glue::Panic(
-                c"rust/src/kern/slab.rs".as_ptr(),
-                line!() as c_int,
-                c"kmem_pagefree_physmem".as_ptr(),
-                c"kmem_pagefree_physmem: missing page".as_ptr(),
-            )
-        }
+        kpanic!(
+            "kmem_pagefree_physmem",
+            "kmem_pagefree_physmem: missing page"
+        )
     };
 
     // SAFETY: the page is live, and the release takes the page-queues lock
@@ -1511,19 +1469,12 @@ unsafe fn pagefree_virtual(addr: VmOffset, size: VmSize) {
     let end = unsafe { glue::kernel_virtual_end };
 
     if addr < start || addr.wrapping_add(size) > end {
-        // SAFETY: `Panic` does not return; the format and its two arguments
-        // are the C's.
-        unsafe {
-            glue::Panic(
-                c"rust/src/kern/slab.rs".as_ptr(),
-                line!() as c_int,
-                c"kmem_pagefree_virtual".as_ptr(),
-                c"kmem_pagefree_virtual(%lx-%lx) falls in physical memory area!\n"
-                    .as_ptr(),
-                addr,
-                addr.wrapping_add(size),
-            )
-        };
+        kpanic!(
+            "kmem_pagefree_virtual",
+            "kmem_pagefree_virtual({:x}-{:x}) falls in physical memory area!\n",
+            addr,
+            addr.wrapping_add(size)
+        );
     }
 
     let size = round_page(size);
@@ -1531,16 +1482,7 @@ unsafe fn pagefree_virtual(addr: VmOffset, size: VmSize) {
     let map = unsafe { &mut *glue::kernel_map.cast::<VmMap>() };
 
     if vm_kern::kmem_free(map, addr, size).is_err() {
-        // SAFETY: `Panic` does not return; the C `kmem_free()` panicked with
-        // this message on failure.
-        unsafe {
-            glue::Panic(
-                c"rust/src/kern/slab.rs".as_ptr(),
-                line!() as c_int,
-                c"kmem_free".as_ptr(),
-                c"kmem_free".as_ptr(),
-            )
-        };
+        kpanic!("kmem_free", "kmem_free");
     }
 }
 
@@ -1799,15 +1741,9 @@ pub(crate) fn slab_collect() {
 /// `slab_info()` in C.
 pub(crate) fn slab_info() {
     /// The header `_slab_info()` prints.
-    const HEADER: &core::ffi::CStr = c"cache                         obj slab  bufs   objs   bufs    total reclaimable\nname                 flags   size size /slab  usage  count   memory      memory\n";
-    /// The per-cache row, the C's format exactly.
-    const ROW: &core::ffi::CStr =
-        c"%-20s %04x %7lu %3luk  %4lu %6lu %6lu %7uk %10uk\n";
-    /// The summary row.
-    const TOTAL: &core::ffi::CStr = c"total: %uk, reclaimable: %uk\n";
+    const HEADER: &str = "cache                         obj slab  bufs   objs   bufs    total reclaimable\nname                 flags   size size /slab  usage  count   memory      memory\n";
 
-    // SAFETY: the format is a literal with no arguments.
-    unsafe { glue::printf(HEADER.as_ptr()) };
+    kprint!("{}", HEADER);
 
     KMEM_CACHE_LIST_LOCK.lock();
 
@@ -1823,22 +1759,20 @@ pub(crate) fn slab_info() {
         let mem_usage = (cache.nr_slabs * slab_size) >> 10;
         let mem_reclaimable = (cache.nr_free_slabs * slab_size) >> 10;
 
-        // SAFETY: every argument has the type the row format's conversion
-        // reads, as in the C.
-        unsafe {
-            glue::printf(
-                ROW.as_ptr(),
-                cache.name.as_ptr(),
-                cache.flags.0,
-                cache.obj_size,
-                cache.slab_size >> 10,
-                cache.bufs_per_slab,
-                cache.nr_objs,
-                cache.nr_bufs,
-                mem_usage,
-                mem_reclaimable,
-            );
-        }
+        // SAFETY: the name is NUL-terminated by `init()`.
+        let name = unsafe { CStrArg::from_ptr(cache.name.as_ptr()) };
+        kprint!(
+            "{:<20} {:04x} {:>7} {:>3}k  {:>4} {:>6} {:>6} {:>7}k {:>10}k\n",
+            name,
+            cache.flags.0,
+            cache.obj_size,
+            cache.slab_size >> 10,
+            cache.bufs_per_slab,
+            cache.nr_objs,
+            cache.nr_bufs,
+            mem_usage,
+            mem_reclaimable,
+        );
 
         cache.lock.unlock();
 
@@ -1848,8 +1782,11 @@ pub(crate) fn slab_info() {
 
     KMEM_CACHE_LIST_LOCK.unlock();
 
-    // SAFETY: as above, with the two totals.
-    unsafe { glue::printf(TOTAL.as_ptr(), mem_total, mem_total_reclaimable) };
+    kprint!(
+        "total: {}k, reclaimable: {}k\n",
+        mem_total,
+        mem_total_reclaimable
+    );
 }
 
 /// The number of caches on the global list, the C's unsynchronized read of

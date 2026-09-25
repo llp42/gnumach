@@ -16,7 +16,7 @@ use crate::arch::i386::io_req::DevT;
 use crate::arch::i386::model_dep;
 use crate::arch::types::{VmOffset, VmSize};
 use crate::arch::vm_param::PAGE_SIZE;
-use crate::glue;
+use crate::kern::debug::kpanic;
 use crate::vm::types::VmProt;
 use core::ffi::c_int;
 
@@ -79,23 +79,13 @@ pub unsafe extern "C" fn init_alloc_aligned(
 ///
 /// # Panics
 ///
-/// Halts through [`glue::Panic`] when no page is left, as the C `panic()` did.
+/// Halts the kernel when no page is left, as the C `panic()` did.
 #[unsafe(no_mangle)]
 pub extern "C" fn pmap_grab_page() -> VmOffset {
     match model_dep::alloc_aligned(PAGE_SIZE) {
         Some(address) => address,
         None => {
-            // SAFETY: `Panic` does not return; both pointers are
-            // NUL-terminated `c"..."` literals, and the message holds no
-            // conversion specifier for the varargs it never receives.
-            unsafe {
-                glue::Panic(
-                    c"i386/i386at/model_dep.c".as_ptr(),
-                    line!() as c_int,
-                    c"pmap_grab_page".as_ptr(),
-                    c"Not enough memory to initialize Mach".as_ptr(),
-                )
-            }
+            kpanic!("pmap_grab_page", "Not enough memory to initialize Mach")
         }
     }
 }

@@ -13,8 +13,8 @@
 use crate::arch::i386::mp_desc::cpu_control;
 use crate::arch::i386::percpu::percpu_at;
 use crate::config::NCPUS;
-use crate::glue;
 use crate::ipc::IpcPort;
+use crate::kern::debug::kpanic;
 use crate::kern::ipc_host;
 use crate::kern::ipc_tt::{convert_task_to_port, convert_thread_to_port};
 use crate::kern::lock::SimpleLock;
@@ -569,17 +569,10 @@ impl ProcessorSet {
             || self.task_count > 0
             || self.processor_count > 0
         {
-            // SAFETY: `Panic` does not return; the message and the function
-            // tag are the C `panic()` call's.
-            unsafe {
-                glue::Panic(
-                    c"kern/processor.c".as_ptr(),
-                    line!() as c_int,
-                    c"pset_deallocate".as_ptr(),
-                    c"pset_deallocate: destroy default or active pset"
-                        .as_ptr(),
-                )
-            }
+            kpanic!(
+                "pset_deallocate",
+                "pset_deallocate: destroy default or active pset"
+            )
         }
 
         // SAFETY: the set is linked into `all_psets` and both locks are held;
@@ -761,20 +754,16 @@ impl ProcessorSet {
     ///
     /// # Panics
     ///
-    /// Panics through [`glue::Panic`] when `processor` does not belong to this
+    /// Panics through [`kpanic!`] when `processor` does not belong to this
     /// set, as the C `panic()` did.
     pub unsafe fn remove_processor(&mut self, processor: *mut Processor) {
         // SAFETY: the caller promises a live processor linked into this set,
         // and the check below is the C's own guard against a wrong one.
         unsafe {
             if ptr::from_mut(self) != (*processor).processor_set {
-                // SAFETY: `Panic` does not return; the message and the
-                // function tag are the C `panic()` call's.
-                glue::Panic(
-                    c"kern/processor.c".as_ptr(),
-                    line!() as c_int,
-                    c"pset_remove_processor".as_ptr(),
-                    c"pset_remove_processor: wrong pset".as_ptr(),
+                kpanic!(
+                    "pset_remove_processor",
+                    "pset_remove_processor: wrong pset"
                 )
             }
             queue_remove_generic(

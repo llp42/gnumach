@@ -9,7 +9,8 @@
 //! symbol `vm/vm_kern.c` used to define and `vm/vm_kern.h` declares.
 
 use crate::arch::types::{VmOffset, VmSize};
-use crate::glue::{Panic, kernel_pmap};
+use crate::glue::kernel_pmap;
+use crate::kern::debug::kpanic;
 use crate::vm::error::{KERN_INVALID_ARGUMENT, KERN_SUCCESS, kern_return};
 use crate::vm::types::{VmInherit, VmObject, VmProt};
 use crate::vm::vm_kern;
@@ -161,16 +162,7 @@ pub unsafe extern "C" fn kmem_free(
     // SAFETY: the caller promises a valid, non-null map.
     let map = unsafe { &mut *map };
     if vm_kern::kmem_free(map, addr, size).is_err() {
-        // SAFETY: `Panic` does not return; the file, function and message are
-        // this port's, as the C `panic("kmem_free")` had them.
-        unsafe {
-            Panic(
-                c"rust/src/vm/vm_kern_ffi.rs".as_ptr(),
-                line!() as c_int,
-                c"kmem_free".as_ptr(),
-                c"kmem_free".as_ptr(),
-            )
-        };
+        kpanic!("kmem_free", "kmem_free");
     }
 }
 
@@ -200,18 +192,7 @@ pub unsafe extern "C" fn kmem_submap(
                 max.write(max_addr);
             }
         }
-        Err(_) => {
-            // SAFETY: `Panic` does not return; the C panicked on either
-            // failure with the same message.
-            unsafe {
-                Panic(
-                    c"rust/src/vm/vm_kern_ffi.rs".as_ptr(),
-                    line!() as c_int,
-                    c"kmem_submap".as_ptr(),
-                    c"kmem_submap".as_ptr(),
-                )
-            };
-        }
+        Err(_) => kpanic!("kmem_submap", "kmem_submap"),
     }
 }
 
@@ -230,17 +211,11 @@ pub unsafe extern "C" fn kmem_init(start: VmOffset, end: VmOffset) {
     match vm_kern::kmem_init(map, pmap, start, end) {
         Ok(()) => (),
         Err(error) => {
-            // SAFETY: `Panic` does not return; the format has the one
-            // argument the C's `panic("vm_map_enter failed (%d)\n", rc)` had.
-            unsafe {
-                Panic(
-                    c"rust/src/vm/vm_kern_ffi.rs".as_ptr(),
-                    line!() as c_int,
-                    c"kmem_init".as_ptr(),
-                    c"vm_map_enter failed (%d)\n".as_ptr(),
-                    error.as_kern_return(),
-                )
-            };
+            kpanic!(
+                "kmem_init",
+                "vm_map_enter failed ({})\n",
+                error.as_kern_return()
+            );
         }
     }
 }
@@ -413,16 +388,7 @@ pub unsafe extern "C" fn kmem_alloc_aligned(
     size: VmSize,
 ) -> c_int {
     if size & size.wrapping_sub(1) != 0 {
-        // SAFETY: `Panic` does not return; the file, function and message
-        // are this port's, as the C `panic("kmem_alloc_aligned")` had them.
-        unsafe {
-            Panic(
-                c"rust/src/vm/vm_kern_ffi.rs".as_ptr(),
-                line!() as c_int,
-                c"kmem_alloc_aligned".as_ptr(),
-                c"kmem_alloc_aligned".as_ptr(),
-            )
-        };
+        kpanic!("kmem_alloc_aligned", "kmem_alloc_aligned");
     }
 
     // SAFETY: the caller promises a valid, non-null map.

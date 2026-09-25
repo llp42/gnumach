@@ -11,10 +11,11 @@ use crate::arch::i386::phys;
 use crate::arch::types::{VmOffset, VmSize};
 use crate::arch::vm_param::{PAGE_SHIFT, PAGE_SIZE};
 use crate::glue::{
-    Panic, kernel_pmap, pmap_enter, pmap_virtual_space, printf,
-    vm_page_bootalloc,
+    kernel_pmap, pmap_enter, pmap_virtual_space, vm_page_bootalloc,
 };
 use crate::ipc::HashInfoBucket;
+use crate::kern::console::kprint;
+use crate::kern::debug::kpanic;
 use crate::kern::list::{List, entry};
 use crate::kern::lock::SimpleLock;
 use crate::kern::queue::{queue_enter_tail, queue_remove_generic};
@@ -24,7 +25,7 @@ use crate::vm::types::{VmObject, VmPage, VmProt};
 use crate::vm::vm_map::{round_page, trunc_page};
 use crate::vm::vm_page;
 use core::cell::UnsafeCell;
-use core::ffi::{CStr, c_int, c_uint, c_ushort};
+use core::ffi::{c_int, c_uint, c_ushort};
 use core::mem::{offset_of, size_of};
 use core::ptr::{NonNull, addr_of_mut, null_mut};
 use core::sync::atomic::{AtomicBool, AtomicI32, Ordering};
@@ -177,20 +178,9 @@ fn state() -> *mut ResidentState {
     RESIDENT_STATE.0.get()
 }
 
-/// `panic()` of vm/vm_resident.c at the caller's line.
-#[track_caller]
-fn die(func: &'static CStr, message: &'static CStr) -> ! {
-    let location = core::panic::Location::caller();
-    // SAFETY: `Panic` does not return; the file, function and message are
-    // this module's, and the line fits the `c_int` the format takes.
-    unsafe {
-        Panic(
-            c"rust/src/vm/vm_resident.rs".as_ptr(),
-            location.line() as c_int,
-            func.as_ptr(),
-            message.as_ptr(),
-        )
-    }
+/// `panic()` of vm/vm_resident.c.
+fn die(func: &'static str, message: &'static str) -> ! {
+    kpanic!(func, "{}", message)
 }
 
 /// The list node `page` links by, for the fictitious-page list.
@@ -314,31 +304,18 @@ pub(crate) fn bootstrap() -> (VmOffset, VmOffset) {
     unsafe { (*state()).hash_mask = hash_mask };
 
     if hash_mask & bucket_count != 0 {
-        // SAFETY: `printf` is the kernel's formatter and the string is the
-        // C's.
-        unsafe {
-            printf(
-                c"vm_page_bootstrap: WARNING -- strange page hash\n".as_ptr(),
-            )
-        };
+        kprint!("vm_page_bootstrap: WARNING -- strange page hash\n");
     }
 
     let size = bucket_count.wrapping_mul(size_of::<PageBucket>());
     let buckets = match pmap_steal_memory(size) {
         Ok(addr) => addr,
         Err(size) => {
-            // SAFETY: `Panic` does not return; the message and its `%d`
-            // argument are the C `panic()`'s.
-            unsafe {
-                Panic(
-                    c"rust/src/vm/vm_resident.rs".as_ptr(),
-                    line!() as c_int,
-                    c"pmap_steal_memory".as_ptr(),
-                    c"not enough kernel virtual space for %dMB virtual allocation!\n"
-                        .as_ptr(),
-                    (size >> 20) as c_int,
-                )
-            }
+            kpanic!(
+                "pmap_steal_memory",
+                "not enough kernel virtual space for {}MB virtual allocation!\n",
+                size >> 20
+            )
         }
     };
     // `vm_offset_t` and a pointer are the same width on both targets.
@@ -401,7 +378,7 @@ pub(crate) unsafe fn insert(
         }
 
         if (*page).is_tabled() {
-            die(c"vm_page_insert", c"vm_page_insert");
+            die("vm_page_insert", "vm_page_insert");
         }
 
         (*page).object = object;
@@ -478,7 +455,7 @@ pub(crate) unsafe fn replace(
         }
 
         if (*page).is_tabled() {
-            die(c"vm_page_replace", c"vm_page_replace");
+            die("vm_page_replace", "vm_page_replace");
         }
 
         (*page).object = object;
@@ -672,7 +649,7 @@ unsafe fn release_fictitious(mem: NonNull<VmPage>) {
     // SAFETY: the free lock is held and the page is live.
     unsafe {
         if (*page).is_free() {
-            die(c"vm_page_release_fictitious", c"vm_page_release_fictitious");
+            die("vm_page_release_fictitious", "vm_page_release_fictitious");
         }
 
         (*page).set_free(true);
@@ -699,7 +676,7 @@ pub(crate) unsafe fn more_fictitious() {
         // lock serializes the allocation.
         let page = unsafe { (*addr_of_mut!(VM_PAGE_CACHE)).alloc() }
             .map_or_else(
-                || die(c"vm_page_more_fictitious", c"vm_page_more_fictitious"),
+                || die("vm_page_more_fictitious", "vm_page_more_fictitious"),
                 |buf| buf.cast::<VmPage>(),
             );
 
@@ -826,7 +803,7 @@ pub(crate) unsafe fn free_contig(mem: NonNull<VmPage>, size: VmSize) {
         // SAFETY: `i` is inside the block the caller owns.
         let page = unsafe { &mut *mem.as_ptr().add(i as usize) };
         if page.is_free() {
-            die(c"vm_page_free_contig", c"vm_page_free_contig");
+            die("vm_page_free_contig", "vm_page_free_contig");
         }
         page.set_free(true);
         i += 1;
@@ -852,7 +829,7 @@ pub(crate) unsafe fn free(mem: NonNull<VmPage>) {
     // SAFETY: the caller promises the live page.
     unsafe {
         if (*page).is_free() {
-            die(c"vm_page_free", c"vm_page_free");
+            die("vm_page_free", "vm_page_free");
         }
 
         if (*page).is_tabled() {
@@ -1139,16 +1116,7 @@ pub(crate) unsafe fn release(
 
     // SAFETY: the free lock serializes the flag, and the page is live.
     if unsafe { (*ptr).is_free() } {
-        // SAFETY: `Panic` does not return; the function and message are the
-        // C `panic()`'s.
-        unsafe {
-            Panic(
-                c"rust/src/vm/vm_resident.rs".as_ptr(),
-                line!() as c_int,
-                c"vm_page_release".as_ptr(),
-                c"vm_page_release".as_ptr(),
-            )
-        }
+        kpanic!("vm_page_release", "vm_page_release");
     }
 
     // SAFETY: the free lock is held and guards the flag.

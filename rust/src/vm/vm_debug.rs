@@ -10,9 +10,10 @@
 
 use crate::arch::types::{RpcPhysAddr, VmOffset, VmSize};
 use crate::arch::vm_param::PAGE_SIZE;
-use crate::glue::{Panic, pmap_is_modified, pmap_is_referenced};
+use crate::glue::{pmap_is_modified, pmap_is_referenced};
 use crate::ipc::ipc_init;
 use crate::ipc::{HashInfoBucket, IpcPort, ipc_port};
+use crate::kern::debug::kpanic;
 use crate::kern::host::Host;
 use crate::vm::error::Error;
 use crate::vm::types::{VmObject, VmPage};
@@ -245,21 +246,10 @@ const fn as_index(count: c_uint) -> usize {
     count as usize
 }
 
-/// `panic()` of vm_debug.c at the caller's line; the C called it with the
-/// routine name as both tags.
-#[track_caller]
-fn die(message: &'static core::ffi::CStr) -> ! {
-    let location = core::panic::Location::caller();
-    // SAFETY: `Panic` does not return; the file, function and message are
-    // the C `panic()` macro's, and the line fits the `c_int` it takes.
-    unsafe {
-        Panic(
-            c"rust/src/vm/vm_debug.rs".as_ptr(),
-            location.line() as c_int,
-            c"_mach_vm_object_pages".as_ptr(),
-            message.as_ptr(),
-        )
-    }
+/// `panic()` of vm_debug.c; the C called it with the routine name as both
+/// tags.
+fn die(message: &'static str) -> ! {
+    kpanic!("_mach_vm_object_pages", "{}", message)
 }
 
 /// `vm_object_real_name()` in C: a send right for the object's name port, or
@@ -681,7 +671,7 @@ unsafe fn object_pages<R: PageRecord>(
 
     if unsafe { (*object).resident_page_count != as_index(count) } {
         // The C `panic()` does not return.
-        die(c"mach_vm_object_pages");
+        die("mach_vm_object_pages");
     }
     // SAFETY: the object was locked above.
     unsafe { (*object).lock.unlock() };

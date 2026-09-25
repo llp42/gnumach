@@ -12,26 +12,13 @@
 
 use crate::arch::types::{VmOffset, VmSize};
 use crate::device::dev_pager;
-use crate::glue;
 use crate::ipc::IpcPort;
+use crate::kern::debug::kpanic;
 use crate::vm::types::VmProt;
-use core::ffi::{CStr, c_int, c_uint, c_void};
+use core::ffi::{c_int, c_uint, c_void};
 
 /// `KERN_SUCCESS` of <mach/kern_return.h>.
 const KERN_SUCCESS: c_int = 0;
-
-/// Halt with the message the C `panic()` of `device/dev_pager.c` printed.
-fn unimplemented(line: c_int, fun: &CStr, message: &CStr) -> ! {
-    // SAFETY: `Panic` does not return.
-    unsafe {
-        glue::Panic(
-            c"device/dev_pager.c".as_ptr(),
-            line,
-            fun.as_ptr(),
-            message.as_ptr(),
-        )
-    }
-}
 
 /// `device_pager_setup()` of `device/dev_pager.c`.
 ///
@@ -150,7 +137,7 @@ pub unsafe extern "C" fn device_pager_init() {
 ///
 /// # Panics
 ///
-/// Always, through [`glue::Panic`], as the C did.
+/// Always, through [`kpanic!`], as the C did.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn device_pager_copy(
     _old_memory_object: Option<IpcPort>,
@@ -159,11 +146,7 @@ pub unsafe extern "C" fn device_pager_copy(
     _length: VmSize,
     _new_memory_object: Option<IpcPort>,
 ) -> c_int {
-    unimplemented(
-        line!() as c_int,
-        c"device_pager_copy",
-        c"(device_pager)copy: called",
-    )
+    kpanic!("device_pager_copy", "(device_pager)copy: called")
 }
 
 /// `device_pager_supply_completed()` of `device/dev_pager.c`.
@@ -174,7 +157,7 @@ pub unsafe extern "C" fn device_pager_copy(
 ///
 /// # Panics
 ///
-/// Always, through [`glue::Panic`], as the C did.
+/// Always, through [`kpanic!`], as the C did.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn device_pager_supply_completed(
     _device_pager: Option<IpcPort>,
@@ -184,10 +167,9 @@ pub unsafe extern "C" fn device_pager_supply_completed(
     _result: c_int,
     _error_offset: VmOffset,
 ) -> c_int {
-    unimplemented(
-        line!() as c_int,
-        c"device_pager_supply_completed",
-        c"(device_pager)supply_completed: called",
+    kpanic!(
+        "device_pager_supply_completed",
+        "(device_pager)supply_completed: called"
     )
 }
 
@@ -199,7 +181,7 @@ pub unsafe extern "C" fn device_pager_supply_completed(
 ///
 /// # Panics
 ///
-/// Always, through [`glue::Panic`], as the C did.
+/// Always, through [`kpanic!`], as the C did.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn device_pager_data_return(
     _device_pager: Option<IpcPort>,
@@ -210,10 +192,9 @@ pub unsafe extern "C" fn device_pager_data_return(
     _dirty: c_int,
     _kernel_copy: c_int,
 ) -> c_int {
-    unimplemented(
-        line!() as c_int,
-        c"device_pager_data_return",
-        c"(device_pager)data_return: called",
+    kpanic!(
+        "device_pager_data_return",
+        "(device_pager)data_return: called"
     )
 }
 
@@ -225,17 +206,16 @@ pub unsafe extern "C" fn device_pager_data_return(
 ///
 /// # Panics
 ///
-/// Always, through [`glue::Panic`], as the C did.
+/// Always, through [`kpanic!`], as the C did.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn device_pager_change_completed(
     _device_pager: Option<IpcPort>,
     _may_cache: c_int,
     _copy_strategy: c_int,
 ) -> c_int {
-    unimplemented(
-        line!() as c_int,
-        c"device_pager_change_completed",
-        c"(device_pager)change_completed: called",
+    kpanic!(
+        "device_pager_change_completed",
+        "(device_pager)change_completed: called"
     )
 }
 
@@ -247,7 +227,7 @@ pub unsafe extern "C" fn device_pager_change_completed(
 ///
 /// # Panics
 ///
-/// Always, through [`glue::Panic`], as the C did.
+/// Always, through [`kpanic!`], as the C did.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn device_pager_data_unlock(
     _device_pager: Option<IpcPort>,
@@ -256,10 +236,9 @@ pub unsafe extern "C" fn device_pager_data_unlock(
     _length: VmSize,
     _desired_access: VmProt,
 ) -> c_int {
-    unimplemented(
-        line!() as c_int,
-        c"device_pager_data_unlock",
-        c"(device_pager)data_unlock: called",
+    kpanic!(
+        "device_pager_data_unlock",
+        "(device_pager)data_unlock: called"
     )
 }
 
@@ -271,7 +250,7 @@ pub unsafe extern "C" fn device_pager_data_unlock(
 ///
 /// # Panics
 ///
-/// Always, through [`glue::Panic`], as the C did.
+/// Always, through [`kpanic!`], as the C did.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn device_pager_lock_completed(
     _device_pager: Option<IpcPort>,
@@ -279,9 +258,8 @@ pub unsafe extern "C" fn device_pager_lock_completed(
     _offset: VmOffset,
     _length: VmSize,
 ) -> c_int {
-    unimplemented(
-        line!() as c_int,
-        c"device_pager_lock_completed",
-        c"(device_pager)lock_completed: called",
+    kpanic!(
+        "device_pager_lock_completed",
+        "(device_pager)lock_completed: called"
     )
 }

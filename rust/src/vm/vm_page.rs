@@ -12,13 +12,15 @@ use crate::arch::types::{VmOffset, VmSize};
 use crate::arch::vm_param::{PAGE_SHIFT, PAGE_SIZE};
 use crate::config::NCPUS;
 use crate::glue::{
-    Panic, kernel_pmap, memory_manager_default, memory_manager_default_port,
+    kernel_pmap, memory_manager_default, memory_manager_default_port,
     pmap_clear_modify, pmap_clear_reference, pmap_extract, pmap_is_modified,
-    pmap_is_referenced, pmap_page_protect, printf, vm_object_collapse,
+    pmap_is_referenced, pmap_page_protect, vm_object_collapse,
     vm_object_collect, vm_object_pager_create, vm_page_fictitious_addr,
     vm_page_free, vm_page_insert, vm_page_queue_free_lock, vm_page_queue_lock,
     vm_page_remove,
 };
+use crate::kern::console::{CStrArg, kprint};
+use crate::kern::debug::kpanic;
 use crate::kern::list::{List, entry};
 use crate::kern::lock::SimpleLock;
 use crate::kern::queue::QueueEntry;
@@ -32,7 +34,7 @@ use crate::vm::vm_resident;
 use crate::vm::vm_user::vm_stat;
 use core::cell::UnsafeCell;
 use core::cmp::min;
-use core::ffi::{CStr, c_char, c_int, c_uint, c_ulong, c_void};
+use core::ffi::{CStr, c_char, c_int, c_uint, c_void};
 use core::mem::{align_of, offset_of, size_of};
 use core::ptr::{self, NonNull, addr_of_mut, null_mut};
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -523,20 +525,9 @@ pub(crate) const fn round_page(addr: VmOffset) -> VmOffset {
     addr.wrapping_add(PAGE_SIZE - 1) & !(PAGE_SIZE - 1)
 }
 
-/// `panic()` of `vm_page.c` at the caller's line.
-#[track_caller]
-fn die(func: &'static CStr, message: &'static CStr) -> ! {
-    let location = core::panic::Location::caller();
-    // SAFETY: `Panic` does not return; the file, function and message are
-    // this module's, and the line fits the `c_int` the format takes.
-    unsafe {
-        Panic(
-            c"rust/src/vm/vm_page.rs".as_ptr(),
-            location.line() as c_int,
-            func.as_ptr(),
-            message.as_ptr(),
-        )
-    }
+/// `panic()` of `vm_page.c`.
+fn die(func: &'static str, message: &'static str) -> ! {
+    kpanic!(func, "{}", message)
 }
 
 /// `struct vm_page_cpu_pool` of `vm_page.c`.
@@ -738,7 +729,7 @@ fn segs_size() -> usize {
 /// `index` must be below `VM_PAGE_MAX_SEGS`.
 unsafe fn boot_seg(index: usize) -> *mut BootSeg {
     if index >= VM_PAGE_MAX_SEGS {
-        die(c"vm_page_load", c"vm_page: invalid segment index");
+        die("vm_page_load", "vm_page: invalid segment index");
     }
     // SAFETY: the check above bounds the index.
     unsafe {
@@ -890,7 +881,7 @@ unsafe fn cpu_pool_get(seg: *mut VmPageSeg) -> *mut CpuPool {
 fn cpu_pool_pop(cpu_pool: &mut CpuPool) -> *mut VmPage {
     cpu_pool.nr_pages -= 1;
     let Some(node) = cpu_pool.pages.first() else {
-        die(c"vm_page_cpu_pool_pop", c"vm_page: empty CPU pool");
+        die("vm_page_cpu_pool_pop", "vm_page: empty CPU pool");
     };
     // SAFETY: the node is the `node` member of a live descriptor.
     let page =
@@ -1086,8 +1077,8 @@ unsafe fn seg_compute_pageout_thresholds(seg: *mut VmPageSeg) {
 
     if nr_pages < VM_PAGE_SEG_MIN_PAGES {
         die(
-            c"vm_page_seg_compute_pageout_thresholds",
-            c"vm_page: segment too small",
+            "vm_page_seg_compute_pageout_thresholds",
+            "vm_page: segment too small",
         );
     }
 
@@ -1217,7 +1208,7 @@ unsafe fn seg_alloc_from_buddy(
     // SAFETY: the list `i` is non-empty, so its head has a first node.
     let free_list = unsafe { &mut (*seg).free_lists[i] };
     let Some(node) = free_list.blocks.first() else {
-        die(c"vm_page_seg_alloc_from_buddy", c"vm_page: empty free list");
+        die("vm_page_seg_alloc_from_buddy", "vm_page: empty free list");
     };
     // SAFETY: the node is the `node` member of a live descriptor.
     let page =
@@ -1849,7 +1840,7 @@ unsafe fn seg_balance_page(
     }
 
     if dest.is_null() {
-        die(c"vm_page_seg_balance_page", c"vm_page: no dest page");
+        die("vm_page_seg_balance_page", "vm_page: no dest page");
     }
 
     // SAFETY: the source object lock is held.
@@ -2062,7 +2053,7 @@ fn select_alloc_seg(selector: c_uint) -> usize {
         SEL_DMA32 => SEG_DMA32,
         SEL_DIRECTMAP => SEG_DIRECTMAP,
         SEL_HIGHMEM => SEG_HIGHMEM,
-        _ => die(c"vm_page_select_alloc_seg", c"vm_page: invalid selector"),
+        _ => die("vm_page_select_alloc_seg", "vm_page: invalid selector"),
     };
 
     // The C `MIN(vm_page_segs_size - 1, seg_index)` wraps to all ones on an
@@ -2084,8 +2075,8 @@ unsafe fn boot_seg_loaded(seg: *const BootSeg) -> bool {
 fn check_boot_segs() {
     if unsafe { (*state()).segs_size } == 0 {
         die(
-            c"vm_page_check_boot_segs",
-            c"vm_page: no physical memory loaded",
+            "vm_page_check_boot_segs",
+            "vm_page: no physical memory loaded",
         );
     }
 
@@ -2102,8 +2093,8 @@ fn check_boot_segs() {
         }
 
         die(
-            c"vm_page_check_boot_segs",
-            c"vm_page: invalid boot segment table",
+            "vm_page_check_boot_segs",
+            "vm_page: invalid boot segment table",
         );
     }
 }
@@ -2149,10 +2140,7 @@ pub(crate) fn bootalloc(size: VmSize) -> VmOffset {
         i = i.wrapping_sub(1);
     }
 
-    die(
-        c"vm_page_bootalloc",
-        c"vm_page: no physical memory available",
-    )
+    die("vm_page_bootalloc", "vm_page: no physical memory available")
 }
 
 /// `vm_page_setup()` in C: build the page table and release the segments.
@@ -2186,15 +2174,11 @@ pub(crate) fn setup() {
     }
 
     let table_size = round_page(nr_pages.wrapping_mul(size_of::<VmPage>()));
-    // SAFETY: `printf` is the kernel's formatter and the values match the
-    // C's `%lu` arguments.
-    unsafe {
-        printf(
-            c"vm_page: page table size: %lu entries (%luk)\n".as_ptr(),
-            nr_pages as c_ulong,
-            (table_size >> 10) as c_ulong,
-        )
-    };
+    kprint!(
+        "vm_page: page table size: {} entries ({}k)\n",
+        nr_pages,
+        table_size >> 10,
+    );
 
     // SAFETY: `pmap_steal_memory()` is the boot allocator and panics if the
     // kernel address space is exhausted, as the C did.
@@ -2239,7 +2223,7 @@ pub(crate) fn setup() {
         // SAFETY: the address was just mapped by the pmap over the page
         // table, so it has a descriptor.
         let Some(page) = lookup_pa(pa) else {
-            die(c"vm_page_setup", c"vm_page: page table not in any segment");
+            die("vm_page_setup", "vm_page: page table not in any segment");
         };
 
         // SAFETY: the descriptor is live and setup is single-threaded.
@@ -2319,24 +2303,18 @@ pub(crate) unsafe fn check(page: *const VmPage) {
     // SAFETY: the caller promises the live descriptor.
     if unsafe { (*page).is_fictitious() } {
         if unsafe { (*page).is_private() } {
-            die(
-                c"vm_page_check",
-                c"vm_page: page both fictitious and private",
-            );
+            die("vm_page_check", "vm_page: page both fictitious and private");
         }
 
         if unsafe { (*page).phys_addr } != unsafe { vm_page_fictitious_addr } {
-            die(c"vm_page_check", c"vm_page: invalid fictitious page");
+            die("vm_page_check", "vm_page: invalid fictitious page");
         }
 
         return;
     }
 
     if unsafe { (*page).phys_addr } == unsafe { vm_page_fictitious_addr } {
-        die(
-            c"vm_page_check",
-            c"vm_page: real page has fictitious address",
-        );
+        die("vm_page_check", "vm_page: real page has fictitious address");
     }
 
     // SAFETY: as above.
@@ -2345,8 +2323,8 @@ pub(crate) unsafe fn check(page: *const VmPage) {
     if seg.is_null() {
         if !unsafe { (*page).is_private() } {
             die(
-                c"vm_page_check",
-                c"vm_page: page claims it's managed but not in any segment",
+                "vm_page_check",
+                "vm_page: page claims it's managed but not in any segment",
             );
         }
         return;
@@ -2354,22 +2332,22 @@ pub(crate) unsafe fn check(page: *const VmPage) {
 
     if unsafe { (*page).is_private() } {
         if unsafe { pageable(page) } {
-            die(c"vm_page_check", c"vm_page: private page is pageable");
+            die("vm_page_check", "vm_page: private page is pageable");
         }
 
         // SAFETY: the page's physical address is inside a segment.
         let Some(real_page) = lookup_pa(unsafe { (*page).phys_addr }) else {
             die(
-                c"vm_page_check",
-                c"vm_page: couldn't allocate page underlying private page",
+                "vm_page_check",
+                "vm_page: couldn't allocate page underlying private page",
             );
         };
 
         // SAFETY: the descriptor is live.
         if unsafe { pageable(real_page.as_ptr()) } {
             die(
-                c"vm_page_check",
-                c"vm_page: page underlying private page is pageable",
+                "vm_page_check",
+                "vm_page: page underlying private page is pageable",
             );
         }
 
@@ -2378,8 +2356,8 @@ pub(crate) unsafe fn check(page: *const VmPage) {
             || unsafe { real_page.as_ref().order() } != VM_PAGE_ORDER_UNLISTED
         {
             die(
-                c"vm_page_check",
-                c"vm_page: page underlying private pagei is free",
+                "vm_page_check",
+                "vm_page: page underlying private pagei is free",
             );
         }
         return;
@@ -2388,7 +2366,7 @@ pub(crate) unsafe fn check(page: *const VmPage) {
     // SAFETY: the segment is live.
     let index = unsafe { seg_index(seg) };
     if index != unsafe { (*page).seg_index() } as usize {
-        die(c"vm_page_check", c"vm_page: page segment mismatch");
+        die("vm_page_check", "vm_page: page segment mismatch");
     }
 }
 
@@ -2441,8 +2419,8 @@ pub(crate) unsafe fn alloc_pa(
             }
 
             die(
-                c"vm_page_alloc_pa",
-                c"vm_page: privileged thread unable to allocate page",
+                "vm_page_alloc_pa",
+                "vm_page: privileged thread unable to allocate page",
             );
         }
 
@@ -2468,7 +2446,7 @@ pub(crate) unsafe fn free_pa(page: *mut VmPage, order: c_uint) {
 fn name_ptr(seg_index: c_uint) -> *const c_char {
     match seg_name(seg_index) {
         Some(name) => name.as_ptr(),
-        None => die(c"vm_page_seg_name", c"vm_page: invalid segment index"),
+        None => die("vm_page_seg_name", "vm_page: invalid segment index"),
     }
 }
 
@@ -2482,25 +2460,32 @@ pub(crate) fn info_all() {
             unsafe { (*seg).pages_end.offset_from((*seg).pages) as usize };
         let name = name_ptr(i as c_uint);
 
-        // SAFETY: `printf` is the kernel's formatter and the values match
-        // the C's `%s` and `%lu` arguments.
-        unsafe {
-            printf(
-                c"vm_page: %s: pages: %lu (%luM), free: %lu (%luM)\n".as_ptr(),
-                name,
-                pages as c_ulong,
-                (pages >> (20 - PAGE_SHIFT)) as c_ulong,
-                (*seg).nr_free_pages as c_ulong,
-                ((*seg).nr_free_pages >> (20 - PAGE_SHIFT)) as c_ulong,
-            );
-            printf(
-                c"vm_page: %s: min:%lu low:%lu high:%lu\n".as_ptr(),
-                name,
-                (*seg).min_free_pages as c_ulong,
-                (*seg).low_free_pages as c_ulong,
-                (*seg).high_free_pages as c_ulong,
-            );
-        }
+        // SAFETY: `i` is inside the segment table, so `seg` is live.
+        let (free, min_free, low_free, high_free) = unsafe {
+            (
+                (*seg).nr_free_pages,
+                (*seg).min_free_pages,
+                (*seg).low_free_pages,
+                (*seg).high_free_pages,
+            )
+        };
+        // SAFETY: `name_ptr()` returned a segment's NUL-terminated name.
+        let name = unsafe { CStrArg::from_ptr(name) };
+        kprint!(
+            "vm_page: {}: pages: {} ({}M), free: {} ({}M)\n",
+            name,
+            pages,
+            pages >> (20 - PAGE_SHIFT),
+            free,
+            free >> (20 - PAGE_SHIFT),
+        );
+        kprint!(
+            "vm_page: {}: min:{} low:{} high:{}\n",
+            name,
+            min_free,
+            low_free,
+            high_free,
+        );
 
         i += 1;
     }
@@ -2564,7 +2549,7 @@ pub(crate) fn table_index(pa: VmOffset) -> usize {
         i += 1;
     }
 
-    die(c"vm_page_table_index", c"vm_page: invalid physical address")
+    die("vm_page_table_index", "vm_page: invalid physical address")
 }
 
 /// `vm_page_mem_size()` in C.
@@ -2692,7 +2677,7 @@ pub(crate) unsafe fn activate(page: *mut VmPage) {
         let seg = seg_ptr(unsafe { (*page).seg_index() } as usize);
 
         if unsafe { (*page).is_active() } {
-            die(c"vm_page_activate", c"vm_page_activate: already active");
+            die("vm_page_activate", "vm_page_activate: already active");
         }
 
         // SAFETY: the C takes the segment lock under the page-queues lock.
@@ -2965,7 +2950,7 @@ unsafe fn evict_one(external: bool, active: bool, alloc_paused: bool) -> bool {
             }
 
             if !unsafe { (*object).is_pager_initialized() } {
-                die(c"vm_page_seg_evict", c"vm_page_seg_evict");
+                die("vm_page_seg_evict", "vm_page_seg_evict");
             }
         }
 
@@ -3058,12 +3043,7 @@ pub(crate) unsafe fn evict(should_wait: *mut c_int) -> bool {
         // The free lock serializes the latch; a later page only skips the
         // warning.
         if !WARNED.swap(true, Ordering::Relaxed) {
-            // SAFETY: `printf` is the kernel's formatter.
-            unsafe {
-                printf(
-                    c"vm_page warning: unable to recycle any page\n".as_ptr(),
-                )
-            };
+            kprint!("vm_page warning: unable to recycle any page\n");
         }
     }
 

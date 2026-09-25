@@ -9,8 +9,8 @@
 //! `vm/vm_resident.c` used to define and `vm_page.h`/`pmap.h` declare.
 
 use crate::arch::types::{VmOffset, VmSize};
-use crate::glue::Panic;
 use crate::ipc::HashInfoBucket;
+use crate::kern::debug::kpanic;
 use crate::vm::types::{VmObject, VmPage};
 use crate::vm::vm_resident;
 use core::ffi::{c_int, c_uint};
@@ -27,20 +27,11 @@ pub unsafe extern "C" fn pmap_steal_memory(size: VmSize) -> VmOffset {
     match vm_resident::pmap_steal_memory(size) {
         Ok(addr) => addr,
         Err(size) => {
-            // SAFETY: `Panic` does not return; the message and its `%d`
-            // argument are the C `panic()`'s.  The C passed `vm_size_t` to a
-            // `%d`, which reads the low 32 bits; the cast spells that.
-            unsafe {
-                Panic(
-                    c"rust/src/vm/vm_resident_ffi.rs".as_ptr(),
-                    // Only `c_int` widths can reach `Panic`'s varargs.
-                    line!() as c_int,
-                    c"pmap_steal_memory".as_ptr(),
-                    c"not enough kernel virtual space for %dMB virtual allocation!\n"
-                        .as_ptr(),
-                    (size >> 20) as c_int,
-                )
-            }
+            kpanic!(
+                "pmap_steal_memory",
+                "not enough kernel virtual space for {}MB virtual allocation!\n",
+                size >> 20
+            )
         }
     }
 }

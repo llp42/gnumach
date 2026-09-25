@@ -8,7 +8,6 @@
 //! The port manipulation routines, which `ipc/ipc_port.c` used to define and
 //! `ipc/ipc_port.h` declares.
 
-use crate::glue;
 use crate::ipc::ipc_kmsg::{self, MsgReturn};
 use crate::ipc::ipc_mqueue;
 use crate::ipc::ipc_notify;
@@ -20,6 +19,7 @@ use crate::ipc::ipc_thread;
 use crate::ipc::{
     IOT_PORT, IpcMqueue, IpcPort, IpcPortRequest, IpcSpace, IpcTarget,
 };
+use crate::kern::debug::kpanic;
 use crate::kern::ipc_sched;
 use crate::kern::lock::SimpleLock;
 use crate::kern::thread::Thread;
@@ -901,21 +901,16 @@ pub(crate) unsafe fn copyout_send(
 ///
 /// # Panics
 ///
-/// Halts through [`glue::Panic`] when `name` is a valid port name, as the C
+/// Halts through [`kpanic!`] when `name` is a valid port name, as the C
 /// `panic()` did.
 pub(crate) unsafe fn invalid_name_to_port(name: c_uint) -> *mut c_void {
     match name {
         MACH_PORT_NULL => ptr::null_mut(),
         MACH_PORT_NAME_DEAD => IP_DEAD,
-        // SAFETY: `Panic` does not return; the tags are the C inline's.
-        _ => unsafe {
-            glue::Panic(
-                c"ipc/port.h".as_ptr(),
-                line!() as c_int,
-                c"invalid_name_to_port".as_ptr(),
-                c"invalid_name_to_port() called with a valid port".as_ptr(),
-            )
-        },
+        _ => kpanic!(
+            "invalid_name_to_port",
+            "invalid_name_to_port() called with a valid port"
+        ),
     }
 }
 
@@ -923,21 +918,16 @@ pub(crate) unsafe fn invalid_name_to_port(name: c_uint) -> *mut c_void {
 ///
 /// # Panics
 ///
-/// Halts through [`glue::Panic`] when `port` is a valid name, as the C
+/// Halts through [`kpanic!`] when `port` is a valid name, as the C
 /// `panic()` did.
 pub(crate) unsafe fn invalid_port_to_name(port: *mut c_void) -> c_uint {
     match port.addr() {
         0 => MACH_PORT_NULL,
         usize::MAX => MACH_PORT_NAME_DEAD,
-        // SAFETY: `Panic` does not return; the tags are the C inline's.
-        _ => unsafe {
-            glue::Panic(
-                c"ipc/port.h".as_ptr(),
-                line!() as c_int,
-                c"invalid_port_to_name".as_ptr(),
-                c"invalid_port_to_name() called with a valid name".as_ptr(),
-            )
-        },
+        _ => kpanic!(
+            "invalid_port_to_name",
+            "invalid_port_to_name() called with a valid name"
+        ),
     }
 }
 

@@ -30,8 +30,6 @@
 
 
 
-extern void log (int level, const char *fmt, ...);
-
 extern void panic_init(void);
 extern void Panic (const char *file, int line, const char *fun,
 		   const char *s, ...)

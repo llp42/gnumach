@@ -19,6 +19,8 @@ use crate::arch::i386::{gdt, idt, int_init, ktss, ldt, pmap, smp};
 use crate::arch::types::VmOffset;
 use crate::config::NCPUS;
 use crate::glue;
+use crate::kern::console::{CStrArg, kprint};
+use crate::kern::debug::kpanic;
 use crate::kern::smp as kern_smp;
 use crate::kern::types::KernError;
 use core::arch::asm;
@@ -229,15 +231,12 @@ pub(crate) unsafe fn cpu_control(
     info: *const c_int,
     count: c_uint,
 ) -> c_int {
-    // SAFETY: `printf` receives the same three values the C passed.
-    unsafe {
-        glue::printf(
-            c"cpu_control(%d, %p, %d) not implemented\n".as_ptr(),
-            cpu,
-            info,
-            count,
-        );
-    }
+    kprint!(
+        "cpu_control({}, {:x}, {}) not implemented\n",
+        cpu,
+        info.expose_provenance(),
+        count,
+    );
     c_int::from(KernError::Failure)
 }
 
@@ -285,16 +284,7 @@ pub(crate) fn mp_desc_init(mycpu: c_int) -> c_int {
     }
 
     let Some(mem) = model_dep::alloc_aligned(size_of::<MpDescTable>()) else {
-        // SAFETY: `Panic` does not return, and the message holds no
-        // conversion specifier for the varargs it never receives.
-        unsafe {
-            glue::Panic(
-                c"i386/i386/mp_desc.c".as_ptr(),
-                line!() as c_int,
-                c"mp_desc_init".as_ptr(),
-                c"not enough memory for descriptor tables".as_ptr(),
-            )
-        }
+        kpanic!("mp_desc_init", "not enough memory for descriptor tables")
     };
     let mpt = ptr::with_exposed_provenance_mut::<MpDescTable>(phystokv(mem));
 
@@ -345,14 +335,7 @@ fn paging_enable() {
 /// The boot message of one stage of [`cpu_setup`], which the C spelled as
 /// `printf("AP=(%u) <stage> done\n", cpu)`.
 fn ap_stage(cpu: c_int, stage: &CStr) {
-    // SAFETY: the `%u` takes the `c_uint` and the `%s` the pointer.
-    unsafe {
-        glue::printf(
-            c"AP=(%u) %s done\n".as_ptr(),
-            cpu as c_uint,
-            stage.as_ptr(),
-        )
-    };
+    kprint!("AP=({}) {} done\n", cpu as c_uint, CStrArg::from(stage));
 }
 
 /// `cpu_setup()` in `i386/i386/mp_desc.c`, the boot path of an AP.
@@ -455,10 +438,7 @@ pub(crate) fn start_other_cpus() {
     smp::startup_cpus(bsp as c_uint, unsafe { apboot_addr } as c_ulong);
 
     for cpu in 1..ncpus {
-        // SAFETY: the `%d` takes the matching `c_int`.
-        unsafe {
-            glue::printf(c"Waiting for AP %d\n".as_ptr(), cpu);
-        }
+        kprint!("Waiting for AP {}\n", cpu);
 
         loop {
             // SAFETY: `cpu` is below the probed CPU count.
@@ -470,8 +450,7 @@ pub(crate) fn start_other_cpus() {
             smp::pause();
         }
     }
-    // SAFETY: the message holds no conversion specifier.
-    unsafe { glue::printf(c"BSP: Completed SMP init\n".as_ptr()) };
+    kprint!("BSP: Completed SMP init\n");
 
     pmap::pmap_remove_temporary_mapping();
 

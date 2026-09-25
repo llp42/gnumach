@@ -16,6 +16,7 @@ use crate::glue::{
     memory_object_data_return, pmap_clear_modify, vm_page_queue_free_lock,
     vm_page_queue_lock,
 };
+use crate::kern::debug::kpanic;
 use crate::kern::mach_clock::hz;
 use crate::kern::sched_prim::{
     THREAD_AWAKENED, assert_wait, thread_block, thread_set_timeout,
@@ -38,7 +39,7 @@ use crate::vm::vm_resident::{
 use crate::vm::vm_user::vm_stat;
 use crate::vm::{vm_page, vm_resident};
 use core::cell::UnsafeCell;
-use core::ffi::{CStr, c_int, c_uint, c_void};
+use core::ffi::{c_int, c_uint, c_void};
 use core::ptr::{NonNull, addr_of_mut};
 use core::sync::atomic::Ordering;
 
@@ -54,18 +55,8 @@ static VM_PAGEOUT_REQUESTED: SyncCell<c_int> = SyncCell(UnsafeCell::new(0));
 static VM_PAGEOUT_CONTINUE: SyncCell<c_int> = SyncCell(UnsafeCell::new(0));
 
 /// The C `panic()` for an allocation that cannot fail.
-fn die(func: &'static CStr) -> ! {
-    let location = core::panic::Location::caller();
-    // SAFETY: `Panic` does not return; the file, function and message are
-    // this module's.
-    unsafe {
-        crate::glue::Panic(
-            c"rust/src/vm/vm_pageout.rs".as_ptr(),
-            location.line() as c_int,
-            func.as_ptr(),
-            func.as_ptr(),
-        )
-    }
+fn die(func: &'static str) -> ! {
+    kpanic!(func, "{}", func)
 }
 
 /// `vm_pageout_setup()` in C: move or copy a busy page into `new_object` for
@@ -296,7 +287,7 @@ pub(crate) unsafe fn page(m: NonNull<VmPage>, initial: bool, flush: bool) {
     // SAFETY: the object allocator halts the kernel rather than fail, and
     // the new object owns the reference it returns.
     let new_object = unsafe { allocate(PAGE_SIZE) }
-        .unwrap_or_else(|| die(c"vm_object_allocate"));
+        .unwrap_or_else(|| die("vm_object_allocate"));
     // SAFETY: the fresh object is unshared.
     unsafe { (*new_object.as_ptr()).set_used_for_pageout(true) };
 

@@ -9,7 +9,6 @@
 //! `ipc/ipc_mqueue.h` declares.
 
 use crate::arch::i386::percpu::current_thread;
-use crate::glue;
 use crate::ipc::ipc_kmsg::{self, Kmsg, MsgReturn};
 use crate::ipc::ipc_marequest;
 use crate::ipc::ipc_pset;
@@ -20,6 +19,7 @@ use crate::ipc::{
     IpcMarequest, IpcMqueue, IpcPort, IpcSpace, IpcTarget,
     MACH_PORT_TYPE_PORT_SET, MACH_PORT_TYPE_RECEIVE,
 };
+use crate::kern::debug::kpanic;
 use crate::kern::ipc_kobject;
 use crate::kern::ipc_sched::{
     thread_go, thread_will_wait, thread_will_wait_with_timeout,
@@ -286,17 +286,7 @@ pub(crate) unsafe fn send(
             THREAD_TIMED_OUT => {
                 time_out = 0;
             }
-            _ => {
-                // SAFETY: `Panic` does not return.
-                unsafe {
-                    glue::Panic(
-                        c"ipc/ipc_mqueue.c".as_ptr(),
-                        line!() as c_int,
-                        c"ipc_mqueue_send".as_ptr(),
-                        c"ipc_mqueue_send".as_ptr(),
-                    )
-                };
-            }
+            _ => kpanic!("ipc_mqueue_send", "ipc_mqueue_send"),
         }
     }
 
@@ -627,15 +617,10 @@ pub(crate) unsafe fn receive(
         }
 
         if state != MsgReturn::RCV_IN_PROGRESS.raw() {
-            // SAFETY: `Panic` does not return.
-            unsafe {
-                glue::Panic(
-                    c"ipc/ipc_mqueue.c".as_ptr(),
-                    line!() as c_int,
-                    c"ipc_mqueue_receive".as_ptr(),
-                    c"ipc_mqueue_receive: strange ith_state".as_ptr(),
-                )
-            };
+            kpanic!(
+                "ipc_mqueue_receive",
+                "ipc_mqueue_receive: strange ith_state"
+            );
         }
 
         // SAFETY: the queue is locked and the thread is queued in it.
@@ -653,17 +638,7 @@ pub(crate) unsafe fn receive(
             THREAD_TIMED_OUT => {
                 time_out = 0;
             }
-            _ => {
-                // SAFETY: `Panic` does not return.
-                unsafe {
-                    glue::Panic(
-                        c"ipc/ipc_mqueue.c".as_ptr(),
-                        line!() as c_int,
-                        c"ipc_mqueue_receive".as_ptr(),
-                        c"ipc_mqueue_receive".as_ptr(),
-                    )
-                };
-            }
+            _ => kpanic!("ipc_mqueue_receive", "ipc_mqueue_receive"),
         }
     };
 

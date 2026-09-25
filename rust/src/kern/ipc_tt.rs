@@ -8,17 +8,17 @@
 
 use crate::arch::i386::percpu::current_thread;
 use crate::arch::types::VmOffset;
-use crate::glue;
 use crate::ipc::ipc_port;
 use crate::ipc::ipc_space;
 use crate::ipc::ipc_thread::ipc_thread_links_init;
 use crate::ipc::{IpcPort, IpcSpace};
+use crate::kern::debug::kpanic;
 use crate::kern::slab::{kalloc, kfree};
 use crate::kern::task::{self, TASK_PORT_REGISTER_MAX, Task, current_task};
 use crate::kern::thread::{IpcKmsgQueue, Thread};
 use crate::kern::types::KernError;
 use crate::vm::vm_map::VmMap;
-use core::ffi::{CStr, c_int, c_uint, c_void};
+use core::ffi::{c_int, c_uint, c_void};
 use core::mem::size_of;
 use core::ptr::{self, NonNull, with_exposed_provenance_mut};
 
@@ -98,18 +98,8 @@ fn create_space() -> Result<*mut c_void, KernError> {
 }
 
 /// The C `panic()` of `ipc_task_init()` and `ipc_thread_init()`.
-fn init_panic(fun: &'static CStr) -> ! {
-    // SAFETY: `Panic` does not return; the file is the C file the call sat
-    // in, and the message is the C's own function-name tag.
-    unsafe {
-        glue::Panic(
-            c"kern/ipc_tt.c".as_ptr(),
-            // Only `c_int` widths can reach `Panic`'s varargs.
-            line!() as c_int,
-            fun.as_ptr(),
-            fun.as_ptr(),
-        )
-    }
+fn init_panic(fun: &'static str) -> ! {
+    kpanic!(fun, "{}", fun)
 }
 
 /// The `if (IP_VALID(port)) ipc_port_release_send(port);` the C repeats.
@@ -137,14 +127,14 @@ pub(crate) unsafe fn ipc_task_init(task: *mut Task, parent: *mut Task) {
     // SAFETY: the caller promises the fresh task, so nothing reads the space
     // while `ipc_space_create` builds it.
     let Ok(space) = create_space() else {
-        init_panic(c"ipc_task_init")
+        init_panic("ipc_task_init")
     };
 
     // SAFETY: the kernel's space is live for the life of the kernel; this
     // is the C's `ipc_port_alloc_kernel()`.
     let kport = unsafe { ipc_port::alloc_special(ipc_space::kernel()) };
     let Some(kport) = kport else {
-        init_panic(c"ipc_task_init")
+        init_panic("ipc_task_init")
     };
 
     // SAFETY: the caller promises a fresh task, and the port was just
@@ -262,7 +252,7 @@ pub(crate) unsafe fn ipc_thread_init(thread: *mut Thread) {
     // is the C's `ipc_port_alloc_kernel()`.
     let kport = unsafe { ipc_port::alloc_special(ipc_space::kernel()) };
     let Some(kport) = kport else {
-        init_panic(c"ipc_thread_init")
+        init_panic("ipc_thread_init")
     };
 
     // SAFETY: the caller promises a fresh thread, and the port was just

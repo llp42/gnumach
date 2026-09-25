@@ -12,10 +12,11 @@ use crate::arch::i386::pmap::pmap_pageable;
 use crate::arch::types::{VmOffset, VmSize};
 use crate::arch::vm_param::PAGE_SIZE;
 use crate::glue::{
-    Panic, copyin, copyout, kernel_object, kernel_pmap, pmap_enter,
-    pmap_extract, pmap_map_bd, pmap_reference, pmap_remove, printf,
-    vm_page_queue_lock,
+    copyin, copyout, kernel_object, kernel_pmap, pmap_enter, pmap_extract,
+    pmap_map_bd, pmap_reference, pmap_remove, vm_page_queue_lock,
 };
+use crate::kern::console::{CStrArg, kprint};
+use crate::kern::debug::kpanic;
 use crate::kern::slab::slab_collect;
 use crate::kern::task::current_task;
 use crate::vm::error::{Error, KERN_SUCCESS, error_from_kern_return};
@@ -27,7 +28,7 @@ use crate::vm::vm_map::{
 use crate::vm::vm_object::vm_submap_object;
 use crate::vm::vm_object::{self, allocate, deallocate, reference};
 use crate::vm::{vm_page, vm_resident};
-use core::ffi::{CStr, c_char, c_int, c_uint, c_void};
+use core::ffi::{c_char, c_int, c_uint, c_void};
 use core::ptr::{self, NonNull, addr_of_mut, with_exposed_provenance_mut};
 use core::sync::atomic::{AtomicBool, Ordering};
 
@@ -224,17 +225,13 @@ pub(crate) fn kmem_alloc_pageable(
             // enough because the worst case is printing it twice.
             static PRINTED: AtomicBool = AtomicBool::new(false);
             if !PRINTED.swap(true, Ordering::Relaxed) {
-                // SAFETY: the format is a literal with the `%p` and `%s`
-                // arguments it reads; `map.name` is the NUL-terminated string
-                // the C passed.
-                unsafe {
-                    printf(
-                        c"no more room for kmem_alloc_pageable in %p (%s)\n"
-                            .as_ptr(),
-                        ptr::from_ref(map).cast_mut().cast::<c_void>(),
-                        map.name,
-                    )
-                };
+                // SAFETY: `map.name` is the map's NUL-terminated name.
+                let name = unsafe { CStrArg::from_ptr(map.name) };
+                kprint!(
+                    "no more room for kmem_alloc_pageable in {:x} ({})\n",
+                    ptr::from_ref(map).expose_provenance(),
+                    name,
+                );
             }
             Err(error)
         }
@@ -344,18 +341,8 @@ pub(crate) fn kmem_io_map_deallocate(
 }
 
 /// The C `panic()` for an allocation that cannot fail.
-fn die(func: &'static CStr) -> ! {
-    let location = core::panic::Location::caller();
-    // SAFETY: `Panic` does not return; the file, function and message are
-    // this module's.
-    unsafe {
-        Panic(
-            c"rust/src/vm/vm_kern.rs".as_ptr(),
-            location.line() as c_int,
-            func.as_ptr(),
-            func.as_ptr(),
-        )
-    }
+fn die(func: &'static str) -> ! {
+    kpanic!(func, "{}", func)
 }
 
 /// `kernel_map` as the non-null map the boot path built.
@@ -383,7 +370,7 @@ pub(crate) fn projected_buffer_allocate(
     // SAFETY: the object allocator halts the kernel rather than fail, so
     // this reference always exists.
     let object = unsafe { allocate(size) }
-        .unwrap_or_else(|| die(c"vm_object_allocate"))
+        .unwrap_or_else(|| die("vm_object_allocate"))
         .as_ptr();
 
     // SAFETY: `kernel` is the live boot map, and the write lock serializes
@@ -674,7 +661,7 @@ pub(crate) fn kmem_alloc(
     let size = round_page(size);
     // SAFETY: the object allocator halts the kernel rather than fail.
     let object = unsafe { allocate(size) }
-        .unwrap_or_else(|| die(c"vm_object_allocate"))
+        .unwrap_or_else(|| die("vm_object_allocate"))
         .as_ptr();
 
     let mut attempts = 0;
@@ -726,16 +713,14 @@ pub(crate) fn kmem_alloc(
                 // enough because the worst case is printing it twice.
                 static PRINTED: AtomicBool = AtomicBool::new(false);
                 if !PRINTED.swap(true, Ordering::Relaxed) {
-                    // SAFETY: the format is a literal with the `%p` and `%s`
-                    // arguments it reads, and `name` is NUL-terminated.
-                    unsafe {
-                        printf(
-                            c"no more room for kmem_alloc in %p (%s)\n"
-                                .as_ptr(),
-                            map.as_ptr(),
-                            (*map.as_ptr()).name,
-                        )
-                    };
+                    // SAFETY: `map.name` is the map's NUL-terminated name.
+                    let name =
+                        unsafe { CStrArg::from_ptr((*map.as_ptr()).name) };
+                    kprint!(
+                        "no more room for kmem_alloc in {:x} ({})\n",
+                        map.as_ptr().expose_provenance(),
+                        name,
+                    );
                 }
                 // SAFETY: the entry search failed, so the allocator's
                 // reference is the only one.
@@ -797,16 +782,14 @@ pub(crate) fn kmem_valloc(
                 // enough because the worst case is printing it twice.
                 static PRINTED: AtomicBool = AtomicBool::new(false);
                 if !PRINTED.swap(true, Ordering::Relaxed) {
-                    // SAFETY: the format is a literal with the `%p` and `%s`
-                    // arguments it reads, and `name` is NUL-terminated.
-                    unsafe {
-                        printf(
-                            c"no more room for kmem_valloc in %p (%s)\n"
-                                .as_ptr(),
-                            map.as_ptr(),
-                            (*map.as_ptr()).name,
-                        )
-                    };
+                    // SAFETY: `map.name` is the map's NUL-terminated name.
+                    let name =
+                        unsafe { CStrArg::from_ptr((*map.as_ptr()).name) };
+                    kprint!(
+                        "no more room for kmem_valloc in {:x} ({})\n",
+                        map.as_ptr().expose_provenance(),
+                        name,
+                    );
                 }
                 return Err(error);
             }
@@ -882,16 +865,14 @@ pub(crate) fn kmem_alloc_aligned(
                 // enough because the worst case is printing it twice.
                 static PRINTED: AtomicBool = AtomicBool::new(false);
                 if !PRINTED.swap(true, Ordering::Relaxed) {
-                    // SAFETY: the format is a literal with the `%p` and `%s`
-                    // arguments it reads, and `name` is NUL-terminated.
-                    unsafe {
-                        printf(
-                            c"no more room for kmem_alloc_aligned in %p (%s)\n"
-                                .as_ptr(),
-                            map.as_ptr(),
-                            (*map.as_ptr()).name,
-                        )
-                    };
+                    // SAFETY: `map.name` is the map's NUL-terminated name.
+                    let name =
+                        unsafe { CStrArg::from_ptr((*map.as_ptr()).name) };
+                    kprint!(
+                        "no more room for kmem_alloc_aligned in {:x} ({})\n",
+                        map.as_ptr().expose_provenance(),
+                        name,
+                    );
                 }
                 return Err(error);
             }
@@ -1000,7 +981,7 @@ pub(crate) unsafe fn remap_pages(
         // SAFETY: the object lock is held, as `vm_page_lookup` requires; the
         // C halts when the page is missing.
         let mem = unsafe { vm_resident::lookup(object_ref, offset) }
-            .unwrap_or_else(|| die(c"kmem_remap_pages"));
+            .unwrap_or_else(|| die("kmem_remap_pages"));
 
         // SAFETY: the page-queues lock is the live lock and the object lock
         // is held.

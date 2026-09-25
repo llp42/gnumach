@@ -8,6 +8,7 @@
 
 use crate::arch::i386::percpu::current_thread;
 use crate::glue;
+use crate::kern::debug::kpanic;
 use crate::kern::lock::SimpleLock;
 use crate::kern::queue::QueueEntry;
 use crate::kern::sched_prim::{
@@ -102,18 +103,7 @@ pub unsafe extern "C" fn thread_swapin(thread: *mut Thread) {
             }
         }
         TH_SW_COMING_IN => (),
-        _ => {
-            // SAFETY: `Panic` halts the kernel and never returns; the
-            // arguments are the C `panic()` macro's.
-            unsafe {
-                glue::Panic(
-                    c"kern/thread_swap.c".as_ptr(),
-                    line!() as c_int,
-                    c"thread_swapin".as_ptr(),
-                    c"thread_swapin".as_ptr(),
-                )
-            }
-        }
+        _ => kpanic!("thread_swapin", "thread_swapin"),
     }
 }
 

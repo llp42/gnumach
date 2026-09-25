@@ -11,7 +11,8 @@ use crate::arch::i386::mbinfo::MultibootRawInfo;
 use crate::arch::i386::pmap::{VM_KERNEL_MAP_SIZE, VM_MAX_KERNEL_ADDRESS};
 use crate::arch::types::{VmOffset, VmSize};
 use crate::arch::vm_param::{PAGE_SHIFT, PAGE_SIZE};
-use crate::glue::{Panic, printf};
+use crate::kern::console::{CStrArg, kprint};
+use crate::kern::debug::kpanic;
 use crate::utils::cell::SyncCell;
 use crate::vm::vm_kern::VM_MIN_KERNEL_ADDRESS;
 use crate::vm::vm_map::{round_page, trunc_page};
@@ -66,53 +67,19 @@ const MAX_PHYS_END: u64 = 27 * 1024 * 1024 * 1024;
 const MAX_PHYS_END: u64 = 8 * 1024 * 1024 * 1024;
 
 /// `biosmem_panic_inval_boot_data` of `biosmem.c`.
-const INVAL_BOOT_DATA: &CStr = c"biosmem: invalid boot data";
+const INVAL_BOOT_DATA: &str = "biosmem: invalid boot data";
 /// `biosmem_panic_too_many_boot_data` of `biosmem.c`.
-const TOO_MANY_BOOT_DATA: &CStr = c"biosmem: too many boot data ranges";
+const TOO_MANY_BOOT_DATA: &str = "biosmem: too many boot data ranges";
 /// `biosmem_panic_too_big_msg` of `biosmem.c`.
-const TOO_BIG_MSG: &CStr = c"biosmem: too many memory map entries";
+const TOO_BIG_MSG: &str = "biosmem: too many memory map entries";
 /// `biosmem_panic_setup_msg` of `biosmem.c`.
-const SETUP_MSG: &CStr =
-    c"biosmem: unable to set up the early memory allocator";
+const SETUP_MSG: &str = "biosmem: unable to set up the early memory allocator";
 /// `biosmem_panic_noseg_msg` of `biosmem.c`.
-const NOSEG_MSG: &CStr = c"biosmem: unable to find any memory segment";
+const NOSEG_MSG: &str = "biosmem: unable to find any memory segment";
 /// `biosmem_panic_inval_msg` of `biosmem.c`.
-const INVAL_MSG: &CStr = c"biosmem: attempt to allocate 0 page";
+const INVAL_MSG: &str = "biosmem: attempt to allocate 0 page";
 /// `biosmem_panic_nomem_msg` of `biosmem.c`.
-const NOMEM_MSG: &CStr = c"biosmem: unable to allocate memory";
-
-/// `printf("biosmem: physical memory map:\n")` in `biosmem_map_show()`.
-const MAP_HEADER: &CStr = c"biosmem: physical memory map:\n";
-
-/// The `PRIx64` of <inttypes.h> is `lx` on the 64-bit build and `llx` on the
-/// 32-bit one; the kernel's `_doprnt` reads the matching native width.
-#[cfg(target_pointer_width = "64")]
-const MAP_ENTRY_FMT: &CStr = c"biosmem: %018lx:%018lx, %s\n";
-#[cfg(target_pointer_width = "32")]
-const MAP_ENTRY_FMT: &CStr = c"biosmem: %018llx:%018llx, %s\n";
-
-/// The physically-unreachable warning of `biosmem_load_segment()`.
-const UNREACHABLE_FMT: &CStr =
-    c"biosmem: warning: segment %s physically unreachable, not loaded\n";
-
-/// The first truncation warning of `biosmem_load_segment()`.
-#[cfg(target_pointer_width = "64")]
-const TRUNCATED_FMT: &CStr =
-    c"biosmem: warning: segment %s truncated to %#lx\n";
-#[cfg(target_pointer_width = "32")]
-const TRUNCATED_FMT: &CStr =
-    c"biosmem: warning: segment %s truncated to %#llx\n";
-
-/// The beyond-tested-size warning of `biosmem_load_segment()`, used where
-/// the i686 `phys_addr_t` can actually exceed `MAX_PHYS_END`.
-#[cfg(target_arch = "x86_64")]
-const BEYOND_FMT: &CStr =
-    c"biosmem: warning: segment %s beyond tested memory size, not loaded\n";
-
-/// The tested-size truncation warning of `biosmem_load_segment()`.
-#[cfg(target_pointer_width = "64")]
-const TESTED_FMT: &CStr =
-    c"biosmem: warning: segment %s truncated to tested %#lx\n";
+const NOMEM_MSG: &str = "biosmem: unable to allocate memory";
 
 /// `struct multiboot_raw_mmap_entry` of <mach/i386/multiboot.h>, `__packed`.
 #[repr(C, packed)]
@@ -235,20 +202,9 @@ fn state() -> *mut State {
     STATE.0.get()
 }
 
-/// `panic()` of `biosmem.c` at the caller's line.
-#[track_caller]
-fn die(func: &'static CStr, message: &'static CStr) -> ! {
-    let location = core::panic::Location::caller();
-    // SAFETY: `Panic` does not return; the file, function and message are
-    // this module's, and the line fits the `c_int` the format takes.
-    unsafe {
-        Panic(
-            c"rust/src/arch/i386/biosmem.rs".as_ptr(),
-            location.line() as c_int,
-            func.as_ptr(),
-            message.as_ptr(),
-        )
-    }
+/// `panic()` of `biosmem.c`.
+fn die(func: &'static str, message: &'static str) -> ! {
+    kpanic!(func, "{}", message)
 }
 
 /// `phystokv()` of <i386/vm_param.h>.
@@ -296,12 +252,12 @@ fn register_boot_data(
     temporary: bool,
 ) {
     if start >= end {
-        die(c"biosmem_register_boot_data", INVAL_BOOT_DATA);
+        die("biosmem_register_boot_data", INVAL_BOOT_DATA);
     }
 
     let nr = s.nr_boot_data as usize;
     if nr == s.boot_data.len() {
-        die(c"biosmem_register_boot_data", TOO_MANY_BOOT_DATA);
+        die("biosmem_register_boot_data", TOO_MANY_BOOT_DATA);
     }
 
     let mut i = 0;
@@ -318,7 +274,7 @@ fn register_boot_data(
                 return;
             }
 
-            die(c"biosmem_register_boot_data", INVAL_BOOT_DATA);
+            die("biosmem_register_boot_data", INVAL_BOOT_DATA);
         }
 
         if end <= data.start {
@@ -340,7 +296,7 @@ fn register_boot_data(
 /// `biosmem_unregister_boot_data()` in C.
 fn unregister_boot_data(s: &mut State, start: VmOffset, end: VmOffset) {
     if start >= end {
-        die(c"biosmem_unregister_boot_data", INVAL_BOOT_DATA);
+        die("biosmem_unregister_boot_data", INVAL_BOOT_DATA);
     }
 
     let nr = s.nr_boot_data as usize;
@@ -541,7 +497,7 @@ fn map_adjust(s: &mut State) {
                 j
             } else {
                 if s.map_size as usize >= s.map.len() {
-                    die(c"biosmem_map_adjust", TOO_BIG_MSG);
+                    die("biosmem_map_adjust", TOO_BIG_MSG);
                 }
 
                 s.map[s.map_size as usize] = tmp;
@@ -620,7 +576,7 @@ fn set_segment(
     end: VmOffset,
 ) {
     let Some(segment) = s.segments.get_mut(seg_index as usize) else {
-        die(c"biosmem_set_segment", c"biosmem: invalid segment index");
+        die("biosmem_set_segment", "biosmem: invalid segment index");
     };
 
     segment.start = start;
@@ -631,7 +587,7 @@ fn set_segment(
 fn segment_end(s: &State, seg_index: c_uint) -> VmOffset {
     match s.segments.get(seg_index as usize) {
         Some(segment) => segment.end,
-        None => die(c"biosmem_segment_end", c"biosmem: invalid segment index"),
+        None => die("biosmem_segment_end", "biosmem: invalid segment index"),
     }
 }
 
@@ -639,9 +595,7 @@ fn segment_end(s: &State, seg_index: c_uint) -> VmOffset {
 fn segment_size(s: &State, seg_index: c_uint) -> VmOffset {
     match s.segments.get(seg_index as usize) {
         Some(segment) => segment.end.wrapping_sub(segment.start),
-        None => {
-            die(c"biosmem_segment_size", c"biosmem: invalid segment index")
-        }
+        None => die("biosmem_segment_size", "biosmem: invalid segment index"),
     }
 }
 
@@ -658,7 +612,7 @@ fn find_avail_clip(
     let data_end = round_page(data_end);
 
     if data_end < orig_end {
-        die(c"biosmem_find_avail_clip", INVAL_BOOT_DATA);
+        die("biosmem_find_avail_clip", INVAL_BOOT_DATA);
     }
 
     if data_end <= avail_start || data_start >= avail_end {
@@ -723,7 +677,7 @@ fn setup_allocator(s: &mut State, mbi: &MultibootRawInfo) {
     }
 
     if max_heap_start >= max_heap_end {
-        die(c"biosmem_setup_allocator", SETUP_MSG);
+        die("biosmem_setup_allocator", SETUP_MSG);
     }
 
     s.heap_start = max_heap_start;
@@ -743,7 +697,7 @@ fn bootstrap_common(s: &mut State) {
     let Some((phys_start, phys_end)) =
         map_find_avail(s, BIOSMEM_BASE, VM_PAGE_DMA_LIMIT)
     else {
-        die(c"biosmem_bootstrap_common", NOSEG_MSG);
+        die("biosmem_bootstrap_common", NOSEG_MSG);
     };
 
     // SAFETY: `apboot_addr` is <i386/model_dep.h>'s global, written once
@@ -815,14 +769,14 @@ pub(crate) fn bootalloc(nr_pages: c_uint) -> VmOffset {
     let size = nr_pages.wrapping_shl(PAGE_SHIFT) as VmSize;
 
     if size == 0 {
-        die(c"biosmem_bootalloc", INVAL_MSG);
+        die("biosmem_bootalloc", INVAL_MSG);
     }
 
     if s.heap_topdown {
         let addr = s.heap_top.wrapping_sub(size);
 
         if addr < s.heap_start || addr > s.heap_top {
-            die(c"biosmem_bootalloc", NOMEM_MSG);
+            die("biosmem_bootalloc", NOMEM_MSG);
         }
 
         s.heap_top = addr;
@@ -832,7 +786,7 @@ pub(crate) fn bootalloc(nr_pages: c_uint) -> VmOffset {
         let end = addr.wrapping_add(size);
 
         if end > s.heap_end || end < s.heap_bottom {
-            die(c"biosmem_bootalloc", NOMEM_MSG);
+            die("biosmem_bootalloc", NOMEM_MSG);
         }
 
         s.heap_bottom = end;
@@ -883,28 +837,21 @@ pub unsafe extern "C" fn biosmem_directmap_end() -> VmOffset {
 fn seg_name(seg_index: c_uint) -> &'static CStr {
     match vm_page::seg_name(seg_index) {
         Some(name) => name,
-        None => {
-            die(c"biosmem_load_segment", c"biosmem: invalid segment index")
-        }
+        None => die("biosmem_load_segment", "biosmem: invalid segment index"),
     }
 }
 
 /// `biosmem_map_show()` in C.
 fn map_show(s: &State) {
-    // SAFETY: a literal format string with no arguments.
-    unsafe { printf(MAP_HEADER.as_ptr()) };
+    kprint!("biosmem: physical memory map:\n");
 
     for entry in &s.map[..s.map_size as usize] {
-        // SAFETY: the format holds this target's `PRIx64` and two matching
-        // 64-bit values, and `%s` reads the static description.
-        unsafe {
-            printf(
-                MAP_ENTRY_FMT.as_ptr(),
-                entry.base_addr,
-                entry.base_addr.wrapping_add(entry.length),
-                entry.type_.desc().as_ptr(),
-            )
-        };
+        kprint!(
+            "biosmem: {:018x}:{:018x}, {}\n",
+            entry.base_addr,
+            entry.base_addr.wrapping_add(entry.length),
+            CStrArg::from(entry.type_.desc()),
+        );
     }
 }
 
@@ -912,31 +859,25 @@ fn map_show(s: &State) {
 fn load_segment(s: &mut State, seg_index: c_uint, max_phys_end: VmOffset) {
     let segment = match s.segments.get(seg_index as usize) {
         Some(segment) => *segment,
-        None => {
-            die(c"biosmem_load_segment", c"biosmem: invalid segment index")
-        }
+        None => die("biosmem_load_segment", "biosmem: invalid segment index"),
     };
     let phys_start = segment.start;
     let mut phys_end = segment.end;
 
     if phys_end > max_phys_end {
         if max_phys_end <= phys_start {
-            // SAFETY: two literal format strings, and `%s` reads the static
-            // segment name.
-            unsafe {
-                printf(UNREACHABLE_FMT.as_ptr(), seg_name(seg_index).as_ptr())
-            };
+            kprint!(
+                "biosmem: warning: segment {} physically unreachable, not loaded\n",
+                CStrArg::from(seg_name(seg_index)),
+            );
             return;
         }
 
-        // SAFETY: as above, with the matching `PRIx64` argument.
-        unsafe {
-            printf(
-                TRUNCATED_FMT.as_ptr(),
-                seg_name(seg_index).as_ptr(),
-                hex64(max_phys_end),
-            )
-        };
+        kprint!(
+            "biosmem: warning: segment {} truncated to {:#x}\n",
+            CStrArg::from(seg_name(seg_index)),
+            hex64(max_phys_end),
+        );
         phys_end = max_phys_end;
     }
 
@@ -945,21 +886,18 @@ fn load_segment(s: &mut State, seg_index: c_uint, max_phys_end: VmOffset) {
     #[cfg(target_arch = "x86_64")]
     if phys_end as u64 > MAX_PHYS_END {
         if MAX_PHYS_END <= phys_start as u64 {
-            // SAFETY: as in the unreachable warning above.
-            unsafe {
-                printf(BEYOND_FMT.as_ptr(), seg_name(seg_index).as_ptr())
-            };
+            kprint!(
+                "biosmem: warning: segment {} beyond tested memory size, not loaded\n",
+                CStrArg::from(seg_name(seg_index)),
+            );
             return;
         }
 
-        // SAFETY: as in the truncation warning above.
-        unsafe {
-            printf(
-                TESTED_FMT.as_ptr(),
-                seg_name(seg_index).as_ptr(),
-                MAX_PHYS_END,
-            )
-        };
+        kprint!(
+            "biosmem: warning: segment {} truncated to tested {:#x}\n",
+            CStrArg::from(seg_name(seg_index)),
+            MAX_PHYS_END,
+        );
         phys_end = MAX_PHYS_END as VmOffset;
     }
 
@@ -1016,10 +954,7 @@ fn free_usable_range(start: VmOffset, end: VmOffset) {
 
     while start < end {
         let Some(page) = vm_page::lookup_pa(start) else {
-            die(
-                c"biosmem_free_usable_range",
-                c"biosmem: no page for address",
-            );
+            die("biosmem_free_usable_range", "biosmem: no page for address");
         };
 
         // SAFETY: the pages come from a loaded segment, so the lookup

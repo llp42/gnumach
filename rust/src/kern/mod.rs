@@ -9,6 +9,7 @@ pub mod boot_script;
 pub mod boot_script_ffi;
 pub mod bootstrap;
 pub mod bootstrap_ffi;
+pub mod console;
 pub mod debug;
 pub mod elf_load;
 pub mod eventcount;

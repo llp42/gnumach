@@ -22,6 +22,7 @@ use crate::glue;
 use crate::glue::time_value::{
     MACH_ADJTIME_NSECS_OMIT, MappedTimeValue, TimeValue, TimeValue64,
 };
+use crate::kern::debug::kpanic;
 use crate::kern::lock::SimpleLock;
 use crate::kern::machine;
 use crate::kern::priority;
@@ -911,16 +912,7 @@ pub(crate) fn mapable_time_init() {
         )
     };
     if result != 0 {
-        // SAFETY: `Panic` never returns, and the C `panic()` argument is the
-        // message below.
-        unsafe {
-            glue::Panic(
-                c"kern/mach_clock.c".as_ptr(),
-                line!() as c_int,
-                c"mapable_time_init".as_ptr(),
-                c"mapable_time_init".as_ptr(),
-            )
-        };
+        kpanic!("mapable_time_init", "mapable_time_init");
     }
 
     // SAFETY: `page` is the wired page just allocated, so zeroing it and
@@ -965,16 +957,7 @@ pub(crate) unsafe fn timeout(
         }
     }
     if selected.is_null() {
-        // SAFETY: `Panic` never returns, and the C `panic()` argument is the
-        // message below.
-        unsafe {
-            glue::Panic(
-                c"kern/mach_clock.c".as_ptr(),
-                line!() as c_int,
-                c"timeout".as_ptr(),
-                c"more than NTIMERS timeouts".as_ptr(),
-            )
-        };
+        kpanic!("timeout", "more than NTIMERS timeouts");
     }
 
     // SAFETY: `selected` was free under the lock, and this caller now owns

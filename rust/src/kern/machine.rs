@@ -17,7 +17,8 @@ use crate::arch::i386::percpu::{current_thread, percpu_at};
 use crate::arch::i386::pmap;
 use crate::config::NCPUS;
 use crate::glue;
-use crate::kern::debug;
+use crate::kern::console::kprint;
+use crate::kern::debug::{self, kpanic};
 use crate::kern::lock::SimpleLock;
 use crate::kern::processor::{
     PROCESSOR_ASSIGN, PROCESSOR_DISPATCHING, PROCESSOR_IDLE,
@@ -327,14 +328,10 @@ unsafe fn request_action(
                 set_action_state(processor, new_pset);
             }
             state => {
-                glue::printf(c"state: %d\n".as_ptr(), state);
-                // SAFETY: `Panic` does not return; the message and the
-                // function tag are the C `panic()` call's.
-                glue::Panic(
-                    c"kern/machine.c".as_ptr(),
-                    line!() as c_int,
-                    c"processor_request_action".as_ptr(),
-                    c"processor_request_action: bad state".as_ptr(),
+                kprint!("state: {}\n", state);
+                kpanic!(
+                    "processor_request_action",
+                    "processor_request_action: bad state"
                 );
             }
         }
@@ -657,14 +654,10 @@ unsafe fn doaction(processor: *mut Processor) {
     // splsched, as the C did after its `shutdown:` label.
     unsafe {
         if (*processor).state != PROCESSOR_SHUTDOWN {
-            glue::printf(c"state: %d\n".as_ptr(), (*processor).state);
-            // SAFETY: `Panic` does not return; the message and the function
-            // tag are the C `panic()` call's.
-            glue::Panic(
-                c"kern/machine.c".as_ptr(),
-                line!() as c_int,
-                c"processor_doaction".as_ptr(),
-                c"action_thread -- bad processor state".as_ptr(),
+            kprint!("state: {}\n", (*processor).state);
+            kpanic!(
+                "processor_doaction",
+                "action_thread -- bad processor state"
             );
         }
 
