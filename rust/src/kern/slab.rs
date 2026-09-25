@@ -13,6 +13,7 @@ use crate::arch::vm_param::PAGE_SIZE;
 use crate::glue;
 use crate::kern::list::{List, entry as list_entry};
 use crate::kern::lock::SimpleLock;
+use crate::kern::mach_clock;
 use crate::kern::rbtree::{RBTREE_LEFT, Rbtree, RbtreeNode, rbtree_node_init};
 use crate::utils::cell::SyncCell;
 use crate::vm::error::KERN_SUCCESS;
@@ -1751,13 +1752,13 @@ fn kalloc_name(mut value: usize) -> [u8; KMEM_CACHE_NAME_SIZE] {
 
 /// `slab_collect()` in C.
 pub(crate) fn slab_collect() {
-    // SAFETY: `elapsed_ticks` and `hz` are the live clock globals.  Their
-    // C types and `usize` are the same width on both targets, so the
-    // conversions cannot fail.
-    let now = usize::try_from(unsafe { glue::elapsed_ticks }).unwrap_or(0);
-    // SAFETY: as above; the C read `hz` for `KMEM_GC_INTERVAL`.
+    // SAFETY: `elapsed_ticks` is the live clock global, an `unsigned long`
+    // the C kept in the target's `usize`.
+    let now = unsafe { mach_clock::elapsed_ticks() };
+    // The C read `hz` for `KMEM_GC_INTERVAL`, an `int` that is positive
+    // after the probe sets it.
     let interval =
-        usize::try_from(unsafe { glue::hz }).unwrap_or(0) * KMEM_GC_TICKS;
+        usize::try_from(mach_clock::hz).unwrap_or(0) * KMEM_GC_TICKS;
 
     if now
         <= KMEM_GC_LAST_TICK

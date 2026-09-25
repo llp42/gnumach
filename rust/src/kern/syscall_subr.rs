@@ -10,7 +10,7 @@
 
 use crate::glue;
 use crate::kern::ipc_sched::ipc_timeout_to_ticks;
-use crate::kern::mach_clock::reset_timeout_check;
+use crate::kern::mach_clock::{self, reset_timeout_check};
 use crate::kern::sched::NRQS;
 use crate::kern::sched_prim::compute_priority;
 use crate::kern::thread::Thread;
@@ -50,7 +50,7 @@ unsafe fn depress_priority(thread: *mut Thread, depress_time: c_uint) {
         (*thread).priority = NRQS as c_int - 1;
         (*thread).sched_pri = NRQS as c_int - 1;
         if ticks != 0 {
-            glue::set_timeout(&raw mut (*thread).depress_timer, ticks);
+            mach_clock::set_timeout(&raw mut (*thread).depress_timer, ticks);
         }
 
         (*thread).lock.unlock();

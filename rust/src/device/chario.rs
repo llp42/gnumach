@@ -16,6 +16,7 @@ use crate::device::r#return::{DeviceError, DeviceSuccess};
 use crate::glue;
 use crate::ipc::IpcPort;
 use crate::kern::lock::SimpleLock;
+use crate::kern::mach_clock;
 use crate::kern::queue::{QueueEntry, enqueue_tail};
 use crate::vm::error::KERN_SUCCESS;
 use crate::vm::vm_map::VmMapCopy;
@@ -138,7 +139,7 @@ pub struct Tty {
     pub(crate) t_delayed_read: QueueEntry,
     pub(crate) t_delayed_write: QueueEntry,
     pub(crate) t_delayed_open: QueueEntry,
-    t_timeout: Option<NonNull<c_void>>,
+    t_timeout: Option<NonNull<mach_clock::Timeout>>,
     t_getstat: Option<
         unsafe extern "C" fn(u16, c_uint, *mut c_int, *mut u32) -> c_int,
     >,
@@ -1156,7 +1157,11 @@ unsafe extern "C" fn ttypush(param: *mut c_void) {
             // SAFETY: `timeout()`'s contract; the tty lock is held and the
             // callback runs on the master CPU.
             tp.t_timeout = NonNull::new(unsafe {
-                glue::timeout(Some(ttypush), param, pdma_timeout(tp.t_ispeed))
+                mach_clock::timeout(
+                    Some(ttypush),
+                    param,
+                    pdma_timeout(tp.t_ispeed),
+                )
             });
         } else {
             tp.t_state = state & !TS_MIN_TO;
@@ -1203,7 +1208,7 @@ pub(crate) fn input(tp: &mut Tty, c: c_uint) {
             // SAFETY: `reset_timeout()`'s contract; `t_timeout` is the live
             // timeout `input()` armed.
             unsafe {
-                glue::reset_timeout(
+                mach_clock::reset_timeout(
                     tp.t_timeout.map_or(ptr::null_mut(), |p| p.as_ptr()),
                 )
             };
@@ -1218,7 +1223,7 @@ pub(crate) fn input(tp: &mut Tty, c: c_uint) {
                 // SAFETY: `timeout()`'s contract; the tty lock is held and
                 // the callback runs on the master CPU.
                 tp.t_timeout = NonNull::new(unsafe {
-                    glue::timeout(
+                    mach_clock::timeout(
                         Some(ttypush),
                         ptr::from_mut(tp).cast::<c_void>(),
                         ptime,
@@ -1309,9 +1314,8 @@ pub(crate) fn chario_init() {
         }
     }
 
-    // SAFETY: `hz` is the live C global the clock probe set before
-    // `device_service_create()` runs.
-    let hz = unsafe { glue::hz };
+    // The live clock rate the probe set before `device_service_create()`.
+    let hz = mach_clock::hz;
 
     for (speed, baud) in PDMA_TIMEOUT_ROWS {
         // SAFETY: every speed is below `NSPEEDS`, the length of the table.

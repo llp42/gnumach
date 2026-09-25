@@ -148,10 +148,7 @@ pub extern "C" fn clkstart() {
 
     PITCTL_PORT.write_u8(PIT0_MODE);
 
-    // SAFETY: `hz` is the `int hz` of <kern/mach_clock.h>, initialized to `HZ`
-    // before `clkstart()` can run and never written after, so this is a
-    // race-free load of an initialized `int`.
-    let hz = unsafe { glue::hz };
+    let hz = crate::kern::mach_clock::hz;
 
     // The C computed the interval in `int` and stored it in an `unsigned int`:
     // `(CLKNUM + hz / 2) / hz`.

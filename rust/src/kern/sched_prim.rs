@@ -13,7 +13,7 @@ use crate::arch::i386::percpu::{
 use crate::glue;
 use crate::kern::ast::{AST_BLOCK, ast_on};
 use crate::kern::lock::SimpleLock;
-use crate::kern::mach_clock::reset_timeout_check;
+use crate::kern::mach_clock::{self, reset_timeout_check};
 use crate::kern::policy::{POLICY_FIXEDPRI, POLICY_TIMESHARE};
 use crate::kern::processor::{
     PROCESSOR_DISPATCHING, PROCESSOR_IDLE, PROCESSOR_OFF_LINE,
@@ -750,7 +750,7 @@ pub unsafe extern "C" fn thread_set_timeout(t: c_int) {
         if (*thread).state() & TH_WAIT != 0 {
             // The C passes the `int` to an `unsigned` parameter, so a negative
             // interval wraps; the cast is that conversion.
-            glue::set_timeout(&raw mut (*thread).timer, t as c_uint);
+            mach_clock::set_timeout(&raw mut (*thread).timer, t as c_uint);
         }
         (*thread).lock.unlock();
         glue::splx(s);
@@ -854,9 +854,9 @@ pub unsafe extern "C" fn recompute_priorities(_param: *mut c_void) {
     // exactly as the C call's did.
     unsafe {
         glue::sched_tick = glue::sched_tick.wrapping_add(1);
-        glue::set_timeout(
+        mach_clock::set_timeout(
             &raw mut glue::recompute_priorities_timer,
-            glue::hz as c_uint,
+            mach_clock::hz as c_uint,
         );
         if !glue::sched_thread_id.is_null() {
             // SAFETY: `clear_wait()` takes the thread and hash locks itself;

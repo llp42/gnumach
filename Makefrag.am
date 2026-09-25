@@ -63,7 +63,6 @@ libkernel_a_SOURCES += \
 	kern/eventcount.c \
 	kern/eventcount.h \
 	kern/exception.h \
-	kern/gsync.c \
 	kern/gsync.h \
 	kern/host.h \
 	kern/ipc_host.h \
@@ -79,7 +78,6 @@ libkernel_a_SOURCES += \
 	kern/list.h \
 	kern/lock.h \
 	kern/log2.h \
-	kern/mach_clock.c \
 	kern/mach_clock.h \
 	kern/mach_factor.c \
 	kern/mach_factor.h \
