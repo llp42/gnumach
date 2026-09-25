@@ -345,13 +345,6 @@ unsafe extern "C" {
     pub fn com_base_addr(unit: c_int) -> VmOffset;
     pub fn com_irq(unit: c_int) -> c_int;
 
-    pub static mut lapic: *mut c_void;
-    pub static mut cpu_id_lut: [c_int; 256];
-    pub static mut apic_id_mask: u8;
-
-    pub static mut hpet_addr: *mut u32;
-    pub static mut hpet_period_nsec: u32;
-
     /// `apboot_addr` of <i386/model_dep.h>: the physical page the AP boot
     /// code lives in, claimed by `biosmem_bootstrap()`.
     pub static mut apboot_addr: VmOffset;

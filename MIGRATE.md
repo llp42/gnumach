@@ -51,7 +51,7 @@ column is what exists in the tree today, not a plan.
 | Layer | What it is | State today |
 |---|---|---|
 | **L0 pure** | strings, byte order, atoi, parser tables | done |
-| **L1 types** | structs read field-by-field, sometimes by asm | `Thread`, `Processor`, `ProcessorSet`, `RunQueue`, `Timer`, `Timeout`, `QueueEntry`, `SimpleLock`, `TimeValue`/`TimeValue64`, `VmMap`/`VmMapEntry`/`VmMapHeader`/`VmMapLinks`, `VmPage`, `VmObject`, `Task`/`MachineTask`, `KmemCache`, `MachineSlot`, `struct ipc_port` (with its `ipc_target` and `ipc_mqueue`), `struct ipc_space`, `struct ipc_kmsg`, `struct ipc_entry` and `struct ipc_marequest` are `#[repr(C)]` mirrors with size, alignment and offset asserts.  `struct pcb`, the APIC structs and the driver structs have no field mirror. |
+| **L1 types** | structs read field-by-field, sometimes by asm | `Thread`, `Processor`, `ProcessorSet`, `RunQueue`, `Timer`, `Timeout`, `QueueEntry`, `SimpleLock`, `TimeValue`/`TimeValue64`, `VmMap`/`VmMapEntry`/`VmMapHeader`/`VmMapLinks`, `VmPage`, `VmObject`, `Task`/`MachineTask`, `KmemCache`, `MachineSlot`, `struct ipc_port` (with its `ipc_target` and `ipc_mqueue`), `struct ipc_space`, `struct ipc_kmsg`, `struct ipc_entry`, `struct ipc_marequest`, `ApicLocalUnit`, `ApicIoUnit`, `ApicInfo`, `IoApicData` and the packed ACPI tables are `#[repr(C)]` mirrors with size, alignment and offset asserts.  `struct pcb` and the driver structs have no field mirror. |
 | **L2 locks/IRQ/percpu** | `simple_lock`, `spl*`, `percpu_get`, `current_thread()` | done: `kern/lock.c` and `i386/i386/lock.h` are gone, `SimpleLock` is `src/kern/lock.rs`, `spl*` are real asm functions in `glue`, and `current_thread()`, `cpu_number()` and `percpu_get` live in `src/arch/i386/percpu.rs`.  An RAII `IrqGuard` is a Rust-side type to write when wanted. |
 | **L3 memory** | `kalloc`/`kfree`, `kmem_cache_*` | done: `kern/slab.c` is gone, `src/kern/slab.rs` owns the allocator and `src/kern/slab_ffi.rs` exports its C symbols.  A `GlobalAlloc` over `kalloc` remains a design conversation. |
 | **L4 runnable** | `thread_block`, `assert_wait`, `set_timeout`, continuations | the wait/wake primitives are Rust; `thread_block`, `assert_wait` and `set_timeout` are real C symbols in `glue`; `switch_context`, `call_continuation` and `stack_handoff` stay C. |
@@ -139,11 +139,10 @@ file, or `—` when the rest is ready too.
 | `net_io.c` | 2168 | 0 | `ifnet`/`net_hash_entry` fields |
 | `subrs.c` | 53 | 0 | `ifnet` fields |
 
-### `i386/` (30 files, 8,413 LOC)
+### `i386/` (28 files, 7,424 LOC)
 
 | File | LOC | Free | Holds the rest |
 |---|---:|---:|---|
-| `i386/apic.c` | 354 | 0 | `ApicInfo`/`IoApicData`/`ApicLocalUnit` fields |
 | `i386/db_interface.c` | 103 | 0 | `struct pcb` fields |
 | `i386/debug_i386.c` | 178 | 0 | `i386_saved_state` fields |
 | `i386/fpu.c` | 830 | 0 | `struct pcb` and FPU save-area fields |
@@ -163,7 +162,6 @@ file, or `—` when the rest is ready too.
 | `i386/smp.c` | 214 | 0 | static `smp_send_ipi` |
 | `i386/trap.c` | 532 | 0 | trap frames; `trap_type[]` static |
 | `i386/user_ldt.c` | 422 | 0 | `struct pcb` and descriptor structs |
-| `i386at/acpi_parse_apic.c` | 635 | 0 | static ACPI helpers |
 | `i386at/autoconf.c` | 127 | 0 | `bus_device`/`bus_ctlr` fields |
 | `i386at/com.c` | 909 | 0 | `com_*` arrays are NCOM-sized |
 | `i386at/conf.c` | 144 | 0 | static tables |
@@ -397,8 +395,9 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `i386/i386at/rtc.c` | `src/arch/i386/rtc.rs` | `5afeaa94` |
 | `i386/i386at/pit.c` | `src/arch/i386/pit.rs` | `896ae703` |
 | `i386/i386/pcb.c` (`stack_detach`, `load_context`, `pcb_collect`), `i386/i386/phys.c` (`kvtophys`) | `src/arch/i386/pcb.rs`, `phys.rs` | pending |
-| `i386/i386/apic.c` (`apic_lapic_init`, `apic_get_cpu_kernel_id`, `apic_get_lapic`, `apic_get_current_cpu`, `hpet_init`, `hpet_udelay`, `hpet_mdelay`, `hpclock_read_counter`, `hpclock_get_counter_period_nsec`) | `src/arch/i386/apic.rs` | pending |
-| `i386/i386at/acpi_parse_apic.c` (`acpi_print_info`), `i386/i386at/ioapic.c` (`intnull`) | `src/arch/i386/acpi_parse_apic.rs`, `ioapic.rs` | pending |
+| `i386/i386/apic.c` whole, with the `ApicLocalUnit`, `ApicIoUnit`, `ApicReg`, `IoApicData`, `IrqOverrideData` and `ApicInfo` mirrors and the `lapic`, `cpu_id_lut`, `apic_data`, `apic_id_mask` and `hpet_period_nsec` globals it owned | `src/arch/i386/apic.rs` | pending |
+| `i386/i386at/acpi_parse_apic.c` whole, with the packed ACPI table mirrors, the `lapic_addr` and `hpet_addr` globals and the static MADT it owned | `src/arch/i386/acpi_parse_apic.rs` | pending |
+| `i386/i386at/ioapic.c` (`intnull`) | `src/arch/i386/ioapic.rs` | pending |
 | `device/chario.c` (`tty_queue_completion`), `device/device_init.c` (`device_service_create`), `device/ds_routines.c` (`ds_device_open_new`), `device/intr.c` (`irqgetstat`), `device/kmsg.c` (`kmsggetstat`) | `src/device/chario.rs`, `device_init.rs`, `ds_routines.rs`, `intr.rs`, `kmsg.rs` | pending |
 | `kern/host.c` (`host_processor_set_priv`, `processor_set_processors`) | `src/kern/host.rs` | pending |
 | `kern/ipc_host.c` (`ipc_processor_init`, `ipc_pset_init`, `ipc_pset_enable`, `ipc_pset_disable`, `ipc_pset_terminate`, `processor_set_default`) | `src/kern/ipc_host.rs` | pending |

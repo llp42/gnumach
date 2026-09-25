@@ -140,6 +140,8 @@ link error, not a fallback.
 | `ipc/ipc_pset.c` | `src/ipc/ipc_pset.rs`, `src/ipc/ipc_pset_ffi.rs` |
 | `ipc/ipc_marequest.c` | `src/ipc/ipc_marequest.rs`, `src/ipc/ipc_marequest_ffi.rs` |
 | `kern/ipc_mig.c` | `src/kern/ipc_mig.rs`, `src/kern/ipc_mig_ffi.rs` |
+| `i386/i386/apic.c` | `src/arch/i386/apic.rs` |
+| `i386/i386at/acpi_parse_apic.c` | `src/arch/i386/acpi_parse_apic.rs` |
 
 Also deleted as dead: `device/blkio.c` and the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`).
