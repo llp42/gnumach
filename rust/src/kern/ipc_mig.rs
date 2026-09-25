@@ -11,8 +11,15 @@
 
 use crate::arch::i386::percpu::current_thread;
 use crate::arch::types::{VmOffset, VmSize};
+use crate::device::ds_routines::{device_deallocate, device_reference};
+use crate::device::ds_routines_ffi::{
+    ds_device_write_trap, ds_device_writev_trap,
+};
 use crate::glue;
 use crate::ipc::ipc_kmsg::{self, Kmsg, MsgReturn};
+use crate::ipc::ipc_mqueue_ffi::{
+    ipc_mqueue_copyin, ipc_mqueue_receive, ipc_mqueue_send,
+};
 use crate::ipc::{IpcPort, IpcSpace, MachMsgHeader};
 use crate::ipc::{ipc_object, ipc_port, ipc_space};
 use crate::kern::ipc_tt::{self, TaskSpecialPort, mach_reply_port};
@@ -51,14 +58,16 @@ const MACH_MSG_TYPE_PORT_SEND: c_uint = 17;
 const MACH_MSG_TYPE_COPY_SEND: c_uint = 19;
 /// `MACH_MSG_TYPE_MAKE_SEND_ONCE` of <mach/message.h>.
 const MACH_MSG_TYPE_MAKE_SEND_ONCE: c_uint = 21;
-/// `MACH_MSG_OPTION_NONE` of <mach/message.h>.
-const MACH_MSG_OPTION_NONE: c_int = 0;
+/// `MACH_MSG_OPTION_NONE` of <mach/message.h>.  The port passes it to the
+/// message-queue option word, which is unsigned like the C's parameter.
+const MACH_MSG_OPTION_NONE: c_uint = 0;
 /// `MACH_SEND_MSG` of <mach/message.h>.
 const MACH_SEND_MSG: c_int = 0x0000_0001;
 /// `MACH_RCV_MSG` of <mach/message.h>.
 const MACH_RCV_MSG: c_int = 0x0000_0002;
-/// `MACH_SEND_ALWAYS` of <mach/message.h>: internal to the kernel.
-const MACH_SEND_ALWAYS: c_int = 0x0001_0000;
+/// `MACH_SEND_ALWAYS` of <mach/message.h>: internal to the kernel.  The
+/// port passes it to the message-queue option word, which is unsigned.
+const MACH_SEND_ALWAYS: c_uint = 0x0001_0000;
 /// `MACH_MSG_TIMEOUT_NONE` of <mach/message.h>.
 const MACH_MSG_TIMEOUT_NONE: c_uint = 0;
 /// `MACH_MSG_SIZE_MAX` of <mach/message.h>: an unbounded receive.
@@ -452,7 +461,7 @@ unsafe fn port_name_to_device(name: c_uint) -> *mut c_void {
         return unsafe {
             let device = if port.is_active() && port.kotype() == IKOT_DEVICE {
                 let device = port.kobject();
-                glue::device_reference(device);
+                device_reference(device);
                 device
             } else {
                 ptr::null_mut()
@@ -657,7 +666,7 @@ pub(crate) unsafe fn mach_msg_send_from_kernel(
     // SAFETY: the message is live and holds the send right the send consumes;
     // the C's `ipc_mqueue_send_always` discarded the result.
     unsafe {
-        glue::ipc_mqueue_send(
+        ipc_mqueue_send(
             kmsg.as_ptr(),
             MACH_SEND_ALWAYS,
             MACH_MSG_TIMEOUT_NONE,
@@ -720,7 +729,7 @@ pub(crate) unsafe fn mach_msg(
             // SAFETY: the message is live and holds the copied-in rights the
             // queue consumes.
             let mr = unsafe {
-                glue::ipc_mqueue_send(
+                ipc_mqueue_send(
                     kmsg.as_ptr(),
                     MACH_MSG_OPTION_NONE,
                     MACH_MSG_TIMEOUT_NONE,
@@ -739,7 +748,7 @@ pub(crate) unsafe fn mach_msg(
             // SAFETY: the space is live and the caller holds no locks; the
             // two out-pointers are this call's live locals.
             let mr = unsafe {
-                glue::ipc_mqueue_copyin(
+                ipc_mqueue_copyin(
                     space.as_ptr(),
                     rcv_name,
                     &mut mqueue,
@@ -755,7 +764,7 @@ pub(crate) unsafe fn mach_msg(
             // SAFETY: the copyin returned the locked queue and its reference
             // to `object`; the two out-pointers are live locals.
             let mr = unsafe {
-                glue::ipc_mqueue_receive(
+                ipc_mqueue_receive(
                     mqueue,
                     MACH_MSG_OPTION_NONE,
                     MACH_MSG_SIZE_MAX,
@@ -1335,18 +1344,24 @@ pub(crate) unsafe fn syscall_device_write_request(
     if reply_name != MACH_PORT_NULL {
         // SAFETY: the reference `port_name_to_device()` took is the one
         // released here.
-        unsafe { glue::device_deallocate(device) };
+        unsafe { device_deallocate(device) };
         return KERN_INVALID_RIGHT;
     }
 
     // SAFETY: the device is live and its reference is held, and the trap does
-    // the I/O.
+    // the I/O.  `VmOffset` and `VmSize` are pointer-sized, as `c_ulong` is.
     let result = unsafe {
-        glue::ds_device_write_trap(device, mode, recnum, data, data_count)
+        ds_device_write_trap(
+            device,
+            mode,
+            recnum,
+            data as c_ulong,
+            data_count as c_ulong,
+        )
     };
     // SAFETY: the reference `port_name_to_device()` took is the one released
     // here.
-    unsafe { glue::device_deallocate(device) };
+    unsafe { device_deallocate(device) };
     result
 }
 
@@ -1375,17 +1390,24 @@ pub(crate) unsafe fn syscall_device_writev_request(
     if reply_name != MACH_PORT_NULL {
         // SAFETY: the reference `port_name_to_device()` took is the one
         // released here.
-        unsafe { glue::device_deallocate(device) };
+        unsafe { device_deallocate(device) };
         return KERN_INVALID_RIGHT;
     }
 
     // SAFETY: the device is live and its reference is held, and the trap does
-    // the I/O.
+    // the I/O.  `VmSize` is pointer-sized, as `c_ulong` is, and the iovec is
+    // the user array the trap reads through its typed pointer.
     let result = unsafe {
-        glue::ds_device_writev_trap(device, mode, recnum, iovec, iocount)
+        ds_device_writev_trap(
+            device,
+            mode,
+            recnum,
+            iovec.cast(),
+            iocount as c_ulong,
+        )
     };
     // SAFETY: the reference `port_name_to_device()` took is the one released
     // here.
-    unsafe { glue::device_deallocate(device) };
+    unsafe { device_deallocate(device) };
     result
 }
