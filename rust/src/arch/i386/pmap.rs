@@ -17,8 +17,8 @@
 use crate::arch::i386::atomic_bits::{bit_lock, bit_unlock};
 use crate::arch::i386::biosmem;
 #[cfg(target_arch = "x86_64")]
-use crate::arch::i386::model_dep::init_alloc_aligned;
-use crate::arch::i386::model_dep::pmap_grab_page;
+use crate::arch::i386::model_dep_ffi::init_alloc_aligned;
+use crate::arch::i386::model_dep_ffi::pmap_grab_page;
 use crate::arch::i386::mp_desc::interrupt_processor;
 use crate::arch::i386::percpu::{cpu_number, current_thread};
 use crate::arch::i386::phys::kvtophys;
@@ -82,7 +82,7 @@ const VM_PROT_EXECUTE: c_int = 0x4;
 const VM_PROT_ALL: c_int = 0x7;
 
 /// `CPU_FEATURE_PGE` of <i386/locore.h>: the global-page bit.
-const CPU_FEATURE_PGE: u32 = 13;
+pub(crate) const CPU_FEATURE_PGE: u32 = 13;
 #[cfg(target_arch = "x86_64")]
 const CPU_FEATURE_PAE: u32 = 6;
 
@@ -277,7 +277,7 @@ fn ptetokv(pte: VmOffset) -> *mut VmOffset {
 }
 
 /// `CPU_HAS_FEATURE()` of <i386/locore.h>, whose table the assembly fills.
-fn cpu_has_feature(feature: u32) -> bool {
+pub(crate) fn cpu_has_feature(feature: u32) -> bool {
     // SAFETY: `cpu_features` is the two-word table <i386/locore.h> declares
     // and the boot assembly fills before C code runs.
     let word = unsafe { glue::cpu_features[(feature / 32) as usize] };

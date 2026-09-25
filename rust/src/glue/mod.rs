@@ -7,15 +7,17 @@ pub mod mig;
 pub mod time_value;
 
 use crate::arch::i386::com::BusDevice;
+use crate::arch::i386::debug_i386::MachTrap;
 use crate::arch::i386::irq::{IrqDev, UserIntr};
+use crate::arch::i386::model_dep::GdtDescrTmp;
+use crate::arch::i386::mp_desc::GDTSZ;
 use crate::arch::i386::pcb::{
-    I386DebugState, I386SavedState, Pcb, RealDescriptor, TaskTss, UserLdt,
+    I386DebugState, Pcb, RealDescriptor, TaskTss, UserLdt,
 };
 use crate::arch::i386::trap::Recovery;
 use crate::arch::types::{VmOffset, VmSize};
 use crate::config::NCPUS;
 use crate::device::ds_routines::DevOps;
-use crate::kern::bootstrap::MultibootRawInfo;
 use crate::kern::lock::SimpleLock;
 use crate::kern::machine::{MachineInfo, MachineSlot};
 use crate::kern::processor::{Processor, ProcessorSet};
@@ -53,8 +55,6 @@ unsafe extern "C" {
 
     pub fn cpu_shutdown();
     pub fn action_thread_continue() -> !;
-
-    pub fn halt_all_cpus(reboot: c_int) -> !;
 
     pub fn kd_slmwd(start: *mut c_void, count: c_int, value: c_int);
     pub fn kd_slmscu(from: *mut c_void, to: *mut c_void, count: c_int);
@@ -125,9 +125,6 @@ unsafe extern "C" {
     ) -> c_int;
     pub fn db_get_debug_state(pcb: *mut Pcb, state: *mut I386DebugState);
 
-    /// `dump_ss()` of `i386/i386/debug_i386.c`, which is still C.
-    pub fn dump_ss(st: *const I386SavedState);
-
     /// `inst_fetch()` of `i386/i386/locore.S` and `x86_64/locore.S`: fetch
     /// one instruction byte with the recovery tables' fault handling.
     pub fn inst_fetch(eip: c_int, cs: c_int) -> c_int;
@@ -138,9 +135,6 @@ unsafe extern "C" {
     pub static mut recover_table_end: Recovery;
     pub static mut retry_table: Recovery;
     pub static mut retry_table_end: Recovery;
-
-    pub static mut mp_gdt: [*mut RealDescriptor; NCPUS];
-    pub static mut mp_ktss: [*mut TaskTss; NCPUS];
 
     pub fn eml_task_reference(task: *mut Task, parent: *mut Task);
     pub fn eml_task_deallocate(task: *mut Task);
@@ -197,6 +191,64 @@ unsafe extern "C" {
     /// The load image bounds `pmap_bootstrap()` maps read-only.
     pub static _start: c_char;
     pub static etext: c_char;
+    pub static _end: c_char;
+
+    /// `apboot` and `apbootend` of `i386/i386/cpuboot.S`: the AP boot code
+    /// `start_other_cpus()` copies to `apboot_addr`.
+    pub static apboot: c_char;
+    pub static apbootend: c_char;
+
+    /// `gdt_descr_tmp` and `apboot_jmp_offset` of `i386/i386/cpuboot.S`: the
+    /// realmode GDT pointer and far jump `machine_init()` relocates.
+    pub static mut gdt_descr_tmp: GdtDescrTmp;
+    pub static mut apboot_jmp_offset: u32;
+
+    /// `gdt` and `ktss` of `i386/i386/gdt.c` and `i386/i386/ktss.c`: the
+    /// boot CPU's descriptor tables, which the other CPUs get copies of.
+    pub static mut gdt: [RealDescriptor; GDTSZ];
+    pub static mut ktss: TaskTss;
+
+    /// `version[]` of the generated version object: the kernel's release
+    /// string, printed by `c_boot_entry()`.
+    pub static version: c_char;
+
+    /// `mach_trap_table` of `kern/syscall_sw.c`: one entry per syscall, which
+    /// `syscall_trace_print()` indexes.
+    pub static mach_trap_table: MachTrap;
+
+    /// `gdt_init()` and friends of `i386/i386/gdt.c`, `i386/i386/idt.c`,
+    /// `i386/i386/ldt.c`, `i386/i386/ktss.c` and
+    /// `i386/i386at/int_init.c`: build the boot CPU's descriptor tables, and
+    /// `ap_*_init` the copy an AP loads.
+    pub fn gdt_init();
+    pub fn ap_gdt_init(cpu: c_int);
+    pub fn idt_init();
+    pub fn ap_idt_init(cpu: c_int);
+    pub fn ldt_init();
+    pub fn ap_ldt_init(cpu: c_int);
+    pub fn ktss_init();
+    pub fn ap_ktss_init(cpu: c_int);
+    pub fn int_init();
+    pub fn ap_int_init(cpu: c_int);
+
+    /// `init_percpu()` of `i386/i386/percpu.c`: fill one CPU's per-CPU block.
+    pub fn init_percpu(cpu: c_int);
+
+    /// `cpu_launch_first_thread()` of `kern/startup.c`: hand a CPU the first
+    /// thread to run.  It never returns.
+    pub fn cpu_launch_first_thread(th: *mut Thread) -> !;
+
+    /// `cninit()` of `device/cons.c`: find and initialize the console.
+    pub fn cninit();
+
+    /// `probeio()` of `i386/i386at/autoconf.c`: probe the ISA devices.
+    pub fn probeio();
+
+    /// `setup_main()` of `kern/startup.c`: start the kernel's first threads.
+    pub fn setup_main();
+
+    /// `discover_x86_cpu_type()` of `i386/i386/locore.S`.
+    pub fn discover_x86_cpu_type() -> c_int;
 
     pub static mut default_pset: c_void;
     pub static mut pset_cache: KmemCache;
@@ -331,13 +383,6 @@ unsafe extern "C" {
         bus_name: *const c_char,
     ) -> c_int;
 
-    /// `kernel_cmdline` of `i386/i386at/model_dep.c`: the boot command line.
-    pub static mut kernel_cmdline: *mut c_char;
-
-    /// `boot_info` of `i386/i386at/model_dep.c`: the multiboot information
-    /// the boot loader left.
-    pub static mut boot_info: MultibootRawInfo;
-
     /// `setsoftclock()` of <i386/spl.h>: raise the softclock interrupt.
     pub fn setsoftclock();
 
@@ -351,12 +396,6 @@ unsafe extern "C" {
 
     /// `master_cpu` of <kern/cpu_number.h>: the processor that keeps time.
     pub static mut master_cpu: c_int;
-
-    pub static rebootflag: c_int;
-
-    /// `apboot_addr` of <i386/model_dep.h>: the physical page the AP boot
-    /// code lives in, claimed by `biosmem_bootstrap()`.
-    pub static mut apboot_addr: VmOffset;
 
     pub static mut machine_task_iopb_cache: KmemCache;
 

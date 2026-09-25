@@ -296,7 +296,7 @@ fn bad_trap(regs: &I386SavedState, type_: c_ulong, code: c_ulong) -> ! {
         )
     };
     // SAFETY: `regs` is the live trap frame.
-    unsafe { glue::dump_ss(regs) };
+    unsafe { crate::arch::i386::debug_i386::dump_ss(regs) };
     // SAFETY: `Panic()` does not return.
     unsafe {
         glue::Panic(
@@ -391,7 +391,7 @@ fn page_fault(
                 )
             };
             // SAFETY: `regs` is the live trap frame.
-            unsafe { glue::dump_ss(regs) };
+            unsafe { crate::arch::i386::debug_i386::dump_ss(regs) };
             // SAFETY: `Panic()` does not return.
             unsafe {
                 glue::Panic(
@@ -624,7 +624,7 @@ pub(crate) unsafe fn user_trap(regs: &mut I386SavedState) -> c_int {
                 )
             };
             // SAFETY: `regs` is the live trap frame.
-            unsafe { glue::dump_ss(regs) };
+            unsafe { crate::arch::i386::debug_i386::dump_ss(regs) };
             // SAFETY: `Panic()` does not return.
             unsafe {
                 glue::Panic(
@@ -649,7 +649,7 @@ pub(crate) unsafe fn user_trap(regs: &mut I386SavedState) -> c_int {
 /// `regs` must be the live frame the double-fault entry built.
 pub(crate) unsafe fn handle_double_fault(regs: &I386SavedState) {
     // SAFETY: `regs` is the live double-fault frame.
-    unsafe { glue::dump_ss(regs) };
+    unsafe { crate::arch::i386::debug_i386::dump_ss(regs) };
     // SAFETY: `Panic()` does not return.
     unsafe {
         glue::Panic(

@@ -41,7 +41,7 @@ const CALL_AST_CHECK: c_uint = 0xfa;
 const CALL_PMAP_UPDATE: c_uint = 0xfb;
 
 /// `cpu_pause()` of <i386/smp.h>: the spin-loop hint.
-fn pause() {
+pub(crate) fn pause() {
     // SAFETY: `pause` touches no registers and the stack stays balanced; the
     // memory clobber of the C macro is the default.
     unsafe { asm!("pause", options(nostack, preserves_flags)) };

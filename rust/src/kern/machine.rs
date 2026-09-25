@@ -128,9 +128,9 @@ fn reboot(
         // is a literal, and the call never returns.
         unsafe { debug::Debugger(c"Debugger".as_ptr()) };
     } else {
-        // SAFETY: `halt_all_cpus` never returns.
+        // `halt_all_cpus` never returns.
         let reboot = c_int::from(!options.contains(RebootOptions::HALT));
-        unsafe { glue::halt_all_cpus(reboot) };
+        crate::arch::i386::model_dep::halt_all_cpus(reboot);
     }
 
     Ok(())

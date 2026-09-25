@@ -41,7 +41,8 @@ routine at a time. The target is a Rust kernel, not a kernel with Rust in it.
 The build is GNU Autotools plus a hand-written `rustc` invocation — no Cargo,
 no lock file, no network. The Rust half compiles to `libmach-rs.a`, which is
 linked between two passes over `libkernel.a`, so Rust may call C and C may
-call Rust. As of 2026-09-25 the Rust half is 170 files and about 85,000 lines.
+call Rust. As of 2026-09-25 the Rust half is 195 files and about 100,000
+lines.
 
 ### The idea
 
@@ -167,6 +168,9 @@ link error, not a fallback.
 | `i386/i386/io_perm.c` | `src/arch/i386/io_perm.rs`, `src/arch/i386/io_perm_ffi.rs` |
 | `i386/i386/smp.c` | `src/arch/i386/smp.rs`, `src/arch/i386/smp_ffi.rs` |
 | `i386/i386/trap.c` | `src/arch/i386/trap.rs`, `src/arch/i386/trap_ffi.rs` |
+| `i386/i386at/model_dep.c` | `src/arch/i386/model_dep.rs`, `src/arch/i386/model_dep_ffi.rs` |
+| `i386/i386/mp_desc.c` | `src/arch/i386/mp_desc.rs`, `src/arch/i386/mp_desc_ffi.rs` |
+| `i386/i386/debug_i386.c` | `src/arch/i386/debug_i386.rs`, `src/arch/i386/debug_i386_ffi.rs` |
 
 Also deleted as dead: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `ipc/copy_user.c`'s `USER32`

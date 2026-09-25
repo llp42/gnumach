@@ -271,7 +271,7 @@ fn checkmagic(scancode: u8) -> bool {
 
     if st.magic_state & (KS_CTLED | KS_ALTED) == (KS_CTLED | KS_ALTED)
         && scancode == K_DELSC
-        && unsafe { glue::rebootflag } != 0
+        && unsafe { crate::arch::i386::model_dep::rebootflag } != 0
     {
         // SAFETY: the caller asked for a reboot with ctl-alt-del.
         unsafe { super::kdreboot() };
