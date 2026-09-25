@@ -20,6 +20,7 @@ use crate::glue::time_value::{RpcTimeValue, TimeValue, TimeValue64};
 use crate::ipc::IpcSpace;
 use crate::ipc::mach_port;
 use crate::kern::ast::{AST_BLOCK, AST_HALT, AST_TERMINATE, ast_on};
+use crate::kern::eventcount;
 use crate::kern::ipc_mig::abort_rpc;
 use crate::kern::ipc_tt::{
     ipc_thread_disable, ipc_thread_enable, ipc_thread_init,
@@ -30,9 +31,7 @@ use crate::kern::mach_clock::{
     self, Timeout, read_time_stamp, reset_timeout_check,
 };
 use crate::kern::policy::{POLICY_FIXEDPRI, POLICY_TIMESHARE, invalid_policy};
-use crate::kern::processor::{
-    Processor, ProcessorSet, pset_deallocate, pset_reference,
-};
+use crate::kern::processor::{self, Processor, ProcessorSet};
 use crate::kern::queue::{
     QueueEntry, dequeue_head, enqueue_tail, queue_end, queue_enter_tail,
     queue_first, queue_init, queue_next, queue_remove_generic,
@@ -631,7 +630,7 @@ impl Thread {
 
         // SAFETY: the check above and the caller's contract; the event count
         // takes the thread lock itself.
-        unsafe { glue::evc_notify_abort(thread) };
+        unsafe { eventcount::notify_abort(thread) };
 
         // SAFETY: as above; `Thread::halt()` takes its own locks, may block,
         // and reports failure rather than halting.
@@ -701,8 +700,8 @@ impl Thread {
         // SAFETY: the check above and the caller's contract; the set pointer
         // is the thread's own assignment.
         let pset = unsafe { (*thread).processor_set };
-        // SAFETY: as above; `pset_reference()` takes the set's reference lock.
-        unsafe { pset_reference(pset) };
+        // SAFETY: as above; the set's reference lock covers the count.
+        unsafe { (*pset).reference() };
         Ok(pset)
     }
 }
@@ -1567,7 +1566,7 @@ const _: () = assert!(size_of::<ThreadSchedInfo>() == 32);
 
 /// `default_pset` of <kern/processor.h> as a typed pointer.
 pub(crate) fn default_pset() -> *mut ProcessorSet {
-    ptr::addr_of_mut!(glue::default_pset).cast::<ProcessorSet>()
+    processor::default_pset()
 }
 
 /// The stack accounting `host_stack_usage()` and
@@ -1636,7 +1635,7 @@ impl Thread {
         let mut pset = unsafe {
             (*parent_task).lock.lock();
             let pset = (*parent_task).processor_set;
-            pset_reference(pset);
+            (*pset).reference();
             (*parent_task).lock.unlock();
             pset
         };
@@ -1669,10 +1668,10 @@ impl Thread {
                 }
 
                 if cur_pset != pset {
-                    pset_reference(cur_pset);
+                    (*cur_pset).reference();
                     (*parent_task).lock.unlock();
                     (*pset).lock.unlock();
-                    pset_deallocate(pset);
+                    (*pset).deallocate();
                     pset = cur_pset;
                     continue;
                 }
@@ -1813,7 +1812,7 @@ impl Thread {
             glue::splx(s);
             (*task).lock.unlock();
             (*pset).lock.unlock();
-            pset_deallocate(pset);
+            (*pset).deallocate();
         }
 
         // SAFETY: the checks are the C's; a live thread is never the current
@@ -1856,7 +1855,7 @@ impl Thread {
         }
 
         // SAFETY: the thread is dead; the event count takes its own lock.
-        unsafe { glue::evc_notify_abort(thread) };
+        unsafe { eventcount::notify_abort(thread) };
         // SAFETY: as above; `pcb_terminate()` releases the machine state.
         unsafe { crate::arch::i386::pcb::pcb_terminate(thread) };
 
@@ -2631,7 +2630,7 @@ impl Thread {
                 break;
             }
 
-            pset_reference(new_pset);
+            (*new_pset).reference();
 
             let s = glue::splsched();
             (*thread).lock.lock();
@@ -2683,7 +2682,7 @@ impl Thread {
             (*thread).lock.unlock();
             glue::splx(s);
 
-            pset_deallocate(pset);
+            (*pset).deallocate();
 
             if old_empty != 0 {
                 Thread::release(thread);
@@ -2735,11 +2734,11 @@ impl Thread {
         let mut prev_thread: *mut Thread = ptr::null_mut();
         let mut prev_pset: *mut ProcessorSet = ptr::null_mut();
 
-        // SAFETY: `all_psets` and its lock are the C globals; the walk keeps
+        // SAFETY: `all_psets` and its lock guard the global list; the walk keeps
         // a reference on both the set and the thread between iterations.
         unsafe {
-            let all_psets = ptr::addr_of_mut!(glue::all_psets);
-            let all_psets_lock = ptr::addr_of_mut!(glue::all_psets_lock);
+            let all_psets = processor::all_psets();
+            let all_psets_lock = processor::all_psets_lock();
 
             (*all_psets_lock).lock();
             let mut pset_entry = queue_first(all_psets);
@@ -2773,7 +2772,7 @@ impl Thread {
                         prev_thread = thread;
 
                         if !prev_pset.is_null() {
-                            pset_deallocate(prev_pset);
+                            (*prev_pset).deallocate();
                         }
                         prev_pset = pset;
 
@@ -2796,7 +2795,7 @@ impl Thread {
                 Thread::deallocate(prev_thread);
             }
             if !prev_pset.is_null() {
-                pset_deallocate(prev_pset);
+                (*prev_pset).deallocate();
             }
         }
     }

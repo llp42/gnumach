@@ -16,6 +16,7 @@ use crate::arch::i386::percpu::{cpu_number, current_thread};
 use crate::arch::i386::trap;
 use crate::arch::types::VmSize;
 use crate::glue;
+use crate::kern::machine;
 use crate::kern::slab::{CacheInitFlags, KmemCache};
 use crate::kern::thread::Thread;
 use crate::kern::types::KernError;
@@ -913,14 +914,13 @@ unsafe fn fpinit(thread: *mut Thread) {
 pub(crate) unsafe fn init_fpu() {
     // SAFETY: `machine_slot` is the boot probe's record, one per CPU, and
     // `cpu_number()` names this one.
-    let native =
-        if unsafe { glue::machine_slot[cpu_number() as usize].cpu_type }
-            >= CPU_TYPE_I486
-        {
-            CR0_NE
-        } else {
-            0
-        };
+    let native = if unsafe { (*machine::slot(cpu_number() as usize)).cpu_type }
+        >= CPU_TYPE_I486
+    {
+        CR0_NE
+    } else {
+        0
+    };
 
     write_cr0((read_cr0() & !(CR0_EM | CR0_TS)) | native);
     fninit();

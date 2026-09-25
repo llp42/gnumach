@@ -12,7 +12,7 @@ use crate::arch::types::VmOffset;
 use crate::glue;
 use crate::ipc::{IpcPort, IpcSpace, ipc_port, ipc_space};
 use crate::kern::host::{self, Host};
-use crate::kern::processor::{Processor, ProcessorSet};
+use crate::kern::processor::{self, Processor, ProcessorSet};
 use crate::kern::task::current_task;
 use crate::kern::types::KernError;
 use core::ffi::{c_int, c_uint, c_void};
@@ -86,14 +86,14 @@ pub(crate) unsafe fn init() {
         (*host::realhost()).host_priv_self = port.as_ptr();
     }
 
-    let pset = ptr::addr_of_mut!(glue::default_pset).cast::<ProcessorSet>();
-    // SAFETY: the default set and the master processor are the C globals
+    let pset = processor::default_pset();
+    // SAFETY: the default set and the master processor are the globals
     // `pset_sys_bootstrap()` initialized during the boot, and their port
     // fields are still null, so no other thread can be looking at them.
     unsafe {
         pset_init(&mut *pset);
         pset_enable(&mut *pset);
-        processor_init(&mut *glue::master_processor);
+        processor_init(&mut *processor::master_processor());
     }
 }
 
@@ -435,10 +435,7 @@ pub(crate) unsafe fn set_default(
         return Err(KernError::InvalidArgument);
     }
 
-    // SAFETY: `default_pset` is the C global `pset_sys_bootstrap()`
-    // initialized during the boot; only its address is formed, because the
-    // Rust mirror stops before the NCPUS-sized tail.
-    let pset = ptr::addr_of_mut!(glue::default_pset).cast::<ProcessorSet>();
+    let pset = processor::default_pset();
     // SAFETY: the global is live from boot, and the entry is reached only once
     // IPC is up.
     unsafe { (*pset).reference() };

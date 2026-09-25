@@ -59,7 +59,6 @@ libkernel_a_SOURCES += \
 	kern/cpu_number.h \
 	kern/debug.c \
 	kern/debug.h \
-	kern/eventcount.c \
 	kern/eventcount.h \
 	kern/exception.h \
 	kern/gsync.h \
@@ -80,14 +79,12 @@ libkernel_a_SOURCES += \
 	kern/mach_clock.h \
 	kern/mach_factor.c \
 	kern/mach_factor.h \
-	kern/machine.c \
 	kern/machine.h \
 	kern/macros.h \
 	kern/printf.c \
 	kern/printf.h \
 	kern/priority.c \
 	kern/priority.h \
-	kern/processor.c \
 	kern/processor.h \
 	kern/queue.h \
 	kern/rbtree.h \

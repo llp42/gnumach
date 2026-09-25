@@ -14,7 +14,9 @@ use crate::arch::i386::mp_desc::cpu_control;
 use crate::arch::i386::percpu::percpu_at;
 use crate::config::NCPUS;
 use crate::glue;
+use crate::ipc::IpcPort;
 use crate::kern::ipc_host;
+use crate::kern::ipc_tt::{convert_task_to_port, convert_thread_to_port};
 use crate::kern::lock::SimpleLock;
 use crate::kern::machine;
 use crate::kern::policy::{POLICY_TIMESHARE, invalid_policy};
@@ -25,20 +27,20 @@ use crate::kern::processor_info::{
     ProcessorBasicInfo, ProcessorSetBasicInfo, ProcessorSetSchedInfo,
 };
 use crate::kern::queue::{
-    QueueEntry, queue_end, queue_enter_tail, queue_first, queue_init,
-    queue_next, queue_remove_generic,
+    QueueEntry, queue_empty, queue_end, queue_enter_tail, queue_first,
+    queue_init, queue_next, queue_remove_generic,
 };
 use crate::kern::sched::{
     BASEPRI_SYSTEM, NRQS, RunQueue, SCHED_SCALE, invalid_pri,
 };
 use crate::kern::sched_prim::min_quantum;
-use crate::kern::slab::CacheInitFlags;
+use crate::kern::slab::{CacheInitFlags, KmemCache, kalloc, kfree};
+use crate::kern::task::{self as task, Task};
 use crate::kern::thread::Thread;
 use crate::kern::types::KernError;
 use core::ffi::{c_int, c_long, c_uint, c_void};
-use core::mem::offset_of;
-use core::ptr;
-use core::slice;
+use core::mem::{offset_of, size_of};
+use core::ptr::{self, NonNull};
 
 /// `PROCESSOR_OFF_LINE` in <kern/processor.h>: not in the system.
 pub const PROCESSOR_OFF_LINE: c_int = 0;
@@ -206,6 +208,82 @@ const _: () = {
 #[cfg(target_pointer_width = "32")]
 const _: () = assert!(size_of::<ProcessorSet>() == 664);
 
+/// `master_cpu` of <kern/cpu_number.h>: the processor that keeps time.
+#[unsafe(export_name = "master_cpu")]
+static mut MASTER_CPU: c_int = 0;
+
+/// `default_pset` of <kern/processor.h>: the set every task starts in.
+#[unsafe(export_name = "default_pset")]
+static mut DEFAULT_PSET: ProcessorSet = ProcessorSet::zeroed();
+
+/// `all_psets` of <kern/processor.h>: the chain of every processor set.
+#[unsafe(export_name = "all_psets")]
+static mut ALL_PSETS: QueueEntry = QueueEntry::unlinked();
+
+/// `all_psets_count` of <kern/processor.h>.
+#[unsafe(export_name = "all_psets_count")]
+static mut ALL_PSETS_COUNT: c_int = 0;
+
+/// `all_psets_lock` of <kern/processor.h>.
+#[unsafe(export_name = "all_psets_lock")]
+static mut ALL_PSETS_LOCK: SimpleLock = SimpleLock::new();
+
+/// `master_processor` of <kern/processor.h>.
+#[unsafe(export_name = "master_processor")]
+static mut MASTER_PROCESSOR: *mut Processor = ptr::null_mut();
+
+/// `pset_cache` of kern/processor.c: the `struct processor_set` slab cache.
+#[unsafe(export_name = "pset_cache")]
+static mut PSET_CACHE: KmemCache = KmemCache::zeroed();
+
+/// `slave_pset` of <kern/processor.h>: the set of every CPU but the master.
+#[unsafe(export_name = "slave_pset")]
+static mut SLAVE_PSET: *mut ProcessorSet = ptr::null_mut();
+
+/// The live `default_pset` static.
+pub(crate) fn default_pset() -> *mut ProcessorSet {
+    ptr::addr_of_mut!(DEFAULT_PSET)
+}
+
+/// The live `all_psets` queue head.
+pub(crate) fn all_psets() -> *mut QueueEntry {
+    ptr::addr_of_mut!(ALL_PSETS)
+}
+
+/// The live `all_psets_count` counter.
+pub(crate) fn all_psets_count() -> *mut c_int {
+    ptr::addr_of_mut!(ALL_PSETS_COUNT)
+}
+
+/// The live `all_psets_lock`.
+pub(crate) fn all_psets_lock() -> *mut SimpleLock {
+    ptr::addr_of_mut!(ALL_PSETS_LOCK)
+}
+
+/// The master processor `pset_sys_bootstrap()` selected.
+pub(crate) fn master_processor() -> *mut Processor {
+    // SAFETY: `pset_sys_bootstrap()` sets it before any other thread runs, and
+    // it only ever changes during that boot step.
+    unsafe { MASTER_PROCESSOR }
+}
+
+/// The `master_cpu` the boot set.
+pub(crate) fn master_cpu() -> c_int {
+    // SAFETY: the boot sets it before the clock starts.
+    unsafe { MASTER_CPU }
+}
+
+/// The live `slave_pset`, or null before `pset_sys_init()` sets it.
+pub(crate) fn slave_pset() -> *mut ProcessorSet {
+    // SAFETY: only the boot's `pset_sys_init()` writes it.
+    unsafe { SLAVE_PSET }
+}
+
+/// The `pset_cache` the boot initialized.
+fn pset_cache() -> *mut KmemCache {
+    ptr::addr_of_mut!(PSET_CACHE)
+}
+
 /// The data a [`ProcessorSet::info()`] call reports, one variant per accepted
 /// flavor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -298,9 +376,9 @@ impl Processor {
 
     /// `processor_exit()` of kern/processor.c.
     pub fn exit(&mut self) -> Result<(), KernError> {
-        // SAFETY: `self` is a live processor, and the C routine takes the
-        // machine lock it needs itself.
-        kern_error(unsafe { glue::processor_shutdown(self) })
+        // SAFETY: `self` is a live processor, and the machine routine takes
+        // the processor lock it needs itself.
+        unsafe { machine::shutdown(ptr::from_mut(self)) }
     }
 
     /// `processor_control()` of kern/processor.c.
@@ -352,9 +430,7 @@ impl Processor {
         let state = self.state;
         let running =
             state != PROCESSOR_SHUTDOWN && state != PROCESSOR_OFF_LINE;
-        // SAFETY: `master_processor` is the live C global, which
-        // `pset_sys_bootstrap()` points at the master slot.
-        let is_master = ptr::eq(self, unsafe { glue::master_processor });
+        let is_master = ptr::eq(self, master_processor());
 
         Ok(ProcessorBasicInfo {
             cpu_type: machine.cpu_type,
@@ -367,6 +443,44 @@ impl Processor {
 }
 
 impl ProcessorSet {
+    /// The all-zero image a C `static struct processor_set` began with.
+    const fn zeroed() -> Self {
+        Self {
+            runq: RunQueue {
+                runq: [const { QueueEntry::unlinked() }; NRQS],
+                lock: SimpleLock::new(),
+                low: 0,
+                count: 0,
+            },
+            idle_queue: QueueEntry::unlinked(),
+            idle_count: 0,
+            idle_lock: SimpleLock::new(),
+            processors: QueueEntry::unlinked(),
+            processor_count: 0,
+            empty: 0,
+            tasks: QueueEntry::unlinked(),
+            task_count: 0,
+            threads: QueueEntry::unlinked(),
+            thread_count: 0,
+            ref_count: 0,
+            ref_lock: SimpleLock::new(),
+            all_psets: QueueEntry::unlinked(),
+            active: 0,
+            lock: SimpleLock::new(),
+            pset_self: ptr::null_mut(),
+            pset_name_self: ptr::null_mut(),
+            max_priority: 0,
+            policies: 0,
+            set_quantum: 0,
+            quantum_adj_index: 0,
+            quantum_adj_lock: SimpleLock::new(),
+            machine_quantum: [0; NCPUS + 1],
+            mach_factor: 0,
+            load_average: 0,
+            sched_load: 0,
+        }
+    }
+
     /// Initialize the processor set.
     ///
     /// # Safety
@@ -431,9 +545,9 @@ impl ProcessorSet {
         self.ref_count = 1;
         self.ref_lock.unlock();
 
-        // SAFETY: the lock is the C global for the list, and the C order is
+        // SAFETY: the lock guards the list, and the C order is
         // `all_psets_lock` before the set's `ref_lock`.
-        let all_psets_lock = ptr::addr_of_mut!(glue::all_psets_lock);
+        let all_psets_lock = all_psets_lock();
         unsafe {
             (*all_psets_lock).lock();
         }
@@ -448,8 +562,8 @@ impl ProcessorSet {
             return;
         }
 
-        let is_default = ptr::from_mut(self).cast::<c_void>()
-            == ptr::addr_of_mut!(glue::default_pset);
+        let is_default =
+            ptr::eq(ptr::from_ref(self), default_pset().cast_const());
         if is_default
             || self.thread_count > 0
             || self.task_count > 0
@@ -472,11 +586,12 @@ impl ProcessorSet {
         // the removal keeps the list consistent.
         unsafe {
             queue_remove_generic(
-                ptr::addr_of_mut!(glue::all_psets),
+                all_psets(),
                 ptr::from_mut(self).cast::<c_void>(),
                 offset_of!(ProcessorSet, all_psets),
             );
-            glue::all_psets_count -= 1;
+            let count = all_psets_count();
+            *count = (*count).wrapping_sub(1);
         }
 
         self.ref_lock.unlock();
@@ -488,8 +603,7 @@ impl ProcessorSet {
         // SAFETY: the set came from `pset_cache` and nothing references it any
         // more; `.addr()` is the address the allocator handed out.
         unsafe {
-            (*ptr::addr_of_mut!(glue::pset_cache))
-                .free(ptr::NonNull::from_mut(self).cast::<u8>())
+            (*pset_cache()).free(ptr::NonNull::from_mut(self).cast::<u8>())
         };
     }
 
@@ -532,6 +646,51 @@ impl ProcessorSet {
             );
             (*thread).processor_set = ptr::null_mut();
             self.thread_count = self.thread_count.wrapping_sub(1);
+        }
+    }
+
+    /// `pset_add_task()` of kern/processor.c.
+    ///
+    /// # Safety
+    ///
+    /// The caller must hold the set's lock and the task's lock, as the C
+    /// requires, and `task` must be live and not linked into a processor set.
+    pub unsafe fn add_task(&mut self, task: *mut Task) {
+        // SAFETY: the caller promises a live, unlinked task, and the queue's
+        // links are its `pset_tasks` field.
+        unsafe {
+            queue_enter_tail(
+                &raw mut self.tasks,
+                task.cast::<c_void>(),
+                offset_of!(Task, pset_tasks),
+            );
+            (*task).processor_set = ptr::from_mut(self);
+            self.task_count = self.task_count.wrapping_add(1);
+        }
+    }
+
+    /// `pset_remove_task()` of kern/processor.c.
+    ///
+    /// # Safety
+    ///
+    /// The caller must hold the set's lock and the task's lock, as the C
+    /// requires; `task` must be live, and the routine is a no-op unless it is
+    /// linked into this set.
+    pub unsafe fn remove_task(&mut self, task: *mut Task) {
+        if ptr::from_mut(self) != unsafe { (*task).processor_set } {
+            return;
+        }
+
+        // SAFETY: the caller promises a live task linked into this set, and
+        // the queue's links are its `pset_tasks` field.
+        unsafe {
+            queue_remove_generic(
+                &raw mut self.tasks,
+                task.cast::<c_void>(),
+                offset_of!(Task, pset_tasks),
+            );
+            (*task).processor_set = ptr::null_mut();
+            self.task_count = self.task_count.wrapping_sub(1);
         }
     }
 
@@ -809,38 +968,335 @@ impl Thread {
     }
 }
 
-/// `processor_init()` of kern/processor.c.
-///
-/// # Safety
-///
-/// `pr` must point at writable storage for a [`Processor`] that no other
-/// thread can see yet, as `pset_sys_bootstrap()` guarantees.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn processor_init(pr: *mut Processor, slot_num: c_int) {
-    // SAFETY: the caller's contract.
-    unsafe { Processor::init(pr, slot_num) };
+/// Which member list `ProcessorSet::things()` copies.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Thing {
+    Task,
+    Thread,
 }
 
-/// `pset_init()` of kern/processor.c.
+impl ProcessorSet {
+    /// `processor_set_destroy()` of kern/processor.c: reassign everything in
+    /// the set and release it.
+    ///
+    /// # Safety
+    ///
+    /// `self` must be a live set the caller holds a reference to, and the set
+    /// must not be the default one.
+    pub unsafe fn destroy(&mut self) -> Result<(), KernError> {
+        let default = default_pset();
+        if ptr::eq(self, default) {
+            return Err(KernError::InvalidArgument);
+        }
+
+        self.lock.lock();
+        if self.active == 0 {
+            self.lock.unlock();
+            return Err(KernError::Failure);
+        }
+
+        self.active = 0;
+        ipc_host::pset_disable(self);
+
+        // SAFETY: the set lock is held, so every link is a live task whose
+        // chain stays put during the walk; each reference taken here moves to
+        // `task_assign()`.
+        unsafe {
+            while queue_empty(&raw mut self.tasks) == 0 {
+                let task = queue_first(&raw mut self.tasks).cast::<Task>();
+                task::reference(task);
+                self.lock.unlock();
+                let _ = task::assign(task, default, false);
+                task::deallocate(task);
+                self.lock.lock();
+            }
+        }
+
+        // SAFETY: as above, for the thread list; the reference moves to
+        // `thread_assign()`.
+        unsafe {
+            while queue_empty(&raw mut self.threads) == 0 {
+                let thread =
+                    queue_first(&raw mut self.threads).cast::<Thread>();
+                Thread::reference(thread);
+                self.lock.unlock();
+                let _ = Thread::assign(thread, default);
+                Thread::deallocate(thread);
+                self.lock.lock();
+            }
+        }
+
+        // SAFETY: as above, for the processor list; `processor_assign()`
+        // takes its own set reference.
+        unsafe {
+            while queue_empty(&raw mut self.processors) == 0 {
+                let processor =
+                    queue_first(&raw mut self.processors).cast::<Processor>();
+                self.lock.unlock();
+                let _ = machine::assign(processor, default, true);
+                self.lock.lock();
+            }
+        }
+
+        self.lock.unlock();
+
+        ipc_host::pset_terminate(self);
+        self.deallocate();
+        Ok(())
+    }
+
+    /// `processor_set_things()` of kern/processor.c: the task or thread ports
+    /// of every member of the set, in the array `kalloc()` built.
+    ///
+    /// # Safety
+    ///
+    /// `self` must be a live set.
+    unsafe fn things(
+        &mut self,
+        kind: Thing,
+    ) -> Result<(*mut c_void, c_uint), KernError> {
+        let mut size: usize = 0;
+        let mut addr: *mut u8 = ptr::null_mut();
+
+        let (actual, size_needed) = loop {
+            self.lock.lock();
+            if self.active == 0 {
+                self.lock.unlock();
+                return Err(KernError::Failure);
+            }
+
+            let count = match kind {
+                Thing::Task => self.task_count,
+                Thing::Thread => self.thread_count,
+            };
+            // A live list's count is never negative.
+            let Ok(actual) = usize::try_from(count) else {
+                self.lock.unlock();
+                return Err(KernError::Failure);
+            };
+
+            let needed = actual.wrapping_mul(size_of::<*mut c_void>());
+            if needed <= size {
+                break (actual, needed);
+            }
+
+            self.lock.unlock();
+
+            if let Some(old) = NonNull::new(addr) {
+                // SAFETY: `old` came from `kalloc(size)`.
+                unsafe { kfree(old, size) };
+            }
+            size = needed;
+
+            let Some(buffer) = kalloc(size) else {
+                return Err(KernError::ResourceShortage);
+            };
+            addr = buffer.as_ptr();
+        };
+
+        // SAFETY: the set is locked and active, so every one of the `actual`
+        // links is a live task or thread whose chain stays put during the
+        // walk; the references taken here are the ones the port conversion
+        // below consumes.
+        unsafe {
+            match kind {
+                Thing::Task => {
+                    let mut task =
+                        queue_first(&raw mut self.tasks).cast::<Task>();
+                    for i in 0..actual {
+                        task::reference(task);
+                        addr.cast::<*mut Task>().add(i).write(task);
+                        task = queue_next(&raw mut (*task).pset_tasks)
+                            .cast::<Task>();
+                    }
+                }
+                Thing::Thread => {
+                    let mut thread =
+                        queue_first(&raw mut self.threads).cast::<Thread>();
+                    for i in 0..actual {
+                        Thread::reference(thread);
+                        addr.cast::<*mut Thread>().add(i).write(thread);
+                        thread = queue_next(&raw mut (*thread).pset_threads)
+                            .cast::<Thread>();
+                    }
+                }
+            }
+            self.lock.unlock();
+        }
+
+        if actual == 0 {
+            if let Some(old) = NonNull::new(addr) {
+                // SAFETY: `old` came from `kalloc(size)`.
+                unsafe { kfree(old, size) };
+            }
+            return Ok((ptr::null_mut(), 0));
+        }
+
+        if size_needed < size {
+            let Some(buffer) = kalloc(size_needed) else {
+                // SAFETY: every slot holds a reference the port conversion
+                // below never reached, and `addr` came from `kalloc(size)`.
+                unsafe {
+                    match kind {
+                        Thing::Task => {
+                            for i in 0..actual {
+                                task::deallocate(
+                                    addr.cast::<*mut Task>().add(i).read(),
+                                );
+                            }
+                        }
+                        Thing::Thread => {
+                            for i in 0..actual {
+                                Thread::deallocate(
+                                    addr.cast::<*mut Thread>().add(i).read(),
+                                );
+                            }
+                        }
+                    }
+                    kfree(NonNull::new_unchecked(addr), size);
+                }
+                return Err(KernError::ResourceShortage);
+            };
+            // SAFETY: both buffers are live, and `size_needed` is the byte
+            // count of the references `addr` holds.
+            unsafe {
+                ptr::copy_nonoverlapping(addr, buffer.as_ptr(), size_needed);
+                kfree(NonNull::new_unchecked(addr), size);
+            }
+            addr = buffer.as_ptr();
+        }
+
+        // SAFETY: every slot holds a task or thread reference, and the
+        // conversion consumes it into the port the slot then holds.
+        unsafe {
+            match kind {
+                Thing::Task => {
+                    let ports = addr.cast::<*mut Task>();
+                    for i in 0..actual {
+                        let task = ports.add(i).read();
+                        ports.add(i).write(
+                            convert_task_to_port(task)
+                                .map_or(ptr::null_mut(), IpcPort::as_ptr)
+                                .cast::<Task>(),
+                        );
+                    }
+                }
+                Thing::Thread => {
+                    let ports = addr.cast::<*mut Thread>();
+                    for i in 0..actual {
+                        let thread = ports.add(i).read();
+                        ports.add(i).write(
+                            convert_thread_to_port(thread)
+                                .map_or(ptr::null_mut(), IpcPort::as_ptr)
+                                .cast::<Thread>(),
+                        );
+                    }
+                }
+            }
+        }
+
+        // `actual` came from a non-negative `c_int`, so the C's `unsigned int`
+        // assignment cannot truncate it.
+        Ok((addr.cast::<c_void>(), actual as c_uint))
+    }
+}
+
+/// `pset_sys_bootstrap()` of kern/processor.c: build the default set and the
+/// processor records so the scheduler can run.
 ///
 /// # Safety
 ///
-/// `pset` must point at writable storage for a full `struct processor_set`
-/// that no other thread can see yet; `pset_sys_bootstrap()` and
-/// `processor_set_create()` are the callers.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pset_init(pset: *mut ProcessorSet) {
-    // SAFETY: the caller's contract.
-    unsafe { ProcessorSet::init(pset) };
+/// `kern/sched_prim.c`'s `sched_init()` is the only caller, and it runs during
+/// the single-threaded boot before any other CPU starts.
+pub(crate) unsafe fn bootstrap() {
+    // SAFETY: single-threaded boot; this is the first initialization of the
+    // default set, the per-CPU records and the global list.
+    unsafe {
+        ProcessorSet::init(default_pset());
+
+        for i in 0..NCPUS {
+            // The C indexed `percpu_array` with an `int`; `i` counts at most
+            // `NCPUS`, so the narrowing cannot wrap.
+            let cpu = i as c_int;
+            Processor::init(
+                ptr::addr_of_mut!((*percpu_at(cpu)).processor),
+                cpu,
+            );
+        }
+
+        MASTER_PROCESSOR =
+            ptr::addr_of_mut!((*percpu_at(master_cpu())).processor);
+
+        queue_init(all_psets());
+        (*all_psets_lock()).init();
+        queue_enter_tail(
+            all_psets(),
+            default_pset().cast::<c_void>(),
+            offset_of!(ProcessorSet, all_psets),
+        );
+        *all_psets_count() = 1;
+        (*default_pset()).active = 1;
+    }
+}
+
+/// `processor_set_create()` of kern/processor.c: build a fresh set.
+///
+/// # Safety
+///
+/// `host` must be null or the live host privilege object, and no other thread
+/// may reach the new set before this returns.
+pub(crate) unsafe fn create(
+    host: *mut c_void,
+) -> Result<*mut ProcessorSet, KernError> {
+    if host.is_null() {
+        return Err(KernError::InvalidArgument);
+    }
+
+    // SAFETY: the cache was initialized by `pset_sys_init()`, and the object
+    // is unshared until it is linked below.
+    let Some(mem) = (unsafe { (*pset_cache()).alloc() }) else {
+        return Err(KernError::ResourceShortage);
+    };
+    let pset = mem.as_ptr().cast::<ProcessorSet>();
+
+    // SAFETY: `pset` is a fresh cache object; the two references are the
+    // caller's two out-arguments, as the C took them.
+    unsafe {
+        ProcessorSet::init(pset);
+        (*pset).reference();
+        (*pset).reference();
+        ipc_host::pset_init(&mut *pset);
+        (*pset).active = 1;
+
+        let lock = all_psets_lock();
+        (*lock).lock();
+        queue_enter_tail(
+            all_psets(),
+            pset.cast::<c_void>(),
+            offset_of!(ProcessorSet, all_psets),
+        );
+        let count = all_psets_count();
+        *count = (*count).wrapping_add(1);
+        (*lock).unlock();
+
+        ipc_host::pset_enable(&mut *pset);
+    }
+
+    Ok(pset)
 }
 
 /// The rest of the processor-set system initialization: the set cache, the
 /// control port of every CPU but the master, and the slave set.
-fn system_init() {
-    // SAFETY: `pset_cache` is the C cache storage this boot step owns, and the
+///
+/// # Safety
+///
+/// `kern/startup.c` is the only caller; it runs after `bootstrap()` and before
+/// any other CPU is started.
+pub(crate) unsafe fn system_init() {
+    // SAFETY: `pset_cache` is the cache storage this boot step owns, and the
     // initializer only writes the cache's own fields.
     unsafe {
-        (*ptr::addr_of_mut!(glue::pset_cache)).init(
+        (*pset_cache()).init(
             b"processor_set",
             size_of::<ProcessorSet>(),
             0,
@@ -849,9 +1305,7 @@ fn system_init() {
         );
     }
 
-    // SAFETY: `pset_sys_bootstrap()` ran during the boot and pointed this at
-    // the master slot.
-    let master = unsafe { glue::master_processor };
+    let master = master_processor();
 
     for i in 0..NCPUS {
         // The C indexed `percpu_array` with an `int`; `i` counts at most
@@ -870,399 +1324,43 @@ fn system_init() {
         }
     }
 
-    // SAFETY: `realhost` is the live host object and `slave_pset` the C
-    // pointer this call sets; the set allocator takes the cache just
-    // initialized.
+    // SAFETY: `realhost` is the live host object and `slave_pset` the pointer
+    // this call sets; the set allocator takes the cache just initialized.
     unsafe {
-        glue::processor_set_create(
-            crate::kern::host::realhost().cast::<c_void>(),
-            ptr::addr_of_mut!(glue::slave_pset),
-            ptr::addr_of_mut!(glue::slave_pset),
-        );
+        let result = create(crate::kern::host::realhost().cast::<c_void>());
+        SLAVE_PSET = match result {
+            Ok(pset) => pset,
+            Err(_) => ptr::null_mut(),
+        };
     }
 }
 
-/// `pset_sys_init()` of kern/processor.c.
+/// `processor_set_tasks()` of kern/processor.c.
 ///
 /// # Safety
 ///
-/// `kern/startup.c` is the only caller; it runs this during boot after
-/// `pset_sys_bootstrap()` and before any other CPU is started.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pset_sys_init() {
-    system_init();
-}
-
-/// `processor_start()` of kern/processor.c.
-///
-/// # Safety
-///
-/// `pr` must be null or point at a live `struct processor`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn processor_start(pr: *mut Processor) -> c_int {
-    let Some(pr) = ptr::NonNull::new(pr) else {
-        return c_int::from(KernError::InvalidArgument);
+/// `pset` must be null or point at a live processor set.
+pub(crate) unsafe fn tasks(
+    pset: *mut ProcessorSet,
+) -> Result<(*mut c_void, c_uint), KernError> {
+    let Some(pset) = NonNull::new(pset) else {
+        return Err(KernError::InvalidArgument);
     };
-
-    // SAFETY: the caller promises a live processor.
-    match unsafe { (*pr.as_ptr()).start() } {
-        Ok(()) => 0,
-        Err(error) => c_int::from(error),
-    }
-}
-
-/// `processor_exit()` of kern/processor.c.
-///
-/// # Safety
-///
-/// `pr` must be null or point at a live `struct processor`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn processor_exit(pr: *mut Processor) -> c_int {
-    let Some(pr) = ptr::NonNull::new(pr) else {
-        return c_int::from(KernError::InvalidArgument);
-    };
-
-    // SAFETY: the caller promises a live processor.
-    match unsafe { (*pr.as_ptr()).exit() } {
-        Ok(()) => 0,
-        Err(error) => c_int::from(error),
-    }
-}
-
-/// `processor_control()` of kern/processor.c.
-///
-/// # Safety
-///
-/// `pr` must be null or point at a live `struct processor`, and `info` must be
-/// readable for `count` integers.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn processor_control(
-    pr: *mut Processor,
-    info: *mut c_int,
-    count: c_uint,
-) -> c_int {
-    let Some(pr) = ptr::NonNull::new(pr) else {
-        return c_int::from(KernError::InvalidArgument);
-    };
-
-    let info: &[c_int] = if count == 0 {
-        &[]
-    } else {
-        // SAFETY: the caller promises `count` readable integers.
-        unsafe { slice::from_raw_parts(info, count as usize) }
-    };
-
-    // SAFETY: the caller promises a live processor.
-    match unsafe { (*pr.as_ptr()).control(info) } {
-        Ok(()) => 0,
-        Err(error) => c_int::from(error),
-    }
-}
-
-/// `processor_get_assignment()` of kern/processor.c.
-///
-/// # Safety
-///
-/// `pr` must be null or point at a live `struct processor`, and `pset` must be
-/// a valid out-parameter.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn processor_get_assignment(
-    pr: *mut Processor,
-    pset: *mut *mut ProcessorSet,
-) -> c_int {
-    let Some(pr) = ptr::NonNull::new(pr) else {
-        return c_int::from(KernError::InvalidArgument);
-    };
-
-    // SAFETY: the caller promises a live processor.
-    match unsafe { (*pr.as_ptr()).get_assignment() } {
-        Ok(assignment) => {
-            // SAFETY: the caller passed the out-parameter the C signature
-            // requires.
-            unsafe { *pset = assignment };
-            0
-        }
-        Err(error) => c_int::from(error),
-    }
-}
-
-/// `pset_reference()` of kern/processor.c.
-///
-/// # Safety
-///
-/// `pset` must point at a live `struct processor_set`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pset_reference(pset: *mut ProcessorSet) {
     // SAFETY: the caller promises a live set.
-    unsafe { (*pset).reference() };
+    unsafe { (*pset.as_ptr()).things(Thing::Task) }
 }
 
-/// `pset_deallocate()` of kern/processor.c.
+/// `processor_set_threads()` of kern/processor.c.
 ///
 /// # Safety
 ///
-/// `pset` must be null or point at a live `struct processor_set` that the
-/// caller holds a reference to.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pset_deallocate(pset: *mut ProcessorSet) {
-    let Some(pset) = ptr::NonNull::new(pset) else {
-        return;
+/// `pset` must be null or point at a live processor set.
+pub(crate) unsafe fn threads(
+    pset: *mut ProcessorSet,
+) -> Result<(*mut c_void, c_uint), KernError> {
+    let Some(pset) = NonNull::new(pset) else {
+        return Err(KernError::InvalidArgument);
     };
-
-    // SAFETY: the caller's contract.
-    unsafe { (*pset.as_ptr()).deallocate() };
-}
-
-/// `pset_add_thread()` of kern/processor.c.
-///
-/// # Safety
-///
-/// `pset` must point at a live `struct processor_set` and `thread` at a live
-/// thread that is not linked into a set; the caller must hold both locks, as
-/// the C requires.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pset_add_thread(
-    pset: *mut ProcessorSet,
-    thread: *mut Thread,
-) {
-    // SAFETY: the caller's contract.
-    unsafe { (*pset).add_thread(thread) };
-}
-
-/// `pset_remove_thread()` of kern/processor.c.
-///
-/// # Safety
-///
-/// `pset` must point at a live `struct processor_set` and `thread` at a live
-/// thread linked into it; the caller must hold both locks, as the C requires.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pset_remove_thread(
-    pset: *mut ProcessorSet,
-    thread: *mut Thread,
-) {
-    // SAFETY: the caller's contract.
-    unsafe { (*pset).remove_thread(thread) };
-}
-
-/// `quantum_set()` of kern/processor.c.
-///
-/// # Safety
-///
-/// `pset` must point at a live `struct processor_set`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn quantum_set(pset: *mut ProcessorSet) {
     // SAFETY: the caller promises a live set.
-    unsafe { (*pset).quantum_set() };
-}
-
-/// `pset_add_processor()` of kern/processor.c.
-///
-/// # Safety
-///
-/// `pset` must point at a live `struct processor_set` and `processor` at a
-/// live processor that is not linked into a set; the caller must hold both
-/// locks, as the C requires.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pset_add_processor(
-    pset: *mut ProcessorSet,
-    processor: *mut Processor,
-) {
-    // SAFETY: the caller's contract.
-    unsafe { (*pset).add_processor(processor) };
-}
-
-/// `pset_remove_processor()` of kern/processor.c.
-///
-/// # Safety
-///
-/// `pset` must point at a live `struct processor_set` and `processor` at a
-/// live processor linked into it; the caller must hold both locks, as the C
-/// requires.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pset_remove_processor(
-    pset: *mut ProcessorSet,
-    processor: *mut Processor,
-) {
-    // SAFETY: the caller's contract.
-    unsafe { (*pset).remove_processor(processor) };
-}
-
-/// `thread_change_psets()` of kern/processor.c.
-///
-/// # Safety
-///
-/// `thread` must point at a live thread linked into the live set `old_pset`,
-/// and `new_pset` at a live set; the caller must hold the locks of both sets
-/// and of the thread, as the C requires.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn thread_change_psets(
-    thread: *mut Thread,
-    old_pset: *mut ProcessorSet,
-    new_pset: *mut ProcessorSet,
-) {
-    // SAFETY: the caller's contract.
-    unsafe { Thread::change_psets(thread, old_pset, new_pset) };
-}
-
-/// `processor_set_max_priority()` of kern/processor.c.
-///
-/// # Safety
-///
-/// `pset` must be null or point at a live `struct processor_set`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn processor_set_max_priority(
-    pset: *mut ProcessorSet,
-    max_priority: c_int,
-    change_threads: c_int,
-) -> c_int {
-    let Some(pset) = ptr::NonNull::new(pset) else {
-        return c_int::from(KernError::InvalidArgument);
-    };
-
-    // SAFETY: the caller promises a live set.
-    match unsafe {
-        (*pset.as_ptr()).max_priority(max_priority, change_threads)
-    } {
-        Ok(()) => 0,
-        Err(error) => c_int::from(error),
-    }
-}
-
-/// `processor_set_policy_enable()` of kern/processor.c.
-///
-/// # Safety
-///
-/// `pset` must be null or point at a live `struct processor_set`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn processor_set_policy_enable(
-    pset: *mut ProcessorSet,
-    policy: c_int,
-) -> c_int {
-    let Some(pset) = ptr::NonNull::new(pset) else {
-        return c_int::from(KernError::InvalidArgument);
-    };
-
-    // SAFETY: the caller promises a live set.
-    match unsafe { (*pset.as_ptr()).policy_enable(policy) } {
-        Ok(()) => 0,
-        Err(error) => c_int::from(error),
-    }
-}
-
-/// `processor_set_policy_disable()` of kern/processor.c.
-///
-/// # Safety
-///
-/// `pset` must be null or point at a live `struct processor_set`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn processor_set_policy_disable(
-    pset: *mut ProcessorSet,
-    policy: c_int,
-    change_threads: c_int,
-) -> c_int {
-    let Some(pset) = ptr::NonNull::new(pset) else {
-        return c_int::from(KernError::InvalidArgument);
-    };
-
-    // SAFETY: the caller promises a live set.
-    match unsafe { (*pset.as_ptr()).policy_disable(policy, change_threads) } {
-        Ok(()) => 0,
-        Err(error) => c_int::from(error),
-    }
-}
-
-/// `processor_info()` of kern/processor.c.
-///
-/// # Safety
-///
-/// `processor` must be null or point at a live `struct processor`; `host` and
-/// `count` must be valid out-parameters, and `info` must be writable for the
-/// `processor_basic_info` that `*count` reports.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn processor_info(
-    processor: *mut Processor,
-    flavor: c_int,
-    host: *mut *mut c_void,
-    info: *mut c_int,
-    count: *mut c_uint,
-) -> c_int {
-    let Some(processor) = ptr::NonNull::new(processor) else {
-        return c_int::from(KernError::InvalidArgument);
-    };
-
-    // SAFETY: the caller promises a valid `count` out-parameter.
-    let capacity = unsafe { *count };
-
-    // SAFETY: the caller promises a live processor.
-    match unsafe { (*processor.as_ptr()).info(flavor, capacity) } {
-        Ok(basic) => {
-            // SAFETY: the count check inside `info()` guarantees the caller's
-            // buffer is at least a `processor_basic_info`, and the caller
-            // promises the other two out-parameters.
-            unsafe {
-                ptr::write(info.cast::<ProcessorBasicInfo>(), basic);
-                *count = PROCESSOR_BASIC_INFO_COUNT;
-                *host = crate::kern::host::realhost().cast::<c_void>();
-            }
-            0
-        }
-        Err(error) => c_int::from(error),
-    }
-}
-
-/// `processor_set_info()` of kern/processor.c.
-///
-/// # Safety
-///
-/// `pset` must be null or point at a live `struct processor_set`; `host` and
-/// `count` must be valid out-parameters, and `info` must be writable for the
-/// record the flavor and `*count` call for.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn processor_set_info(
-    pset: *mut ProcessorSet,
-    flavor: c_int,
-    host: *mut *mut c_void,
-    info: *mut c_int,
-    count: *mut c_uint,
-) -> c_int {
-    let Some(pset) = ptr::NonNull::new(pset) else {
-        return c_int::from(KernError::InvalidArgument);
-    };
-
-    // SAFETY: the caller promises a valid `count` out-parameter.
-    let capacity = unsafe { *count };
-
-    // SAFETY: the caller promises a live set.
-    match unsafe { (*pset.as_ptr()).info(flavor, capacity) } {
-        Ok(ProcessorSetInfo::Basic(basic)) => {
-            // SAFETY: the count check inside `info()` guarantees the caller's
-            // buffer is at least a `processor_set_basic_info`, and the caller
-            // promises the other two out-parameters.
-            unsafe {
-                ptr::write(info.cast::<ProcessorSetBasicInfo>(), basic);
-                *count = PROCESSOR_SET_BASIC_INFO_COUNT;
-                *host = crate::kern::host::realhost().cast::<c_void>();
-            }
-            0
-        }
-        Ok(ProcessorSetInfo::Sched(sched)) => {
-            // SAFETY: the flavor's count check guarantees the caller's buffer
-            // is at least a `processor_set_sched_info`, and the caller
-            // promises the other two out-parameters.
-            unsafe {
-                ptr::write(info.cast::<ProcessorSetSchedInfo>(), sched);
-                *count = PROCESSOR_SET_SCHED_INFO_COUNT;
-                *host = crate::kern::host::realhost().cast::<c_void>();
-            }
-            0
-        }
-        Err(KernError::InvalidArgument) => {
-            // SAFETY: the caller promises a valid `host` out-parameter.
-            unsafe {
-                *host = ptr::null_mut();
-            }
-            c_int::from(KernError::InvalidArgument)
-        }
-        Err(error) => c_int::from(error),
-    }
+    unsafe { (*pset.as_ptr()).things(Thing::Thread) }
 }

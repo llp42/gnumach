@@ -17,8 +17,7 @@ use crate::config::NCPUS;
 use crate::device::ds_routines::DevOps;
 use crate::kern::bootstrap::MultibootRawInfo;
 use crate::kern::lock::SimpleLock;
-use crate::kern::machine::{MachineInfo, MachineSlot};
-use crate::kern::processor::{Processor, ProcessorSet};
+use crate::kern::processor::Processor;
 use crate::kern::queue::QueueEntry;
 use crate::kern::slab::KmemCache;
 use crate::kern::task::Task;
@@ -135,28 +134,25 @@ unsafe extern "C" {
     pub fn machine_task_terminate(task: *mut Task);
     pub fn machine_task_collect(task: *mut Task);
 
-    pub fn pset_add_task(pset: *mut ProcessorSet, task: *mut Task);
-    pub fn pset_remove_task(pset: *mut ProcessorSet, task: *mut Task);
-
     pub fn mach_notify_new_task(
         notify: *mut c_void,
         task: *mut c_void,
         parent: *mut c_void,
     ) -> c_int;
 
-    pub fn evc_notify_abort(thread: *mut Thread);
-
     pub fn thread_bootstrap_return();
     pub fn Load_context(new: *mut Thread) -> !;
 
-    pub static mut all_psets: QueueEntry;
-    pub static mut all_psets_lock: SimpleLock;
-    pub static mut all_psets_count: c_int;
+    /// `switch_to_shutdown_context()` of `i386/i386/cswitch.S` and
+    /// `x86_64/cswitch.S`: switch to the shutdown stack and call `routine`.
+    pub fn switch_to_shutdown_context(
+        thread: *mut Thread,
+        routine: Option<unsafe extern "C" fn(*mut Processor)>,
+        processor: *mut Processor,
+    );
 
-    pub static mut action_queue: QueueEntry;
-    pub static mut action_lock: SimpleLock;
-
-    pub fn pset_sys_bootstrap();
+    /// `halt_cpu()` of `i386/i386at/model_dep.c`: stop this CPU for good.
+    pub fn halt_cpu() -> !;
 
     /// `ast_taken()` of `kern/ast.c`, which is still C.
     pub fn ast_taken();
@@ -166,12 +162,6 @@ unsafe extern "C" {
 
     /// `call_continuation()` of `i386/i386/locore.S`, which never returns.
     pub fn call_continuation(continuation: Continuation) -> !;
-
-    pub static mut master_processor: *mut Processor;
-
-    pub static mut machine_slot: [MachineSlot; NCPUS];
-
-    pub static mut machine_info: MachineInfo;
 
     /// `avenrun` and `mach_factor` of kern/mach_factor.c: the three load
     /// averages `host_info()` reports.
@@ -183,17 +173,6 @@ unsafe extern "C" {
     /// The load image bounds `pmap_bootstrap()` maps read-only.
     pub static _start: c_char;
     pub static etext: c_char;
-
-    pub static mut default_pset: c_void;
-    pub static mut pset_cache: KmemCache;
-    pub static mut slave_pset: *mut ProcessorSet;
-
-    pub fn processor_shutdown(processor: *mut Processor) -> c_int;
-    pub fn processor_set_create(
-        host: *mut c_void,
-        new_set: *mut *mut ProcessorSet,
-        new_name: *mut *mut ProcessorSet,
-    ) -> c_int;
 
     pub fn net_io_init();
     pub fn net_thread();
@@ -321,9 +300,6 @@ unsafe extern "C" {
         nticks: c_int,
         state: c_int,
     );
-
-    /// `master_cpu` of <kern/cpu_number.h>: the processor that keeps time.
-    pub static mut master_cpu: c_int;
 
     pub static rebootflag: c_int;
 
