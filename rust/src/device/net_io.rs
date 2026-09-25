@@ -6,16 +6,42 @@
 //   Copyright (c) 1990-1991 The Regents of the University of California.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! The packet-filter machinery of `device/net_io.c`: the `bpf_hash()` bucket
-//! map, the BPF validator and interpreter, and the `struct net_rcv_port`,
-//! `struct net_hash_entry` and `struct net_hash_header` layouts their bodies
-//! read.
+//! The whole of `device/net_io.c`: the packet-filter machinery, the kmsg pool
+//! the receive thread fills, the filter lists `struct ifnet` heads, and the
+//! layouts their bodies read.
 //!
-//! The rest of `device/net_io.c` stays C for now, so the mirrors below must
-//! track its definitions until the hash and receive paths move.
+//! The C file is gone; `net_io_ffi.rs` holds the `extern "C"` entries
+//! <device/net_io.h> declares, and the four C `def_simple_lock_data(static,
+//! ...)` locks are [`SimpleLock`] values here.
 
-use core::ffi::{c_int, c_uint, c_void};
+use crate::arch::i386::io_req::IoReq;
+use crate::arch::i386::percpu::cpu_number;
+use crate::device::ds_routines;
+use crate::device::r#return::{DeviceError, DeviceSuccess, IoResult};
+use crate::glue;
+use crate::ipc::ipc_kmsg::{self, Kmsg, MsgReturn, ikm_plus_overhead};
+use crate::ipc::ipc_mqueue;
+use crate::ipc::ipc_port;
+use crate::ipc::{IpcPort, MachMsgHeader, MachMsgType};
+use crate::kern::ast::{AST_NETWORK, ast_off, ast_on};
+use crate::kern::lock::SimpleLock;
+use crate::kern::queue::{
+    QueueEntry, enqueue_tail, queue_enter_tail, queue_init,
+    queue_remove_generic,
+};
+use crate::kern::sched_prim::{
+    THREAD_AWAKENED, assert_wait, thread_block, thread_wakeup_prim,
+};
+use crate::kern::slab::{self, CacheInitFlags, KmemCache};
+use crate::kern::thread::{IpcKmsgQueue, Thread};
+use crate::utils::byteorder::htonl;
+use crate::utils::cell::SyncCell;
+use core::cell::UnsafeCell;
+use core::ffi::{c_char, c_int, c_long, c_short, c_uint, c_void};
 use core::mem::{offset_of, size_of};
+use core::ptr::{self, NonNull, addr_of, addr_of_mut};
+use core::slice;
+use core::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 
 /// `NET_MAX_FILTER` of <device/net_status.h>: the `filter_t[]` a receive port
 /// holds.
@@ -895,4 +921,2105 @@ pub(crate) unsafe fn do_filter(
     };
     // SAFETY: the caller promises a validated program and live windows.
     unsafe { interp.execute() }
+}
+
+/* ======== the kmsg pool, the filter lists and the receive thread ======== */
+
+/// `N_NET_HASH` of `device/net_io.c`: the filter hash headers it keeps.
+const N_NET_HASH: usize = 4;
+/// `NET_HDW_HDR_MAX` of <device/net_status.h>.
+const NET_HDW_HDR_MAX: usize = 64;
+/// The `unsigned short` words a header filter may address.
+const NET_HDR_WORDS: usize = NET_HDW_HDR_MAX / 2;
+/// `NET_FILTER_STACK_DEPTH` of <device/net_status.h>.
+const NET_FILTER_STACK_DEPTH: usize = 32;
+/// `NET_HI_PRI` of <device/net_status.h>: the priority that stops delivery.
+const NET_HI_PRI: c_int = 100;
+/// `NET_STATUS` of <device/net_status.h>.
+const NET_STATUS: c_int = ('n' as c_int) << 16 | 1;
+/// `NET_ADDRESS` of <device/net_status.h>.
+const NET_ADDRESS: c_int = ('n' as c_int) << 16 | 2;
+/// `NET_STATUS_COUNT` of <device/net_status.h>.
+const NET_STATUS_COUNT: c_uint = 7;
+/// `IFF_UP` of <device/if_hdr.h>.
+const IFF_UP: c_int = 0x0001;
+/// `IFF_RUNNING` of <device/if_hdr.h>.
+const IFF_RUNNING: c_int = 0x0040;
+/// `MACH_SEND_TIMEOUT` of <mach/message.h>.
+const MACH_SEND_TIMEOUT: c_uint = 0x10;
+/// `MACH_MSG_TYPE_PORT_SEND` of <mach/message.h>.
+const MACH_MSG_TYPE_PORT_SEND: c_uint = 17;
+/// `MACH_MSG_TYPE_BYTE` of <mach/message.h>.
+const MACH_MSG_TYPE_BYTE: u32 = 9;
+/// `NET_RCV_MSG_ID` of <device/net_status.h>.
+const NET_RCV_MSG_ID: c_int = 2999;
+
+/// `NETF_TYPE_MASK` of <device/net_status.h>.
+const NETF_TYPE_MASK: u16 = 0xfc00;
+/// `NETF_BPF` of <device/net_status.h>.
+const NETF_BPF: u16 = 0x400;
+/// `NETF_IN` of <device/net_status.h>.
+const NETF_IN: u16 = 0x1;
+/// `NETF_OUT` of <device/net_status.h>.
+const NETF_OUT: u16 = 0x2;
+/// `NETF_NOPUSH` of <device/net_status.h>.
+const NETF_NOPUSH: u16 = 0;
+/// `NETF_PUSHLIT` of <device/net_status.h>.
+const NETF_PUSHLIT: u16 = 1;
+/// `NETF_PUSHZERO` of <device/net_status.h>.
+const NETF_PUSHZERO: u16 = 2;
+/// `NETF_PUSHIND` of <device/net_status.h>.
+const NETF_PUSHIND: u16 = 14;
+/// `NETF_PUSHHDRIND` of <device/net_status.h>.
+const NETF_PUSHHDRIND: u16 = 15;
+/// `NETF_PUSHWORD` of <device/net_status.h>.
+const NETF_PUSHWORD: u16 = 16;
+/// `NETF_PUSHHDR` of <device/net_status.h>.
+const NETF_PUSHHDR: u16 = 960;
+/// `NETF_PUSHSTK` of <device/net_status.h>.
+const NETF_PUSHSTK: u16 = 992;
+
+/// The descriptor word of a `mach_msg_type_t` initializer, whose bitfield
+/// layout follows the pointer width.
+#[cfg(target_pointer_width = "64")]
+const fn descriptor_word(name: u32, size: u32) -> u32 {
+    name | (size << 8) | (1 << 29)
+}
+
+/// The descriptor word of a `mach_msg_type_t` initializer, whose bitfield
+/// layout follows the pointer width.
+#[cfg(target_pointer_width = "32")]
+const fn descriptor_word(name: u32, size: u32) -> u32 {
+    name | (size << 8) | (1 << 28)
+}
+
+/// `header_type` of `device/net_io.c`: the 64-byte hardware header.
+const HEADER_TYPE: MachMsgType =
+    MachMsgType::new(descriptor_word(MACH_MSG_TYPE_BYTE, 8), 64);
+/// `packet_type` of `device/net_io.c`: the variable-length packet body.
+const PACKET_TYPE: MachMsgType =
+    MachMsgType::new(descriptor_word(MACH_MSG_TYPE_BYTE, 8), 0);
+
+/// `struct packet_header` of <device/net_status.h>: the length and type
+/// words the BPF filter window skips.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PacketHeader {
+    pub length: u16,
+    pub type_: u16,
+}
+
+const _: () = assert!(size_of::<PacketHeader>() == 4);
+const _: () = assert!(core::mem::align_of::<PacketHeader>() == 2);
+const _: () = assert!(offset_of!(PacketHeader, length) == 0);
+const _: () = assert!(offset_of!(PacketHeader, type_) == 2);
+
+/// `struct ifqueue` of <device/if_hdr.h>: an interface's output queue.
+#[repr(C)]
+pub struct IfQueue {
+    pub ifq_head: QueueChain,
+    pub ifq_len: c_int,
+    pub ifq_maxlen: c_int,
+    pub ifq_drops: c_int,
+    pub ifq_lock: SimpleLock,
+}
+
+#[cfg(target_pointer_width = "64")]
+const _: () = {
+    assert!(size_of::<IfQueue>() == 32);
+    assert!(core::mem::align_of::<IfQueue>() == 8);
+    assert!(offset_of!(IfQueue, ifq_head) == 0);
+    assert!(offset_of!(IfQueue, ifq_len) == 16);
+    assert!(offset_of!(IfQueue, ifq_maxlen) == 20);
+    assert!(offset_of!(IfQueue, ifq_drops) == 24);
+    assert!(offset_of!(IfQueue, ifq_lock) == 28);
+};
+
+#[cfg(target_pointer_width = "32")]
+const _: () = {
+    assert!(size_of::<IfQueue>() == 24);
+    assert!(core::mem::align_of::<IfQueue>() == 4);
+    assert!(offset_of!(IfQueue, ifq_head) == 0);
+    assert!(offset_of!(IfQueue, ifq_len) == 8);
+    assert!(offset_of!(IfQueue, ifq_maxlen) == 12);
+    assert!(offset_of!(IfQueue, ifq_drops) == 16);
+    assert!(offset_of!(IfQueue, ifq_lock) == 20);
+};
+
+/// `struct ifnet` of <device/if_hdr.h>: a network interface's header,
+/// shared with the C drivers through <device/if_hdr.h>.
+#[repr(C)]
+pub struct IfNet {
+    pub if_unit: c_short,
+    pub if_flags: c_short,
+    pub if_timer: c_short,
+    pub if_mtu: c_short,
+    pub if_header_size: c_short,
+    pub if_header_format: c_short,
+    pub if_address_size: c_short,
+    pub if_alloc_size: c_short,
+    pub if_address: *mut c_char,
+    pub if_snd: IfQueue,
+    pub if_rcv_port_list: QueueChain,
+    pub if_snd_port_list: QueueChain,
+    pub if_rcv_port_list_lock: SimpleLock,
+    pub if_snd_port_list_lock: SimpleLock,
+    pub if_ipackets: c_int,
+    pub if_ierrors: c_int,
+    pub if_opackets: c_int,
+    pub if_oerrors: c_int,
+    pub if_collisions: c_int,
+    pub if_rcvdrops: c_int,
+}
+
+// The sizes, alignments and offsets are gdb's `ptype /o struct ifnet` over
+// build-64/gnumach and build-32/gnumach.
+#[cfg(target_pointer_width = "64")]
+const _: () = {
+    assert!(size_of::<IfNet>() == 120);
+    assert!(core::mem::align_of::<IfNet>() == 8);
+    assert!(offset_of!(IfNet, if_unit) == 0);
+    assert!(offset_of!(IfNet, if_flags) == 2);
+    assert!(offset_of!(IfNet, if_timer) == 4);
+    assert!(offset_of!(IfNet, if_mtu) == 6);
+    assert!(offset_of!(IfNet, if_header_size) == 8);
+    assert!(offset_of!(IfNet, if_header_format) == 10);
+    assert!(offset_of!(IfNet, if_address_size) == 12);
+    assert!(offset_of!(IfNet, if_alloc_size) == 14);
+    assert!(offset_of!(IfNet, if_address) == 16);
+    assert!(offset_of!(IfNet, if_snd) == 24);
+    assert!(offset_of!(IfNet, if_rcv_port_list) == 56);
+    assert!(offset_of!(IfNet, if_snd_port_list) == 72);
+    assert!(offset_of!(IfNet, if_rcv_port_list_lock) == 88);
+    assert!(offset_of!(IfNet, if_snd_port_list_lock) == 92);
+    assert!(offset_of!(IfNet, if_ipackets) == 96);
+    assert!(offset_of!(IfNet, if_ierrors) == 100);
+    assert!(offset_of!(IfNet, if_opackets) == 104);
+    assert!(offset_of!(IfNet, if_oerrors) == 108);
+    assert!(offset_of!(IfNet, if_collisions) == 112);
+    assert!(offset_of!(IfNet, if_rcvdrops) == 116);
+};
+
+#[cfg(target_pointer_width = "32")]
+const _: () = {
+    assert!(size_of::<IfNet>() == 92);
+    assert!(core::mem::align_of::<IfNet>() == 4);
+    assert!(offset_of!(IfNet, if_unit) == 0);
+    assert!(offset_of!(IfNet, if_flags) == 2);
+    assert!(offset_of!(IfNet, if_timer) == 4);
+    assert!(offset_of!(IfNet, if_mtu) == 6);
+    assert!(offset_of!(IfNet, if_header_size) == 8);
+    assert!(offset_of!(IfNet, if_header_format) == 10);
+    assert!(offset_of!(IfNet, if_address_size) == 12);
+    assert!(offset_of!(IfNet, if_alloc_size) == 14);
+    assert!(offset_of!(IfNet, if_address) == 16);
+    assert!(offset_of!(IfNet, if_snd) == 20);
+    assert!(offset_of!(IfNet, if_rcv_port_list) == 44);
+    assert!(offset_of!(IfNet, if_snd_port_list) == 52);
+    assert!(offset_of!(IfNet, if_rcv_port_list_lock) == 60);
+    assert!(offset_of!(IfNet, if_snd_port_list_lock) == 64);
+    assert!(offset_of!(IfNet, if_ipackets) == 68);
+    assert!(offset_of!(IfNet, if_ierrors) == 72);
+    assert!(offset_of!(IfNet, if_opackets) == 76);
+    assert!(offset_of!(IfNet, if_oerrors) == 80);
+    assert!(offset_of!(IfNet, if_collisions) == 84);
+    assert!(offset_of!(IfNet, if_rcvdrops) == 88);
+};
+
+/// `struct net_status` of <device/net_status.h>: the `NET_STATUS` reply.
+#[repr(C)]
+pub struct NetStatus {
+    pub min_packet_size: c_int,
+    pub max_packet_size: c_int,
+    pub header_format: c_int,
+    pub header_size: c_int,
+    pub address_size: c_int,
+    pub flags: c_int,
+    pub mapped_size: c_int,
+}
+
+const _: () = assert!(size_of::<NetStatus>() == 28);
+const _: () = assert!(core::mem::align_of::<NetStatus>() == 4);
+const _: () = assert!(offset_of!(NetStatus, min_packet_size) == 0);
+const _: () = assert!(offset_of!(NetStatus, mapped_size) == 24);
+
+/// `struct net_rcv_msg` of <device/net_status.h>: the message a network
+/// receive port gets, laid over the `struct ipc_kmsg` header.
+#[cfg_attr(target_pointer_width = "64", repr(C, align(8)))]
+#[cfg_attr(target_pointer_width = "32", repr(C))]
+pub(crate) struct NetRcvMsg {
+    pub(crate) msg_hdr: MachMsgHeader,
+    pub(crate) header_type: MachMsgType,
+    pub(crate) header: [c_char; NET_HDW_HDR_MAX],
+    pub(crate) packet_type: MachMsgType,
+    pub(crate) packet: [u8; NET_RCV_MAX as usize],
+    pub(crate) sent: c_int,
+}
+
+#[cfg(target_pointer_width = "64")]
+const _: () = {
+    assert!(size_of::<NetRcvMsg>() == 4216);
+    assert!(core::mem::align_of::<NetRcvMsg>() == 8);
+    assert!(offset_of!(NetRcvMsg, msg_hdr) == 0);
+    assert!(offset_of!(NetRcvMsg, header_type) == 32);
+    assert!(offset_of!(NetRcvMsg, header) == 40);
+    assert!(offset_of!(NetRcvMsg, packet_type) == 104);
+    assert!(offset_of!(NetRcvMsg, packet) == 112);
+    assert!(offset_of!(NetRcvMsg, sent) == 4208);
+};
+
+#[cfg(target_pointer_width = "32")]
+const _: () = {
+    assert!(size_of::<NetRcvMsg>() == 4196);
+    assert!(core::mem::align_of::<NetRcvMsg>() == 4);
+    assert!(offset_of!(NetRcvMsg, msg_hdr) == 0);
+    assert!(offset_of!(NetRcvMsg, header_type) == 24);
+    assert!(offset_of!(NetRcvMsg, header) == 28);
+    assert!(offset_of!(NetRcvMsg, packet_type) == 92);
+    assert!(offset_of!(NetRcvMsg, packet) == 96);
+    assert!(offset_of!(NetRcvMsg, sent) == 4192);
+};
+
+/// `net_queue_lock` of `device/net_io.c`: the high and low send queues and
+/// `net_thread_awake`.
+static NET_QUEUE_LOCK: SimpleLock = SimpleLock::new();
+/// `net_queue_free_lock`: the free kmsg pool.
+static NET_QUEUE_FREE_LOCK: SimpleLock = SimpleLock::new();
+/// `net_kmsg_total_lock`: the allocation counters.
+static NET_KMSG_TOTAL_LOCK: SimpleLock = SimpleLock::new();
+/// `net_hash_header_lock`: picks a free `filter_hash_header[]` slot.
+static NET_HASH_HEADER_LOCK: SimpleLock = SimpleLock::new();
+
+/// `net_thread_awake`, under [`NET_QUEUE_LOCK`].
+static NET_THREAD_AWAKE: SyncCell<bool> = SyncCell(UnsafeCell::new(false));
+/// `net_queue_high`, under [`NET_QUEUE_LOCK`].
+static NET_QUEUE_HIGH: SyncCell<IpcKmsgQueue> =
+    SyncCell(UnsafeCell::new(IpcKmsgQueue {
+        base: ptr::null_mut(),
+    }));
+/// `net_queue_high_size`, under [`NET_QUEUE_LOCK`].
+static NET_QUEUE_HIGH_SIZE: SyncCell<c_int> = SyncCell(UnsafeCell::new(0));
+/// `net_queue_high_max`, under [`NET_QUEUE_LOCK`].
+static NET_QUEUE_HIGH_MAX: SyncCell<c_int> = SyncCell(UnsafeCell::new(0));
+/// `net_queue_low`, under [`NET_QUEUE_LOCK`].
+static NET_QUEUE_LOW: SyncCell<IpcKmsgQueue> =
+    SyncCell(UnsafeCell::new(IpcKmsgQueue {
+        base: ptr::null_mut(),
+    }));
+/// `net_queue_low_size`: `net_kmsg_want_more` reads it without the queue
+/// lock, so it is an atomic; the queue lock still serializes its updates.
+static NET_QUEUE_LOW_SIZE: AtomicI32 = AtomicI32::new(0);
+/// `net_queue_low_max`, under [`NET_QUEUE_LOCK`].
+static NET_QUEUE_LOW_MAX: SyncCell<c_int> = SyncCell(UnsafeCell::new(0));
+/// `net_queue_free`, under [`NET_QUEUE_FREE_LOCK`].
+static NET_QUEUE_FREE: SyncCell<IpcKmsgQueue> =
+    SyncCell(UnsafeCell::new(IpcKmsgQueue {
+        base: ptr::null_mut(),
+    }));
+/// `net_queue_free_size`: `net_kmsg_want_more` reads it without the free
+/// lock, so it is an atomic; the free lock still serializes its updates.
+static NET_QUEUE_FREE_SIZE: AtomicI32 = AtomicI32::new(0);
+/// `net_queue_free_max`, under [`NET_QUEUE_FREE_LOCK`].
+static NET_QUEUE_FREE_MAX: SyncCell<c_int> = SyncCell(UnsafeCell::new(0));
+/// `net_queue_free_min`: how many free buffers to keep.  `net_kmsg_want_more`
+/// reads it without a lock, so it is an atomic.
+static NET_QUEUE_FREE_MIN: AtomicI32 = AtomicI32::new(3);
+/// `net_queue_free_hits`, under [`NET_QUEUE_FREE_LOCK`].
+static NET_QUEUE_FREE_HITS: SyncCell<c_int> = SyncCell(UnsafeCell::new(0));
+/// `net_queue_free_steals`, under [`NET_QUEUE_LOCK`].
+static NET_QUEUE_FREE_STEALS: SyncCell<c_int> = SyncCell(UnsafeCell::new(0));
+/// `net_queue_free_misses`: a debug counter the C incremented without a lock.
+static NET_QUEUE_FREE_MISSES: AtomicI32 = AtomicI32::new(0);
+/// `net_kmsg_send_high_hits`: a debug counter the C incremented unlocked.
+static NET_KMSG_SEND_HIGH_HITS: AtomicI32 = AtomicI32::new(0);
+/// `net_kmsg_send_low_hits`: a debug counter the C incremented unlocked.
+static NET_KMSG_SEND_LOW_HITS: AtomicI32 = AtomicI32::new(0);
+/// `net_kmsg_send_high_misses`: a debug counter the C touched unlocked.
+static NET_KMSG_SEND_HIGH_MISSES: AtomicI32 = AtomicI32::new(0);
+/// `net_kmsg_send_low_misses`: a debug counter the C touched unlocked.
+static NET_KMSG_SEND_LOW_MISSES: AtomicI32 = AtomicI32::new(0);
+/// `net_thread_awaken`: a debug counter the C incremented unlocked.
+static NET_THREAD_AWAKEN: AtomicI32 = AtomicI32::new(0);
+/// `net_ast_taken`: a debug counter the C incremented unlocked.
+static NET_AST_TAKEN: AtomicI32 = AtomicI32::new(0);
+/// `net_kmsg_total`: how many network messages exist.  `net_kmsg_want_more`
+/// reads it without the total lock, so it is an atomic.
+static NET_KMSG_TOTAL: AtomicI32 = AtomicI32::new(0);
+/// `net_kmsg_max`: the allocation cap, read by `net_kmsg_want_more` too.
+static NET_KMSG_MAX: AtomicI32 = AtomicI32::new(0);
+/// `net_kmsg_size`: the allocation size, written once by `net_io_init()`.
+static NET_KMSG_SIZE: AtomicUsize = AtomicUsize::new(0);
+/// `net_filter_queue_reorder`: non-zero to enable queue reordering.  The C
+/// left it a global for debuggers; the symbol is kept.
+#[unsafe(export_name = "net_filter_queue_reorder")]
+static NET_FILTER_QUEUE_REORDER: AtomicI32 = AtomicI32::new(0);
+
+/// `net_rcv_cache` of `device/net_io.c`.
+static NET_RCV_CACHE: SyncCell<KmemCache> =
+    SyncCell(UnsafeCell::new(KmemCache::zeroed()));
+/// `net_hash_entry_cache` of `device/net_io.c`.
+static NET_HASH_ENTRY_CACHE: SyncCell<KmemCache> =
+    SyncCell(UnsafeCell::new(KmemCache::zeroed()));
+/// `filter_hash_header` of `device/net_io.c`: the filter groups whose BPF
+/// program carries a match instruction.  [`NET_HASH_HEADER_LOCK`] chooses a
+/// slot; the `struct ifnet` port-list locks serialize its fields.
+static FILTER_HASH_HEADER: SyncCell<[NetHashHeader; N_NET_HASH]> =
+    SyncCell(UnsafeCell::new(unsafe { core::mem::zeroed() }));
+
+/// `net_rcv_cache`'s address, for the cache calls that take `&mut self`.
+fn rcv_cache() -> *mut KmemCache {
+    NET_RCV_CACHE.0.get()
+}
+
+/// `net_hash_entry_cache`'s address.
+fn hash_entry_cache() -> *mut KmemCache {
+    NET_HASH_ENTRY_CACHE.0.get()
+}
+
+/// `filter_hash_header[index]`'s address.
+fn hash_header_slot(index: usize) -> *mut NetHashHeader {
+    FILTER_HASH_HEADER
+        .0
+        .get()
+        .cast::<NetHashHeader>()
+        .wrapping_add(index)
+}
+
+/// `net_queue_high`'s address.
+fn queue_high() -> *mut IpcKmsgQueue {
+    NET_QUEUE_HIGH.0.get()
+}
+
+/// `net_queue_low`'s address.
+fn queue_low() -> *mut IpcKmsgQueue {
+    NET_QUEUE_LOW.0.get()
+}
+
+/// `net_queue_free`'s address.
+fn queue_free() -> *mut IpcKmsgQueue {
+    NET_QUEUE_FREE.0.get()
+}
+
+/// The `if_rcv_port_list` or `if_snd_port_list` head a direction uses.
+unsafe fn port_list(ifp: *mut IfNet, sent: bool) -> *mut QueueChain {
+    if sent {
+        // SAFETY: the caller promises a live interface.
+        unsafe { addr_of_mut!((*ifp).if_snd_port_list) }
+    } else {
+        // SAFETY: as above.
+        unsafe { addr_of_mut!((*ifp).if_rcv_port_list) }
+    }
+}
+
+/// A receive port's chain in a direction: `input` or `output`.
+unsafe fn port_chain(port: *mut NetRcvPort, sent: bool) -> *mut QueueChain {
+    if sent {
+        // SAFETY: the caller promises a live receive port.
+        unsafe { addr_of_mut!((*port).output) }
+    } else {
+        // SAFETY: as above.
+        unsafe { addr_of_mut!((*port).input) }
+    }
+}
+
+/// The hash header sharing a receive port's storage.
+unsafe fn port_hash_header(port: *mut NetRcvPort) -> *mut NetHashHeader {
+    port.cast()
+}
+
+/// `net_kmsg(kmsg)` of <device/net_io.h>: the receive message over the
+/// kmsg's header.
+unsafe fn net_kmsg(kmsg: Kmsg) -> *mut NetRcvMsg {
+    // SAFETY: the caller promises a live message.
+    unsafe { kmsg.header().cast() }
+}
+
+/// `P2ROUND()` of <kern/macros.h>: round `x` up to a multiple of the power
+/// of two `align`.
+const fn p2round(x: usize, align: usize) -> usize {
+    (x + (align - 1)) & !(align - 1)
+}
+
+/// The `net_kmsg_want_more()` macro of `device/net_io.c`.  The C comment
+/// says a misread value is not critical, so the loads are `Relaxed`.
+fn want_more() -> bool {
+    let free = NET_QUEUE_FREE_SIZE.load(Ordering::Relaxed);
+    let low = NET_QUEUE_LOW_SIZE.load(Ordering::Relaxed);
+    let min = NET_QUEUE_FREE_MIN.load(Ordering::Relaxed);
+    let total = NET_KMSG_TOTAL.load(Ordering::Relaxed);
+    let max = NET_KMSG_MAX.load(Ordering::Relaxed);
+    free.wrapping_add(low) < min && total < max
+}
+
+/// `net_kmsg_alloc()` of <device/net_io.h>.
+unsafe fn kmsg_alloc() -> *mut c_void {
+    let size = NET_KMSG_SIZE.load(Ordering::Relaxed);
+    slab::kalloc(size).map_or(ptr::null_mut(), |buf| buf.as_ptr().cast())
+}
+
+/// `net_kmsg_free()` of <device/net_io.h>.
+unsafe fn kmsg_free(kmsg: *mut c_void) {
+    let Some(buf) = NonNull::new(kmsg.cast::<u8>()) else {
+        return;
+    };
+    // SAFETY: the caller promises an allocation this call owns.
+    unsafe { slab::kfree(buf, NET_KMSG_SIZE.load(Ordering::Relaxed)) };
+}
+
+/// `net_kmsg_get()` of <device/net_io.h>.
+pub(crate) unsafe fn kmsg_get() -> Option<Kmsg> {
+    let s = unsafe { glue::splimp() };
+
+    NET_QUEUE_FREE_LOCK.lock();
+    // SAFETY: the caller holds the free lock, which serializes the queue.
+    let mut kmsg = unsafe { ipc_kmsg::dequeue(queue_free()) };
+    if kmsg.is_some() {
+        NET_QUEUE_FREE_SIZE.fetch_sub(1, Ordering::Relaxed);
+        // SAFETY: the free lock serializes this counter.
+        unsafe { *NET_QUEUE_FREE_HITS.0.get() += 1 };
+    }
+    NET_QUEUE_FREE_LOCK.unlock();
+
+    if kmsg.is_none() {
+        NET_QUEUE_LOCK.lock();
+        // SAFETY: the caller holds the queue lock, which serializes the low
+        // queue.
+        kmsg = unsafe { ipc_kmsg::dequeue(queue_low()) };
+        if kmsg.is_some() {
+            NET_QUEUE_LOW_SIZE.fetch_sub(1, Ordering::Relaxed);
+            // SAFETY: the queue lock serializes this counter.
+            unsafe { *NET_QUEUE_FREE_STEALS.0.get() += 1 };
+        }
+        NET_QUEUE_LOCK.unlock();
+    }
+
+    if kmsg.is_none() {
+        NET_QUEUE_FREE_MISSES.fetch_add(1, Ordering::Relaxed);
+    }
+    let _ = unsafe { glue::splx(s) };
+
+    if want_more() || kmsg.is_none() {
+        let s = unsafe { glue::splimp() };
+        NET_QUEUE_LOCK.lock();
+        // SAFETY: the queue lock serializes the flag.
+        let awake = unsafe { *NET_THREAD_AWAKE.0.get() };
+        // SAFETY: as above.
+        unsafe { *NET_THREAD_AWAKE.0.get() = true };
+        NET_QUEUE_LOCK.unlock();
+        let _ = unsafe { glue::splx(s) };
+
+        if !awake {
+            // SAFETY: the caller is at a level where the wakeup cannot be
+            // lost, and the address is the live flag's.
+            unsafe {
+                thread_wakeup_prim(
+                    NET_THREAD_AWAKE.0.get().cast::<c_void>(),
+                    0,
+                    THREAD_AWAKENED,
+                )
+            };
+        }
+    }
+
+    kmsg
+}
+
+/// `net_kmsg_put()` of <device/net_io.h>.
+pub(crate) unsafe fn kmsg_put(kmsg: *mut c_void) {
+    let Some(kmsg) = NonNull::new(kmsg) else {
+        return;
+    };
+
+    let s = unsafe { glue::splimp() };
+    NET_QUEUE_FREE_LOCK.lock();
+    // SAFETY: the caller owns the message, which is not queued.
+    unsafe { ipc_kmsg::enqueue(queue_free(), Kmsg::from_raw(kmsg.as_ptr())) };
+    let size = NET_QUEUE_FREE_SIZE
+        .fetch_add(1, Ordering::Relaxed)
+        .wrapping_add(1);
+    // SAFETY: the free lock serializes the maximum.
+    let max = unsafe { &mut *NET_QUEUE_FREE_MAX.0.get() };
+    if size > *max {
+        *max = size;
+    }
+    NET_QUEUE_FREE_LOCK.unlock();
+    let _ = unsafe { glue::splx(s) };
+}
+
+/// `net_kmsg_collect()` of <device/net_io.h>.
+pub(crate) unsafe fn kmsg_collect() {
+    let mut s = unsafe { glue::splimp() };
+    NET_QUEUE_FREE_LOCK.lock();
+    while NET_QUEUE_FREE_SIZE.load(Ordering::Relaxed)
+        > NET_QUEUE_FREE_MIN.load(Ordering::Relaxed)
+    {
+        // SAFETY: the free lock serializes the queue.
+        let kmsg = unsafe { ipc_kmsg::dequeue(queue_free()) };
+        NET_QUEUE_FREE_SIZE.fetch_sub(1, Ordering::Relaxed);
+        NET_QUEUE_FREE_LOCK.unlock();
+        let _ = unsafe { glue::splx(s) };
+
+        if let Some(kmsg) = kmsg {
+            unsafe { kmsg_free(kmsg.as_ptr()) };
+            NET_KMSG_TOTAL_LOCK.lock();
+            NET_KMSG_TOTAL.fetch_sub(1, Ordering::Relaxed);
+            NET_KMSG_TOTAL_LOCK.unlock();
+        }
+
+        s = unsafe { glue::splimp() };
+        NET_QUEUE_FREE_LOCK.lock();
+    }
+    NET_QUEUE_FREE_LOCK.unlock();
+    let _ = unsafe { glue::splx(s) };
+}
+
+/// `net_kmsg_more()` of `device/net_io.c`.
+unsafe fn kmsg_more() {
+    while want_more() {
+        NET_KMSG_TOTAL_LOCK.lock();
+        NET_KMSG_TOTAL.fetch_add(1, Ordering::Relaxed);
+        NET_KMSG_TOTAL_LOCK.unlock();
+
+        // SAFETY: the allocation is a raw pool buffer.
+        let kmsg = unsafe { kmsg_alloc() };
+        if kmsg.is_null() {
+            // The C enqueued the null and dereferenced it; stopping keeps
+            // the pool consistent instead of corrupting it.
+            break;
+        }
+        // SAFETY: the fresh allocation is unowned.
+        unsafe { kmsg_put(kmsg) };
+    }
+}
+
+/// `net_deliver()` of `device/net_io.c`.
+///
+/// # Safety
+///
+/// Called holding [`NET_QUEUE_LOCK`] at splimp; it returns holding the lock.
+unsafe fn deliver(nonblocking: bool) -> bool {
+    let kmsg;
+    let high_priority;
+    // SAFETY: the caller holds the queue lock, which serializes both queues.
+    match unsafe { ipc_kmsg::dequeue(queue_high()) } {
+        Some(first) => {
+            // SAFETY: the queue lock serializes the size.
+            unsafe { *NET_QUEUE_HIGH_SIZE.0.get() -= 1 };
+            kmsg = first;
+            high_priority = true;
+        }
+        None => {
+            // SAFETY: as above.
+            match unsafe { ipc_kmsg::dequeue(queue_low()) } {
+                Some(first) => {
+                    NET_QUEUE_LOW_SIZE.fetch_sub(1, Ordering::Relaxed);
+                    kmsg = first;
+                    high_priority = false;
+                }
+                None => return false,
+            }
+        }
+    }
+    NET_QUEUE_LOCK.unlock();
+    let _ = unsafe { glue::spl0() };
+
+    let mut send_list = IpcKmsgQueue {
+        base: ptr::null_mut(),
+    };
+    // SAFETY: the message is live and holds the interface pointer, the list
+    // is an empty local queue, and only [`NET_QUEUE_LOCK`] is held.
+    unsafe { filter(kmsg, &mut send_list) };
+
+    if !nonblocking {
+        // SAFETY: the queue lock is not held here.
+        unsafe { kmsg_more() };
+    }
+
+    // SAFETY: the list holds messages this call owns, not queued elsewhere.
+    while let Some(queued) = unsafe { ipc_kmsg::dequeue(&mut send_list) } {
+        // SAFETY: the message is live and held by the list.
+        let count = unsafe { (*net_kmsg(queued)).packet_type.number() };
+        // SAFETY: the message is live and this call owns it.
+        unsafe { queued.init_network() };
+        // SAFETY: the message is live and this call owns it.
+        let header = unsafe { queued.header() };
+        let size = p2round(
+            size_of::<NetRcvMsg>() - size_of::<c_int>() - NET_RCV_MAX as usize
+                + count as usize,
+            size_of::<usize>(),
+        );
+        // SAFETY: the header is live and this call owns the message.
+        unsafe {
+            (*header).set_bits(MACH_MSG_TYPE_PORT_SEND);
+            (*header).set_size(u32::try_from(size).unwrap_or(u32::MAX));
+            (*header).set_local(0);
+            (*header).set_id(NET_RCV_MSG_ID);
+            queued.set_header_seqno(0);
+
+            let msg = net_kmsg(queued);
+            (*msg).header_type = HEADER_TYPE;
+            (*msg).packet_type = MachMsgType::new(PACKET_TYPE.word(), count);
+        }
+
+        // SAFETY: the message is live and holds the destination right.
+        match unsafe {
+            ipc_mqueue::send(queued.as_ptr(), MACH_SEND_TIMEOUT, 0)
+        } {
+            MsgReturn::SUCCESS => {
+                let counter = if high_priority {
+                    &NET_KMSG_SEND_HIGH_HITS
+                } else {
+                    &NET_KMSG_SEND_LOW_HITS
+                };
+                counter.fetch_add(1, Ordering::Relaxed);
+            }
+            _ => {
+                let counter = if high_priority {
+                    &NET_KMSG_SEND_HIGH_MISSES
+                } else {
+                    &NET_KMSG_SEND_LOW_MISSES
+                };
+                counter.fetch_add(1, Ordering::Relaxed);
+                // SAFETY: the send failed, so this call still owns the
+                // message.
+                unsafe { ipc_kmsg::destroy(queued) };
+            }
+        }
+    }
+
+    let _ = unsafe { glue::splimp() };
+    NET_QUEUE_LOCK.lock();
+    true
+}
+
+/// `net_ast()` of `device/net_io.c`.
+pub(crate) unsafe fn ast() {
+    NET_AST_TAKEN.fetch_add(1, Ordering::Relaxed);
+
+    let s = unsafe { glue::splimp() };
+    NET_QUEUE_LOCK.lock();
+    // SAFETY: the lock is held, and `deliver` returns holding it.
+    while unsafe { !*NET_THREAD_AWAKE.0.get() && deliver(true) } {}
+    NET_QUEUE_LOCK.unlock();
+    let _ = unsafe { glue::splsched() };
+    ast_off(cpu_number(), AST_NETWORK);
+    let _ = unsafe { glue::splx(s) };
+}
+
+/// `net_thread_continue()` of `device/net_io.c`, the receive thread body,
+/// which never returns.
+unsafe fn thread_continue_inner() -> ! {
+    loop {
+        NET_THREAD_AWAKEN.fetch_add(1, Ordering::Relaxed);
+        // SAFETY: the receive thread may allocate.
+        unsafe { kmsg_more() };
+
+        let s = unsafe { glue::splimp() };
+        NET_QUEUE_LOCK.lock();
+        // SAFETY: the lock is held, and `deliver` returns holding it.
+        while unsafe { deliver(false) } {}
+        // SAFETY: the queue lock serializes the flag.
+        unsafe { *NET_THREAD_AWAKE.0.get() = false };
+        // SAFETY: the thread is not waiting on an event yet.
+        unsafe { assert_wait(NET_THREAD_AWAKE.0.get().cast::<c_void>(), 0) };
+        NET_QUEUE_LOCK.unlock();
+        let _ = unsafe { glue::splx(s) };
+
+        // SAFETY: the current thread holds no spin lock and has set its wait
+        // state.
+        unsafe { thread_block(Some(thread_continue)) };
+    }
+}
+
+/// The continuation form of `net_thread_continue()` `thread_block()` takes.
+unsafe extern "C" fn thread_continue() {
+    // SAFETY: the continuation re-enters the loop, which never returns.
+    unsafe { thread_continue_inner() };
+}
+
+/// `net_thread()` of `device/net_io.c`.
+pub(crate) unsafe fn thread() -> ! {
+    // SAFETY: this is the current thread's own entry, and it holds no thread
+    // lock.
+    unsafe { Thread::set_own_priority(0) };
+
+    let s = unsafe { glue::splimp() };
+    NET_QUEUE_LOCK.lock();
+    // SAFETY: the queue lock serializes the flag.
+    unsafe { *NET_THREAD_AWAKE.0.get() = false };
+    // SAFETY: the thread is not waiting on an event yet.
+    unsafe { assert_wait(NET_THREAD_AWAKE.0.get().cast::<c_void>(), 0) };
+    NET_QUEUE_LOCK.unlock();
+    let _ = unsafe { glue::splx(s) };
+
+    // SAFETY: the current thread holds no spin lock and has set its wait
+    // state.
+    unsafe { thread_block(Some(thread_continue)) };
+    // SAFETY: the receive loop re-enters and never returns.
+    unsafe { thread_continue_inner() }
+}
+
+/// The `NETF_OP(NETF_*)` value of each operator in <device/net_status.h>.
+const NETF_OP_NOP: u32 = 0;
+const NETF_OP_EQ: u32 = 1;
+const NETF_OP_LT: u32 = 2;
+const NETF_OP_LE: u32 = 3;
+const NETF_OP_GT: u32 = 4;
+const NETF_OP_GE: u32 = 5;
+const NETF_OP_AND: u32 = 6;
+const NETF_OP_OR: u32 = 7;
+const NETF_OP_XOR: u32 = 8;
+const NETF_OP_COR: u32 = 9;
+const NETF_OP_CAND: u32 = 10;
+const NETF_OP_CNOR: u32 = 11;
+const NETF_OP_CNAND: u32 = 12;
+const NETF_OP_NEQ: u32 = 13;
+const NETF_OP_LSH: u32 = 14;
+const NETF_OP_RSH: u32 = 15;
+const NETF_OP_ADD: u32 = 16;
+const NETF_OP_SUB: u32 = 17;
+
+/// `net_do_filter()` of `device/net_io.c`: run the old `filter_t` program.
+///
+/// # Safety
+///
+/// `infp` must point at a live receive port whose filter `net_set_filter()`
+/// accepted, and `data`/`header` must be readable for the words the program
+/// addresses.
+pub(crate) unsafe fn net_do_filter(
+    infp: *mut NetRcvPort,
+    data: *const u8,
+    data_count: c_uint,
+    header: *const u8,
+) -> bool {
+    let mut stack = [0u32; NET_FILTER_STACK_DEPTH + 1];
+    let mut sp = NET_FILTER_STACK_DEPTH;
+    stack[sp] = 1;
+
+    let words = (data_count / (size_of::<u16>() as c_uint)) as usize;
+    // SAFETY: the caller promises a live port.
+    let mut fp = unsafe { (*infp).filter.as_ptr().add(1) };
+    // SAFETY: as above.
+    let fpe = unsafe { (*infp).filter_end };
+
+    while fp < fpe {
+        // SAFETY: `fp < fpe` keeps the read inside the filter array.
+        let word = unsafe { *fp };
+        fp = unsafe { fp.add(1) };
+        let op = u32::from((word >> 10) & 0x3f);
+        let raw = word & 0x3ff;
+        let mut arg = u32::from(raw);
+
+        match raw {
+            NETF_NOPUSH => {
+                let Some(&top) = stack.get(sp) else {
+                    return false;
+                };
+                arg = top;
+                sp += 1;
+            }
+            NETF_PUSHZERO => arg = 0,
+            NETF_PUSHLIT => {
+                if fp >= fpe {
+                    return false;
+                }
+                // SAFETY: `fp < fpe`, so the literal is in the array.
+                arg = u32::from(unsafe { *fp });
+                fp = unsafe { fp.add(1) };
+            }
+            NETF_PUSHIND => {
+                let Some(&top) = stack.get(sp) else {
+                    return false;
+                };
+                sp += 1;
+                if top >= words as u32 {
+                    return false;
+                }
+                // SAFETY: the index is below the `data` word count.
+                arg = u32::from(unsafe {
+                    data.cast::<u16>().add(top as usize).read_unaligned()
+                });
+            }
+            NETF_PUSHHDRIND => {
+                let Some(&top) = stack.get(sp) else {
+                    return false;
+                };
+                sp += 1;
+                if top >= NET_HDR_WORDS as u32 {
+                    return false;
+                }
+                // SAFETY: the index is below the header's word count.
+                arg = u32::from(unsafe {
+                    header.cast::<u16>().add(top as usize).read_unaligned()
+                });
+            }
+            _ => {
+                if arg >= u32::from(NETF_PUSHSTK) {
+                    let index = (arg - u32::from(NETF_PUSHSTK)) as usize;
+                    let Some(&value) = stack.get(sp + index) else {
+                        return false;
+                    };
+                    arg = value;
+                } else if arg >= u32::from(NETF_PUSHHDR) {
+                    let index = (arg - u32::from(NETF_PUSHHDR)) as usize;
+                    // SAFETY: the index is below the header's word count.
+                    arg = u32::from(unsafe {
+                        header.cast::<u16>().add(index).read_unaligned()
+                    });
+                } else {
+                    let index =
+                        arg.wrapping_sub(u32::from(NETF_PUSHWORD)) as usize;
+                    if index >= words {
+                        return false;
+                    }
+                    // SAFETY: the index is below the `data` word count.
+                    arg = u32::from(unsafe {
+                        data.cast::<u16>().add(index).read_unaligned()
+                    });
+                }
+            }
+        }
+
+        if op == NETF_OP_NOP {
+            sp -= 1;
+            let Some(slot) = stack.get_mut(sp) else {
+                return false;
+            };
+            *slot = arg;
+            continue;
+        }
+        let Some(top) = stack.get_mut(sp) else {
+            return false;
+        };
+        match op {
+            NETF_OP_AND => *top &= arg,
+            NETF_OP_OR => *top |= arg,
+            NETF_OP_XOR => *top ^= arg,
+            NETF_OP_EQ => *top = u32::from(*top == arg),
+            NETF_OP_NEQ => *top = u32::from(*top != arg),
+            NETF_OP_LT => *top = u32::from(*top < arg),
+            NETF_OP_LE => *top = u32::from(*top <= arg),
+            NETF_OP_GT => *top = u32::from(*top > arg),
+            NETF_OP_GE => *top = u32::from(*top >= arg),
+            NETF_OP_COR => {
+                let value = *top;
+                sp += 1;
+                if value == arg {
+                    return true;
+                }
+            }
+            NETF_OP_CAND => {
+                let value = *top;
+                sp += 1;
+                if value != arg {
+                    return false;
+                }
+            }
+            NETF_OP_CNOR => {
+                let value = *top;
+                sp += 1;
+                if value == arg {
+                    return false;
+                }
+            }
+            NETF_OP_CNAND => {
+                let value = *top;
+                sp += 1;
+                if value != arg {
+                    return true;
+                }
+            }
+            // The C shifted an `int` by the argument; the machine masks the
+            // count, which is what `wrapping_shl`/`wrapping_shr` reproduce.
+            NETF_OP_LSH => *top = top.wrapping_shl(arg),
+            // The C shifted a signed `int`; the machine shifts the sign bit
+            // in, which the `i32` round trip reproduces.
+            NETF_OP_RSH => *top = (*top as i32).wrapping_shr(arg) as u32,
+            NETF_OP_ADD => *top = top.wrapping_add(arg),
+            NETF_OP_SUB => *top = top.wrapping_sub(arg),
+            _ => (),
+        }
+    }
+    stack.get(sp).is_some_and(|top| *top != 0)
+}
+
+/// `parse_net_filter()` of `device/net_io.c`: check the program's
+/// operations and its stack use.
+fn parse_filter(filter: &[u16]) -> bool {
+    let depth = NET_FILTER_STACK_DEPTH as i32;
+    let mut sp = depth;
+    let mut i = 1usize;
+
+    while i < filter.len() {
+        let word = filter[i];
+        let op = u32::from((word >> 10) & 0x3f);
+        let arg = word & 0x3ff;
+        i += 1;
+
+        match arg {
+            NETF_NOPUSH => (),
+            NETF_PUSHZERO => sp -= 1,
+            NETF_PUSHLIT => {
+                if i >= filter.len() {
+                    return false;
+                }
+                i += 1;
+                sp -= 1;
+            }
+            NETF_PUSHIND | NETF_PUSHHDRIND => (),
+            _ => {
+                if arg >= NETF_PUSHSTK {
+                    let index = i32::from(arg - NETF_PUSHSTK);
+                    if index + sp > depth {
+                        return false;
+                    }
+                } else if arg >= NETF_PUSHHDR
+                    && usize::from(arg - NETF_PUSHHDR) >= NET_HDR_WORDS
+                {
+                    return false;
+                }
+                sp -= 1;
+            }
+        }
+        if sp < 2 {
+            return false;
+        }
+        if op == NETF_OP_NOP {
+            continue;
+        }
+        if sp > (NET_MAX_FILTER - 2) as i32 {
+            return false;
+        }
+        sp += 1;
+        if !matches!(
+            op,
+            NETF_OP_EQ
+                | NETF_OP_LT
+                | NETF_OP_LE
+                | NETF_OP_GT
+                | NETF_OP_GE
+                | NETF_OP_AND
+                | NETF_OP_OR
+                | NETF_OP_XOR
+                | NETF_OP_COR
+                | NETF_OP_CAND
+                | NETF_OP_CNOR
+                | NETF_OP_CNAND
+                | NETF_OP_NEQ
+                | NETF_OP_LSH
+                | NETF_OP_RSH
+                | NETF_OP_ADD
+                | NETF_OP_SUB
+        ) {
+            return false;
+        }
+    }
+    true
+}
+
+/// `reorder_queue()` of `device/net_io.c`: move `last` directly after
+/// `first` in their list.
+///
+/// # Safety
+///
+/// `first` and `last` must be linked into one initialized list.
+unsafe fn reorder_queue(first: *mut QueueChain, last: *mut QueueChain) {
+    // SAFETY: the caller promises both are linked into one list.
+    unsafe {
+        let prev = (*first).prev;
+        let next = (*last).next;
+
+        (*prev).next = last;
+        (*next).prev = first;
+
+        (*last).prev = prev;
+        (*last).next = first;
+
+        (*first).next = next;
+        (*first).prev = last;
+    }
+}
+
+/// The C's `REORDER_PRIO()` macro: promote `port` ahead of an equal-priority
+/// predecessor whose count lags by more than the threshold.
+///
+/// # Safety
+///
+/// `port` must be a live receive port linked into the list `sent` names.
+unsafe fn reorder_prio(
+    ifp: *mut IfNet,
+    port: *mut NetRcvPort,
+    sent: bool,
+    rcount: c_int,
+) {
+    let flag = if sent { NETF_OUT } else { NETF_IN };
+    // SAFETY: the caller promises a live port.
+    if unsafe { (*port).filter[0] } & flag == 0 {
+        return;
+    }
+    let list = unsafe { port_list(ifp, sent) };
+    let chain = unsafe { port_chain(port, sent) };
+    // SAFETY: the port is linked into this list, so its predecessor is the
+    // list head or another port.
+    let prevfp = unsafe { (*chain).prev.cast::<NetRcvPort>() };
+    if prevfp.cast::<QueueChain>() == list {
+        return;
+    }
+    // SAFETY: the predecessor is a live port, as above.
+    let equal = unsafe { (*port).priority == (*prevfp).priority };
+    let behind = NET_FILTER_QUEUE_REORDER.load(Ordering::Relaxed) != 0
+        && 100i32.wrapping_add(unsafe { (*prevfp).rcv_count }) < rcount;
+    if equal && behind {
+        // SAFETY: both chains belong to this list, and the port is linked.
+        unsafe { reorder_queue(port_chain(prevfp, sent), chain) };
+    }
+}
+
+/// `net_filter()` of `device/net_io.c`: run `kmsg` through the interface's
+/// filters and queue a copy per matching receive port.
+///
+/// # Safety
+///
+/// `kmsg` must be a live message holding the interface pointer in its remote
+/// port and a receive message header; `send_list` must be an empty queue the
+/// caller owns; no interface lock may be held.
+pub(crate) unsafe fn filter(kmsg: Kmsg, send_list: *mut IpcKmsgQueue) {
+    // SAFETY: the caller promises the receive message.
+    let count = unsafe { (*net_kmsg(kmsg)).packet_type.number() as c_int };
+    // SAFETY: the sender stored the interface pointer in the remote port.
+    let ifp = unsafe { kmsg.remote_port() as *mut IfNet };
+    // SAFETY: the caller promises an empty queue.
+    unsafe { (*send_list).base = ptr::null_mut() };
+
+    // SAFETY: the receive message is live.
+    let sent = unsafe { (*net_kmsg(kmsg)).sent != 0 };
+    let list = unsafe { port_list(ifp, sent) };
+
+    let mut dead_infp: *mut QueueChain = ptr::null_mut();
+    let mut dead_entp: *mut QueueChain = ptr::null_mut();
+
+    // SAFETY: the caller promises both interface locks free.
+    unsafe {
+        (*ifp).if_rcv_port_list_lock.lock();
+        (*ifp).if_snd_port_list_lock.lock();
+    }
+
+    // SAFETY: the list head is initialized and its links are containers.
+    let mut infp = unsafe { (*list).next.cast::<NetRcvPort>() };
+    while infp.cast::<QueueChain>() != list {
+        let chain = unsafe { port_chain(infp, sent) };
+        // The body can unlink `infp`, so the next port is read first.
+        let nextfp = unsafe { (*chain).next.cast::<NetRcvPort>() };
+
+        let mut entp: *mut NetHashEntry = ptr::null_mut();
+        let mut hash_headp: *mut *mut NetHashEntry = ptr::null_mut();
+        let (ret_count, dest) =
+            if unsafe { (*infp).filter[0] & NETF_TYPE_MASK } == NETF_BPF {
+                let wirelen = count
+                    .wrapping_sub(size_of::<PacketHeader>() as c_int)
+                    as c_uint;
+                // SAFETY: the caller promises the message and the interface.
+                let ret = unsafe {
+                    do_filter(
+                        infp,
+                        (*net_kmsg(kmsg))
+                            .packet
+                            .as_ptr()
+                            .add(size_of::<PacketHeader>()),
+                        wirelen,
+                        (*net_kmsg(kmsg)).header.as_ptr().cast::<u8>(),
+                        (*ifp).if_header_size as c_int as c_uint,
+                        &mut hash_headp,
+                        &mut entp,
+                    )
+                };
+                let count = if ret != 0 {
+                    ret as c_uint + size_of::<PacketHeader>() as c_uint
+                } else {
+                    0
+                };
+                let dest = if entp.is_null() {
+                    unsafe { (*infp).rcv_port }
+                } else {
+                    // SAFETY: a match instruction selected this live entry.
+                    unsafe { (*entp).rcv_port }
+                };
+                (count, dest)
+            } else {
+                // SAFETY: the caller promises the message and the port.
+                let hit = unsafe {
+                    net_do_filter(
+                        infp,
+                        (*net_kmsg(kmsg)).packet.as_ptr(),
+                        count as c_uint,
+                        (*net_kmsg(kmsg)).header.as_ptr().cast::<u8>(),
+                    )
+                };
+                let count = if hit { count as c_uint } else { 0 };
+                // SAFETY: the caller promises a live port.
+                (count, unsafe { (*infp).rcv_port })
+            };
+
+        if ret_count != 0 {
+            // SAFETY: the filter selected `dest`, a port the filter owns a
+            // right to.
+            let dest = unsafe { ipc_port::copy_send(dest) };
+            if IpcPort::valid(dest).is_none() {
+                if entp.is_null() {
+                    if unsafe { (*infp).filter[0] } & NETF_IN != 0 {
+                        // SAFETY: the port is linked into the receive list.
+                        unsafe {
+                            queue_remove_generic(
+                                addr_of_mut!((*ifp).if_rcv_port_list).cast(),
+                                infp.cast(),
+                                offset_of!(NetRcvPort, input),
+                            );
+                        }
+                    }
+                    if unsafe { (*infp).filter[0] } & NETF_OUT != 0 {
+                        // SAFETY: the port is linked into the send list.
+                        unsafe {
+                            queue_remove_generic(
+                                addr_of_mut!((*ifp).if_snd_port_list).cast(),
+                                infp.cast(),
+                                offset_of!(NetRcvPort, output),
+                            );
+                        }
+                    }
+                    // SAFETY: the port is off both lists and reuses `input`
+                    // as the dead list's link.
+                    unsafe { (*infp).input.next = dead_infp };
+                    dead_infp = infp.cast();
+                } else {
+                    // SAFETY: the entry is linked into a live hash bucket.
+                    unsafe {
+                        hash_ent_remove(
+                            ifp,
+                            port_hash_header(infp),
+                            false,
+                            hash_headp,
+                            entp,
+                            &mut dead_entp,
+                        );
+                    }
+                }
+                infp = nextfp;
+                continue;
+            }
+
+            let new_kmsg;
+            if unsafe { (*send_list).base.is_null() } {
+                new_kmsg = kmsg;
+            } else {
+                // SAFETY: the receive path may allocate a copy.
+                let Some(allocated) = (unsafe { kmsg_get() }) else {
+                    if let Some(dest) = IpcPort::valid(dest) {
+                        // SAFETY: `dest` holds the copy `copy_send()` made.
+                        unsafe { ipc_port::release_send(dest) };
+                    }
+                    break;
+                };
+                new_kmsg = allocated;
+                // SAFETY: both messages are live, and the copied range is
+                // the packet bytes and the header the source owns.
+                unsafe {
+                    ptr::copy_nonoverlapping(
+                        (*net_kmsg(kmsg)).packet.as_ptr(),
+                        (*net_kmsg(new_kmsg)).packet.as_mut_ptr(),
+                        ret_count as usize,
+                    );
+                    ptr::copy_nonoverlapping(
+                        (*net_kmsg(kmsg)).header.as_ptr(),
+                        (*net_kmsg(new_kmsg)).header.as_mut_ptr(),
+                        NET_HDW_HDR_MAX,
+                    );
+                }
+            }
+            // SAFETY: the message is live and this call owns it.
+            unsafe {
+                (*net_kmsg(new_kmsg)).packet_type.set_number(ret_count);
+                new_kmsg.set_remote_port(dest.addr());
+            }
+            // SAFETY: the list holds messages this call owns.
+            unsafe { ipc_kmsg::enqueue(send_list, new_kmsg) };
+
+            // SAFETY: the port is live.
+            let rcount = unsafe { (*infp).rcv_count.wrapping_add(1) };
+            // SAFETY: as above.
+            unsafe { (*infp).rcv_count = rcount };
+            if unsafe { (*infp).priority } >= NET_HI_PRI {
+                // The C examined both chains; a port is only linked into the
+                // lists its filter flags name.
+                // SAFETY: the port is live and held by the list locks.
+                unsafe { reorder_prio(ifp, infp, true, rcount) };
+                // SAFETY: as above.
+                unsafe { reorder_prio(ifp, infp, false, rcount) };
+                break;
+            }
+        }
+
+        infp = nextfp;
+    }
+
+    // SAFETY: this call holds both interface list locks.
+    unsafe {
+        (*ifp).if_snd_port_list_lock.unlock();
+        (*ifp).if_rcv_port_list_lock.unlock();
+    }
+
+    if !dead_infp.is_null() {
+        // SAFETY: the list holds the ports this call unlinked.
+        unsafe { free_dead_infp(dead_infp) };
+    }
+    if !dead_entp.is_null() {
+        // SAFETY: the list holds the entries this call unlinked.
+        unsafe { free_dead_entp(dead_entp) };
+    }
+
+    if unsafe { (*send_list).base.is_null() } {
+        // SAFETY: no receiver took the message, so this call recycles it.
+        unsafe { kmsg_put(kmsg.as_ptr()) };
+    }
+}
+
+/// The C's `net_packet()` interface, with the kmsg still a raw pointer until
+/// the checks are done.
+///
+/// # Safety
+///
+/// `ifp` must be a live interface and `kmsg` a live network message at
+/// splimp, with the header the driver filled.
+pub(crate) unsafe fn packet(
+    ifp: *mut IfNet,
+    kmsg: *mut c_void,
+    count: c_uint,
+    priority: bool,
+) {
+    let Some(kmsg) = NonNull::new(kmsg) else {
+        return;
+    };
+    // SAFETY: the caller promises the live message.
+    let kmsg = unsafe { Kmsg::from_raw(kmsg.as_ptr()) };
+
+    // SAFETY: the caller promises the live interface and message.
+    unsafe {
+        kmsg.set_remote_port(ifp.addr());
+        (*net_kmsg(kmsg)).packet_type.set_number(count);
+    }
+
+    NET_QUEUE_LOCK.lock();
+    if priority {
+        // SAFETY: the queue lock serializes the high queue.
+        unsafe { ipc_kmsg::enqueue(queue_high(), kmsg) };
+        // SAFETY: the queue lock serializes the size and maximum.
+        unsafe {
+            *NET_QUEUE_HIGH_SIZE.0.get() += 1;
+            let size = *NET_QUEUE_HIGH_SIZE.0.get();
+            let max = &mut *NET_QUEUE_HIGH_MAX.0.get();
+            if size > *max {
+                *max = size;
+            }
+        }
+    } else {
+        // SAFETY: the queue lock serializes the low queue.
+        unsafe { ipc_kmsg::enqueue(queue_low(), kmsg) };
+        let size = NET_QUEUE_LOW_SIZE
+            .fetch_add(1, Ordering::Relaxed)
+            .wrapping_add(1);
+        // SAFETY: the queue lock serializes the maximum.
+        let max = unsafe { &mut *NET_QUEUE_LOW_MAX.0.get() };
+        if size > *max {
+            *max = size;
+        }
+    }
+    // SAFETY: the queue lock serializes the flag.
+    let awake = unsafe { *NET_THREAD_AWAKE.0.get() };
+    NET_QUEUE_LOCK.unlock();
+
+    if !awake {
+        let s = unsafe { glue::splsched() };
+        ast_on(cpu_number(), AST_NETWORK);
+        let _ = unsafe { glue::splx(s) };
+    }
+}
+
+/// `ethernet_priority()` of `device/net_io.c`: whether the packet is not a
+/// six-byte broadcast address.
+///
+/// # Safety
+///
+/// `kmsg` must be a live network message.
+pub(crate) unsafe fn ethernet_priority(kmsg: Kmsg) -> bool {
+    // SAFETY: the caller promises the live message, whose header is 64
+    // bytes.
+    let addr = unsafe { (*net_kmsg(kmsg)).header.as_ptr().cast::<u8>() };
+    // SAFETY: the loop stays inside the header's first six bytes.
+    let broadcast = (0..6).all(|i| unsafe { *addr.add(i) } == 0xff);
+    !broadcast
+}
+
+/// The C's `port == rcv_port || !IP_VALID(port) || !ip_active(port)` test of
+/// `net_set_filter()`.
+///
+/// # Safety
+///
+/// `port` must be `IP_NULL`, `IP_DEAD` or a live port; a live one is locked
+/// by this call.
+unsafe fn entry_needs_removal(
+    port: *mut c_void,
+    rcv_port: *mut c_void,
+) -> bool {
+    if port == rcv_port {
+        return true;
+    }
+    match IpcPort::valid(port) {
+        None => true,
+        // SAFETY: `valid` established a live port.
+        Some(port) => !unsafe { port.is_active() },
+    }
+}
+
+/// `net_set_filter()` of `device/net_io.c`.
+///
+/// # Safety
+///
+/// `ifp` must be a live interface; `rcv_port` a naked send right the caller
+/// hands over on success; `filter` readable for `filter_count` `filter_t`
+/// words.  No interface lock may be held.
+pub(crate) unsafe fn set_filter(
+    ifp: *mut IfNet,
+    rcv_port: *mut c_void,
+    priority: c_int,
+    filter: *mut u16,
+    filter_count: c_uint,
+) -> IoResult {
+    if filter_count == 0 || filter.is_null() {
+        return Err(DeviceError::InvalidOperation);
+    }
+    // SAFETY: the caller promises `filter_count` readable words.
+    let filter =
+        unsafe { slice::from_raw_parts(filter, filter_count as usize) };
+    let flags = filter[0];
+    if flags & (NETF_IN | NETF_OUT) == 0 {
+        return Err(DeviceError::InvalidOperation);
+    }
+
+    let filter_bytes = filter_count as usize * size_of::<u16>();
+    let match_index = match flags & NETF_TYPE_MASK {
+        NETF_BPF => {
+            // SAFETY: the filter is readable for `filter_bytes` bytes at the
+            // two-byte alignment the C casts accept.
+            let validated = unsafe {
+                validate(
+                    filter.as_ptr().cast::<BpfInsn>(),
+                    filter_bytes / size_of::<BpfInsn>(),
+                )
+            };
+            match validated {
+                Validated::Invalid => {
+                    return Err(DeviceError::InvalidOperation);
+                }
+                Validated::Plain => None,
+                Validated::Match(index) => Some(index),
+            }
+        }
+        0 => {
+            if !parse_filter(filter) {
+                return Err(DeviceError::InvalidOperation);
+            }
+            None
+        }
+        _ => return Err(DeviceError::InvalidOperation),
+    };
+
+    let mut my_infp: *mut NetRcvPort = ptr::null_mut();
+    let mut hash_entp: *mut NetHashEntry = ptr::null_mut();
+    let mut is_new_infp = match_index.is_none();
+    if match_index.is_none() {
+        // SAFETY: `init()` built the cache.
+        let Some(obj) = (unsafe { (*rcv_cache()).alloc() }) else {
+            return Err(DeviceError::NoMemory);
+        };
+        my_infp = obj.as_ptr().cast();
+        // SAFETY: the fresh port is this call's.
+        unsafe { (*my_infp).rcv_port = rcv_port };
+    } else {
+        // SAFETY: `init()` built the cache.
+        let Some(obj) = (unsafe { (*hash_entry_cache()).alloc() }) else {
+            return Err(DeviceError::NoMemory);
+        };
+        hash_entp = obj.as_ptr().cast();
+    }
+
+    let n_keys = match match_index {
+        None => 0usize,
+        Some(index) => {
+            // SAFETY: `validate` proved the match instruction is inside the
+            // filter.
+            let insn = unsafe {
+                filter
+                    .as_ptr()
+                    .cast::<BpfInsn>()
+                    .add(index)
+                    .read_unaligned()
+            };
+            usize::from(insn.jt)
+        }
+    };
+
+    let mut dead_infp: *mut QueueChain = ptr::null_mut();
+    let mut dead_entp: *mut QueueChain = ptr::null_mut();
+
+    // The list heads are read once, before the closure, so that its body
+    // touches no field of `ifp`.
+    // SAFETY: the caller promises a live interface.
+    let rcv_head = unsafe { addr_of_mut!((*ifp).if_rcv_port_list) };
+    // SAFETY: as above.
+    let snd_head = unsafe { addr_of_mut!((*ifp).if_snd_port_list) };
+
+    let mut check_filter_list = |list: *mut QueueChain, sent: bool| {
+        // SAFETY: the list head is initialized and its links are containers.
+        let mut infp = unsafe { (*list).next.cast::<NetRcvPort>() };
+        while infp.cast::<QueueChain>() != list {
+            let chain = unsafe { port_chain(infp, sent) };
+            let nextfp = unsafe { (*chain).next.cast::<NetRcvPort>() };
+            // SAFETY: every element of the list is a live receive port.
+            if unsafe { (*infp).rcv_port }.is_null() {
+                let count_words = unsafe {
+                    (*infp).filter_end.addr() - addr_of!((*infp).filter).addr()
+                } / size_of::<u16>();
+                if match_index.is_some()
+                    && unsafe { (*infp).priority } == priority
+                    && my_infp.is_null()
+                    && count_words == filter_count as usize
+                    && unsafe {
+                        eq(
+                            (*infp).filter.as_ptr().cast::<BpfInsn>(),
+                            filter.as_ptr().cast::<BpfInsn>(),
+                            filter_bytes / size_of::<BpfInsn>(),
+                        )
+                    }
+                {
+                    my_infp = infp;
+                }
+                'buckets: for i in 0..NET_HASH_SIZE as usize {
+                    // SAFETY: the port shares a hash header's storage.
+                    let head = unsafe {
+                        addr_of_mut!((*port_hash_header(infp)).table[i])
+                    };
+                    if unsafe { (*head).is_null() } {
+                        continue;
+                    }
+                    let mut entp = unsafe { *head };
+                    loop {
+                        // SAFETY: the entry is linked into the bucket.
+                        let nextentp = unsafe {
+                            (*entp).chain.next.cast::<NetHashEntry>()
+                        };
+                        if unsafe {
+                            entry_needs_removal((*entp).rcv_port, rcv_port)
+                        } {
+                            let used = !my_infp.is_null() && my_infp == infp;
+                            // SAFETY: the header and entry are live, and
+                            // this call holds both interface locks.
+                            let removed = unsafe {
+                                hash_ent_remove(
+                                    ifp,
+                                    port_hash_header(infp),
+                                    used,
+                                    head,
+                                    entp,
+                                    &mut dead_entp,
+                                )
+                            };
+                            if removed {
+                                break 'buckets;
+                            }
+                        }
+                        entp = nextentp;
+                        // SAFETY: `head` points into the live table.
+                        if unsafe { (*head).is_null() || entp == *head } {
+                            break;
+                        }
+                    }
+                }
+            } else if unsafe {
+                entry_needs_removal((*infp).rcv_port, rcv_port)
+            } {
+                if unsafe { (*infp).filter[0] } & NETF_IN != 0 {
+                    // SAFETY: the port is linked into the receive list.
+                    unsafe {
+                        queue_remove_generic(
+                            rcv_head.cast(),
+                            infp.cast(),
+                            offset_of!(NetRcvPort, input),
+                        );
+                    }
+                }
+                if unsafe { (*infp).filter[0] } & NETF_OUT != 0 {
+                    // SAFETY: the port is linked into the send list.
+                    unsafe {
+                        queue_remove_generic(
+                            snd_head.cast(),
+                            infp.cast(),
+                            offset_of!(NetRcvPort, output),
+                        );
+                    }
+                }
+                // SAFETY: the port is off both lists and reuses `input`.
+                unsafe { (*infp).input.next = dead_infp };
+                dead_infp = infp.cast();
+            }
+            infp = nextfp;
+        }
+    };
+
+    let in_ = flags & NETF_IN != 0;
+    let out = flags & NETF_OUT != 0;
+
+    // SAFETY: the caller promises no interface lock held.
+    unsafe {
+        (*ifp).if_rcv_port_list_lock.lock();
+        (*ifp).if_snd_port_list_lock.lock();
+    }
+    if in_ {
+        check_filter_list(rcv_head, true);
+    }
+    if out {
+        check_filter_list(snd_head, false);
+    }
+
+    let mut failed = false;
+    if my_infp.is_null() {
+        NET_HASH_HEADER_LOCK.lock();
+        let mut free_slot = N_NET_HASH;
+        for i in 0..N_NET_HASH {
+            // SAFETY: the header slot is static storage.
+            if unsafe { (*hash_header_slot(i)).n_keys } == 0 {
+                free_slot = i;
+                break;
+            }
+        }
+        if free_slot == N_NET_HASH {
+            NET_HASH_HEADER_LOCK.unlock();
+            // SAFETY: this call took both interface locks.
+            unsafe {
+                (*ifp).if_snd_port_list_lock.unlock();
+                (*ifp).if_rcv_port_list_lock.unlock();
+            }
+            if let Some(port) = IpcPort::valid(rcv_port) {
+                // SAFETY: `port` is a live send right this call owns.
+                unsafe { ipc_port::release_send(port) };
+            }
+            if !hash_entp.is_null() {
+                // SAFETY: the entry is a live allocation of the cache.
+                unsafe {
+                    (*hash_entry_cache())
+                        .free(NonNull::new_unchecked(hash_entp.cast()))
+                };
+                hash_entp = ptr::null_mut();
+            }
+            failed = true;
+        } else {
+            let hhp = hash_header_slot(free_slot);
+            // SAFETY: the slot is free and the lock keeps it so.
+            unsafe { (*hhp).n_keys = n_keys as c_int };
+            NET_HASH_HEADER_LOCK.unlock();
+            // SAFETY: this call owns the slot until it is linked.
+            unsafe {
+                (*hhp).ref_count = 0;
+                for i in 0..NET_HASH_SIZE as usize {
+                    (*hhp).table[i] = ptr::null_mut();
+                }
+            }
+            my_infp = hhp.cast();
+            // SAFETY: as above.
+            unsafe { (*my_infp).rcv_port = ptr::null_mut() };
+            is_new_infp = true;
+        }
+    }
+
+    if !failed {
+        if is_new_infp {
+            // SAFETY: the port is this call's fresh allocation.
+            unsafe {
+                (*my_infp).priority = priority;
+                (*my_infp).rcv_count = 0;
+                ptr::copy_nonoverlapping(
+                    filter.as_ptr(),
+                    (*my_infp).filter.as_mut_ptr(),
+                    filter_count as usize,
+                );
+                (*my_infp).filter_end =
+                    (*my_infp).filter.as_mut_ptr().add(filter_count as usize);
+            }
+            let qlimit = if match_index.is_none() {
+                // SAFETY: the caller's port right is live when valid.
+                unsafe { add_q_info(rcv_port) }
+            } else {
+                0
+            };
+            // SAFETY: the port is this call's fresh allocation.
+            unsafe { (*my_infp).rcv_qlimit = qlimit };
+            if in_ {
+                // SAFETY: the receive list is initialized and held.
+                unsafe {
+                    queue_enter_tail(
+                        addr_of_mut!((*ifp).if_rcv_port_list).cast(),
+                        my_infp.cast(),
+                        offset_of!(NetRcvPort, input),
+                    );
+                }
+            }
+            if out {
+                // SAFETY: the send list is initialized and held.
+                unsafe {
+                    queue_enter_tail(
+                        addr_of_mut!((*ifp).if_snd_port_list).cast(),
+                        my_infp.cast(),
+                        offset_of!(NetRcvPort, output),
+                    );
+                }
+            }
+        }
+
+        if let Some(index) = match_index {
+            // SAFETY: the entry is this call's fresh allocation.
+            unsafe { (*hash_entp).rcv_port = rcv_port };
+            let mut keys = [0u32; N_NET_HASH_KEYS];
+            for i in 0..n_keys {
+                // SAFETY: `validate` proved the key instructions follow the
+                // match instruction inside the filter.
+                let insn = unsafe {
+                    filter
+                        .as_ptr()
+                        .cast::<BpfInsn>()
+                        .add(index + 1 + i)
+                        .read_unaligned()
+                };
+                let key = insn.k as c_uint;
+                if let Some(slot) = keys.get_mut(i) {
+                    *slot = key;
+                }
+                // SAFETY: the entry holds `N_NET_HASH_KEYS` key words.
+                if let Some(slot) = unsafe { (*hash_entp).keys.get_mut(i) } {
+                    *slot = key;
+                }
+            }
+            let header = my_infp.cast::<NetHashHeader>();
+            // SAFETY: `hash()` stays below the table length.
+            let bucket = hash(&keys[..n_keys]) as usize;
+            // SAFETY: the header is the live group this call holds.
+            let p = unsafe { addr_of_mut!((*header).table[bucket]) };
+            // SAFETY: the bucket is empty or holds a chain of live entries.
+            unsafe {
+                if (*p).is_null() {
+                    queue_init(
+                        addr_of_mut!((*hash_entp).chain).cast::<QueueEntry>(),
+                    );
+                    *p = hash_entp;
+                } else {
+                    enqueue_tail(
+                        addr_of_mut!((*(*p)).chain).cast::<QueueEntry>(),
+                        addr_of_mut!((*hash_entp).chain).cast::<QueueEntry>(),
+                    );
+                }
+                (*header).ref_count += 1;
+            }
+            // SAFETY: the caller's port right is live when valid.
+            let qlimit = unsafe { add_q_info(rcv_port) };
+            // SAFETY: the entry is this call's.
+            unsafe { (*hash_entp).rcv_qlimit = qlimit };
+        }
+
+        // SAFETY: this call holds both interface locks.
+        unsafe {
+            (*ifp).if_snd_port_list_lock.unlock();
+            (*ifp).if_rcv_port_list_lock.unlock();
+        }
+    }
+
+    if !dead_infp.is_null() {
+        // SAFETY: the list holds the ports this call unlinked.
+        unsafe { free_dead_infp(dead_infp) };
+    }
+    if !dead_entp.is_null() {
+        // SAFETY: the list holds the entries this call unlinked.
+        unsafe { free_dead_entp(dead_entp) };
+    }
+
+    if failed {
+        return Err(DeviceError::NoMemory);
+    }
+    Ok(DeviceSuccess::Success)
+}
+
+/// `hash_ent_remove()` of `device/net_io.c`.
+///
+/// # Safety
+///
+/// `hp` and `entp` must be live filter structures, `head` the bucket `entp`
+/// is linked into, and `dead_p` a list head this call owns.
+pub(crate) unsafe fn hash_ent_remove(
+    ifp: *mut IfNet,
+    hp: *mut NetHashHeader,
+    used: bool,
+    head: *mut *mut NetHashEntry,
+    entp: *mut NetHashEntry,
+    dead_p: *mut *mut QueueChain,
+) -> bool {
+    // SAFETY: the caller promises the live header.
+    unsafe { (*hp).ref_count -= 1 };
+
+    // SAFETY: the caller promises the live bucket and entry.
+    if unsafe { *head } == entp {
+        // SAFETY: as above.
+        if unsafe { (*entp).chain.next } == entp.cast::<QueueChain>() {
+            // SAFETY: as above, and the dead list's head is writable.
+            unsafe {
+                *head = ptr::null_mut();
+                (*entp).chain.next = *dead_p;
+                *dead_p = entp.cast();
+            }
+            // SAFETY: the caller promises a live header.
+            if unsafe { (*hp).ref_count == 0 } && !used {
+                let port = hp.cast::<NetRcvPort>();
+                // SAFETY: the header shares the port's storage and is live.
+                unsafe {
+                    if (*port).filter[0] & NETF_IN != 0 {
+                        queue_remove_generic(
+                            addr_of_mut!((*ifp).if_rcv_port_list).cast(),
+                            hp.cast(),
+                            offset_of!(NetRcvPort, input),
+                        );
+                    }
+                    if (*port).filter[0] & NETF_OUT != 0 {
+                        queue_remove_generic(
+                            addr_of_mut!((*ifp).if_snd_port_list).cast(),
+                            hp.cast(),
+                            offset_of!(NetRcvPort, output),
+                        );
+                    }
+                    (*hp).n_keys = 0;
+                }
+                return true;
+            }
+            return false;
+        }
+        // SAFETY: the entry is linked into this bucket.
+        unsafe { *head = (*entp).chain.next.cast() };
+    }
+
+    // SAFETY: the entry is linked into the bucket.
+    unsafe {
+        crate::kern::queue::remqueue(
+            (*head).cast::<QueueEntry>(),
+            entp.cast::<QueueEntry>(),
+        );
+        (*entp).chain.next = *dead_p;
+        *dead_p = entp.cast();
+    }
+    false
+}
+
+/// `net_add_q_info()` of `device/net_io.c`.
+///
+/// # Safety
+///
+/// `rcv_port` must be `IP_NULL`, `IP_DEAD` or a live port.
+pub(crate) unsafe fn add_q_info(rcv_port: *mut c_void) -> c_int {
+    let mut qlimit = 0u32;
+    if let Some(port) = IpcPort::valid(rcv_port) {
+        // SAFETY: `valid` established a live port.
+        unsafe { port.lock() };
+        // SAFETY: the port is live and locked.
+        if unsafe { port.is_active() } {
+            // SAFETY: as above.
+            qlimit = unsafe { port.qlimit() };
+        }
+        // SAFETY: as above.
+        unsafe { port.unlock() };
+    }
+
+    NET_KMSG_TOTAL_LOCK.lock();
+    NET_QUEUE_FREE_MIN.fetch_add(1, Ordering::Relaxed);
+    NET_KMSG_MAX.fetch_add(qlimit.wrapping_add(1) as c_int, Ordering::Relaxed);
+    NET_KMSG_TOTAL_LOCK.unlock();
+
+    qlimit as c_int
+}
+
+/// `net_del_q_info()` of `device/net_io.c`.
+///
+/// # Safety
+///
+/// `qlimit` must be the value `add_q_info()` returned for this filter.
+unsafe fn del_q_info(qlimit: c_int) {
+    NET_KMSG_TOTAL_LOCK.lock();
+    NET_QUEUE_FREE_MIN.fetch_sub(1, Ordering::Relaxed);
+    NET_KMSG_MAX.fetch_sub(qlimit.wrapping_add(1), Ordering::Relaxed);
+    NET_KMSG_TOTAL_LOCK.unlock();
+}
+
+/// `net_free_dead_infp()` of `device/net_io.c`.
+///
+/// # Safety
+///
+/// `dead` must head a list of receive ports this call unlinked, and no lock
+/// may be held.
+pub(crate) unsafe fn free_dead_infp(dead: *mut QueueChain) {
+    let mut infp = dead.cast::<NetRcvPort>();
+    while !infp.is_null() {
+        // SAFETY: the dead list links live ports through `input`.
+        let nextfp = unsafe { (*infp).input.next.cast::<NetRcvPort>() };
+        // SAFETY: the port is live.
+        if let Some(port) = IpcPort::valid(unsafe { (*infp).rcv_port }) {
+            // SAFETY: the filter owns one send right to the port.
+            unsafe { ipc_port::release_send(port) };
+        }
+        // SAFETY: the port is live.
+        let qlimit = unsafe { (*infp).rcv_qlimit };
+        // SAFETY: the caller holds no lock.
+        unsafe { del_q_info(qlimit) };
+        // SAFETY: the port is a live allocation of the cache.
+        unsafe {
+            (*rcv_cache()).free(NonNull::new_unchecked(infp.cast::<u8>()));
+        }
+        infp = nextfp;
+    }
+}
+
+/// `net_free_dead_entp()` of `device/net_io.c`.
+///
+/// # Safety
+///
+/// `dead` must head a list of hash entries this call unlinked, and no lock
+/// may be held.
+pub(crate) unsafe fn free_dead_entp(dead: *mut QueueChain) {
+    let mut entp = dead.cast::<NetHashEntry>();
+    while !entp.is_null() {
+        // SAFETY: the dead list links live entries through `chain`.
+        let nextentp = unsafe { (*entp).chain.next.cast::<NetHashEntry>() };
+        // SAFETY: the entry is live.
+        if let Some(port) = IpcPort::valid(unsafe { (*entp).rcv_port }) {
+            // SAFETY: the filter owns one send right to the port.
+            unsafe { ipc_port::release_send(port) };
+        }
+        // SAFETY: the entry is live.
+        let qlimit = unsafe { (*entp).rcv_qlimit };
+        // SAFETY: the caller holds no lock.
+        unsafe { del_q_info(qlimit) };
+        // SAFETY: the entry is a live allocation of the cache.
+        unsafe {
+            (*hash_entry_cache())
+                .free(NonNull::new_unchecked(entp.cast::<u8>()));
+        }
+        entp = nextentp;
+    }
+}
+
+/// `net_getstat()` of `device/net_io.c`.
+///
+/// # Safety
+///
+/// `ifp` must be a live interface, `status` writable for `*count` words, and
+/// `count` readable and writable.
+pub(crate) unsafe fn getstat(
+    ifp: *mut IfNet,
+    flavor: c_int,
+    status: *mut c_int,
+    count: *mut c_uint,
+) -> IoResult {
+    match flavor {
+        NET_STATUS => {
+            if unsafe { *count } < NET_STATUS_COUNT {
+                return Err(DeviceError::InvalidOperation);
+            }
+            let ns = status.cast::<NetStatus>();
+            // SAFETY: the caller promises a live interface and a writable
+            // status buffer of at least `NET_STATUS_COUNT` words.
+            unsafe {
+                (*ns).min_packet_size = c_int::from((*ifp).if_header_size);
+                (*ns).max_packet_size = c_int::from((*ifp).if_header_size)
+                    + c_int::from((*ifp).if_mtu);
+                (*ns).header_format = c_int::from((*ifp).if_header_format);
+                (*ns).header_size = c_int::from((*ifp).if_header_size);
+                (*ns).address_size = c_int::from((*ifp).if_address_size);
+                (*ns).flags = c_int::from((*ifp).if_flags);
+                (*ns).mapped_size = 0;
+                *count = NET_STATUS_COUNT;
+            }
+            Ok(DeviceSuccess::Success)
+        }
+        NET_ADDRESS => {
+            let Ok(byte_count) =
+                usize::try_from(unsafe { (*ifp).if_address_size })
+            else {
+                return Err(DeviceError::InvalidOperation);
+            };
+            let int_count = byte_count.div_ceil(size_of::<c_int>());
+            if unsafe { *count } < int_count as c_uint {
+                // SAFETY: the format takes two `int` arguments, as the C's
+                // arguments are.
+                unsafe {
+                    glue::printf(
+                        c"net_getstat: count: %d, addr_int_count: %d\n"
+                            .as_ptr(),
+                        *count as c_int,
+                        int_count as c_int,
+                    )
+                };
+                return Err(DeviceError::InvalidOperation);
+            }
+            let bytes = status.cast::<u8>();
+            // SAFETY: the caller promises `byte_count` readable address
+            // bytes, and the status buffer is writable for the padded words.
+            unsafe {
+                ptr::copy_nonoverlapping(
+                    (*ifp).if_address.cast::<u8>(),
+                    bytes,
+                    byte_count,
+                );
+                let total = int_count * size_of::<c_int>();
+                if byte_count < total {
+                    ptr::write_bytes(
+                        bytes.add(byte_count),
+                        0,
+                        total - byte_count,
+                    );
+                }
+            }
+            for i in 0..int_count {
+                // SAFETY: the buffer holds `int_count` readable words.
+                let word = unsafe { *status.add(i) } as u32;
+                // SAFETY: as above; the store replaces the word with its
+                // network-order image.
+                unsafe { *status.add(i) = htonl(word) as c_int };
+            }
+            // SAFETY: the caller promises a writable count.
+            unsafe { *count = int_count as c_uint };
+            Ok(DeviceSuccess::Success)
+        }
+        _ => Err(DeviceError::InvalidOperation),
+    }
+}
+
+/// `net_write()` of `device/net_io.c`.
+///
+/// # Safety
+///
+/// `ifp` must be a live interface, `ior` a live request the caller owns, and
+/// `start` the driver's start routine.
+pub(crate) unsafe fn write(
+    ifp: *mut IfNet,
+    start: Option<unsafe extern "C" fn(c_short) -> c_int>,
+    ior: *mut IoReq,
+) -> Result<DeviceSuccess, WriteError> {
+    let flags = c_int::from(unsafe { (*ifp).if_flags });
+    if flags & (IFF_UP | IFF_RUNNING) != (IFF_UP | IFF_RUNNING) {
+        return Err(WriteError::Device(DeviceError::DeviceDown));
+    }
+
+    let count = unsafe { (*ior).count };
+    let header = c_int::from(unsafe { (*ifp).if_header_size });
+    let mtu = c_int::from(unsafe { (*ifp).if_mtu });
+    if count < c_long::from(header) || c_long::from(header + mtu) < count {
+        return Err(WriteError::Device(DeviceError::InvalidSize));
+    }
+
+    let mut wait: c_int = 0;
+    // SAFETY: the caller promises the live request, and `wait` is writable.
+    let rc = unsafe { ds_routines::device_write_get(ior, &mut wait) };
+    if rc != 0 {
+        return Err(WriteError::Kern(rc));
+    }
+    if wait != 0 {
+        // SAFETY: `Panic` does not return; the file and function tags are
+        // the C `panic()` call's.
+        unsafe {
+            glue::Panic(
+                c"device/net_io.c".as_ptr(),
+                line!() as c_int,
+                c"net_write".as_ptr(),
+                c"net_write: VM continuation".as_ptr(),
+            )
+        }
+    }
+
+    let s = unsafe { glue::splimp() };
+    // SAFETY: the caller promises the live interface and request.
+    unsafe {
+        let ifq = addr_of_mut!((*ifp).if_snd);
+        (*ifq).ifq_lock.lock();
+        enqueue_tail(
+            addr_of_mut!((*ifq).ifq_head).cast::<QueueEntry>(),
+            ior.cast::<QueueEntry>(),
+        );
+        (*ifq).ifq_len += 1;
+        (*ifq).ifq_lock.unlock();
+
+        if let Some(start) = start {
+            start((*ifp).if_unit);
+        }
+    }
+    let _ = unsafe { glue::splx(s) };
+
+    Ok(DeviceSuccess::IoQueued)
+}
+
+/// What `net_write()` reports when it cannot queue the request: a `D_*` code
+/// or the `kern_return_t` `device_write_get()` returned, which the C passed
+/// through untouched.
+pub(crate) enum WriteError {
+    Device(DeviceError),
+    Kern(c_int),
+}
+
+/// `net_io_init()` of `device/net_io.c`.
+pub(crate) unsafe fn init() {
+    // SAFETY: the caches are static storage no thread can see yet.
+    unsafe {
+        (*rcv_cache()).init(
+            b"net_rcv_port",
+            size_of::<NetRcvPort>(),
+            0,
+            None,
+            CacheInitFlags::from_bits(0),
+        );
+    }
+    // SAFETY: as above.
+    unsafe {
+        (*hash_entry_cache()).init(
+            b"net_hash_entry",
+            size_of::<NetHashEntry>(),
+            0,
+            None,
+            CacheInitFlags::from_bits(0),
+        );
+    }
+
+    let size = ikm_plus_overhead(size_of::<NetRcvMsg>());
+    NET_KMSG_SIZE
+        .store(crate::vm::vm_map::round_page(size), Ordering::Relaxed);
+
+    NET_KMSG_TOTAL_LOCK.init();
+    if NET_KMSG_MAX.load(Ordering::Relaxed) == 0 {
+        NET_KMSG_MAX.store(
+            NET_QUEUE_FREE_MIN.load(Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
+    }
+
+    NET_QUEUE_FREE_LOCK.init();
+    // SAFETY: this call owns the queues before threads start.
+    unsafe { (*queue_free()).base = ptr::null_mut() };
+
+    NET_QUEUE_LOCK.init();
+    // SAFETY: as above.
+    unsafe {
+        (*queue_high()).base = ptr::null_mut();
+        (*queue_low()).base = ptr::null_mut();
+    }
+
+    NET_HASH_HEADER_LOCK.init();
 }

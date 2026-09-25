@@ -6,16 +6,21 @@
 //   Copyright (c) 1990-1991 The Regents of the University of California.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! The `extern "C"` exports of the packet-filter routines `device/net_io.c`
-//! used to define, declared in <device/net_io.h>.
+//! The `extern "C"` exports of `device/net_io.c`, declared in
+//! <device/net_io.h>.
 //!
 //! Every adapter hands its raw arguments to the matching core in
 //! [`net_io`] and converts the answer back to the C's `int`.
 
+use crate::arch::i386::io_req::IoReq;
 use crate::device::net_io::{
-    self, BpfInsn, NetHashEntry, NetHashHeader, NetRcvPort, Validated,
+    self, BpfInsn, IfNet, NetHashEntry, NetHashHeader, NetRcvPort, QueueChain,
+    Validated,
 };
-use core::ffi::{c_char, c_int, c_uint};
+use crate::device::r#return::{IoResult, IoResultExt};
+use crate::ipc::ipc_kmsg::Kmsg;
+use crate::kern::thread::IpcKmsgQueue;
+use core::ffi::{c_char, c_int, c_short, c_uint, c_void};
 use core::mem::size_of;
 use core::ptr;
 use core::slice;
@@ -191,4 +196,263 @@ pub unsafe extern "C" fn bpf_do_filter(
             entpp,
         )
     }
+}
+
+/// `net_kmsg_get()` of <device/net_io.h>.
+///
+/// # Safety
+///
+/// Called at splimp; the caller owns the returned message and must return it
+/// through `net_kmsg_put()`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn net_kmsg_get() -> *mut c_void {
+    // SAFETY: the caller's contract.
+    unsafe { net_io::kmsg_get() }.map_or(ptr::null_mut(), Kmsg::as_ptr)
+}
+
+/// `net_kmsg_put()` of <device/net_io.h>.
+///
+/// # Safety
+///
+/// `kmsg` must be a message from `net_kmsg_get()` that nothing else uses.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn net_kmsg_put(kmsg: *mut c_void) {
+    // SAFETY: the caller's contract.
+    unsafe { net_io::kmsg_put(kmsg) };
+}
+
+/// `net_kmsg_collect()` of <device/net_io.h>.
+///
+/// # Safety
+///
+/// Called when the free pool may be trimmed; nothing may hold a free-listed
+/// message.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn net_kmsg_collect() {
+    // SAFETY: the caller's contract.
+    unsafe { net_io::kmsg_collect() };
+}
+
+/// `net_ast()` of <device/net_io.h>.
+///
+/// # Safety
+///
+/// Called at splimp from `ast_taken()`, with the network AST bit set.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn net_ast() {
+    // SAFETY: the caller's contract.
+    unsafe { net_io::ast() };
+}
+
+/// `net_thread()` of <device/net_io.h>.
+///
+/// # Safety
+///
+/// Started once as the network thread; it never returns.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn net_thread() {
+    // SAFETY: the caller's contract.
+    unsafe { net_io::thread() };
+}
+
+/// `net_packet()` of <device/net_io.h>.
+///
+/// # Safety
+///
+/// `ifp` must be a live interface and `kmsg` a live network message at
+/// splimp.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn net_packet(
+    ifp: *mut IfNet,
+    kmsg: *mut c_void,
+    count: c_uint,
+    priority: c_int,
+) {
+    // SAFETY: the caller's contract.
+    unsafe { net_io::packet(ifp, kmsg, count, priority != 0) };
+}
+
+/// `net_filter()` of <device/net_io.h>.
+///
+/// # Safety
+///
+/// `kmsg` must be a live network message at spl0 holding the interface
+/// pointer, and `send_list` an empty queue the caller owns.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn net_filter(
+    kmsg: *mut c_void,
+    send_list: *mut IpcKmsgQueue,
+) {
+    // SAFETY: the caller's contract.
+    unsafe { net_io::filter(Kmsg::from_raw(kmsg), send_list) };
+}
+
+/// `net_do_filter()` of <device/net_io.h>.
+///
+/// # Safety
+///
+/// `infp` must point at a live receive port whose filter `net_set_filter()`
+/// accepted, and `data`/`header` must be readable for the words the program
+/// addresses.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn net_do_filter(
+    infp: *mut NetRcvPort,
+    data: *const c_char,
+    data_count: c_uint,
+    header: *const c_char,
+) -> c_int {
+    // SAFETY: the caller's contract.
+    c_int::from(unsafe {
+        net_io::net_do_filter(
+            infp,
+            data.cast::<u8>(),
+            data_count,
+            header.cast::<u8>(),
+        )
+    })
+}
+
+/// `net_set_filter()` of <device/net_io.h>.
+///
+/// # Safety
+///
+/// `ifp` must be a live interface; `rcv_port` a naked send right the caller
+/// hands over on success; `filter` readable for `filter_count` `filter_t`
+/// words; no interface lock may be held.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn net_set_filter(
+    ifp: *mut IfNet,
+    rcv_port: *mut c_void,
+    priority: c_int,
+    filter: *mut u16,
+    filter_count: c_uint,
+) -> c_int {
+    // SAFETY: the caller's contract.
+    unsafe {
+        net_io::set_filter(ifp, rcv_port, priority, filter, filter_count)
+    }
+    .as_io_return()
+}
+
+/// `net_getstat()` of <device/net_io.h>.
+///
+/// # Safety
+///
+/// `ifp` must be a live interface, `status` writable for `*count` words, and
+/// `count` readable and writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn net_getstat(
+    ifp: *mut IfNet,
+    flavor: c_int,
+    status: *mut c_int,
+    count: *mut c_uint,
+) -> c_int {
+    // SAFETY: the caller's contract.
+    unsafe { net_io::getstat(ifp, flavor, status, count) }.as_io_return()
+}
+
+/// `net_write()` of <device/net_io.h>.
+///
+/// # Safety
+///
+/// `ifp` must be a live interface, `ior` a live request the caller owns, and
+/// `start` the driver's start routine.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn net_write(
+    ifp: *mut IfNet,
+    start: Option<unsafe extern "C" fn(c_short) -> c_int>,
+    ior: *mut IoReq,
+) -> c_int {
+    // SAFETY: the caller's contract.
+    match unsafe { net_io::write(ifp, start, ior) } {
+        Ok(success) => {
+            let result: IoResult = Ok(success);
+            result.as_io_return()
+        }
+        Err(net_io::WriteError::Device(error)) => {
+            let result: IoResult = Err(error);
+            result.as_io_return()
+        }
+        // The C returned the `kern_return_t` untouched.
+        Err(net_io::WriteError::Kern(rc)) => rc,
+    }
+}
+
+/// `net_io_init()` of <device/net_io.h>.
+///
+/// # Safety
+///
+/// Called once during boot, before the network thread or any interface
+/// filter exists.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn net_io_init() {
+    // SAFETY: the caller's contract.
+    unsafe { net_io::init() };
+}
+
+/// `ethernet_priority()` of <device/net_io.h>.
+///
+/// # Safety
+///
+/// `kmsg` must be a live network message.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ethernet_priority(kmsg: *mut c_void) -> c_int {
+    // SAFETY: the caller's contract.
+    c_int::from(unsafe { net_io::ethernet_priority(Kmsg::from_raw(kmsg)) })
+}
+
+/// `hash_ent_remove()` of <device/net_io.h>.
+///
+/// # Safety
+///
+/// `hp` and `entp` must be live filter structures, `head` the bucket `entp`
+/// is linked into, and `dead_p` a list head the caller owns.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hash_ent_remove(
+    ifp: *mut IfNet,
+    hp: *mut NetHashHeader,
+    used: c_int,
+    head: *mut *mut NetHashEntry,
+    entp: *mut NetHashEntry,
+    dead_p: *mut *mut QueueChain,
+) -> c_int {
+    // SAFETY: the caller's contract.
+    c_int::from(unsafe {
+        net_io::hash_ent_remove(ifp, hp, used != 0, head, entp, dead_p)
+    })
+}
+
+/// `net_add_q_info()` of <device/net_io.h>.
+///
+/// # Safety
+///
+/// `rcv_port` must be `IP_NULL`, `IP_DEAD` or a live port.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn net_add_q_info(rcv_port: *mut c_void) -> c_int {
+    // SAFETY: the caller's contract.
+    unsafe { net_io::add_q_info(rcv_port) }
+}
+
+/// `net_free_dead_infp()` of <device/net_io.h>.
+///
+/// # Safety
+///
+/// `dead_infp` must head a list of receive ports that nothing else uses, and
+/// no lock may be held.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn net_free_dead_infp(dead_infp: *mut QueueChain) {
+    // SAFETY: the caller's contract.
+    unsafe { net_io::free_dead_infp(dead_infp) };
+}
+
+/// `net_free_dead_entp()` of <device/net_io.h>.
+///
+/// # Safety
+///
+/// `dead_entp` must head a list of hash entries that nothing else uses, and
+/// no lock may be held.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn net_free_dead_entp(dead_entp: *mut QueueChain) {
+    // SAFETY: the caller's contract.
+    unsafe { net_io::free_dead_entp(dead_entp) };
 }

@@ -194,15 +194,8 @@ unsafe extern "C" {
     /// `discover_x86_cpu_type()` of `i386/i386/locore.S`.
     pub fn discover_x86_cpu_type() -> c_int;
 
-    pub fn net_io_init();
-    pub fn net_thread();
-
-    /// `net_ast()` of `device/net_io.c`: service the network AST.
-    pub fn net_ast();
-
     /// `intr_thread()` of `device/intr.c`, the interrupt service thread.
     pub fn intr_thread();
-
     pub static mut master_device_port: *mut c_void;
 
     /// `dev_name_lookup()` of `device/dev_name.c`, which is still C.
@@ -274,6 +267,7 @@ unsafe extern "C" {
     ) -> c_int;
 
     pub fn spl0() -> c_int;
+    pub fn splimp() -> c_int;
     pub fn splhi() -> c_int;
     pub fn splsched() -> c_int;
     pub fn spltty() -> c_int;
@@ -323,8 +317,6 @@ unsafe extern "C" {
     pub static mut machine_task_iopb_cache: KmemCache;
 
     pub fn ipc_kobject_server(kmsg: *mut c_void) -> *mut c_void;
-
-    pub fn net_kmsg_put(kmsg: *mut c_void);
 
     pub fn ipc_kobject_destroy(port: *mut c_void);
     pub fn ipc_kobject_set_locked(
@@ -517,9 +509,6 @@ unsafe extern "C" {
         data: VmOffset,
         data_cnt: c_uint,
     ) -> c_int;
-
-    /// `net_kmsg_collect()` of <device/net_io.h>.
-    pub fn net_kmsg_collect();
 
     pub fn vm_page_lookup(
         object: *mut VmObject,

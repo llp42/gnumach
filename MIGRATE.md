@@ -104,7 +104,7 @@ the VM-debug info records and the proxy slab cache all moved with them
 (§9).  `vm_fault.c` was attempted and put back whole; the blocker is
 recorded in §9.
 
-### `device/` (7 files, 3,275 LOC)
+### `device/` (6 files, 1,610 LOC)
 
 | File | LOC | Free | Holds the rest |
 |---|---:|---:|---|
@@ -113,7 +113,6 @@ recorded in §9.
 | `dev_name.c` | 166 | 0 | `dev_ops`/`dev_indirect` fields |
 | `intr.c` | 375 | 0 | `struct irqdev`/`user_intr_t` fields |
 | `kmsg.c` | 237 | 0 | — (the rest is message plumbing) |
-| `net_io.c` | 1665 | 0 | `ifnet` fields for the hash and receive paths |
 | `subrs.c` | 53 | 0 | `ifnet` fields |
 
 ### `i386/` (10 files, 1,157 LOC)
@@ -355,8 +354,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `i386/i386/mp_desc.c` (`simple_lock_pause`, `cpu_control`) | `src/arch/i386/mp_desc.rs` | `8fd43a5f` |
 | `i386/i386/fpu.c` (`fp_free`) | `src/arch/i386/fpu.rs` | `14fbd933` |
 | `device/dev_name.c` (`name_equal`, stubs) | `src/device/dev_name.rs` | `9187f3bb` |
-| `device/net_io.c` (`bpf_hash`) | `src/device/net_io.rs` | `c2d49b23` |
-| `device/net_io.c` (`bpf_do_filter`, `bpf_validate`, `bpf_eq`, `bpf_match`, with the `struct net_rcv_port`, `struct net_hash_entry` and `struct net_hash_header` mirrors their bodies read; rest stays C) | `src/device/net_io.rs`, `net_io_ffi.rs` | pending |
+| `device/net_io.c` whole, with the four `def_simple_lock_data(static, ...)` locks (`net_queue_lock`, `net_queue_free_lock`, `net_kmsg_total_lock`, `net_hash_header_lock`), the `net_rcv_cache`/`net_hash_entry_cache` caches, the filter lists, and the `struct ifnet`, `struct ifqueue` and `struct net_rcv_msg` mirrors the receive paths read | `src/device/net_io.rs`, `net_io_ffi.rs` | pending |
 | `ipc/ipc_object.c` (`ipc_object_copyin_type`) | `src/ipc/ipc_object.rs` | `8c8c697f` |
 | `ipc/ipc_port.c` (`ipc_port_timestamp`) | `src/ipc/ipc_port.rs` | `54dfe7cd` |
 | `ipc/ipc_port.c` whole, with the `ipc_port_multiple_lock_data` static and the `ipc_port_request`, `ipc_entry`, `ipc_space` and `ipc_kmsg` field mirrors it reads | `src/ipc/ipc_port.rs`, `src/ipc/ipc_port_ffi.rs`, `src/ipc/mod.rs` | pending |

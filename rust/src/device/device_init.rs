@@ -54,7 +54,7 @@ pub unsafe extern "C" fn device_service_create() {
     unsafe {
         mach_device_init();
         crate::device::dev_lookup::init();
-        glue::net_io_init();
+        crate::device::net_io::init();
         crate::device::dev_pager::init();
         chario::chario_init();
     }
@@ -71,7 +71,7 @@ pub unsafe extern "C" fn device_service_create() {
         crate::kern::thread::kernel_thread(
             crate::kern::task::kernel_task,
             c"net".as_ptr(),
-            Some(glue::net_thread),
+            Some(crate::device::net_io_ffi::net_thread),
             ptr::null_mut(),
         );
     }

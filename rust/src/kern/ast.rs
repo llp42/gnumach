@@ -39,13 +39,12 @@ pub const AST_HALT: c_int = 0x1;
 pub const AST_TERMINATE: c_int = 0x2;
 /// `AST_BLOCK` in <kern/ast.h>: the scheduling AST reason.
 pub const AST_BLOCK: usize = 0x4;
+/// `AST_NETWORK` in <kern/ast.h>: the network thread has packets to deliver.
+pub const AST_NETWORK: usize = 0x8;
 /// `AST_SCHEDULING` in <kern/ast.h>: the reasons the scheduler holds back
 /// while the idle loop waits.
 pub const AST_SCHEDULING: usize =
     (AST_HALT | AST_TERMINATE) as usize | AST_BLOCK;
-
-/// `AST_NETWORK` in <kern/ast.h>: the reason the network code sets.
-const AST_NETWORK: usize = 0x8;
 
 /// `AST_PER_THREAD` in <kern/ast.h>: the reasons reset from the thread at a
 /// context switch.
@@ -166,7 +165,7 @@ pub(crate) unsafe fn taken() {
     if reasons & AST_NETWORK != 0 {
         // SAFETY: the network code owns the AST; interrupts are enabled, as
         // the C had them.
-        unsafe { glue::net_ast() };
+        unsafe { crate::device::net_io::ast() };
     }
 
     let myprocessor = current_processor();
