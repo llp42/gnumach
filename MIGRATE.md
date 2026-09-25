@@ -122,7 +122,7 @@ moved with them (§9).
 | `dev_name.c` | 166 | 0 | `dev_ops`/`dev_indirect` fields |
 | `intr.c` | 375 | 0 | `struct irqdev`/`user_intr_t` fields |
 | `kmsg.c` | 237 | 0 | — (the rest is message plumbing) |
-| `net_io.c` | 2168 | 0 | `ifnet`/`net_hash_entry` fields |
+| `net_io.c` | 1665 | 0 | `ifnet` fields for the hash and receive paths |
 | `subrs.c` | 53 | 0 | `ifnet` fields |
 
 ### `i386/` (20 files, 3,109 LOC)
@@ -372,6 +372,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `i386/i386/fpu.c` (`fp_free`) | `src/arch/i386/fpu.rs` | `14fbd933` |
 | `device/dev_name.c` (`name_equal`, stubs) | `src/device/dev_name.rs` | `9187f3bb` |
 | `device/net_io.c` (`bpf_hash`) | `src/device/net_io.rs` | `c2d49b23` |
+| `device/net_io.c` (`bpf_do_filter`, `bpf_validate`, `bpf_eq`, `bpf_match`, with the `struct net_rcv_port`, `struct net_hash_entry` and `struct net_hash_header` mirrors their bodies read; rest stays C) | `src/device/net_io.rs`, `net_io_ffi.rs` | pending |
 | `ipc/ipc_object.c` (`ipc_object_copyin_type`) | `src/ipc/ipc_object.rs` | `8c8c697f` |
 | `ipc/ipc_port.c` (`ipc_port_timestamp`) | `src/ipc/ipc_port.rs` | `54dfe7cd` |
 | `ipc/ipc_port.c` whole, with the `ipc_port_multiple_lock_data` static and the `ipc_port_request`, `ipc_entry`, `ipc_space` and `ipc_kmsg` field mirrors it reads | `src/ipc/ipc_port.rs`, `src/ipc/ipc_port_ffi.rs`, `src/ipc/mod.rs` | pending |

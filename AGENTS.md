@@ -41,7 +41,7 @@ routine at a time. The target is a Rust kernel, not a kernel with Rust in it.
 The build is GNU Autotools plus a hand-written `rustc` invocation — no Cargo,
 no lock file, no network. The Rust half compiles to `libmach-rs.a`, which is
 linked between two passes over `libkernel.a`, so Rust may call C and C may
-call Rust. As of 2026-09-25 the Rust half is 170 files and about 85,000 lines.
+call Rust. As of 2026-09-25 the Rust half is 192 files and about 102,000 lines.
 
 ### The idea
 
