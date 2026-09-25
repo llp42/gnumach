@@ -13,13 +13,15 @@ dnl THE FREE SOFTWARE FOUNDATION ALLOWS FREE USE OF THIS SOFTWARE IN ITS
 dnl "AS IS" CONDITION.  THE FREE SOFTWARE FOUNDATION DISCLAIMS ANY
 dnl LIABILITY OF ANY KIND FOR ANY DAMAGES WHATSOEVER RESULTING FROM THE
 dnl USE OF THIS SOFTWARE.
-
+
+dnl Copyright (C) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
+
 AC_PREREQ([2.57])
 
 m4_include([version.m4])
 AC_INIT([AC_PACKAGE_NAME], [AC_PACKAGE_VERSION], [AC_PACKAGE_BUGREPORT],
   [AC_PACKAGE_TARNAME])
-AC_CONFIG_SRCDIR([kern/ipc_kobject.c])
+AC_CONFIG_SRCDIR([Makefile.am])
 
 if test -z "${CFLAGS+set}"; then
   # Use these CFLAGS by default if nothing is set.
