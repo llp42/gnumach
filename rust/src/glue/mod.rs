@@ -17,6 +17,7 @@ use crate::arch::i386::pcb::{
 use crate::arch::i386::trap::Recovery;
 use crate::arch::types::{VmOffset, VmSize};
 use crate::device::ds_routines::DevOps;
+use crate::ipc::MachMsgHeader;
 use crate::kern::lock::SimpleLock;
 use crate::kern::processor::Processor;
 use crate::kern::queue::QueueEntry;
@@ -120,9 +121,6 @@ unsafe extern "C" {
     pub static mut retry_table: Recovery;
     pub static mut retry_table_end: Recovery;
 
-    pub fn eml_task_reference(task: *mut Task, parent: *mut Task);
-    pub fn eml_task_deallocate(task: *mut Task);
-
     pub fn machine_task_init(task: *mut Task);
     pub fn machine_task_terminate(task: *mut Task);
     pub fn machine_task_collect(task: *mut Task);
@@ -146,9 +144,6 @@ unsafe extern "C" {
 
     /// `halt_cpu()` of `i386/i386at/model_dep.c`: stop this CPU for good.
     pub fn halt_cpu() -> !;
-
-    /// `ast_taken()` of `kern/ast.c`, which is still C.
-    pub fn ast_taken();
 
     /// `compute_mach_factor()` of `kern/mach_factor.c`, which is still C.
     pub fn compute_mach_factor();
@@ -209,24 +204,23 @@ unsafe extern "C" {
     /// `init_percpu()` of `i386/i386/percpu.c`: fill one CPU's per-CPU block.
     pub fn init_percpu(cpu: c_int);
 
-    /// `cpu_launch_first_thread()` of `kern/startup.c`: hand a CPU the first
-    /// thread to run.  It never returns.
-    pub fn cpu_launch_first_thread(th: *mut Thread) -> !;
-
     /// `cninit()` of `device/cons.c`: find and initialize the console.
     pub fn cninit();
 
     /// `probeio()` of `i386/i386at/autoconf.c`: probe the ISA devices.
     pub fn probeio();
 
-    /// `setup_main()` of `kern/startup.c`: start the kernel's first threads.
-    pub fn setup_main();
-
     /// `discover_x86_cpu_type()` of `i386/i386/locore.S`.
     pub fn discover_x86_cpu_type() -> c_int;
 
     pub fn net_io_init();
     pub fn net_thread();
+
+    /// `net_ast()` of `device/net_io.c`: service the network AST.
+    pub fn net_ast();
+
+    /// `intr_thread()` of `device/intr.c`, the interrupt service thread.
+    pub fn intr_thread();
 
     pub static mut master_device_port: *mut c_void;
 
@@ -364,6 +358,20 @@ unsafe extern "C" {
         type_: c_uint,
     );
 
+    /// The `*_server_routines[]` tables the generated `*.server.h` headers
+    /// declare, one per MIG subsystem `ipc_kobject_server()` dispatches to.
+    /// Each is declared as its first element, as the C header declares the
+    /// array.
+    pub(crate) static mut mach_server_routines: MigRoutine;
+    pub(crate) static mut mach_port_server_routines: MigRoutine;
+    pub(crate) static mut mach_host_server_routines: MigRoutine;
+    pub(crate) static mut device_server_routines: MigRoutine;
+    pub(crate) static mut device_pager_server_routines: MigRoutine;
+    pub(crate) static mut mach_debug_server_routines: MigRoutine;
+    pub(crate) static mut mach4_server_routines: MigRoutine;
+    pub(crate) static mut gnumach_server_routines: MigRoutine;
+    pub(crate) static mut experimental_server_routines: MigRoutine;
+    pub(crate) static mut mach_i386_server_routines: MigRoutine;
     pub fn pmap_destroy(pmap: *mut Pmap);
     pub fn pmap_collect(pmap: *mut Pmap);
     pub fn pmap_reference(pmap: *mut Pmap);
@@ -681,3 +689,7 @@ unsafe extern "C" {
 
     pub fn memory_manager_default_init();
 }
+
+/// `mig_routine_t` of <mach/mig.h>: one generated MIG server entry point.
+pub(crate) type MigRoutine =
+    Option<unsafe extern "C" fn(*mut MachMsgHeader, *mut MachMsgHeader)>;

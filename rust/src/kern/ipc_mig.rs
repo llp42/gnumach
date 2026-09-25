@@ -1313,8 +1313,7 @@ pub(crate) unsafe fn syscall_thread_depress_abort(
     };
 
     // SAFETY: the thread is live, and the routine takes its own locks.
-    let result =
-        unsafe { syscall_subr::thread_depress_abort(thread.as_ptr()) };
+    let result = unsafe { syscall_subr::depress_abort(thread.as_ptr()) };
     // SAFETY: the reference `port_name_to_thread()` took is the one released
     // here.
     unsafe { Thread::deallocate(thread.as_ptr()) };

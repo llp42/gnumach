@@ -41,7 +41,7 @@ routine at a time. The target is a Rust kernel, not a kernel with Rust in it.
 The build is GNU Autotools plus a hand-written `rustc` invocation — no Cargo,
 no lock file, no network. The Rust half compiles to `libmach-rs.a`, which is
 linked between two passes over `libkernel.a`, so Rust may call C and C may
-call Rust. As of 2026-09-25 the Rust half is 201 files and about 106,400
+call Rust. As of 2026-09-25 the Rust half is 209 files and about 109,600
 lines.
 
 ### The idea
@@ -179,6 +179,12 @@ link error, not a fallback.
 | `vm/memory_object_proxy.c` | `src/vm/memory_object_proxy.rs`, `src/vm/memory_object_proxy_ffi.rs` |
 | `vm/vm_debug.c` | `src/vm/vm_debug.rs`, `src/vm/vm_debug_ffi.rs` |
 | `vm/vm_user.c` | `src/vm/vm_user.rs`, `src/vm/vm_user_ffi.rs` |
+| `kern/ast.c` | `src/kern/ast.rs`, `src/kern/ast_ffi.rs` |
+| `kern/debug.c` (`__stack_chk_guard`) | `src/kern/debug.rs` |
+| `kern/ipc_kobject.c` | `src/kern/ipc_kobject.rs`, `src/kern/ipc_kobject_ffi.rs` |
+| `kern/startup.c` | `src/kern/startup.rs`, `src/kern/startup_ffi.rs` |
+| `kern/syscall_emulation.c` | `src/kern/syscall_emulation.rs`, `src/kern/syscall_emulation_ffi.rs` |
+| `kern/syscall_subr.c` | `src/kern/syscall_subr.rs`, `src/kern/syscall_subr_ffi.rs` |
 
 Also deleted as dead: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `ipc/copy_user.c`'s `USER32`

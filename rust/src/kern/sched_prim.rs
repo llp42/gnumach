@@ -368,7 +368,7 @@ pub(crate) unsafe fn sched_init() {
 
     SCHED_TICK.store(0, Ordering::Relaxed);
     // SAFETY: no other CPU is running yet, so no AST can be pending.
-    unsafe { crate::kern::ast::ast_init() };
+    unsafe { crate::kern::ast::init() };
 }
 
 /// The `run_queue_enqueue()` macro of kern/sched_prim.c, non-DEBUG branch.
@@ -539,7 +539,7 @@ pub(crate) unsafe fn thread_timeout_setup(thread: *mut Thread) {
         (*thread).timer.param = thread.cast::<c_void>();
         (*thread).timer.set = 0;
         (*thread).depress_timer.fcn =
-            Some(crate::kern::syscall_subr::thread_depress_timeout);
+            Some(crate::kern::syscall_subr::depress_timeout);
         (*thread).depress_timer.param = thread.cast::<c_void>();
         (*thread).depress_timer.set = 0;
     }
@@ -1289,12 +1289,12 @@ unsafe extern "C" fn idle_thread_continue() {
                 && lcount.read_volatile() == 0
         } {
             if ast_scheduling_pending(mycpu) {
-                // SAFETY: `ast_taken()` is the C routine of kern/ast.c, and it
+                // SAFETY: `ast_taken()` is the routine of kern/ast.c, and it
                 // lowers the level itself.
                 unsafe {
                     glue::splsched();
                     ast_clear_scheduling(mycpu);
-                    glue::ast_taken();
+                    crate::kern::ast::taken();
                 }
             }
             machine_idle(mycpu);

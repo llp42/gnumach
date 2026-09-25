@@ -4,6 +4,7 @@
 //! Kernel facilities; mirrors `kern/`.
 
 pub mod ast;
+pub mod ast_ffi;
 pub mod boot_script;
 pub mod boot_script_ffi;
 pub mod bootstrap;
@@ -20,6 +21,8 @@ pub mod host;
 pub mod host_ffi;
 pub mod ipc_host;
 pub mod ipc_host_ffi;
+pub mod ipc_kobject;
+pub mod ipc_kobject_ffi;
 pub mod ipc_mig;
 pub mod ipc_mig_ffi;
 pub mod ipc_sched;
@@ -47,8 +50,12 @@ pub mod sched_prim_ffi;
 pub mod slab;
 pub mod slab_ffi;
 pub mod smp;
+pub mod startup;
+pub mod startup_ffi;
 pub mod syscall_emulation;
+pub mod syscall_emulation_ffi;
 pub mod syscall_subr;
+pub mod syscall_subr_ffi;
 pub mod task;
 pub mod task_ffi;
 pub mod thread;

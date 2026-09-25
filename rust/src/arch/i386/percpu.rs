@@ -123,6 +123,18 @@ unsafe extern "C" {
     static mut percpu_array: Percpu;
 }
 
+/// The `processor_ptr()` macro of <kern/processor.h>: CPU `cpu`'s processor
+/// record.
+///
+/// # Safety
+///
+/// `cpu` must be a CPU number the machine reports, below `smp_get_numcpus()`.
+pub(crate) unsafe fn processor_ptr(cpu: c_int) -> *mut Processor {
+    // SAFETY: the caller promises a live CPU number, so the block the C array
+    // holds for it has a live processor.
+    unsafe { &raw mut (*percpu_at(cpu)).processor }
+}
+
 /// The per-CPU block of CPU `cpu` in `percpu_array`.
 ///
 /// # Safety

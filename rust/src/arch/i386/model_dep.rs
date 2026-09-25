@@ -748,7 +748,7 @@ pub(crate) fn c_boot_entry(bi: VmOffset) {
     }
 
     // SAFETY: `setup_main` is the real C routine of `kern/startup.c`.
-    unsafe { glue::setup_main() };
+    unsafe { crate::kern::startup_ffi::setup_main() };
 }
 
 /// `startrtclock()` of <i386/i386/model_dep.h>.

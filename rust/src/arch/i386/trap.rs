@@ -257,9 +257,9 @@ pub(crate) unsafe fn astintr() {
         // SAFETY: the FPU path runs on the trap stack with nothing locked.
         unsafe { fpu::fpastintr() };
     } else {
-        // SAFETY: `ast_taken()` of `kern/ast.c` is still C and runs on this
-        // CPU's trap stack.
-        unsafe { glue::ast_taken() };
+        // SAFETY: `ast_taken()` of `kern/ast.c` runs on this CPU's trap
+        // stack.
+        unsafe { crate::kern::ast::taken() };
     }
 }
 

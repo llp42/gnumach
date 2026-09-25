@@ -782,6 +782,31 @@ pub(crate) unsafe fn deactivate_kernel(cpu: c_int) {
     unsafe { (*kernel_pmap_ptr()).cpus_using.clear(cpu) };
 }
 
+/// The `PMAP_ACTIVATE_KERNEL()` of <i386/intel/pmap.h>: make the kernel pmap
+/// current on `cpu` and flush its queued updates.
+///
+/// # Safety
+///
+/// `cpu` must be the calling CPU with interrupts blocked, as the boot and
+/// context-switch paths have them.
+pub(crate) unsafe fn activate_kernel(cpu: c_int) {
+    cpus_active.clear(cpu);
+    // SAFETY: the kernel map is live from `pmap_bootstrap()`, and the lock
+    // protects the queued updates and `cpus_using`.
+    unsafe {
+        (*kernel_pmap_ptr()).lock.lock();
+
+        if cpu_update_needed[cpu as usize].load(Ordering::Relaxed) != 0 {
+            process_pmap_updates(kernel_pmap_ptr());
+        }
+
+        (*kernel_pmap_ptr()).cpus_using.set(cpu);
+        cpus_active.set(cpu);
+
+        (*kernel_pmap_ptr()).lock.unlock();
+    }
+}
+
 /// The `SPLVM()` of i386/intel/pmap.c, minus the assignment the macro makes.
 fn raise_splvm() -> c_int {
     // SAFETY: `splvm` is the real routine <i386/spl.h> declares.
