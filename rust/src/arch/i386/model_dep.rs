@@ -713,14 +713,15 @@ pub(crate) fn c_boot_entry(bi: VmOffset) {
     // SAFETY: the boot CPU's slot is this CPU's to fill, and the C filled the
     // same fields.
     unsafe {
-        glue::machine_slot[0].is_cpu = 1;
-        glue::machine_slot[0].cpu_subtype = CPU_SUBTYPE_AT386;
+        let slot = crate::kern::machine::slot(0);
+        (*slot).is_cpu = 1;
+        (*slot).cpu_subtype = CPU_SUBTYPE_AT386;
     }
 
     #[cfg(target_pointer_width = "64")]
     // SAFETY: as above.
     unsafe {
-        glue::machine_slot[0].cpu_type = CPU_TYPE_X86_64
+        (*crate::kern::machine::slot(0)).cpu_type = CPU_TYPE_X86_64
     };
 
     #[cfg(target_pointer_width = "32")]
@@ -743,7 +744,7 @@ pub(crate) fn c_boot_entry(bi: VmOffset) {
             }
         };
         // SAFETY: the boot CPU's slot is this CPU's to fill.
-        unsafe { glue::machine_slot[0].cpu_type = type_ };
+        unsafe { (*crate::kern::machine::slot(0)).cpu_type = type_ };
     }
 
     // SAFETY: `setup_main` is the real C routine of `kern/startup.c`.

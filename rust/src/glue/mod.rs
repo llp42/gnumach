@@ -16,7 +16,6 @@ use crate::arch::i386::pcb::{
 };
 use crate::arch::i386::trap::Recovery;
 use crate::arch::types::{VmOffset, VmSize};
-use crate::config::NCPUS;
 use crate::device::ds_routines::DevOps;
 use crate::kern::lock::SimpleLock;
 use crate::kern::processor::Processor;

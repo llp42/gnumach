@@ -364,11 +364,12 @@ fn cpu_setup(cpu: c_int) -> ! {
         glue::ap_ktss_init(cpu);
         ap_stage(cpu, c"ktss");
 
-        glue::machine_slot[cpu as usize].cpu_subtype = CPU_SUBTYPE_AT386;
-        glue::machine_slot[cpu as usize].cpu_type =
-            glue::machine_slot[0].cpu_type;
+        // SAFETY: as above; the slot is this CPU's to fill while the BSP's
+        // type is already recorded.
+        let slot = crate::kern::machine::slot(cpu as usize);
+        (*slot).cpu_subtype = CPU_SUBTYPE_AT386;
+        (*slot).cpu_type = (*crate::kern::machine::slot(0)).cpu_type;
     }
-
     // SAFETY: `init_fpu` is the real C routine of `i386/i386/fpu.c`.
     unsafe { crate::arch::i386::fpu_ffi::init_fpu() };
     apic::lapic_setup();
@@ -422,11 +423,10 @@ pub(crate) fn start_other_cpus() {
     apic::lapic_disable();
     pmap::pmap_make_temporary_mapping();
 
-    let slots = ptr::addr_of_mut!(glue::machine_slot);
     for cpu in 1..ncpus {
-        // SAFETY: `cpu` is below the probed CPU count and `machine_slot` has
+        // SAFETY: `cpu` is below the probed CPU count and the slot array has
         // `NCPUS` entries the probe never exceeds.
-        unsafe { (*slots)[cpu as usize].running = 0 };
+        unsafe { (*crate::kern::machine::slot(cpu as usize)).running = 0 };
     }
 
     // SAFETY: `apboot_addr` is the physical page `copy_apboot` filled.
@@ -441,7 +441,8 @@ pub(crate) fn start_other_cpus() {
 
         loop {
             // SAFETY: `cpu` is below the probed CPU count.
-            let running = unsafe { (*slots)[cpu as usize].running };
+            let running =
+                unsafe { (*crate::kern::machine::slot(cpu as usize)).running };
             if running != 0 {
                 break;
             }
