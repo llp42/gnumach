@@ -16,6 +16,7 @@ use crate::device::device_init;
 use crate::glue;
 use crate::ipc::ipc_init;
 use crate::kern::mach_clock::{self, record_time_stamp};
+use crate::kern::mach_factor;
 use crate::kern::machine;
 use crate::kern::processor::master_cpu;
 use crate::kern::rdxtree_ffi;
@@ -97,7 +98,7 @@ pub(crate) unsafe fn setup_main() {
         crate::kern::processor_ffi::pset_sys_init();
 
         sched_prim::recompute_priorities(ptr::null_mut());
-        glue::compute_mach_factor();
+        mach_factor::compute();
         crate::kern::gsync_ffi::gsync_setup();
 
         let mut startup_thread: *mut Thread = ptr::null_mut();

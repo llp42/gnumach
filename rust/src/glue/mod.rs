@@ -7,7 +7,6 @@ pub mod mig;
 pub mod time_value;
 
 use crate::arch::i386::com::BusDevice;
-use crate::arch::i386::debug_i386::MachTrap;
 use crate::arch::i386::idt::IdtInitEntry;
 use crate::arch::i386::kd::ConsDev;
 use crate::arch::i386::model_dep::GdtDescrTmp;
@@ -23,7 +22,7 @@ use crate::kern::task::Task;
 use crate::kern::thread::{Continuation, Thread};
 use crate::vm::types::{Pmap, VmObject, VmPage, VmProt};
 use crate::vm::vm_map::{VmMap, VmMapEntry};
-use core::ffi::{c_char, c_int, c_long, c_uint, c_ulong, c_ushort, c_void};
+use core::ffi::{c_char, c_int, c_uint, c_ulong, c_ushort, c_void};
 
 // The raw pointers below are to `#[repr(C)]` mirrors.
 #[expect(improper_ctypes)]
@@ -55,11 +54,6 @@ unsafe extern "C" {
     pub fn kd_slmscd(from: *mut c_void, to: *mut c_void, count: c_int);
 
     pub fn thread_exception_return();
-    pub fn thread_handoff(
-        self_: *mut Thread,
-        continuation: crate::kern::thread::Continuation,
-        receiver: *mut Thread,
-    ) -> c_int;
 
     pub fn Thread_continue();
 
@@ -136,16 +130,8 @@ unsafe extern "C" {
     /// `halt_cpu()` of `i386/i386at/model_dep.c`: stop this CPU for good.
     pub fn halt_cpu() -> !;
 
-    /// `compute_mach_factor()` of `kern/mach_factor.c`, which is still C.
-    pub fn compute_mach_factor();
-
     /// `call_continuation()` of `i386/i386/locore.S`, which never returns.
     pub fn call_continuation(continuation: Continuation) -> !;
-
-    /// `avenrun` and `mach_factor` of kern/mach_factor.c: the three load
-    /// averages `host_info()` reports.
-    pub static avenrun: [c_long; 3];
-    pub static mach_factor: [c_long; 3];
 
     pub static cpu_features: [c_uint; 2];
 
@@ -167,10 +153,6 @@ unsafe extern "C" {
     /// `version[]` of the generated version object: the kernel's release
     /// string, printed by `c_boot_entry()`.
     pub static version: c_char;
-
-    /// `mach_trap_table` of `kern/syscall_sw.c`: one entry per syscall, which
-    /// `syscall_trace_print()` indexes.
-    pub static mach_trap_table: MachTrap;
 
     /// `idt_inittab[]` of `i386/i386/idt_inittab.S` and
     /// `x86_64/idt_inittab.S`: the generated gate table `idt_fill()` walks.
@@ -294,14 +276,6 @@ unsafe extern "C" {
 
     /// `setsoftclock()` of <i386/spl.h>: raise the softclock interrupt.
     pub fn setsoftclock();
-
-    /// `thread_quantum_update()` of <kern/priority.h>: charge the quantum.
-    pub fn thread_quantum_update(
-        mycpu: c_int,
-        thread: *mut Thread,
-        nticks: c_int,
-        state: c_int,
-    );
 
     pub static mut machine_task_iopb_cache: KmemCache;
 

@@ -151,6 +151,7 @@ MACH_RS_SRCS = \
 	rust/src/kern/ipc_mig.rs \
 	rust/src/kern/ipc_mig_ffi.rs \
 	rust/src/kern/ipc_sched.rs \
+	rust/src/kern/ipc_sched_ffi.rs \
 	rust/src/kern/ipc_tt.rs \
 	rust/src/kern/ipc_tt_ffi.rs \
 	rust/src/kern/kmutex.rs \
@@ -158,11 +159,15 @@ MACH_RS_SRCS = \
 	rust/src/kern/lock.rs \
 	rust/src/kern/mach_clock.rs \
 	rust/src/kern/mach_clock_ffi.rs \
+	rust/src/kern/mach_factor.rs \
+	rust/src/kern/mach_factor_ffi.rs \
 	rust/src/kern/machine.rs \
 	rust/src/kern/machine_ffi.rs \
 	rust/src/kern/mod.rs \
 	rust/src/kern/policy.rs \
 	rust/src/kern/printf.rs \
+	rust/src/kern/priority.rs \
+	rust/src/kern/priority_ffi.rs \
 	rust/src/kern/processor.rs \
 	rust/src/kern/processor_ffi.rs \
 	rust/src/kern/processor_info.rs \
@@ -182,6 +187,7 @@ MACH_RS_SRCS = \
 	rust/src/kern/syscall_emulation_ffi.rs \
 	rust/src/kern/syscall_subr.rs \
 	rust/src/kern/syscall_subr_ffi.rs \
+	rust/src/kern/syscall_sw.rs \
 	rust/src/kern/task.rs \
 	rust/src/kern/task_ffi.rs \
 	rust/src/kern/timer.rs \

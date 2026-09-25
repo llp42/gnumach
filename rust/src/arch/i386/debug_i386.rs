@@ -51,36 +51,6 @@ const _: () = {
     assert!(offset_of!(DebugTraceEntry, linenum) == 8);
 };
 
-/// `struct mach_trap_t` of <kern/syscall_sw.h>, the syscall table entries
-/// `syscall_trace_print` reads.
-#[repr(C)]
-pub struct MachTrap {
-    pub mach_trap_arg_count: c_int,
-    pub mach_trap_function: Option<unsafe extern "C" fn()>,
-    pub mach_trap_stack: c_int,
-    pub mach_trap_name: *const c_char,
-}
-
-#[cfg(target_pointer_width = "32")]
-const _: () = {
-    assert!(size_of::<MachTrap>() == 16);
-    assert!(align_of::<MachTrap>() == align_of::<u32>());
-    assert!(offset_of!(MachTrap, mach_trap_arg_count) == 0);
-    assert!(offset_of!(MachTrap, mach_trap_function) == 4);
-    assert!(offset_of!(MachTrap, mach_trap_stack) == 8);
-    assert!(offset_of!(MachTrap, mach_trap_name) == 12);
-};
-
-#[cfg(target_pointer_width = "64")]
-const _: () = {
-    assert!(size_of::<MachTrap>() == 32);
-    assert!(align_of::<MachTrap>() == align_of::<u64>());
-    assert!(offset_of!(MachTrap, mach_trap_arg_count) == 0);
-    assert!(offset_of!(MachTrap, mach_trap_function) == 8);
-    assert!(offset_of!(MachTrap, mach_trap_stack) == 16);
-    assert!(offset_of!(MachTrap, mach_trap_name) == 24);
-};
-
 /// `debug_trace_buf` of `i386/i386/debug_i386.c`, which `debug_trace.S`
 /// writes when a debug build calls `DEBUG_TRACE`.
 #[unsafe(no_mangle)]
@@ -296,8 +266,11 @@ pub(crate) fn trace_print(syscallvec: c_int, args: &mut VaList<'_>) -> c_int {
     let syscallnum = (syscallvec >> 4) as usize;
     // SAFETY: `mach_trap_table` has an entry per syscall number, and the
     // caller passed one the syscall path extracted from `mach_trap_table`.
-    let trap =
-        unsafe { &*ptr::addr_of!(glue::mach_trap_table).add(syscallnum) };
+    let trap = unsafe {
+        &*crate::kern::syscall_sw::mach_trap_table
+            .as_ptr()
+            .add(syscallnum)
+    };
     // SAFETY: the syscall path calls this with a live current thread.
     let task = unsafe { current_task() };
     // SAFETY: `syscall_trace_task` is the trace filter, written only by the

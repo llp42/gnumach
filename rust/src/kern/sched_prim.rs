@@ -19,6 +19,7 @@ use crate::kern::ast::{
 };
 use crate::kern::lock::SimpleLock;
 use crate::kern::mach_clock::{self, reset_timeout_check};
+use crate::kern::mach_factor;
 use crate::kern::machine;
 use crate::kern::policy::{POLICY_FIXEDPRI, POLICY_TIMESHARE};
 use crate::kern::processor::{
@@ -1434,10 +1435,9 @@ pub(crate) unsafe fn idle_thread() {
 /// `sched_thread_continue()` of kern/sched_prim.c.
 unsafe extern "C" fn sched_thread_continue() {
     loop {
-        // SAFETY: `compute_mach_factor()` is the real C routine of
-        // kern/mach_factor.c, and the scan is safe here at spl0.
+        // SAFETY: the scan runs at spl0 with no lock held, as the C did.
         unsafe {
-            glue::compute_mach_factor();
+            mach_factor::compute();
             if sched_tick() & 1 != 0 {
                 do_thread_scan();
             }
