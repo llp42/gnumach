@@ -1649,9 +1649,9 @@ pub(crate) unsafe fn fpextovrflt() -> ! {
 /// `EXC_BAD_ACCESS` of <mach/exception.h>.
 const EXC_BAD_ACCESS: c_int = 1;
 /// `EXC_ARITHMETIC` of <mach/exception.h>.
-const EXC_ARITHMETIC: c_int = 2;
+const EXC_ARITHMETIC: c_int = 3;
 /// `EXC_I386_EXTERR` of <mach/i386/exception.h>.
-const EXC_I386_EXTERR: c_int = 4;
+const EXC_I386_EXTERR: c_int = 5;
 /// `VM_PROT_READ` of <mach/vm_prot.h>.
 const VM_PROT_READ: c_int = 1;
 /// `VM_PROT_EXECUTE` of <mach/vm_prot.h>.
