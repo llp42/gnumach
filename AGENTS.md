@@ -200,7 +200,7 @@ link error, not a fallback.
 | `i386/i386at/autoconf.c` | `src/arch/i386/autoconf.rs`, `src/arch/i386/autoconf_ffi.rs` |
 | `chips/busses.c` | `src/arch/i386/busses.rs` |
 | `device/device_init.c`, `i386/i386at/conf.c`, `i386/i386at/cons_conf.c` | `src/device/device_init.rs`, `dev_name.rs`, `cons.rs` |
-| `vm/vm_fault.c` (`vm_fault_cleanup`, `vm_fault_unwire`, `vm_fault_wire_fast`, `vm_fault_copy`) | `src/vm/vm_fault.rs`, `vm_fault_ffi.rs` |
+| `vm/vm_fault.c` (`vm_fault_cleanup`, `vm_fault_unwire`, `vm_fault_wire_fast`, `vm_fault_copy`, `vm_fault_page`) | `src/vm/vm_fault.rs`, `vm_fault_ffi.rs` |
 
 Also deleted as dead: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), `i386/intel/read_fault.c` (body
@@ -615,8 +615,8 @@ rediscovering them per port:
   `src/kern/console.rs`, which formats with `core::fmt` and writes through
   the `cnputc()` core; `CStrArg` is how a NUL-terminated C string becomes a
   `{}` argument, `write_cstr` is the `snprintf()` replacement, and
-  `kpanic!` is the Rust `Panic()`. The C `printf` symbols remain only for
-  the one C file that still calls them, `vm_fault.c`.
+  `kpanic!` is the Rust `Panic()`. No C caller of the C `printf` path is
+  left; `kern/printf.c` remains only until its deletion pass.
 
 ### Edition 2024
 

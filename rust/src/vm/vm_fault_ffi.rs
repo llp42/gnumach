@@ -9,11 +9,58 @@
 //! `vm/vm_fault.c` used to define and `vm/vm_fault.h` declares.
 
 use crate::arch::types::{VmOffset, VmSize};
-use crate::vm::types::{VmObject, VmPage};
+use crate::vm::types::{VmObject, VmPage, VmProt};
 use crate::vm::vm_fault;
 use crate::vm::vm_map::{VmMap, VmMapEntry, VmMapVersion};
 use core::ffi::c_int;
 use core::ptr::NonNull;
+
+/// `vm_fault_page()` in C.
+///
+/// # Safety
+///
+/// `first_object` must be live, locked and referenced, and must donate one
+/// paging reference the call consumes; `protection`, `result_page` and
+/// `top_page` must be valid for a write.  When `resume` is set, the current
+/// thread's `ith_other` must hold the state the C `vm_fault()` saved, and
+/// `continuation` must be the continuation that state names.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vm_fault_page(
+    first_object: *mut VmObject,
+    first_offset: VmOffset,
+    fault_type: VmProt,
+    must_be_resident: c_int,
+    interruptible: c_int,
+    protection: *mut VmProt,
+    result_page: *mut *mut VmPage,
+    top_page: *mut *mut VmPage,
+    resume: c_int,
+    continuation: Option<unsafe extern "C" fn()>,
+) -> c_int {
+    // SAFETY: the caller promises the writable protection and the live
+    // object with its lock, reference and paging reference.
+    let fault = unsafe {
+        vm_fault::fault_page(
+            first_object,
+            first_offset,
+            fault_type,
+            must_be_resident != 0,
+            interruptible != 0,
+            *protection,
+            resume != 0,
+            continuation,
+        )
+    };
+    // SAFETY: the caller promises the writable protection and out-pointers.
+    unsafe {
+        *protection = fault.protection;
+        if fault.result == vm_fault::VM_FAULT_SUCCESS {
+            *result_page = fault.result_page;
+            *top_page = fault.top_page;
+        }
+    }
+    fault.result
+}
 
 /// `vm_fault_wire()` in C.
 ///

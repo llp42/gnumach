@@ -29,7 +29,7 @@ pub(crate) const VM_EXTERNAL_STATE_EXISTS: c_int = 1;
 /// `VM_EXTERNAL_STATE_UNKNOWN` of <vm/vm_external.h>.
 const VM_EXTERNAL_STATE_UNKNOWN: c_int = 2;
 /// `VM_EXTERNAL_STATE_ABSENT` of <vm/vm_external.h>.
-const VM_EXTERNAL_STATE_ABSENT: c_int = 3;
+pub(crate) const VM_EXTERNAL_STATE_ABSENT: c_int = 3;
 
 /// `vm_external_unsafe` in vm/vm_external.c: when set, every state query
 /// answers `UNKNOWN`.
@@ -309,6 +309,18 @@ pub unsafe extern "C" fn _vm_external_state_get(
     // SAFETY: the caller promises a live object, and the read below does not
     // mutate it.
     unsafe { e.as_ref() }.state_get(offset).as_c()
+}
+
+/// `vm_external_state_get()` of <vm/vm_external.h>: the macro's null test
+/// and the C state value, with `VM_EXTERNAL_STATE_UNKNOWN` for a null map.
+///
+/// # Safety
+///
+/// A non-null `e` must be a live object from `vm_external_create()`; the call
+/// only reads it.
+pub(crate) unsafe fn state_get(e: *mut VmExternal, offset: VmOffset) -> c_int {
+    // SAFETY: the caller promises the live object.
+    unsafe { _vm_external_state_get(e, offset) }
 }
 
 /// `vm_external_state_set()` in C.

@@ -471,18 +471,13 @@ unsafe extern "C" {
         resume: c_int,
         continuation: Option<unsafe extern "C" fn(c_int)>,
     ) -> c_int;
-    pub fn vm_fault_page(
-        first_object: *mut VmObject,
-        first_offset: VmOffset,
-        fault_type: VmProt,
-        must_be_resident: c_int,
-        interruptible: c_int,
-        protection: *mut VmProt,
-        result_page: *mut *mut VmPage,
-        top_page: *mut *mut VmPage,
-        resume: c_int,
-        continuation: Option<unsafe extern "C" fn()>,
-    ) -> c_int;
+
+    /// The tunables of `vm/vm_fault.c` its ported body reads; the C half
+    /// still owns and sets them.
+    pub static vm_fault_dirty_handling: c_int;
+    pub static vm_fault_interruptible: c_int;
+    pub static software_reference_bits: c_int;
+    pub static vm_object_absent_max: c_int;
 
     pub fn vm_object_shadow(
         object: *mut *mut VmObject,

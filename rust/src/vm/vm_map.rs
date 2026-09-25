@@ -14,15 +14,14 @@ use crate::arch::types::{VmOffset, VmSize};
 use crate::glue::{
     kernel_map, kernel_object, kernel_pmap, kernel_virtual_end,
     kernel_virtual_start, pmap_create, pmap_destroy, pmap_enter,
-    pmap_page_protect, pmap_protect, pmap_remove, vm_fault_page,
-    vm_object_allocate, vm_object_coalesce, vm_object_collapse,
-    vm_object_copy_slowly, vm_object_copy_strategically,
-    vm_object_copy_temporary, vm_object_deallocate, vm_object_name,
-    vm_object_page_remove, vm_object_pager_create, vm_object_pmap_protect,
-    vm_object_pmap_remove, vm_object_reference, vm_object_shadow,
-    vm_page_activate, vm_page_free, vm_page_lookup, vm_page_mem_size,
-    vm_page_more_fictitious, vm_page_queue_lock, vm_page_remove,
-    vm_page_replace, vm_page_wait,
+    pmap_page_protect, pmap_protect, pmap_remove, vm_object_allocate,
+    vm_object_coalesce, vm_object_collapse, vm_object_copy_slowly,
+    vm_object_copy_strategically, vm_object_copy_temporary,
+    vm_object_deallocate, vm_object_name, vm_object_page_remove,
+    vm_object_pager_create, vm_object_pmap_protect, vm_object_pmap_remove,
+    vm_object_reference, vm_object_shadow, vm_page_activate, vm_page_free,
+    vm_page_lookup, vm_page_mem_size, vm_page_more_fictitious,
+    vm_page_queue_lock, vm_page_remove, vm_page_replace, vm_page_wait,
 };
 use crate::ipc::{IpcPort, IpcSpace, ipc_port};
 use crate::kern::console::{CStrArg, kprint};
@@ -4700,31 +4699,29 @@ impl VmMap {
 
                         let mut top_page: *mut VmPage;
                         loop {
-                            let mut result_prot = VmProt::READ;
                             top_page = ptr::null_mut();
-                            // SAFETY: `src_object` is live and holds the lock
-                            // and paging reference the fault consumes; the
-                            // out-pointers are valid.
-                            let kr = unsafe {
-                                vm_fault_page(
+                            // SAFETY: `src_object` is live and holds the
+                            // lock and paging reference the fault consumes.
+                            let fault = unsafe {
+                                vm_fault::fault_page(
                                     src_object,
                                     src_offset,
                                     VmProt::READ,
-                                    0,
-                                    0,
-                                    &mut result_prot,
-                                    &mut m,
-                                    &mut top_page,
-                                    0,
+                                    false,
+                                    false,
+                                    VmProt::READ,
+                                    false,
                                     None,
                                 )
                             };
 
-                            if kr == VM_FAULT_SUCCESS {
+                            if fault.result == VM_FAULT_SUCCESS {
+                                m = fault.result_page;
+                                top_page = fault.top_page;
                                 break;
                             }
 
-                            match kr {
+                            match fault.result {
                                 VM_FAULT_INTERRUPTED | VM_FAULT_RETRY => {
                                     // SAFETY: the fault consumed the lock and
                                     // paging reference; take them again before

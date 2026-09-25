@@ -73,7 +73,7 @@ file, or `—` when the rest is ready too.
 
 | File | LOC | Friction | Free | Holds the rest |
 |---|---:|---:|---:|---|
-| `printf.c` | 497 | 5 | 0 | `printf`/`_doprnt` only for `vm_fault.c`; the Rust side is `kprint!` (§11) |
+| `printf.c` | 497 | 5 | 0 | `printf`/`_doprnt`/`vprintf` have no caller left after `vm_fault_page` moved to `kprint!`; removing the file is a deletion pass (§11) |
 
 ## 5. Outside `kern/`
 
@@ -84,11 +84,11 @@ kernel's `copyinmsg()`, now `src/ipc/copy_user.rs`; the i386 kernel takes
 that entry point from `i386/i386/locore.S`, and the file's `USER32` half
 never compiled in either configured build (§8, §9).
 
-### `vm/` (1 file, 1,386 LOC)
+### `vm/` (1 file, 478 LOC)
 
 | File | LOC | Free | Holds the rest |
 |---|---:|---:|---|
-| `vm_fault.c` | 1386 | 0 | `vm_fault_page`'s copy-object test and the three functions that share its state, §9 |
+| `vm_fault.c` | 478 | 0 | `vm_fault_init`, `vm_fault_continue` and `vm_fault` share the `vm_fault_state_cache` and the `vm_fault_state_t` the Rust `VmFaultState` mirrors, §9 |
 
 `memory_object.c`, `vm_resident.c`, `vm_kern.c`, `vm_pageout.c`,
 `vm_user.c`, `vm_debug.c` and `memory_object_proxy.c` are whole: the
@@ -97,10 +97,12 @@ table, the fictitious-page list, `virtual_space_start`/`virtual_space_end`,
 the kernel map globals, the pageout daemon's statics, the `vm_stat` block,
 the VM-debug info records and the proxy slab cache all moved with them
 (§9).  `vm_fault_cleanup`, `vm_fault_unwire`, `vm_fault_wire_fast` and
-`vm_fault_copy` moved in a second pass; `vm_fault_init`, `vm_fault_page`,
-`vm_fault_continue` and `vm_fault` stay because `vm_fault_page`'s
-copy-object retry loop is still the pinned-toolchain blocker, and the
-other three share its `vm_fault_state_cache` and helpers.
+`vm_fault_copy` moved in a second pass, and `vm_fault_page` in a third,
+after the copy-object retry loop was rewritten to re-read
+`first_object->copy` with a volatile load (§9).  `vm_fault_init`,
+`vm_fault_continue` and `vm_fault` stay C: they share the
+`vm_fault_state_cache` and the `vm_fault_state_t` the Rust side now
+mirrors.
 
 ### `device/` (0 files)
 
@@ -455,15 +457,18 @@ Rust already (see §9).  The unused variadic leaves are deleted.
 | `chips/busses.c` whole, with the `bus_master_init[]`/`bus_device_init[]` walks and the `BusCtlr`/`BusDevice`/`BusDriver` mirrors it reads, which stay in `src/arch/i386/com.rs` | `src/arch/i386/busses.rs` | pending |
 | `device/device_init.c` whole: `master_device_port` becomes an `AtomicPtr` with `Acquire`/`Release` ordering, and the file is deleted | `src/device/device_init.rs` | pending |
 | `i386/i386at/conf.c` and `i386/i386at/cons_conf.c` whole, with the `dev_name_list`/`dev_indirect_list` tables in their `SyncCell`s and `constab`; both files are deleted | `src/device/dev_name.rs`, `src/device/cons.rs` | pending |
-| `vm/vm_fault.c` (`vm_fault_cleanup`, `vm_fault_unwire`, `vm_fault_wire_fast`, `vm_fault_copy` and the file-private `vm_fault_copy_cleanup`); `vm_fault_init`, `vm_fault_page`, `vm_fault_continue` and `vm_fault` stay C | `src/vm/vm_fault.rs`, `src/vm/vm_fault_ffi.rs` | pending |
+| `vm/vm_fault.c` (`vm_fault_cleanup`, `vm_fault_unwire`, `vm_fault_wire_fast`, `vm_fault_copy` and the file-private `vm_fault_copy_cleanup`, then `vm_fault_page` with its `vm_fault_state_t` mirror); `vm_fault_init`, `vm_fault_continue` and `vm_fault` stay C | `src/vm/vm_fault.rs`, `src/vm/vm_fault_ffi.rs` | pending |
 
 `vm/vm_fault.c` was ported whole once and rolled back: the pinned
-toolchain turns the copy-object loop's `first_object->copy` null test into an
-`llvm.assume` (the optimized IR carries `!nonnull` on the load), so a null copy
-dereferences `copy_object->Lock` at offset 0x10 and panics.  The retry inside
-that loop is the trigger; the four functions that do not touch it have since
-moved to Rust, and the rest stays C until the toolchain or the loop shape
-changes.
+toolchain turned the copy-object loop's `first_object->copy` null test into
+an `llvm.assume` (the optimized IR carried `!nonnull` on the load), so a
+null copy dereferenced `copy_object->Lock` at offset 0x10 and panicked.
+The retry inside that loop was the trigger.  `vm_fault_page` has since
+moved with that loop written as a Rust `loop` whose head re-reads the
+field with `core::ptr::read_volatile`, so each retry re-tests the null
+the compiler could previously assume away; the ABI pack is green on both
+architectures with it.  The three functions that do not touch the loop
+had already moved.
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), `i386/i386at/kd_glue.c`
@@ -548,10 +553,11 @@ path:
   C-variadic edge for the `locore.S` call under `#ifdef DEBUG` and reads
   the arguments with `VaList::next_arg`.
 
-The only C caller of `printf` left is `vm/vm_fault.c`, for two
-diagnostics; no C caller of `Panic` remains.  When `vm_fault.c` moves,
-`printf.c` and the variadic declarations go with it.  `debug.c` and the
-`Panic` declaration are already deleted.
+`vm_fault_page()`'s two diagnostics now format through `kprint!` in
+`src/vm/vm_fault.rs`, so no C caller of `printf` remains and `printf.c`
+with its variadic declarations is deletable in a deletion pass; no C
+caller of `Panic` remains either.  `debug.c` and the `Panic` declaration
+are already deleted.
 
 A boot-time differential harness formatted the same values through the C
 `_doprnt` and through `core::fmt`.  The differences below are the accepted

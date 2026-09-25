@@ -15,10 +15,9 @@ use crate::arch::vm_param::{PAGE_SHIFT, PAGE_SIZE};
 use crate::glue::{
     self, memory_manager_default_reference, memory_object_copy,
     memory_object_create, memory_object_init, memory_object_terminate,
-    pmap_is_modified, pmap_page_protect, vm_fault_page,
-    vm_page_fictitious_addr, vm_page_free, vm_page_grab_fictitious,
-    vm_page_insert, vm_page_lookup, vm_page_more_fictitious,
-    vm_page_queue_lock,
+    pmap_is_modified, pmap_page_protect, vm_page_fictitious_addr,
+    vm_page_free, vm_page_grab_fictitious, vm_page_insert, vm_page_lookup,
+    vm_page_more_fictitious, vm_page_queue_lock,
 };
 use crate::ipc::{IpcPort, ipc_port, ipc_space};
 use crate::kern::console::kprint;
@@ -45,7 +44,7 @@ use core::sync::atomic::{AtomicI32, AtomicIsize, AtomicU32, Ordering};
 /// `VM_OBJECT_EVENT_*` of <vm/vm_object.h>: the `all_wanted` bit an event
 /// waiting on the object sets.
 const EVENT_INITIALIZED: u32 = 0;
-const EVENT_PAGER_READY: u32 = 1;
+pub(crate) const EVENT_PAGER_READY: u32 = 1;
 const EVENT_PAGING_IN_PROGRESS: u32 = 2;
 const EVENT_ABSENT_COUNT: u32 = 3;
 
@@ -305,7 +304,7 @@ unsafe fn wait(object: *mut VmObject, event: u32, interruptible: bool) {
 /// # Safety
 ///
 /// The object lock must be held.
-unsafe fn assert_wait_event(
+pub(crate) unsafe fn assert_wait_event(
     object: *mut VmObject,
     event: u32,
     interruptible: bool,
@@ -315,6 +314,19 @@ unsafe fn assert_wait_event(
         (*object).want(event);
         assert_wait(event_ptr(object, event), c_int::from(interruptible));
     }
+}
+
+/// `vm_object_absent_assert_wait()` of <vm/vm_object.h>.
+///
+/// # Safety
+///
+/// The object lock must be held.
+pub(crate) unsafe fn absent_assert_wait(
+    object: *mut VmObject,
+    interruptible: bool,
+) {
+    // SAFETY: the caller holds the object lock.
+    unsafe { assert_wait_event(object, EVENT_ABSENT_COUNT, interruptible) };
 }
 
 /// `vm_object_wakeup()` of <vm/vm_object.h>.
@@ -1085,32 +1097,30 @@ pub(crate) unsafe fn copy_slowly(
         // guarded the allocation.
         unsafe { (*new_object.as_ptr()).lock.unlock() };
 
-        let mut result;
         loop {
             // SAFETY: the source object is live and unlocked between the
             // page allocations, as the C's lock protocol has it.
-            unsafe {
+            let fault = unsafe {
                 (*src_object).lock.lock();
                 paging_begin(src_object);
-
-                let mut prot = VmProt::READ;
-                let mut result_page: *mut VmPage = null_mut();
-                let mut top_page: *mut VmPage = null_mut();
-                result = vm_fault_page(
+                vm_fault::fault_page(
                     src_object,
                     src_offset,
                     VmProt::READ,
-                    0,
-                    c_int::from(interruptible),
-                    &mut prot,
-                    &mut result_page,
-                    &mut top_page,
-                    0,
+                    false,
+                    interruptible,
+                    VmProt::READ,
+                    false,
                     None,
-                );
+                )
+            };
 
-                match result {
-                    VM_FAULT_SUCCESS => {
+            match fault.result {
+                VM_FAULT_SUCCESS => {
+                    let result_page = fault.result_page;
+                    // SAFETY: the fault left the result page's object
+                    // locked and holds its paging reference.
+                    unsafe {
                         (*(*result_page).object).lock.unlock();
                         vm_resident::copy(
                             NonNull::new_unchecked(result_page),
@@ -1128,26 +1138,41 @@ pub(crate) unsafe fn copy_slowly(
                         }
                         vm_page::activate(new_page.as_ptr());
                         (*addr_of_mut!(vm_page_queue_lock)).unlock();
-                        vm_fault::cleanup((*result_page).object, top_page);
-                        break;
+                        vm_fault::cleanup(
+                            (*result_page).object,
+                            fault.top_page,
+                        );
                     }
-                    VM_FAULT_RETRY => (),
-                    VM_FAULT_MEMORY_SHORTAGE => vm_page::wait(None),
-                    VM_FAULT_FICTITIOUS_SHORTAGE => vm_page_more_fictitious(),
-                    VM_FAULT_INTERRUPTED => {
-                        vm_page_free(new_page.as_ptr());
-                        deallocate(new_object.as_ptr());
-                        deallocate(src_object);
-                        return Err(Error::SendInterrupted);
-                    }
-                    VM_FAULT_MEMORY_ERROR => {
-                        vm_page_free(new_page.as_ptr());
-                        deallocate(new_object.as_ptr());
-                        deallocate(src_object);
-                        return Err(Error::MemoryError);
-                    }
-                    _ => (),
+                    break;
                 }
+                VM_FAULT_RETRY => (),
+                VM_FAULT_MEMORY_SHORTAGE => {
+                    // SAFETY: the page wait takes no continuation.
+                    unsafe { vm_page::wait(None) };
+                }
+                VM_FAULT_FICTITIOUS_SHORTAGE => {
+                    // SAFETY: the slab package is up in this path.
+                    unsafe { vm_page_more_fictitious() };
+                }
+                VM_FAULT_INTERRUPTED => {
+                    // SAFETY: the fresh page belongs to this call.
+                    unsafe {
+                        vm_page_free(new_page.as_ptr());
+                        deallocate(new_object.as_ptr());
+                        deallocate(src_object);
+                    }
+                    return Err(Error::SendInterrupted);
+                }
+                VM_FAULT_MEMORY_ERROR => {
+                    // SAFETY: the fresh page belongs to this call.
+                    unsafe {
+                        vm_page_free(new_page.as_ptr());
+                        deallocate(new_object.as_ptr());
+                        deallocate(src_object);
+                    }
+                    return Err(Error::MemoryError);
+                }
+                _ => (),
             }
         }
 
