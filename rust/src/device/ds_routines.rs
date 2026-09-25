@@ -15,6 +15,7 @@
 //! [`ds_routines_ffi`]: crate::device::ds_routines_ffi
 
 use crate::arch::i386::io_req::{DevT, IoReq};
+use crate::arch::i386::irq;
 use crate::arch::i386::percpu::current_thread;
 use crate::arch::types::{VmOffset, VmSize};
 use crate::arch::vm_param::PAGE_SIZE;
@@ -970,7 +971,7 @@ pub(crate) unsafe extern "C" fn ds_device_intr_register(
     // NINTR entries.
     let entry = unsafe {
         glue::insert_intr_entry(
-            ptr::addr_of_mut!(glue::irqtab).cast::<c_void>(),
+            ptr::addr_of_mut!(irq::irqtab),
             id,
             receive_port,
         )
@@ -982,7 +983,7 @@ pub(crate) unsafe extern "C" fn ds_device_intr_register(
     // SAFETY: the entry belongs to the table, which serializes its use.
     let err = unsafe {
         glue::install_user_intr_handler(
-            ptr::addr_of_mut!(glue::irqtab).cast::<c_void>(),
+            ptr::addr_of_mut!(irq::irqtab),
             id,
             flags as c_ulong,
             entry,

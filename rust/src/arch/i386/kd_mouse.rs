@@ -11,6 +11,8 @@ use super::io_req::{
     D_NOWAIT, DEV_GET_SIZE, DEV_GET_SIZE_COUNT, DEV_GET_SIZE_DEVICE_SIZE,
     DEV_GET_SIZE_RECORD_SIZE, DevT, IoReq, KERN_SUCCESS, drain,
 };
+use crate::arch::i386::ioapic;
+use crate::arch::i386::irq;
 use crate::arch::i386::pio::Port;
 use crate::device::ds_routines_ffi::{
     device_read_alloc, ds_read_done, iodone,
@@ -228,25 +230,19 @@ fn serial_open(s: &mut State, dev: DevT) {
     let unit = (dev & 7) as c_int;
     let mouse_pic = unsafe { glue::com_irq(unit) };
     let sp = unsafe { glue::splhi() };
-    s.oldvect = unsafe { glue::irq_get_handler(mouse_pic) };
-    // SAFETY: the handler has the C `interrupt_handler_fn` signature.
-    unsafe { glue::irq_set_handler(mouse_pic, Some(mouseintr)) };
-    s.oldunit = unsafe { glue::irq_get_unit(mouse_pic) };
-    unsafe { glue::irq_set_unit(mouse_pic, unit) };
+    s.oldvect = irq::handler(mouse_pic);
+    irq::set_handler(mouse_pic, Some(mouseintr));
+    s.oldunit = irq::unit(mouse_pic);
+    irq::set_unit(mouse_pic, unit);
     unsafe { glue::splx(sp) };
 }
 
 /// `kd_mouse_open()` in C: route the IRQ to the keyboard driver.
 fn kd_open(s: &mut State, mouse_pic: c_int) {
     let sp = unsafe { glue::splhi() };
-    s.oldvect = unsafe { glue::irq_get_handler(mouse_pic) };
-    unsafe {
-        glue::irq_set_handler(
-            mouse_pic,
-            Some(crate::arch::i386::kd::keyboard::kdintr),
-        )
-    };
-    unsafe { glue::irq_unmask(mouse_pic as c_uint) };
+    s.oldvect = irq::handler(mouse_pic);
+    irq::set_handler(mouse_pic, Some(crate::arch::i386::kd::keyboard::kdintr));
+    ioapic::unmask(mouse_pic);
     unsafe { glue::splx(sp) };
 }
 
@@ -258,23 +254,17 @@ fn serial_close(s: &mut State, dev: DevT) {
     let base_addr = unsafe { glue::com_base_addr(unit) } as u16;
     Port::new(base_addr + RIE).write_u8(0);
     Port::new(base_addr + RMC).write_u8(0);
-    // SAFETY: the old vector/unit were saved by the matching open.
-    unsafe {
-        glue::irq_set_handler(mouse_pic, s.oldvect);
-        glue::irq_set_unit(mouse_pic, s.oldunit);
-        glue::splx(sp);
-    }
+    irq::set_handler(mouse_pic, s.oldvect);
+    irq::set_unit(mouse_pic, s.oldunit);
+    unsafe { glue::splx(sp) };
 }
 
 /// `kd_mouse_close()` in C.
 fn kd_close(s: &mut State, mouse_pic: c_int) {
     let sp = unsafe { glue::splhi() };
-    // SAFETY: the vector was saved by the matching open.
-    unsafe {
-        glue::irq_mask(mouse_pic as c_uint);
-        glue::irq_set_handler(mouse_pic, s.oldvect);
-        glue::splx(sp);
-    }
+    ioapic::mask(mouse_pic);
+    irq::set_handler(mouse_pic, s.oldvect);
+    unsafe { glue::splx(sp) };
 }
 
 /// `kd_mouse_write()` in C: send a byte to the PS/2 mouse.

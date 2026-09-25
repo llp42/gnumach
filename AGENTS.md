@@ -145,6 +145,8 @@ link error, not a fallback.
 | `kern/ipc_mig.c` | `src/kern/ipc_mig.rs`, `src/kern/ipc_mig_ffi.rs` |
 | `i386/i386/apic.c` | `src/arch/i386/apic.rs` |
 | `i386/i386at/acpi_parse_apic.c` | `src/arch/i386/acpi_parse_apic.rs` |
+| `i386/i386/irq.c` | `src/arch/i386/irq.rs` |
+| `i386/i386at/ioapic.c` | `src/arch/i386/ioapic.rs` |
 | `device/ds_routines.c` | `src/device/ds_routines.rs`, `src/device/ds_routines_ffi.rs` |
 | `kern/ipc_host.c` | `src/kern/ipc_host.rs`, `src/kern/ipc_host_ffi.rs` |
 | `kern/host.c` | `src/kern/host.rs`, `src/kern/host_ffi.rs` |
@@ -221,7 +223,6 @@ functions too. All of it is debt, not precedent:
 ```
 vm/vm_map_glue.c            vm/vm_external_glue.c
 
-i386/i386/irq.c             irq_mask, irq_unmask, irq_{set,get}_{handler,unit}
 i386/i386at/com.c           com_base_addr, com_irq
 ```
 

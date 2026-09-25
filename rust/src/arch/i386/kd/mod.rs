@@ -15,11 +15,12 @@ pub mod keyboard;
 pub mod keymap;
 pub mod tty;
 
+use crate::arch::i386::ioapic;
 use crate::arch::i386::pio::Port;
 use crate::glue;
 use crate::utils::delay::delay;
 use core::cell::UnsafeCell;
-use core::ffi::{c_int, c_short, c_uint};
+use core::ffi::{c_int, c_short};
 
 /// `NUMKEYS` in <i386at/kd.h>.
 pub(crate) const NUMKEYS: usize = 89;
@@ -81,7 +82,7 @@ pub(crate) const KC_CMD_READ: u8 = 0x20;
 pub(crate) const KC_CMD_WRITE: u8 = 0x60;
 pub(crate) const K_CB_DISBLE: u8 = 0x10;
 pub(crate) const K_CB_ENBLIRQ: u8 = 0x01;
-pub(crate) const KBD_IRQ: c_uint = 1;
+pub(crate) const KBD_IRQ: c_int = 1;
 
 pub(crate) const K_ESC: u8 = 0x1b;
 pub(crate) const K_LF: u8 = 0x0a;
@@ -328,15 +329,13 @@ pub(crate) fn kdinit() {
         let _ = Port::new(K_RDWR).read_u8();
     }
 
-    unsafe {
-        keyboard::sendcmd(KC_CMD_READ);
-        let mut k_comm = keyboard::getdata();
-        k_comm &= !K_CB_DISBLE;
-        k_comm |= K_CB_ENBLIRQ;
-        keyboard::sendcmd(KC_CMD_WRITE);
-        keyboard::senddata(k_comm);
-        glue::irq_unmask(KBD_IRQ);
-    }
+    keyboard::sendcmd(KC_CMD_READ);
+    let mut k_comm = keyboard::getdata();
+    k_comm &= !K_CB_DISBLE;
+    k_comm |= K_CB_ENBLIRQ;
+    keyboard::sendcmd(KC_CMD_WRITE);
+    keyboard::senddata(k_comm);
+    ioapic::unmask(KBD_IRQ);
     state().kd_initialized = true;
 
     kd().set_state_bits(KS_NORMAL);

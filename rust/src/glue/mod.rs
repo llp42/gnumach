@@ -6,6 +6,7 @@
 pub mod mig;
 pub mod time_value;
 
+use crate::arch::i386::irq::{IrqDev, UserIntr};
 use crate::arch::types::{VmOffset, VmSize};
 use crate::config::NCPUS;
 use crate::kern::lock::SimpleLock;
@@ -244,18 +245,17 @@ unsafe extern "C" {
         pager: *mut VmOffset,
     ) -> c_int;
     pub fn insert_intr_entry(
-        dev: *mut c_void,
+        dev: *mut IrqDev,
         id: c_int,
         receive_port: *mut c_void,
-    ) -> *mut c_void;
+    ) -> *mut UserIntr;
     pub fn install_user_intr_handler(
-        dev: *mut c_void,
+        dev: *mut IrqDev,
         id: c_int,
         flags: c_ulong,
-        entry: *mut c_void,
+        entry: *mut UserIntr,
     ) -> c_int;
     pub fn irq_acknowledge(receive_port: *mut c_void) -> c_int;
-    pub static mut irqtab: c_void;
     pub fn kmem_alloc(
         map: *mut VmMap,
         addrp: *mut VmOffset,
@@ -314,24 +314,23 @@ unsafe extern "C" {
     pub fn sploff() -> c_ulong;
     pub fn splon(n: c_ulong);
 
+    pub fn hardclock(
+        iunit: c_int,
+        old_ipl: c_int,
+        ret_addr: *const c_char,
+        regs: *mut c_void,
+    );
+    pub fn fpintr(unit: c_int);
+
+    /// `main_intr_queue` of <device/intr.h>: the queue `irqtab` points at.
+    pub static mut main_intr_queue: QueueEntry;
+
     pub fn comgetc(unit: c_int) -> c_int;
 
     pub static hz: c_int;
     pub static elapsed_ticks: c_ulong;
     pub static rebootflag: c_int;
     pub static tick: c_int;
-
-    pub static pic_mode: c_int;
-
-    pub fn irq_mask(irq: c_uint);
-    pub fn irq_unmask(irq: c_uint);
-    pub fn irq_set_handler(
-        irq: c_int,
-        handler: Option<unsafe extern "C" fn(c_int)>,
-    );
-    pub fn irq_get_handler(irq: c_int) -> Option<unsafe extern "C" fn(c_int)>;
-    pub fn irq_set_unit(irq: c_int, unit: c_int);
-    pub fn irq_get_unit(irq: c_int) -> c_int;
 
     pub fn com_base_addr(unit: c_int) -> VmOffset;
     pub fn com_irq(unit: c_int) -> c_int;

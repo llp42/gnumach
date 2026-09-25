@@ -7,8 +7,8 @@
 //! and <device/intr.h> declares.
 
 use crate::arch::i386::io_req::DevT;
+use crate::arch::i386::ioapic;
 use crate::device::r#return::{DeviceError, DeviceSuccess, IoResultExt};
-use crate::glue;
 use core::ffi::{c_int, c_uint};
 
 /// `IRQGETPICMODE` of <device/irq_status.h>.
@@ -19,10 +19,10 @@ const IRQGETPICMODE: c_uint = 0;
 fn getstat(flavor: c_uint) -> Option<(c_int, u32)> {
     match flavor {
         IRQGETPICMODE => {
-            // SAFETY: `pic_mode` is one machine global, initialized before the
-            // device layer starts and never written again; the C read it
-            // exactly this way.
-            let mode = unsafe { glue::pic_mode };
+            // SAFETY: `pic_mode` is the machine global the APIC setup
+            // initialized before the device layer starts and never wrote
+            // again.
+            let mode = unsafe { ioapic::pic_mode };
             Some((mode, 1))
         }
         _ => None,

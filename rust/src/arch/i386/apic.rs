@@ -63,7 +63,7 @@ const LAPIC_ENABLE: u32 = 0x100;
 /// `LAPIC_ENABLE_DIRECTED_EOI`: use directed end-of-interrupt.
 const LAPIC_ENABLE_DIRECTED_EOI: u32 = 0x1000;
 /// `LAPIC_DISABLE`: mask an LVT entry.
-const LAPIC_DISABLE: u32 = 0x10000;
+pub(crate) const LAPIC_DISABLE: u32 = 0x10000;
 
 /// `APIC_VERSION_HAS_EXT_APIC_SPACE`: the extended register bank exists.
 const APIC_VERSION_HAS_EXT_APIC_SPACE: u32 = 1 << 31;
@@ -76,12 +76,14 @@ const APIC_EXT_CTRL_ENABLE_8BITID: u32 = 1 << 2;
 const APIC_LOGICAL_CPU_GROUPS: c_int = 8;
 
 /// `IOAPIC_SPURIOUS_BASE` of <i386at/idt.h>: the spurious-vector base.
-const IOAPIC_SPURIOUS_BASE: u32 = 0xff;
+pub(crate) const IOAPIC_SPURIOUS_BASE: u32 = 0xff;
 
 /// `APIC_IO_VERSION` of <i386/apic.h>: the IOAPIC version register index.
-const APIC_IO_VERSION: u32 = 0x01;
+pub(crate) const APIC_IO_VERSION: u32 = 0x01;
+/// `APIC_IO_VERSION_SHIFT`: where the version register holds the version.
+pub(crate) const APIC_IO_VERSION_SHIFT: u32 = 0;
 /// `APIC_IO_ENTRIES_SHIFT`: where the version register holds the entry count.
-const APIC_IO_ENTRIES_SHIFT: u32 = 16;
+pub(crate) const APIC_IO_ENTRIES_SHIFT: u32 = 16;
 
 /// The ICR-low fields `apic_send_ipi()` overwrites: vector, delivery mode,
 /// destination mode, level, trigger mode and destination shorthand.
@@ -502,7 +504,7 @@ fn intr_restore(flags: c_ulong) {
 /// # Safety
 ///
 /// `reg` must point into the mapped local-APIC page, as `lapic` does.
-unsafe fn reg_read(reg: *const ApicReg) -> u32 {
+pub(crate) unsafe fn reg_read(reg: *const ApicReg) -> u32 {
     // SAFETY: the caller promises the register is mapped; the volatile load
     // is the C's access through `volatile ApicLocalUnit *`.
     unsafe { ptr::read_volatile(&raw const (*reg).r) }
@@ -513,7 +515,7 @@ unsafe fn reg_read(reg: *const ApicReg) -> u32 {
 /// # Safety
 ///
 /// As [`reg_read()`].
-unsafe fn reg_write(reg: *mut ApicReg, value: u32) {
+pub(crate) unsafe fn reg_write(reg: *mut ApicReg, value: u32) {
     // SAFETY: the caller promises the register is mapped; the volatile store
     // is the C's access through `volatile ApicLocalUnit *`.
     unsafe { ptr::write_volatile(&raw mut (*reg).r, value) }
@@ -542,7 +544,7 @@ fn kernel_id(apic_id: u16) -> c_int {
 }
 
 /// The mapped local-APIC page.
-fn lapic_ptr() -> *mut ApicLocalUnit {
+pub(crate) fn lapic_ptr() -> *mut ApicLocalUnit {
     // SAFETY: `lapic` is the C global; the load only reads the pointer.
     unsafe { lapic }
 }
@@ -637,7 +639,7 @@ pub(crate) fn add_irq_override(irq_over: IrqOverrideData) {
 }
 
 /// `acpi_get_irq_override()` in C: the override whose IRQ is `pin`.
-fn irq_override(pin: u8) -> Option<NonNull<IrqOverrideData>> {
+pub(crate) fn irq_override(pin: u8) -> Option<NonNull<IrqOverrideData>> {
     // SAFETY: `apic_data` is this module's state; the entries stay live for
     // the kernel's life.
     let count = unsafe { apic_data.nirqoverride };
@@ -674,7 +676,7 @@ fn cpu_apic_id(kernel_id: c_int) -> c_int {
 }
 
 /// `apic_get_ioapic()` in C: the IOAPIC recorded for a kernel ID.
-fn ioapic(kernel_id: c_int) -> Option<NonNull<IoApicData>> {
+pub(crate) fn ioapic(kernel_id: c_int) -> Option<NonNull<IoApicData>> {
     let Ok(index) = usize::try_from(kernel_id) else {
         return None;
     };
@@ -857,7 +859,7 @@ fn send_ipi(
 }
 
 /// `lapic_enable()` in C.
-fn enable() {
+pub(crate) fn enable() {
     let ptr = lapic_ptr();
     // SAFETY: `ptr` is the mapped local-APIC page.
     unsafe {
@@ -909,7 +911,7 @@ pub(crate) fn fix_id_mask() {
 
 /// `lapic_setup()` in C: put the local APIC into the flat, software-enabled
 /// state Mach runs it in, with interrupts off across the sequence.
-fn setup() {
+pub(crate) fn setup() {
     let cpu = cpu_number_slow();
     let flags = intr_save();
     let ptr = lapic_ptr();
@@ -953,7 +955,7 @@ fn setup() {
 }
 
 /// `lapic_eoi()` in C: acknowledge the in-service interrupt.
-fn eoi() {
+pub(crate) fn eoi() {
     let ptr = lapic_ptr();
     // SAFETY: `ptr` is the mapped local-APIC page.
     unsafe { reg_write(&raw mut (*ptr).eoi, 0) };
