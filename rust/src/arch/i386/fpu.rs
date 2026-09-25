@@ -13,6 +13,7 @@
 //! `i386/include/mach/i386/thread_status.h` declare.
 
 use crate::arch::i386::percpu::{cpu_number, current_thread};
+use crate::arch::i386::trap;
 use crate::arch::types::VmSize;
 use crate::glue;
 use crate::kern::slab::{CacheInitFlags, KmemCache};
@@ -1641,7 +1642,7 @@ pub(crate) unsafe fn fpextovrflt() -> ! {
 
     // SAFETY: `i386_exception()` does not return, as the C annotated.
     unsafe {
-        glue::i386_exception(EXC_BAD_ACCESS, VM_PROT_READ | VM_PROT_EXECUTE, 0)
+        trap::i386_exception(EXC_BAD_ACCESS, VM_PROT_READ | VM_PROT_EXECUTE, 0)
     }
 }
 
@@ -1702,7 +1703,7 @@ pub(crate) unsafe fn fpexterrflt() {
     }
     // SAFETY: `i386_exception()` does not return.
     unsafe {
-        glue::i386_exception(
+        trap::i386_exception(
             EXC_ARITHMETIC,
             EXC_I386_EXTERR,
             fp_status_word(thread) as c_long,
@@ -1721,7 +1722,7 @@ pub(crate) unsafe fn fpastintr() {
     unsafe { fp_save(thread) };
     // SAFETY: `i386_exception()` does not return.
     unsafe {
-        glue::i386_exception(
+        trap::i386_exception(
             EXC_ARITHMETIC,
             EXC_I386_EXTERR,
             fp_status_word(thread) as c_long,
@@ -1754,7 +1755,7 @@ pub(crate) unsafe fn fp_load(thread: *mut Thread) {
         } else if (*ifps).fp_valid == 2 {
             (*ifps).fp_valid = 1;
             set_ts();
-            glue::i386_exception(
+            trap::i386_exception(
                 EXC_ARITHMETIC,
                 EXC_I386_EXTERR,
                 fp_status_word(thread) as c_long,

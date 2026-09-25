@@ -161,6 +161,9 @@ link error, not a fallback.
 | `kern/sched_prim.c` | `src/kern/sched_prim.rs`, `src/kern/sched_prim_ffi.rs` |
 | `kern/timer.c` | `src/kern/timer.rs`, `src/kern/timer_ffi.rs` |
 | `i386/i386at/com.c` | `src/arch/i386/com.rs`, `src/arch/i386/com_ffi.rs` |
+| `i386/i386/io_perm.c` | `src/arch/i386/io_perm.rs`, `src/arch/i386/io_perm_ffi.rs` |
+| `i386/i386/smp.c` | `src/arch/i386/smp.rs`, `src/arch/i386/smp_ffi.rs` |
+| `i386/i386/trap.c` | `src/arch/i386/trap.rs`, `src/arch/i386/trap_ffi.rs` |
 
 Also deleted as dead: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `ipc/copy_user.c`'s `USER32`

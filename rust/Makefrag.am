@@ -12,6 +12,8 @@ MACH_RS_SRCS = \
 	rust/src/arch/i386/com_ffi.rs \
 	rust/src/arch/i386/fpu.rs \
 	rust/src/arch/i386/fpu_ffi.rs \
+	rust/src/arch/i386/io_perm.rs \
+	rust/src/arch/i386/io_perm_ffi.rs \
 	rust/src/arch/i386/io_req.rs \
 	rust/src/arch/i386/ioapic.rs \
 	rust/src/arch/i386/irq.rs \
@@ -38,6 +40,10 @@ MACH_RS_SRCS = \
 	rust/src/arch/i386/pit.rs \
 	rust/src/arch/i386/pmap.rs \
 	rust/src/arch/i386/rtc.rs \
+	rust/src/arch/i386/smp.rs \
+	rust/src/arch/i386/smp_ffi.rs \
+	rust/src/arch/i386/trap.rs \
+	rust/src/arch/i386/trap_ffi.rs \
 	rust/src/arch/types.rs \
 	rust/src/arch/vm_param.rs \
 	rust/src/config.rs \

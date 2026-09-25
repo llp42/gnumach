@@ -29,7 +29,6 @@ libkernel_a_SOURCES += \
 	i386/i386/gdt.h \
 	i386/i386/idt-gen.h \
 	i386/i386/idt.c \
-	i386/i386/io_perm.c \
 	i386/i386/io_perm.h \
 	i386/i386/ipl.h \
 	i386/i386/ktss.c \
@@ -51,13 +50,11 @@ libkernel_a_SOURCES += \
 	i386/i386/pmap.h \
 	i386/i386/proc_reg.h \
 	i386/i386/seg.h \
-	i386/i386/smp.c \
 	i386/i386/smp.h \
 	i386/i386/spl.h \
 	i386/i386/task.h \
 	i386/i386/thread.h \
 	i386/i386/time_stamp.h \
-	i386/i386/trap.c \
 	i386/i386/trap.h \
 	i386/i386/tss.h \
 	i386/i386/user_ldt.c \

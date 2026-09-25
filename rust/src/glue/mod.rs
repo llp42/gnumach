@@ -9,8 +9,9 @@ pub mod time_value;
 use crate::arch::i386::com::BusDevice;
 use crate::arch::i386::irq::{IrqDev, UserIntr};
 use crate::arch::i386::pcb::{
-    I386DebugState, Pcb, RealDescriptor, TaskTss, UserLdt,
+    I386DebugState, I386SavedState, Pcb, RealDescriptor, TaskTss, UserLdt,
 };
+use crate::arch::i386::trap::Recovery;
 use crate::arch::types::{VmOffset, VmSize};
 use crate::config::NCPUS;
 use crate::device::ds_routines::DevOps;
@@ -123,8 +124,19 @@ unsafe extern "C" {
     ) -> c_int;
     pub fn db_get_debug_state(pcb: *mut Pcb, state: *mut I386DebugState);
 
-    /// `i386_exception()` of <i386/trap.h>, which never returns.
-    pub fn i386_exception(exc: c_int, code: c_int, subcode: c_long) -> !;
+    /// `dump_ss()` of `i386/i386/debug_i386.c`, which is still C.
+    pub fn dump_ss(st: *const I386SavedState);
+
+    /// `inst_fetch()` of `i386/i386/locore.S` and `x86_64/locore.S`: fetch
+    /// one instruction byte with the recovery tables' fault handling.
+    pub fn inst_fetch(eip: c_int, cs: c_int) -> c_int;
+
+    /// The `copyin`/`copyout` recovery tables of the architecture's
+    /// `locore.S`; the `_end` objects mark their ends.
+    pub static mut recover_table: Recovery;
+    pub static mut recover_table_end: Recovery;
+    pub static mut retry_table: Recovery;
+    pub static mut retry_table_end: Recovery;
 
     pub static mut mp_gdt: [*mut RealDescriptor; NCPUS];
     pub static mut mp_ktss: [*mut TaskTss; NCPUS];
@@ -146,9 +158,6 @@ unsafe extern "C" {
     ) -> c_int;
 
     pub fn evc_notify_abort(thread: *mut Thread);
-
-    pub fn smp_remote_ast(logical_id: c_uint);
-    pub fn smp_pmap_update(logical_id: c_uint);
 
     pub fn thread_bootstrap_return();
     pub fn Load_context(new: *mut Thread) -> !;

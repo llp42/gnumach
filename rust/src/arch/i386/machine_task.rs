@@ -50,7 +50,7 @@ const IOPB_MAX: VmSize = 0xffff;
 
 /// `IOPB_BYTES` of <i386/io_perm.h>: one bit per port, rounded up to whole
 /// bytes.
-const IOPB_BYTES: VmSize = (IOPB_MAX + 1).div_ceil(8);
+pub(crate) const IOPB_BYTES: VmSize = (IOPB_MAX + 1).div_ceil(8);
 
 /// The name `machine_task_iopb_cache` is registered under, as the C spelled
 /// it.

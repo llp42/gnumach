@@ -81,8 +81,8 @@ fn sleep() {
     while PITAUX_PORT.read_u8() & PITAUX_VAL == 0 {}
 }
 
-/// Busy-wait for `usec` microseconds.
-fn udelay(mut usec: u32) {
+/// Busy-wait for `usec` microseconds, the core of `pit_udelay()`.
+pub(crate) fn udelay(mut usec: u32) {
     while usec > MAX_PIT_USEC {
         prepare_sleep(MAX_PIT_USEC);
         sleep();
