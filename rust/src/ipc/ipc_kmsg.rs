@@ -623,7 +623,7 @@ impl MachMsgHeader {
     }
 
     /// `msgh_remote_port` of <mach/message.h>.
-    fn remote(&self) -> usize {
+    pub(crate) fn remote(&self) -> usize {
         self.remote_port
     }
 
@@ -713,6 +713,26 @@ impl Kmsg {
     unsafe fn set_size(self, size: usize) {
         // SAFETY: the caller promises the live message.
         unsafe { (*self.record()).size = size };
+    }
+
+    /// `kmsg->ikm_header.msgh_size` of <mach/message.h>.
+    ///
+    /// # Safety
+    ///
+    /// The message must be live.
+    pub(crate) unsafe fn header_size(self) -> c_uint {
+        // SAFETY: the caller promises the live message.
+        unsafe { (*self.header()).size() }
+    }
+
+    /// The `kmsg->ikm_header.msgh_seqno = seqno` assignment of `mach_msg()`.
+    ///
+    /// # Safety
+    ///
+    /// The message must be live and this call must own it.
+    pub(crate) unsafe fn set_header_seqno(self, seqno: c_uint) {
+        // SAFETY: the caller promises the live message.
+        unsafe { (*self.header()).seqno = seqno };
     }
 
     /// `ikm_marequest` of <ipc/ipc_kmsg.h>.

@@ -83,7 +83,6 @@ file, or `—` when the rest is ready too.
 | `host.c` | 290 | 3 | 0 | `host_info`'s `machine_info` and load-average globals |
 | `ipc_host.c` | 390 | 3 | 0 | `ipc_port`/`ipc_space` fields |
 | `ipc_kobject.c` | 362 | 4 | 0 | `ipc_port` fields |
-| `ipc_mig.c` | 856 | 5 | 0 | `port_name_to_*` are static; wire-type structs |
 | `ipc_sched.c` | 163 | 4 | 0 | — |
 | `mach_clock.c` | 648 | 4 | 0 | `__sync_synchronize` wrappers, static `time_value64_add_hpc`, `clock_boottime_update` |
 | `mach_factor.c` | 150 | 2 | 0 | `mach_factor[]`/`load_average[]` are NCPUS-sized |
@@ -317,7 +316,7 @@ classes.  A derivation is a snapshot of one afternoon's tree.
 * **Phase C — the coupled files.**  `eventcount`, `priority`, `gsync`,
   `ipc_tt`, `ipc_host`, `host`, `processor`, `machine`, `mach_clock` once
   their struct stories exist; then the anchors (`sched_prim`,
-  `ipc_mig`, `exception`, `startup`, `bootstrap`, `trap`, `pcb`,
+  `exception`, `startup`, `bootstrap`, `trap`, `pcb`,
   `ipc_kmsg`, `mach_msg`).
 
 Exit criterion for every step: both qemu architectures green, `rustfmt`
@@ -403,7 +402,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `device/chario.c` (`tty_queue_completion`), `device/device_init.c` (`device_service_create`), `device/ds_routines.c` (`ds_device_open_new`), `device/intr.c` (`irqgetstat`), `device/kmsg.c` (`kmsggetstat`) | `src/device/chario.rs`, `device_init.rs`, `ds_routines.rs`, `intr.rs`, `kmsg.rs` | pending |
 | `kern/host.c` (`host_processor_set_priv`, `processor_set_processors`) | `src/kern/host.rs` | pending |
 | `kern/ipc_host.c` (`ipc_processor_init`, `ipc_pset_init`, `ipc_pset_enable`, `ipc_pset_disable`, `ipc_pset_terminate`, `processor_set_default`) | `src/kern/ipc_host.rs` | pending |
-| `kern/ipc_mig.c` (`mach_msg_abort_rpc`, `mig_get_reply_port`, `mig_deallocate`, `thread_set_self_state`) | `src/kern/ipc_mig.rs` | pending |
+| `kern/ipc_mig.c` whole, with the `mach_msg`/`syscall_*` RPC stubs and the `port_name_to_*` send-right lookups | `src/kern/ipc_mig.rs`, `src/kern/ipc_mig_ffi.rs` | pending |
 | `kern/ipc_sched.c` (`thread_go`, `thread_will_wait`, `thread_will_wait_with_timeout`) | `src/kern/ipc_sched.rs` | pending |
 | `kern/ipc_tt.c` whole, with the `struct ipc_port`/`ipc_target`/`ipc_mqueue` field mirror its `ip_srights` bump reads | `src/kern/ipc_tt.rs`, `src/kern/ipc_tt_ffi.rs`, `src/ipc/mod.rs` | pending |
 | `kern/mach_clock.c` (`read_time_stamp`, `host_set_time`, `host_adjust_time`, `host_adjust_time64`) | `src/kern/mach_clock.rs` | pending |

@@ -41,7 +41,7 @@ routine at a time. The target is a Rust kernel, not a kernel with Rust in it.
 The build is GNU Autotools plus a hand-written `rustc` invocation — no Cargo,
 no lock file, no network. The Rust half compiles to `libmach-rs.a`, which is
 linked between two passes over `libkernel.a`, so Rust may call C and C may
-call Rust. As of 2026-09-25 the Rust half is 138 files and about 59,000 lines.
+call Rust. As of 2026-09-25 the Rust half is 149 files and about 65,000 lines.
 
 ### The idea
 
@@ -139,6 +139,7 @@ link error, not a fallback.
 | `ipc/ipc_mqueue.c` | `src/ipc/ipc_mqueue.rs`, `src/ipc/ipc_mqueue_ffi.rs` |
 | `ipc/ipc_pset.c` | `src/ipc/ipc_pset.rs`, `src/ipc/ipc_pset_ffi.rs` |
 | `ipc/ipc_marequest.c` | `src/ipc/ipc_marequest.rs`, `src/ipc/ipc_marequest_ffi.rs` |
+| `kern/ipc_mig.c` | `src/kern/ipc_mig.rs`, `src/kern/ipc_mig_ffi.rs` |
 
 Also deleted as dead: `device/blkio.c` and the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`).
