@@ -8,10 +8,23 @@
 
 use crate::device::chario;
 use crate::device::ds_routines_ffi::{io_done_thread, mach_device_init};
-use crate::glue;
 use crate::ipc::{IpcPort, ipc_port, ipc_space};
-use core::ffi::c_int;
+use crate::kern::debug::kpanic;
+use core::ffi::c_void;
 use core::ptr;
+use core::sync::atomic::{AtomicPtr, Ordering};
+
+/// `master_device_port` of `device/device_init.c`: the port the device service
+/// answers on, published by the boot before any device open can race it.
+#[unsafe(export_name = "master_device_port")]
+static MASTER_DEVICE_PORT: AtomicPtr<c_void> = AtomicPtr::new(ptr::null_mut());
+
+/// The master device port, or null before [`device_service_create`] runs.
+///
+/// The load is `Acquire` to see the port the `Release` store published.
+pub(crate) fn master_device_port() -> *mut c_void {
+    MASTER_DEVICE_PORT.load(Ordering::Acquire)
+}
 
 /// `device_service_create()` in C.
 ///
@@ -22,30 +35,19 @@ use core::ptr;
 ///
 /// # Panics
 ///
-/// Halts through [`glue::Panic`] when the master device port cannot be
+/// Halts through [`kpanic!`] when the master device port cannot be
 /// allocated, as the C `panic()` did.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn device_service_create() {
     // SAFETY: the kernel space is the global `ipc_init()` built earlier in
     // the boot; the allocator only reads it and takes its own locks.
     let master = unsafe { ipc_port::alloc_special(ipc_space::kernel()) };
-    // SAFETY: this boot step is the global's only writer, and it runs once.
-    unsafe {
-        glue::master_device_port =
-            master.map_or(ptr::null_mut(), IpcPort::as_ptr);
-    }
+    let port = master.map_or(ptr::null_mut(), IpcPort::as_ptr);
+    // The `Release` store publishes the initialized port to the CPUs that
+    // compare an incoming open port against it.
+    MASTER_DEVICE_PORT.store(port, Ordering::Release);
     if master.is_none() {
-        // SAFETY: `Panic` does not return; the file, function and message tags
-        // are the C `panic()` macro's, and the line is this Rust file's.
-        unsafe {
-            glue::Panic(
-                c"device/device_init.c".as_ptr(),
-                // Only `c_int` widths can reach `Panic`'s varargs.
-                line!() as c_int,
-                c"device_service_create".as_ptr(),
-                c"can't allocate master device port".as_ptr(),
-            )
-        }
+        kpanic!("device_service_create", "can't allocate master device port")
     }
 
     // SAFETY: the five initializers take no arguments and build separate

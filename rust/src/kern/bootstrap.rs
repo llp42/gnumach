@@ -23,6 +23,8 @@ use crate::ipc::ipc_port;
 use crate::ipc::mach_port;
 use crate::ipc::{IpcPort, IpcSpace};
 use crate::kern::boot_script::{self, Cmd};
+use crate::kern::console::{CStrArg, kprint};
+use crate::kern::debug::kpanic;
 use crate::kern::elf_load::{self, ExecInfo, ExecSectype};
 use crate::kern::host;
 use crate::kern::lock::SimpleLock;
@@ -369,13 +371,10 @@ pub(crate) unsafe fn task_create(
     } {
         Ok(task) => task,
         Err(error) => {
-            // SAFETY: `printf` takes the format and one integer.
-            unsafe {
-                glue::printf(
-                    c"boot_script_task_create failed with %x\n".as_ptr(),
-                    c_int::from(error),
-                )
-            };
+            kprint!(
+                "boot_script_task_create failed with {:x}\n",
+                c_int::from(error)
+            );
             return Err(boot_script::Error::MachError);
         }
     };
@@ -405,18 +404,16 @@ pub(crate) unsafe fn task_resume(
     // SAFETY: the caller promises the live command and task.
     match unsafe { task::resume((*cmd).task) } {
         Ok(()) => {
-            // SAFETY: `printf` takes the format and one string.
-            unsafe { glue::printf(c"\nstart %s: ".as_ptr(), (*cmd).path) };
+            // SAFETY: the command's path is NUL-terminated.
+            let path = unsafe { CStrArg::from_ptr((*cmd).path.cast_const()) };
+            kprint!("\nstart {}: ", path);
             Ok(())
         }
         Err(error) => {
-            // SAFETY: `printf` takes the format and one integer.
-            unsafe {
-                glue::printf(
-                    c"boot_script_task_resume failed with %x\n".as_ptr(),
-                    c_int::from(error),
-                )
-            };
+            kprint!(
+                "boot_script_task_resume failed with {:x}\n",
+                c_int::from(error)
+            );
             Err(boot_script::Error::MachError)
         }
     }
@@ -430,12 +427,10 @@ pub(crate) unsafe fn task_resume(
 pub(crate) unsafe fn prompt_task_resume(
     cmd: *mut Cmd,
 ) -> Result<(), boot_script::Error> {
-    // SAFETY: both `printf` calls take their format and, in the first, one
-    // string.
-    unsafe {
-        glue::printf(c"Pausing for %s...\n".as_ptr(), (*cmd).path);
-        glue::printf(c"Hit <return> to resume bootstrap.".as_ptr());
-    }
+    // SAFETY: the command's path is NUL-terminated.
+    let path = unsafe { CStrArg::from_ptr((*cmd).path.cast_const()) };
+    kprint!("Pausing for {}...\n", path);
+    kprint!("Hit <return> to resume bootstrap.");
     let mut line = [0 as c_char; 5];
     // SAFETY: the buffer holds five bytes and the reader stops inside them.
     unsafe { printf::safe_gets(line.as_mut_ptr(), 5) };
@@ -598,16 +593,11 @@ unsafe fn load_bootstrap(handle: *mut c_void) -> ExecInfo {
         elf_load::exec_load(boot_read, read_exec, handle, info.as_mut_ptr())
     };
     if error != 0 {
-        // SAFETY: `Panic()` does not return.
-        unsafe {
-            glue::Panic(
-                c"kern/bootstrap.c".as_ptr(),
-                line!() as c_int,
-                c"copy_bootstrap".as_ptr(),
-                c"Cannot load user-bootstrap image: error code %d".as_ptr(),
-                error,
-            )
-        };
+        kpanic!(
+            "copy_bootstrap",
+            "Cannot load user-bootstrap image: error code {}",
+            error
+        );
     }
     // SAFETY: `exec_load()` zeroes the record and fills it before success.
     unsafe { info.assume_init() }
@@ -795,15 +785,15 @@ unsafe extern "C" fn user_bootstrap() {
     // SAFETY: the info's module handle is live.
     let exec_info = unsafe { load_bootstrap((*info).module) };
 
-    // SAFETY: `printf` takes the format and no varargs here.
-    unsafe { glue::printf(c"task loaded:".as_ptr()) };
+    kprint!("task loaded:");
     // SAFETY: the vector outlives the thread's argument copy.
     let argv = unsafe { argv_slice((*info).argv) };
     // SAFETY: `exec_info` is live and the vector's strings mapped.
     unsafe { build_args_and_stack(&exec_info, argv, &[]) };
     for &arg in argv {
-        // SAFETY: `printf` takes the format and one string.
-        unsafe { glue::printf(c" %s".as_ptr(), arg) };
+        // SAFETY: every argument is NUL-terminated.
+        let arg = unsafe { CStrArg::from_ptr(arg) };
+        kprint!(" {}", arg);
     }
 
     // SAFETY: runs on the current task.
@@ -848,15 +838,10 @@ pub(crate) unsafe fn exec_cmd(
     let thread = match unsafe { Thread::create(task) } {
         Ok(thread) => thread,
         Err(_) => {
-            // SAFETY: `Panic()` does not return.
-            unsafe {
-                glue::Panic(
-                    c"kern/bootstrap.c".as_ptr(),
-                    line!() as c_int,
-                    c"boot_script_exec_cmd".as_ptr(),
-                    c"cannot create the bootstrap thread".as_ptr(),
-                )
-            }
+            kpanic!(
+                "boot_script_exec_cmd",
+                "cannot create the bootstrap thread"
+            )
         }
     };
 
@@ -881,8 +866,7 @@ pub(crate) unsafe fn exec_cmd(
         (*info).lock.unlock();
         Thread::deallocate(thread);
     }
-    // SAFETY: `printf` takes the format and no varargs here.
-    unsafe { glue::printf(c"\n".as_ptr()) };
+    kprint!("\n");
 }
 
 /// `user_bootstrap_compat()` of `kern/bootstrap.c`: the kernel-mode half of
@@ -947,15 +931,10 @@ unsafe fn exec_compat(module: *mut MultibootRawModule) {
     } {
         Ok(task) => task,
         Err(_) => {
-            // SAFETY: `Panic()` does not return.
-            unsafe {
-                glue::Panic(
-                    c"kern/bootstrap.c".as_ptr(),
-                    line!() as c_int,
-                    c"bootstrap_exec_compat".as_ptr(),
-                    c"cannot create the bootstrap task".as_ptr(),
-                )
-            }
+            kpanic!(
+                "bootstrap_exec_compat",
+                "cannot create the bootstrap task"
+            )
         }
     };
     // SAFETY: the task is live and fresh.
@@ -964,15 +943,10 @@ unsafe fn exec_compat(module: *mut MultibootRawModule) {
     let thread = match unsafe { Thread::create(task) } {
         Ok(thread) => thread,
         Err(_) => {
-            // SAFETY: `Panic()` does not return.
-            unsafe {
-                glue::Panic(
-                    c"kern/bootstrap.c".as_ptr(),
-                    line!() as c_int,
-                    c"bootstrap_exec_compat".as_ptr(),
-                    c"cannot create the bootstrap thread".as_ptr(),
-                )
-            }
+            kpanic!(
+                "bootstrap_exec_compat",
+                "cannot create the bootstrap thread"
+            )
         }
     };
     // SAFETY: the thread is live.
@@ -984,7 +958,8 @@ unsafe fn exec_compat(module: *mut MultibootRawModule) {
         let host_port = make_send((*host::realhost()).host_priv_self);
         BOOT_HOST_PORT
             .store(insert_send_right(task, host_port), Ordering::Release);
-        let device_port = make_send(glue::master_device_port);
+        let device_port =
+            make_send(crate::device::device_init::master_device_port());
         BOOT_DEVICE_PORT
             .store(insert_send_right(task, device_port), Ordering::Release);
 
@@ -1014,15 +989,10 @@ pub(crate) unsafe fn create() {
         unsafe { crate::arch::i386::model_dep::boot_info.mods_addr };
     let mods = kv_ptr_mut::<MultibootRawModule>(phystokv(address(mods_addr)));
     if flags & MULTIBOOT_MODS == 0 || mods_count == 0 {
-        // SAFETY: `Panic()` does not return.
-        unsafe {
-            glue::Panic(
-                c"kern/bootstrap.c".as_ptr(),
-                line!() as c_int,
-                c"bootstrap_create".as_ptr(),
-                c"No bootstrap code loaded with the kernel!".as_ptr(),
-            )
-        };
+        kpanic!(
+            "bootstrap_create",
+            "No bootstrap code loaded with the kernel!"
+        );
     }
 
     // SAFETY: the first module's command line is mapped.
@@ -1041,14 +1011,12 @@ pub(crate) unsafe fn create() {
     }
 
     if compat {
-        // SAFETY: `printf` takes the format and one string.
-        unsafe {
-            glue::printf(
-                c"Loading single multiboot module in compat mode: %s\n"
-                    .as_ptr(),
-                first_string,
-            )
-        };
+        // SAFETY: the first module's string is NUL-terminated.
+        let first = unsafe { CStrArg::from_ptr(first_string) };
+        kprint!(
+            "Loading single multiboot module in compat mode: {}\n",
+            first
+        );
         // SAFETY: the first module is live.
         unsafe { exec_compat(mods) };
     } else {
@@ -1061,32 +1029,23 @@ pub(crate) unsafe fn create() {
                 host_priv.expose_provenance() as c_long,
             )
         } {
-            // SAFETY: `Panic()` does not return.
-            unsafe {
-                glue::Panic(
-                    c"kern/bootstrap.c".as_ptr(),
-                    line!() as c_int,
-                    c"bootstrap_create".as_ptr(),
-                    c"cannot set boot-script variable host-port".as_ptr(),
-                )
-            }
+            kpanic!(
+                "bootstrap_create",
+                "cannot set boot-script variable host-port"
+            )
         }
         if !unsafe {
             boot_script::set_variable(
                 c"device-port".as_ptr(),
                 boot_script::VAL_PORT,
-                glue::master_device_port.expose_provenance() as c_long,
+                crate::device::device_init::master_device_port()
+                    .expose_provenance() as c_long,
             )
         } {
-            // SAFETY: `Panic()` does not return.
-            unsafe {
-                glue::Panic(
-                    c"kern/bootstrap.c".as_ptr(),
-                    line!() as c_int,
-                    c"bootstrap_create".as_ptr(),
-                    c"cannot set boot-script variable device-port".as_ptr(),
-                )
-            }
+            kpanic!(
+                "bootstrap_create",
+                "cannot set boot-script variable device-port"
+            )
         }
         // SAFETY: the kernel task is live.
         let itk_self = unsafe { (*crate::kern::task::kernel_task).itk_self };
@@ -1097,15 +1056,10 @@ pub(crate) unsafe fn create() {
                 itk_self.expose_provenance() as c_long,
             )
         } {
-            // SAFETY: `Panic()` does not return.
-            unsafe {
-                glue::Panic(
-                    c"kern/bootstrap.c".as_ptr(),
-                    line!() as c_int,
-                    c"bootstrap_create".as_ptr(),
-                    c"cannot set boot-script variable kernel-task".as_ptr(),
-                )
-            }
+            kpanic!(
+                "bootstrap_create",
+                "cannot set boot-script variable kernel-task"
+            )
         }
         if !unsafe {
             boot_script::set_variable(
@@ -1115,16 +1069,10 @@ pub(crate) unsafe fn create() {
                     .expose_provenance() as c_long,
             )
         } {
-            // SAFETY: `Panic()` does not return.
-            unsafe {
-                glue::Panic(
-                    c"kern/bootstrap.c".as_ptr(),
-                    line!() as c_int,
-                    c"bootstrap_create".as_ptr(),
-                    c"cannot set boot-script variable kernel-command-line"
-                        .as_ptr(),
-                )
-            }
+            kpanic!(
+                "bootstrap_create",
+                "cannot set boot-script variable kernel-command-line"
+            )
         }
 
         // SAFETY: the boot command line is a live NUL-terminated string.
@@ -1142,15 +1090,10 @@ pub(crate) unsafe fn create() {
                 flag_buf.as_ptr().expose_provenance() as c_long,
             )
         } {
-            // SAFETY: `Panic()` does not return.
-            unsafe {
-                glue::Panic(
-                    c"kern/bootstrap.c".as_ptr(),
-                    line!() as c_int,
-                    c"bootstrap_create".as_ptr(),
-                    c"cannot set boot-script variable boot-args".as_ptr(),
-                )
-            }
+            kpanic!(
+                "bootstrap_create",
+                "cannot set boot-script variable boot-args"
+            )
         }
         if !unsafe {
             boot_script::set_variable(
@@ -1159,15 +1102,10 @@ pub(crate) unsafe fn create() {
                 root_buf.as_ptr().expose_provenance() as c_long,
             )
         } {
-            // SAFETY: `Panic()` does not return.
-            unsafe {
-                glue::Panic(
-                    c"kern/bootstrap.c".as_ptr(),
-                    line!() as c_int,
-                    c"bootstrap_create".as_ptr(),
-                    c"cannot set boot-script variable root-device".as_ptr(),
-                )
-            }
+            kpanic!(
+                "bootstrap_create",
+                "cannot set boot-script variable root-device"
+            )
         }
 
         // Turn each `FOO=BAR` word in the command line into a boot script
@@ -1178,15 +1116,7 @@ pub(crate) unsafe fn create() {
         }
         .to_bytes_with_nul();
         let Some(buf) = kalloc(cmdline_copy.len()) else {
-            // SAFETY: `Panic()` does not return.
-            unsafe {
-                glue::Panic(
-                    c"kern/bootstrap.c".as_ptr(),
-                    line!() as c_int,
-                    c"bootstrap_create".as_ptr(),
-                    c"out of memory for the boot script".as_ptr(),
-                )
-            }
+            kpanic!("bootstrap_create", "out of memory for the boot script")
         };
         // SAFETY: the allocation holds `cmdline_copy.len()` bytes.
         unsafe {
@@ -1223,15 +1153,10 @@ pub(crate) unsafe fn create() {
                     value.expose_provenance() as c_long,
                 )
             } {
-                // SAFETY: `Panic()` does not return.
-                unsafe {
-                    glue::Panic(
-                        c"kern/bootstrap.c".as_ptr(),
-                        line!() as c_int,
-                        c"bootstrap_create".as_ptr(),
-                        c"cannot set a boot-script variable from the command line".as_ptr(),
-                    )
-                }
+                kpanic!(
+                    "bootstrap_create",
+                    "cannot set a boot-script variable from the command line"
+                )
             }
         }
 
@@ -1243,64 +1168,52 @@ pub(crate) unsafe fn create() {
             let line = kv_ptr_mut::<c_char>(phystokv(address(unsafe {
                 (*module).string
             })));
-            // SAFETY: `printf` takes the format, one integer and one string.
-            unsafe {
-                glue::printf(
-                    c"module %d: %s\n".as_ptr(),
-                    c_int::try_from(i).unwrap_or(0),
-                    line,
-                )
-            };
+            // SAFETY: the line is NUL-terminated.
+            let line_arg = unsafe { CStrArg::from_ptr(line.cast_const()) };
+            kprint!(
+                "module {}: {}\n",
+                c_int::try_from(i).unwrap_or(0),
+                line_arg
+            );
             // SAFETY: the line is mapped and stays so until `exec()`.
             let result =
                 unsafe { boot_script::parse_line(module.cast(), line) };
             if let Err(error) = result {
-                // SAFETY: `printf` takes the format and one string.
-                unsafe {
-                    glue::printf(
-                        c"\n\tERROR: %s".as_ptr(),
-                        boot_script::error_string(error.code()),
+                // SAFETY: an error string is NUL-terminated.
+                let message = unsafe {
+                    CStrArg::from_ptr(
+                        boot_script::error_string(error.code()).cast_const(),
                     )
                 };
+                kprint!("\n\tERROR: {}", message);
                 losers += 1;
             }
             i += 1;
         }
-        // SAFETY: `printf` takes the format and one integer.
-        unsafe {
-            glue::printf(
-                c"%d multiboot modules\n".as_ptr(),
-                c_int::try_from(i).unwrap_or(0),
-            )
-        };
+        kprint!("{} multiboot modules\n", c_int::try_from(i).unwrap_or(0));
         if losers != 0 {
-            // SAFETY: `Panic()` does not return.
-            unsafe {
-                glue::Panic(
-                    c"kern/bootstrap.c".as_ptr(),
-                    line!() as c_int,
-                    c"bootstrap_create".as_ptr(),
-                    c"%d of %d boot script commands could not be parsed"
-                        .as_ptr(),
-                    losers,
-                    c_int::try_from(mods_count).unwrap_or(0),
-                )
-            }
+            kpanic!(
+                "bootstrap_create",
+                "{} of {} boot script commands could not be parsed",
+                losers,
+                c_int::try_from(mods_count).unwrap_or(0)
+            )
         }
         // SAFETY: every line parsed is still mapped.
         match unsafe { boot_script::exec() } {
             Ok(()) => (),
             Err(error) => {
-                // SAFETY: `Panic()` does not return.
-                unsafe {
-                    glue::Panic(
-                        c"kern/bootstrap.c".as_ptr(),
-                        line!() as c_int,
-                        c"bootstrap_create".as_ptr(),
-                        c"ERROR in executing boot script: %s".as_ptr(),
-                        boot_script::error_string(error.code()),
+                // SAFETY: an error string is NUL-terminated.
+                let message = unsafe {
+                    CStrArg::from_ptr(
+                        boot_script::error_string(error.code()).cast_const(),
                     )
-                }
+                };
+                kpanic!(
+                    "bootstrap_create",
+                    "ERROR in executing boot script: {}",
+                    message
+                )
             }
         }
         // SAFETY: `exec()` freed the symbol table, the last holder of

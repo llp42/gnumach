@@ -1,14 +1,39 @@
 // SPDX-License-Identifier: CMU-Mach
-// Derived from device/dev_name.c:
+// Derived from device/dev_name.c and i386/i386at/conf.c:
 //   Copyright (c) 1991,1990,1989 Carnegie Mellon University.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! The device-name lookup of `device/dev_name.c`, declared in
-//! <device/dev_hdr.h> and <device/conf.h>.
+//! The device-name lookup of `device/dev_name.c` and the AT device tables of
+//! `i386/i386at/conf.c`, declared in <device/dev_hdr.h> and <device/conf.h>.
 
+use crate::arch::i386::com_ffi::{
+    comclose, comgetstat, comopen, comportdeath, comread, comsetstat, comwrite,
+};
+use crate::arch::i386::kd::tty::{
+    kdclose, kdgetstat, kdmmap, kdopen, kdportdeath, kdread, kdsetstat,
+    kdwrite,
+};
+use crate::arch::i386::kd_event::{
+    kbdclose, kbdgetstat, kbdopen, kbdread, kbdsetstat,
+};
+use crate::arch::i386::kd_mouse::{
+    mouseclose, mousegetstat, mouseopen, mouseread,
+};
+use crate::arch::i386::mbinfo::mbinforead;
+use crate::arch::i386::mem::memmmap;
+use crate::arch::i386::model_dep_ffi::timemmap;
+use crate::device::dev_name_ffi::{
+    nodev_async_in, nodev_info, nomap, nulldev_close, nulldev_getstat,
+    nulldev_open, nulldev_portdeath, nulldev_read, nulldev_reset,
+    nulldev_setstat, nulldev_write,
+};
 use crate::device::ds_routines::DevOps;
-use crate::glue;
+use crate::device::intr_ffi::irqgetstat;
+use crate::device::kmsg_ffi::{kmsgclose, kmsggetstat, kmsgopen, kmsgread};
+use crate::kern::mach_clock_ffi::{timeclose, timeopen};
+use crate::utils::cell::SyncCell;
 use crate::utils::string::strcmp;
+use core::cell::UnsafeCell;
 use core::ffi::{c_char, c_int};
 use core::mem::size_of;
 use core::ptr::{self, NonNull};
@@ -40,6 +65,179 @@ const _: () = {
     assert!(core::mem::offset_of!(DevIndirect, d_ops) == 4);
     assert!(core::mem::offset_of!(DevIndirect, d_unit) == 8);
 };
+
+/// The entries of `dev_name_list[]` of `i386/i386at/conf.c`.
+const DEV_NAME_COUNT: usize = 10;
+
+/// The entries of `dev_indirect_list[]` of `i386/i386at/conf.c`.
+const DEV_INDIRECT_COUNT: usize = 1;
+
+/// `dev_name_list[]` of `i386/i386at/conf.c`: the major-device table
+/// [`lookup`] searches.  Slot 0 is the console placeholder `cninit()` fills
+/// through [`set_indirection`].
+static DEV_NAME_LIST: SyncCell<[DevOps; DEV_NAME_COUNT]> =
+    SyncCell(UnsafeCell::new([
+        DevOps {
+            d_name: c"cn".as_ptr().cast_mut(),
+            d_open: Some(nulldev_open),
+            d_close: Some(nulldev_close),
+            d_read: Some(nulldev_read),
+            d_write: Some(nulldev_write),
+            d_getstat: Some(nulldev_getstat),
+            d_setstat: Some(nulldev_setstat),
+            d_mmap: Some(nomap),
+            d_async_in: Some(nodev_async_in),
+            d_reset: Some(nulldev_reset),
+            d_port_death: Some(nulldev_portdeath),
+            d_subdev: 0,
+            d_dev_info: Some(nodev_info),
+        },
+        DevOps {
+            d_name: c"kd".as_ptr().cast_mut(),
+            d_open: Some(kdopen),
+            d_close: Some(kdclose),
+            d_read: Some(kdread),
+            d_write: Some(kdwrite),
+            d_getstat: Some(kdgetstat),
+            d_setstat: Some(kdsetstat),
+            d_mmap: Some(kdmmap),
+            d_async_in: Some(nodev_async_in),
+            d_reset: Some(nulldev_reset),
+            d_port_death: Some(kdportdeath),
+            d_subdev: 0,
+            d_dev_info: Some(nodev_info),
+        },
+        DevOps {
+            d_name: c"time".as_ptr().cast_mut(),
+            d_open: Some(timeopen),
+            d_close: Some(timeclose),
+            d_read: Some(nulldev_read),
+            d_write: Some(nulldev_write),
+            d_getstat: Some(nulldev_getstat),
+            d_setstat: Some(nulldev_setstat),
+            d_mmap: Some(timemmap),
+            d_async_in: Some(nodev_async_in),
+            d_reset: Some(nulldev_reset),
+            d_port_death: Some(nulldev_portdeath),
+            d_subdev: 0,
+            d_dev_info: Some(nodev_info),
+        },
+        DevOps {
+            d_name: c"com".as_ptr().cast_mut(),
+            d_open: Some(comopen),
+            d_close: Some(comclose),
+            d_read: Some(comread),
+            d_write: Some(comwrite),
+            d_getstat: Some(comgetstat),
+            d_setstat: Some(comsetstat),
+            d_mmap: Some(nomap),
+            d_async_in: Some(nodev_async_in),
+            d_reset: Some(nulldev_reset),
+            d_port_death: Some(comportdeath),
+            d_subdev: 0,
+            d_dev_info: Some(nodev_info),
+        },
+        DevOps {
+            d_name: c"mouse".as_ptr().cast_mut(),
+            d_open: Some(mouseopen),
+            d_close: Some(mouseclose),
+            d_read: Some(mouseread),
+            d_write: Some(nulldev_write),
+            d_getstat: Some(mousegetstat),
+            d_setstat: Some(nulldev_setstat),
+            d_mmap: Some(nomap),
+            d_async_in: Some(nodev_async_in),
+            d_reset: Some(nulldev_reset),
+            d_port_death: Some(nulldev_portdeath),
+            d_subdev: 0,
+            d_dev_info: Some(nodev_info),
+        },
+        DevOps {
+            d_name: c"kbd".as_ptr().cast_mut(),
+            d_open: Some(kbdopen),
+            d_close: Some(kbdclose),
+            d_read: Some(kbdread),
+            d_write: Some(nulldev_write),
+            d_getstat: Some(kbdgetstat),
+            d_setstat: Some(kbdsetstat),
+            d_mmap: Some(nomap),
+            d_async_in: Some(nodev_async_in),
+            d_reset: Some(nulldev_reset),
+            d_port_death: Some(nulldev_portdeath),
+            d_subdev: 0,
+            d_dev_info: Some(nodev_info),
+        },
+        DevOps {
+            d_name: c"mem".as_ptr().cast_mut(),
+            d_open: Some(nulldev_open),
+            d_close: Some(nulldev_close),
+            d_read: Some(nulldev_read),
+            d_write: Some(nulldev_write),
+            d_getstat: Some(nulldev_getstat),
+            d_setstat: Some(nulldev_setstat),
+            d_mmap: Some(memmmap),
+            d_async_in: Some(nodev_async_in),
+            d_reset: Some(nulldev_reset),
+            d_port_death: Some(nulldev_portdeath),
+            d_subdev: 0,
+            d_dev_info: Some(nodev_info),
+        },
+        DevOps {
+            d_name: c"kmsg".as_ptr().cast_mut(),
+            d_open: Some(kmsgopen),
+            d_close: Some(kmsgclose),
+            d_read: Some(kmsgread),
+            d_write: Some(nulldev_write),
+            d_getstat: Some(kmsggetstat),
+            d_setstat: Some(nulldev_setstat),
+            d_mmap: Some(nomap),
+            d_async_in: Some(nodev_async_in),
+            d_reset: Some(nulldev_reset),
+            d_port_death: Some(nulldev_portdeath),
+            d_subdev: 0,
+            d_dev_info: Some(nodev_info),
+        },
+        DevOps {
+            d_name: c"irq".as_ptr().cast_mut(),
+            d_open: Some(nulldev_open),
+            d_close: Some(nulldev_close),
+            d_read: Some(nulldev_read),
+            d_write: Some(nulldev_write),
+            d_getstat: Some(irqgetstat),
+            d_setstat: Some(nulldev_setstat),
+            d_mmap: Some(nomap),
+            d_async_in: Some(nodev_async_in),
+            d_reset: Some(nulldev_reset),
+            d_port_death: Some(nulldev_portdeath),
+            d_subdev: 0,
+            d_dev_info: Some(nodev_info),
+        },
+        DevOps {
+            d_name: c"mbinfo".as_ptr().cast_mut(),
+            d_open: Some(nulldev_open),
+            d_close: Some(nulldev_close),
+            d_read: Some(mbinforead),
+            d_write: Some(nulldev_write),
+            d_getstat: Some(nulldev_getstat),
+            d_setstat: Some(nulldev_setstat),
+            d_mmap: Some(nomap),
+            d_async_in: Some(nodev_async_in),
+            d_reset: Some(nulldev_reset),
+            d_port_death: Some(nulldev_portdeath),
+            d_subdev: 0,
+            d_dev_info: Some(nodev_info),
+        },
+    ]));
+
+/// `dev_indirect_list[]` of `i386/i386at/conf.c`: the indirect-device table
+/// [`lookup`] falls back to.  `cninit()` rewrites the console entry's
+/// operations through [`set_indirection`].
+static DEV_INDIRECT_LIST: SyncCell<[DevIndirect; DEV_INDIRECT_COUNT]> =
+    SyncCell(UnsafeCell::new([DevIndirect {
+        d_name: c"console".as_ptr().cast_mut(),
+        d_ops: ptr::addr_of!(DEV_NAME_LIST.0).cast_mut().cast::<DevOps>(),
+        d_unit: 0,
+    }]));
 
 /// The C `c >= '0' && c <= '9'`.
 fn is_digit(c: c_char) -> bool {
@@ -162,10 +360,9 @@ pub(crate) unsafe fn lookup(
         }
     }
 
-    // SAFETY: `dev_name_list` is the C table of `dev_name_count` entries.
-    let first = ptr::addr_of_mut!(glue::dev_name_list);
-    let count = unsafe { glue::dev_name_count }.max(0) as usize;
-    for i in 0..count {
+    // SAFETY: the table is boot-initialized and only read from here.
+    let first = DEV_NAME_LIST.0.get().cast::<DevOps>();
+    for i in 0..DEV_NAME_COUNT {
         // SAFETY: `i` is inside the table.
         let dev = unsafe { first.add(i) };
         // SAFETY: the entry's name is a NUL-terminated string.
@@ -179,11 +376,9 @@ pub(crate) unsafe fn lookup(
         }
     }
 
-    // SAFETY: `dev_indirect_list` is the C table of `dev_indirect_count`
-    // entries.
-    let indirect = ptr::addr_of_mut!(glue::dev_indirect_list);
-    let count = unsafe { glue::dev_indirect_count }.max(0) as usize;
-    for i in 0..count {
+    // SAFETY: the table is boot-initialized and only read from here.
+    let indirect = DEV_INDIRECT_LIST.0.get().cast::<DevIndirect>();
+    for i in 0..DEV_INDIRECT_COUNT {
         // SAFETY: `i` is inside the table.
         let di = unsafe { indirect.add(i) };
         // SAFETY: the entry's name is a NUL-terminated string.
@@ -208,11 +403,9 @@ pub(crate) unsafe fn set_indirection(
     ops: *mut DevOps,
     unit: c_int,
 ) {
-    // SAFETY: `dev_indirect_list` is the C table of `dev_indirect_count`
-    // entries.
-    let list = ptr::addr_of_mut!(glue::dev_indirect_list);
-    let count = unsafe { glue::dev_indirect_count }.max(0) as usize;
-    for i in 0..count {
+    // SAFETY: the table is boot-initialized and only written here.
+    let list = DEV_INDIRECT_LIST.0.get().cast::<DevIndirect>();
+    for i in 0..DEV_INDIRECT_COUNT {
         // SAFETY: `i` is inside the table.
         let di = unsafe { list.add(i) };
         // SAFETY: both names are NUL-terminated strings.

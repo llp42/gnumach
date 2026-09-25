@@ -4,19 +4,61 @@
 //   the Computer Systems Laboratory (CSL).  All rights reserved.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! The console package, which `device/cons.c` used to define and
+//! The console package and the machine's console table, which
+//! `device/cons.c` and `i386/i386at/cons_conf.c` used to define and
 //! <device/cons.h> declares.
-//!
-//! The console table itself, `constab`, belongs to the machine's
-//! `i386/i386at/cons_conf.c` and is declared in `glue`; the device-name
-//! lookup it is wired through is [`crate::device::dev_name`].
 
+use crate::arch::i386::com_ffi::{
+    comcngetc, comcninit, comcnprobe, comcnputc,
+};
 use crate::arch::i386::kd::ConsDev;
+use crate::arch::i386::kd::console::{
+    kdcngetc, kdcninit, kdcnprobe, kdcnputc,
+};
 use crate::device::dev_name;
 use crate::device::kmsg;
-use crate::glue;
+use crate::kern::debug::kpanic;
+use crate::utils::cell::SyncCell;
+use core::cell::UnsafeCell;
 use core::ffi::{c_char, c_int, c_short};
 use core::ptr;
+
+/// The `constab[]` entries `i386/i386at/cons_conf.c` spelled out, terminator
+/// included.
+const CONSTAB_COUNT: usize = 3;
+
+/// `constab[]` of `i386/i386at/cons_conf.c`: the console candidates `cninit()`
+/// probes in order, terminated by an entry whose `cn_probe` is null.
+static CONSTAB: SyncCell<[ConsDev; CONSTAB_COUNT]> =
+    SyncCell(UnsafeCell::new([
+        ConsDev {
+            cn_name: c"kd".as_ptr().cast_mut(),
+            cn_probe: Some(kdcnprobe),
+            cn_init: Some(kdcninit),
+            cn_getc: Some(kdcngetc),
+            cn_putc: Some(kdcnputc),
+            cn_dev: 0,
+            cn_pri: 0,
+        },
+        ConsDev {
+            cn_name: c"com".as_ptr().cast_mut(),
+            cn_probe: Some(comcnprobe),
+            cn_init: Some(comcninit),
+            cn_getc: Some(comcngetc),
+            cn_putc: Some(comcnputc),
+            cn_dev: 0,
+            cn_pri: 0,
+        },
+        ConsDev {
+            cn_name: ptr::null_mut(),
+            cn_probe: None,
+            cn_init: None,
+            cn_getc: None,
+            cn_putc: None,
+            cn_dev: 0,
+            cn_pri: 0,
+        },
+    ]));
 
 /// `CN_DEAD` of <device/cons.h>: a console that does not exist.
 const CN_DEAD: c_short = 0;
@@ -59,10 +101,11 @@ pub(crate) unsafe fn init() {
         return;
     }
 
-    let constab = ptr::addr_of_mut!(glue::constab);
+    // SAFETY: the table is boot-initialized and only probed from here.
+    let constab = CONSTAB.0.get().cast::<ConsDev>();
     let mut cp = constab;
     let mut chosen: *mut ConsDev = ptr::null_mut();
-    // SAFETY: `constab` is the C table, terminated by an entry whose
+    // SAFETY: `constab` is the table, terminated by an entry whose
     // `cn_probe` is null, which `Option` reads as `None`.
     while let Some(probe) = unsafe { (*cp).cn_probe } {
         // SAFETY: the probe entry is inside `constab` and the probe routine
@@ -84,16 +127,7 @@ pub(crate) unsafe fn init() {
     }
 
     if chosen.is_null() {
-        // SAFETY: `Panic` does not return; the file, function and message are
-        // the C `panic()` macro's, and the line is this Rust file's.
-        unsafe {
-            glue::Panic(
-                c"device/cons.c".as_ptr(),
-                line!() as c_int,
-                c"cninit".as_ptr(),
-                c"can't find a console device".as_ptr(),
-            )
-        }
+        kpanic!("cninit", "can't find a console device")
     }
 
     // SAFETY: `chosen` is a probed table entry with its `cn_init` filled by
@@ -106,15 +140,7 @@ pub(crate) unsafe fn init() {
     // SAFETY: the console's name is a NUL-terminated string in the table.
     let Some((ops, _unit)) = (unsafe { dev_name::lookup((*chosen).cn_name) })
     else {
-        // SAFETY: `Panic` does not return; the tags are the C's own.
-        unsafe {
-            glue::Panic(
-                c"device/cons.c".as_ptr(),
-                line!() as c_int,
-                c"cninit".as_ptr(),
-                c"cninit: dev_name_lookup failed".as_ptr(),
-            )
-        }
+        kpanic!("cninit", "cninit: dev_name_lookup failed")
     };
     // `minor()` of <sys/types.h>: the low byte of the device number.
     // SAFETY: `chosen` is a live table entry.

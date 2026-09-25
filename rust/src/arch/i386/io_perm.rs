@@ -209,8 +209,7 @@ pub(crate) unsafe fn create(
     to: u16,
     new: *mut *mut IoPerm,
 ) -> Result<(), KernError> {
-    // SAFETY: the C global is written once at boot.
-    if master_port != unsafe { glue::master_device_port } {
+    if master_port != crate::device::device_init::master_device_port() {
         return Err(KernError::InvalidArgument);
     }
 

@@ -26,6 +26,8 @@ use crate::device::r#return::{DeviceError, IoResultExt};
 use crate::glue;
 use crate::ipc::ipc_port_ffi;
 use crate::ipc::{IpcPort, MachMsgHeader, ipc_object, ipc_port, ipc_space};
+use crate::kern::console::kprint;
+use crate::kern::debug::kpanic;
 use crate::kern::lock::SimpleLock;
 use crate::kern::queue::QueueEntry;
 use crate::kern::sched_prim::{
@@ -595,18 +597,14 @@ pub(crate) unsafe extern "C" fn ds_device_open(
     name: *const c_char,
     devp: *mut *mut c_void,
 ) -> c_int {
-    // SAFETY: the boot path wrote `master_device_port` before any open could
-    // arrive.
-    if open_port != unsafe { glue::master_device_port } {
+    if open_port != crate::device::device_init::master_device_port() {
         return Err(DeviceError::InvalidOperation).as_io_return();
     }
 
     if IpcPort::valid(reply_port).is_none() {
-        // SAFETY: both C routines take the literal arguments below.
-        unsafe {
-            glue::printf(c"ds_* invalid reply port\n".as_ptr());
-            glue::SoftDebugger(c"ds_* reply_port".as_ptr());
-        }
+        kprint!("ds_* invalid reply port\n");
+        // SAFETY: the literal argument is NUL-terminated.
+        unsafe { glue::SoftDebugger(c"ds_* reply_port".as_ptr()) };
         return MIG_NO_REPLY;
     }
 
@@ -1064,10 +1062,7 @@ pub(crate) unsafe extern "C" fn ds_notify(msg: *mut c_void) -> c_int {
             return c_int::from(true);
         }
 
-        glue::printf(
-            c"ds_notify: strange notification %d\n".as_ptr(),
-            (*header).id(),
-        );
+        kprint!("ds_notify: strange notification {}\n", (*header).id());
     }
     c_int::from(false)
 }
@@ -1687,13 +1682,9 @@ pub(crate) unsafe extern "C" fn device_write_dealloc(
                     None => KERN_FAILURE,
                 };
                 if res != D_SUCCESS {
-                    // SAFETY: `Panic` does not return; the tags are the C
-                    // `panic()` string.
-                    glue::Panic(
-                        c"device/ds_routines.c".as_ptr(),
-                        line!() as c_int,
-                        c"device_write_dealloc".as_ptr(),
-                        c"device_write_dealloc: No block size".as_ptr(),
+                    kpanic!(
+                        "device_write_dealloc",
+                        "device_write_dealloc: No block size"
                     );
                 }
 
@@ -1790,7 +1781,7 @@ unsafe extern "C" fn device_read(
         }
 
         if IpcPort::valid(reply_port).is_none() {
-            glue::printf(c"ds_* invalid reply port\n".as_ptr());
+            kprint!("ds_* invalid reply port\n");
             glue::SoftDebugger(c"ds_* reply_port".as_ptr());
             return MIG_NO_REPLY;
         }
@@ -1854,7 +1845,7 @@ unsafe extern "C" fn device_read_inband(
         }
 
         if IpcPort::valid(reply_port).is_none() {
-            glue::printf(c"ds_* invalid reply port\n".as_ptr());
+            kprint!("ds_* invalid reply port\n");
             glue::SoftDebugger(c"ds_* reply_port".as_ptr());
             return MIG_NO_REPLY;
         }
@@ -2008,13 +1999,9 @@ pub(crate) unsafe extern "C" fn ds_read_done(ior: *mut IoReq) -> c_int {
                 0,
             );
             if kr != KERN_SUCCESS {
-                // SAFETY: `Panic` does not return; the tags are the C
-                // `panic()` string.
-                glue::Panic(
-                    c"device/ds_routines.c".as_ptr(),
-                    line!() as c_int,
-                    c"ds_read_done".as_ptr(),
-                    c"read_done: vm_map_copyin_page_list failed".as_ptr(),
+                kpanic!(
+                    "ds_read_done",
+                    "read_done: vm_map_copyin_page_list failed"
                 );
             }
 
@@ -2200,8 +2187,8 @@ unsafe extern "C" fn ds_no_senders(notification: *mut c_void) {
     let notification = notification.cast::<NoSendersNotification>();
     // SAFETY: the caller promises the live notification.
     unsafe {
-        glue::printf(
-            c"ds_no_senders called! device_port=0x%zx count=%d\n".as_ptr(),
+        kprint!(
+            "ds_no_senders called! device_port=0x{:x} count={}\n",
             (*notification).header.remote(),
             (*notification).not_count,
         );

@@ -30,8 +30,6 @@ if HOST_x86_64
 libkernel_a_SOURCES += \
 	i386/i386at/autoconf.h \
 	i386/i386at/biosmem.h \
-	i386/i386at/conf.c \
-	i386/i386at/cons_conf.c \
 	i386/i386at/elf.h \
 	i386/i386at/idt.h \
 	i386/i386at/model_dep.h \

@@ -158,7 +158,6 @@ libkernel_a_SOURCES += \
 	device/device_emul.h \
 	device/dev_hdr.h \
 	device/dev_master.h \
-	device/device_init.c \
 	device/device_init.h \
 	device/device_port.h \
 	device/device_types_kernel.h \
