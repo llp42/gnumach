@@ -78,10 +78,7 @@ file, or `—` when the rest is ready too.
 | `bootstrap.c` | 751 | 5 | 0 | bootstrap data; static helpers |
 | `debug.c` | 121 | 3 | 0 | C variadics (`log`) |
 | `eventcount.c` | 305 | 4 | 0 | `struct eventcounter` has no mirror |
-| `exception.c` | 934 | 5 | 0 | `struct exception` and `ipc_port` fields |
 | `gsync.c` | 537 | 4 | 0 | `struct gsync_node` internals |
-| `host.c` | 290 | 3 | 0 | `host_info`'s `machine_info` and load-average globals |
-| `ipc_host.c` | 390 | 3 | 0 | `ipc_port`/`ipc_space` fields |
 | `ipc_kobject.c` | 362 | 4 | 0 | `ipc_port` fields |
 | `ipc_sched.c` | 163 | 4 | 0 | — |
 | `mach_clock.c` | 648 | 4 | 0 | `__sync_synchronize` wrappers, static `time_value64_add_hpc`, `clock_boottime_update` |
@@ -397,8 +394,6 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `i386/i386at/ioapic.c` (`intnull`) | `src/arch/i386/ioapic.rs` | pending |
 | `device/ds_routines.c` whole, with the `struct io_req`, `struct device`, `struct mach_device`, `struct dev_ops` and `struct device_emulation_ops` mirrors it owned, and its `device_io_map`, `io_inband_cache`, `io_trap_cache`, `io_done_list` and `mach_device_emulation_ops` globals | `src/device/ds_routines.rs`, `ds_routines_ffi.rs`, `src/arch/i386/io_req.rs` | pending |
 | `device/chario.c` (`tty_queue_completion`), `device/device_init.c` (`device_service_create`), `device/intr.c` (`irqgetstat`), `device/kmsg.c` (`kmsggetstat`) | `src/device/chario.rs`, `device_init.rs`, `intr.rs`, `kmsg.rs` | pending |
-| `kern/host.c` (`host_processor_set_priv`, `processor_set_processors`) | `src/kern/host.rs` | pending |
-| `kern/ipc_host.c` (`ipc_processor_init`, `ipc_pset_init`, `ipc_pset_enable`, `ipc_pset_disable`, `ipc_pset_terminate`, `processor_set_default`) | `src/kern/ipc_host.rs` | pending |
 | `kern/ipc_mig.c` whole, with the `mach_msg`/`syscall_*` RPC stubs and the `port_name_to_*` send-right lookups | `src/kern/ipc_mig.rs`, `src/kern/ipc_mig_ffi.rs` | pending |
 | `kern/ipc_sched.c` (`thread_go`, `thread_will_wait`, `thread_will_wait_with_timeout`) | `src/kern/ipc_sched.rs` | pending |
 | `kern/ipc_tt.c` whole, with the `struct ipc_port`/`ipc_target`/`ipc_mqueue` field mirror its `ip_srights` bump reads | `src/kern/ipc_tt.rs`, `src/kern/ipc_tt_ffi.rs`, `src/ipc/mod.rs` | pending |
@@ -406,13 +401,13 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `kern/machine.c` (`action_thread`) | `src/kern/machine.rs` | pending |
 | `kern/task.c` (`task_create`, `task_ras_control`, `register_new_task_notification`) | `src/kern/task.rs` | pending |
 | `kern/bootstrap.c` (`boot_script_free_task`) | `src/kern/bootstrap.rs` | pending |
-| `kern/exception.c` (`exception_no_server`) | `src/kern/exception.rs` | pending |
 | `kern/printf.c` (`printnum`, `safe_gets`) | `src/kern/printf.rs` | pending |
 | `kern/rdxtree.c` with the `struct rdxtree`/`rdxtree_iter` mirrors | `src/kern/rdxtree.rs`, `rdxtree_ffi.rs` | pending |
 | `kern/timer.c` (`thread_read_times`) | `src/kern/timer.rs` | pending |
 | `kern/sched_prim.c` (`thread_set_timeout`, `thread_bind`, `thread_continue`, `compute_priority`, `compute_my_priority`, `recompute_priorities`, `set_pri`, `choose_pset_thread`) and `kern/syscall_subr.c` (`thread_depress_priority`, `thread_depress_timeout`, `thread_depress_abort`) | `src/kern/sched_prim.rs`, `src/kern/syscall_subr.rs` | pending |
 | `kern/thread.c` (`stack_alloc_try`, `stack_alloc`, `stack_free`, `stack_collect`, `stack_privilege`) | `src/kern/thread.rs` | pending |
 | `kern/thread.c` (`thread_reference`, `thread_force_terminate`, `thread_hold`, `thread_release`, `thread_resume`, `thread_abort`, `thread_start`, `thread_unfreeze`, `thread_get_assignment`) | `src/kern/thread.rs` | pending |
+| `kern/ipc_host.c`, `kern/host.c` and `kern/exception.c` whole, with the `Host`/`realhost` object, the host-info record views, the `struct mach_exception` record, the four `mach_msg_type_t` protos and the `exception_raise_misses` counter | `src/kern/ipc_host.rs`, `ipc_host_ffi.rs`, `host.rs`, `host_ffi.rs`, `exception.rs`, `exception_ffi.rs` | pending |
 | `kern/thread.c` (`thread_get_state`, `thread_set_state`, `thread_priority`, `thread_set_own_priority`, `thread_max_priority`, `thread_policy`, `thread_wire`, `stack_init`, `thread_stats`, `thread_set_name`, `thread_get_name`) | `src/kern/thread.rs` | pending |
 | `i386/i386/fpu.c` (`fpnoextflt`) | `src/arch/i386/fpu.rs` | pending |
 | `i386/i386/mp_desc.c` (`interrupt_processor`) | `src/arch/i386/mp_desc.rs` | pending |

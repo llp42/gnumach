@@ -866,7 +866,7 @@ fn system_init() {
         if processor != master && is_cpu {
             // SAFETY: the processor is a live CPU's own record, and no other
             // thread can reach its two port fields yet.
-            unsafe { ipc_host::ipc_processor_init(processor) };
+            unsafe { ipc_host::processor_init(&mut *processor) };
         }
     }
 
@@ -875,7 +875,7 @@ fn system_init() {
     // initialized.
     unsafe {
         glue::processor_set_create(
-            ptr::addr_of_mut!(glue::realhost),
+            crate::kern::host::realhost().cast::<c_void>(),
             ptr::addr_of_mut!(glue::slave_pset),
             ptr::addr_of_mut!(glue::slave_pset),
         );
@@ -1202,7 +1202,7 @@ pub unsafe extern "C" fn processor_info(
             unsafe {
                 ptr::write(info.cast::<ProcessorBasicInfo>(), basic);
                 *count = PROCESSOR_BASIC_INFO_COUNT;
-                *host = ptr::addr_of_mut!(glue::realhost);
+                *host = crate::kern::host::realhost().cast::<c_void>();
             }
             0
         }
@@ -1241,7 +1241,7 @@ pub unsafe extern "C" fn processor_set_info(
             unsafe {
                 ptr::write(info.cast::<ProcessorSetBasicInfo>(), basic);
                 *count = PROCESSOR_SET_BASIC_INFO_COUNT;
-                *host = ptr::addr_of_mut!(glue::realhost);
+                *host = crate::kern::host::realhost().cast::<c_void>();
             }
             0
         }
@@ -1252,7 +1252,7 @@ pub unsafe extern "C" fn processor_set_info(
             unsafe {
                 ptr::write(info.cast::<ProcessorSetSchedInfo>(), sched);
                 *count = PROCESSOR_SET_SCHED_INFO_COUNT;
-                *host = ptr::addr_of_mut!(glue::realhost);
+                *host = crate::kern::host::realhost().cast::<c_void>();
             }
             0
         }

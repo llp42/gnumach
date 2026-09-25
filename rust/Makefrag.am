@@ -91,8 +91,11 @@ MACH_RS_SRCS = \
 	rust/src/kern/debug.rs \
 	rust/src/kern/elf_load.rs \
 	rust/src/kern/exception.rs \
+	rust/src/kern/exception_ffi.rs \
 	rust/src/kern/host.rs \
+	rust/src/kern/host_ffi.rs \
 	rust/src/kern/ipc_host.rs \
+	rust/src/kern/ipc_host_ffi.rs \
 	rust/src/kern/ipc_mig.rs \
 	rust/src/kern/ipc_mig_ffi.rs \
 	rust/src/kern/ipc_sched.rs \

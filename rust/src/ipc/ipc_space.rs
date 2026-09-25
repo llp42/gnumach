@@ -299,6 +299,13 @@ pub(crate) fn kernel() -> IpcSpace {
     unsafe { IpcSpace::from_raw(KERNEL_SPACE) }
 }
 
+/// The reply space, live from `ipc_bootstrap()` on.
+pub(crate) fn reply() -> IpcSpace {
+    // SAFETY: `create_specials()` is the only writer, and it runs in
+    // `ipc_bootstrap()` before any caller that needs the space.
+    unsafe { IpcSpace::from_raw(REPLY_SPACE) }
+}
+
 /// `ipc_space_destroy()` in C.
 ///
 /// # Safety
