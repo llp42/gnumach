@@ -122,6 +122,10 @@ unsafe extern "C" {
         cn: usize,
     ) -> c_int;
 
+    /// `copyinmsg()` of `i386/i386/locore.S`: the i386 kernel's message
+    /// copy.  The LP64 kernel gets the same symbol from
+    /// `src/ipc/copy_user_ffi.rs`.
+    #[cfg(target_pointer_width = "32")]
     pub fn copyinmsg(
         userbuf: *const c_void,
         kernelbuf: *mut c_void,

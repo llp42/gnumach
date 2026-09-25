@@ -12,6 +12,8 @@ use crate::arch::i386::percpu::{cpu_number, current_thread};
 use crate::arch::vm_param::PAGE_SIZE;
 use crate::config::NCPUS;
 use crate::glue;
+#[cfg(target_pointer_width = "64")]
+use crate::ipc::copy_user;
 use crate::ipc::ipc_entry;
 use crate::ipc::ipc_marequest;
 use crate::ipc::ipc_notify;
@@ -1458,17 +1460,28 @@ pub(crate) unsafe fn get(
         kmsg
     };
 
-    // SAFETY: the caller promises the readable user message, and the
-    // message's buffer holds `ikm_size` writable bytes.
-    if unsafe {
+    #[cfg(target_pointer_width = "64")]
+    let failed = unsafe {
+        // SAFETY: the caller promises the readable user message, and the
+        // fresh message owns `ikm_size` writable bytes from its header.
+        copy_user::copy_in(user, kmsg.header(), as_index(size))
+    }
+    .is_err();
+    // The i386 kernel takes `copyinmsg()` from `i386/i386/locore.S`; its asm
+    // sets `msgh_size` itself.
+    #[cfg(target_pointer_width = "32")]
+    let failed = unsafe {
+        // SAFETY: the caller promises the readable user message, and the
+        // fresh message owns `ikm_size` writable bytes from its header.
         glue::copyinmsg(
             user,
-            (kmsg.header()).cast(),
+            kmsg.header().cast(),
             as_index(size),
             kmsg.size(),
         )
-    } != 0
-    {
+    } != 0;
+
+    if failed {
         // SAFETY: this call owns the fresh message.
         unsafe { ikm_free(kmsg) };
         return Err(MsgReturn::SEND_INVALID_DATA);

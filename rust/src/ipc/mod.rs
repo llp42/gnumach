@@ -12,6 +12,10 @@ use core::ffi::{c_int, c_uint, c_void};
 use core::mem::{align_of, offset_of, size_of};
 use core::ptr::{self, NonNull};
 
+#[cfg(target_pointer_width = "64")]
+pub mod copy_user;
+#[cfg(target_pointer_width = "64")]
+pub mod copy_user_ffi;
 pub mod ipc_entry;
 pub mod ipc_entry_ffi;
 pub mod ipc_init;

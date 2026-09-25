@@ -96,11 +96,12 @@ file, or `—` when the rest is ready too.
 
 ## 5. Outside `kern/`
 
-### `ipc/` (1 file, 540 LOC)
+### `ipc/` (0 files)
 
-| File | LOC | Free | Holds the rest |
-|---|---|---:|---|
-| `copy_user.c` | 540 | 0 | `mach_msg_header` fields; `copyoutmsg` absent from both builds |
+`copy_user.c` was the last one.  Its only live definition was the LP64
+kernel's `copyinmsg()`, now `src/ipc/copy_user.rs`; the i386 kernel takes
+that entry point from `i386/i386/locore.S`, and the file's `USER32` half
+never compiled in either configured build (§8, §9).
 
 ### `vm/` (10 files, 6,776 LOC)
 
@@ -332,6 +333,11 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 * Macro-shadowed definitions: `i386/intel/pmap.c`'s `pmap_copy` and
   `pmap_kernel` were unreachable behind `i386/intel/pmap.h`'s macros and
   went with the file's port.
+* `ipc/copy_user.c`'s `#ifdef USER32` half: `copyoutmsg()`, `msg_usize()`
+  and the twelve user-type conversion helpers are compiled out of both
+  configured builds, so they were deleted with the file rather than ported.
+  The header beside them had already lost its last C caller and went with
+  it.
 * `i386/i386/pic.c` and `i386/i386at/pic_isa.c` are not compiled in the
   APIC configuration.  They stay until the non-APIC configuration is
   either built or dropped; they are not port targets.
@@ -434,6 +440,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `ipc/mach_msg.c` whole, with the `mach_msg_continue`/`mach_msg_receive_continue` continuations whose addresses `kern/thread.c` and `kern/exception.c` compare | `src/ipc/mach_msg.rs`, `mach_msg_ffi.rs` | pending |
 | `ipc/mach_debug.c` whole, `host_ipc_marequest_info` included | `src/ipc/mach_debug.rs`, `mach_debug_ffi.rs` | pending |
 | `device/ds_routines.c` whole, with the `struct io_req`, `struct device`, `struct mach_device`, `struct dev_ops` and `struct device_emulation_ops` mirrors it owned, and its `device_io_map`, `io_inband_cache`, `io_trap_cache`, `io_done_list` and `mach_device_emulation_ops` globals | `src/device/ds_routines.rs`, `ds_routines_ffi.rs`, `src/arch/i386/io_req.rs` | pending |
+| `ipc/copy_user.c`, whose one live definition was the LP64 `copyinmsg()`; the `USER32` half is deleted as dead (§8) | `src/ipc/copy_user.rs`, `copy_user_ffi.rs` | pending |
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `i386/i386at/kd_glue.c`

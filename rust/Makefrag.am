@@ -56,6 +56,8 @@ MACH_RS_SRCS = \
 	rust/src/glue/mig.rs \
 	rust/src/glue/mod.rs \
 	rust/src/glue/time_value.rs \
+	rust/src/ipc/copy_user.rs \
+	rust/src/ipc/copy_user_ffi.rs \
 	rust/src/ipc/ipc_entry.rs \
 	rust/src/ipc/ipc_entry_ffi.rs \
 	rust/src/ipc/ipc_init.rs \
