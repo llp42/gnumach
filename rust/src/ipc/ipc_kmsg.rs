@@ -1766,6 +1766,7 @@ pub(crate) unsafe fn copyin_header(
                     Err(_) => break 'copyin Err(MsgReturn::SEND_INVALID_DEST),
                 }
 
+                // SAFETY: the space is write-locked and the entry is live.
                 // The C ignores this result; `copyin_check` above makes it a
                 // success.
                 if let Ok((object, soright)) = unsafe {
@@ -1921,6 +1922,7 @@ pub(crate) unsafe fn copyin_header(
                 unsafe { ipc_object::reference(saved_reply) };
             }
 
+            // SAFETY: the space is write-locked and the entry is live.
             // The C ignores this result; `copyin_check` above makes it a
             // success.
             if let Ok((object, soright)) = unsafe {
@@ -2954,6 +2956,8 @@ pub(crate) unsafe fn copyout_header(
             // SAFETY: the reply port is live and locked.
             unsafe { reply_port.increment_references() };
 
+            // SAFETY: the space is write-locked and the reply port is live
+            // and locked.
             // The C ignores this result.
             let _ = unsafe {
                 ipc_right::copyout(

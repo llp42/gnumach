@@ -26,6 +26,7 @@ pub unsafe extern "C" fn ipc_right_lookup_write(
     // SAFETY: the caller's contract.
     let space = unsafe { IpcSpace::from_raw(space) };
 
+    // SAFETY: the caller's contract.
     match unsafe { ipc_right::lookup_write(space, name) } {
         Ok(entry) => {
             // SAFETY: the caller promises `entryp` is writable; the C wrote
