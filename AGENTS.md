@@ -156,6 +156,8 @@ link error, not a fallback.
 | `ipc/copy_user.c` | `src/ipc/copy_user.rs`, `src/ipc/copy_user_ffi.rs` |
 | `kern/mach_clock.c` | `src/kern/mach_clock.rs`, `src/kern/mach_clock_ffi.rs` |
 | `kern/gsync.c` | `src/kern/gsync.rs`, `src/kern/gsync_ffi.rs` |
+| `i386/i386/fpu.c` | `src/arch/i386/fpu.rs`, `src/arch/i386/fpu_ffi.rs` |
+| `i386/i386/pcb.c` | `src/arch/i386/pcb.rs`, `src/arch/i386/pcb_ffi.rs` |
 
 Also deleted as dead: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `ipc/copy_user.c`'s `USER32`

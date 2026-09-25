@@ -716,6 +716,60 @@ fn flush_tlb() {
     write_cr3(read_cr3());
 }
 
+/// The `set_pmap()` of <i386/intel/pmap.h>, the level-4 table arm.
+#[cfg(target_arch = "x86_64")]
+fn set_pmap(pmap: *mut Pmap) {
+    // SAFETY: the caller passes a live map whose `l4base` the kernel built.
+    unsafe { write_cr3(kvtophys((*pmap).l4base as VmOffset) as usize) };
+}
+
+/// The `set_pmap()` of <i386/intel/pmap.h>, the page-directory arm.
+#[cfg(target_arch = "x86")]
+fn set_pmap(pmap: *mut Pmap) {
+    // SAFETY: the caller passes a live map whose `dirbase` the kernel built.
+    unsafe { write_cr3(kvtophys((*pmap).dirbase as VmOffset) as usize) };
+}
+
+/// The `PMAP_ACTIVATE_USER()` of <i386/intel/pmap.h>: make `pmap` current on
+/// `cpu` and add the CPU to its active set.
+///
+/// # Safety
+///
+/// `pmap` must be live, and `cpu` must be the calling CPU with interrupts
+/// blocked, as the context switch has them.
+pub unsafe fn activate_user(pmap: *mut Pmap, cpu: c_int) {
+    if pmap == kernel_pmap_ptr() {
+        set_pmap(pmap);
+        return;
+    }
+
+    cpus_active.clear(cpu);
+    // SAFETY: the caller promises a live map; the lock protects
+    // `cpus_using`, and `set_pmap()` reads the map the lock covers.
+    unsafe {
+        (*pmap).lock.lock();
+        set_pmap(pmap);
+        (*pmap).cpus_using.set(cpu);
+    }
+    cpus_active.set(cpu);
+    // SAFETY: as above; the lock is held.
+    unsafe { (*pmap).lock.unlock() };
+}
+
+/// The `PMAP_DEACTIVATE_USER()` of <i386/intel/pmap.h>: remove `cpu` from
+/// `pmap`'s active set.
+///
+/// # Safety
+///
+/// `pmap` must be live, and `cpu` must be the calling CPU.
+pub unsafe fn deactivate_user(pmap: *mut Pmap, cpu: c_int) {
+    if pmap != kernel_pmap_ptr() {
+        // SAFETY: the caller promises a live map; the C cleared the bit
+        // without the lock.
+        unsafe { (*pmap).cpus_using.clear(cpu) };
+    }
+}
+
 /// The `SPLVM()` of i386/intel/pmap.c, minus the assignment the macro makes.
 fn raise_splvm() -> c_int {
     // SAFETY: `splvm` is the real routine <i386/spl.h> declares.

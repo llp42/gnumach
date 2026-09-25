@@ -12,7 +12,7 @@
 //! x86 kernels install as `<machine/vm_param.h>`.
 #![cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 
-use crate::arch::types::VmSize;
+use crate::arch::types::{VmOffset, VmSize};
 
 /// `PAGE_SHIFT` of <machine/vm_param.h>: `I386_PGSHIFT`, the number of bits to
 /// shift for pages.
@@ -27,3 +27,11 @@ pub const PAGE_MASK: VmSize = PAGE_SIZE - 1;
 /// `KERNEL_STACK_SIZE` of <machine/vm_param.h>: the size and alignment of one
 /// kernel stack, `1*I386_PGBYTES` in the C.
 pub const KERNEL_STACK_SIZE: VmSize = PAGE_SIZE;
+
+/// `VM_MAX_USER_ADDRESS` of <machine/vm_param.h>: the top of a user map.
+///
+/// The `--enable-user32` third value is out of scope for the Rust half.
+#[cfg(target_pointer_width = "64")]
+pub const VM_MAX_USER_ADDRESS: VmOffset = 0x8000_0000_0000;
+#[cfg(target_pointer_width = "32")]
+pub const VM_MAX_USER_ADDRESS: VmOffset = 0xc000_0000;

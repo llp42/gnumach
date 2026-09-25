@@ -7,6 +7,9 @@ pub mod mig;
 pub mod time_value;
 
 use crate::arch::i386::irq::{IrqDev, UserIntr};
+use crate::arch::i386::pcb::{
+    I386DebugState, Pcb, RealDescriptor, TaskTss, UserLdt,
+};
 use crate::arch::types::{VmOffset, VmSize};
 use crate::config::NCPUS;
 use crate::device::ds_routines::DevOps;
@@ -19,7 +22,7 @@ use crate::kern::sched::RunQueue;
 use crate::kern::sched_prim::NUMQUEUES;
 use crate::kern::slab::KmemCache;
 use crate::kern::task::Task;
-use crate::kern::thread::{StackResume, Thread};
+use crate::kern::thread::{Continuation, Thread};
 use crate::kern::timer::Timer;
 use crate::vm::types::{Pmap, VmObject, VmPage, VmProt, VmStatistics};
 use crate::vm::vm_map::{VmMap, VmMapEntry};
@@ -68,25 +71,14 @@ unsafe extern "C" {
         continuation: crate::kern::thread::Continuation,
         receiver: *mut Thread,
     ) -> c_int;
-    pub fn stack_attach(
-        thread: *mut Thread,
-        stack: VmOffset,
-        continuation: StackResume,
-    );
 
-    pub fn thread_set_syscall_return(thread: *mut Thread, retval: c_int);
-    pub fn thread_setstatus(
-        thread: *mut Thread,
-        flavor: c_int,
-        tstate: *mut c_uint,
-        count: c_uint,
-    ) -> c_int;
-    pub fn thread_getstatus(
-        thread: *mut Thread,
-        flavor: c_int,
-        tstate: *mut c_uint,
-        count: *mut c_uint,
-    ) -> c_int;
+    pub fn Thread_continue();
+
+    pub fn Switch_context(
+        old: *mut Thread,
+        continuation: Continuation,
+        new: *mut Thread,
+    ) -> *mut Thread;
 
     pub fn copyin(
         userbuf: *const c_void,
@@ -125,12 +117,24 @@ unsafe extern "C" {
         length: c_int,
     ) -> c_int;
 
-    pub fn pcb_init(task: *mut Task, thread: *mut Thread);
-    pub fn pcb_terminate(thread: *mut Thread);
-
     /// `thread_syscall_return()` of <kern/sched_prim.h>: the machine's
     /// syscall-return path, which never comes back to its caller.
     pub fn thread_syscall_return(retval: c_int) -> !;
+
+    pub fn user_ldt_free(ldt: *mut UserLdt);
+
+    pub fn db_load_context(pcb: *mut Pcb);
+    pub fn db_set_debug_state(
+        pcb: *mut Pcb,
+        state: *const I386DebugState,
+    ) -> c_int;
+    pub fn db_get_debug_state(pcb: *mut Pcb, state: *mut I386DebugState);
+
+    /// `i386_exception()` of <i386/trap.h>, which never returns.
+    pub fn i386_exception(exc: c_int, code: c_int, subcode: c_long) -> !;
+
+    pub static mut mp_gdt: [*mut RealDescriptor; NCPUS];
+    pub static mut mp_ktss: [*mut TaskTss; NCPUS];
 
     pub fn eml_task_reference(task: *mut Task, parent: *mut Task);
     pub fn eml_task_deallocate(task: *mut Task);
@@ -164,8 +168,6 @@ unsafe extern "C" {
     pub static mut wait_lock: [SimpleLock; NUMQUEUES];
 
     pub fn thread_bootstrap_return();
-    pub fn pcb_module_init();
-    pub fn switch_ktss(pcb: *mut c_void);
     pub fn Load_context(new: *mut Thread) -> !;
 
     pub static mut min_quantum: c_int;
@@ -306,7 +308,6 @@ unsafe extern "C" {
         ret_addr: *const c_char,
         regs: *mut c_void,
     );
-    pub fn fpintr(unit: c_int);
 
     /// `main_intr_queue` of <device/intr.h>: the queue `irqtab` points at.
     pub static mut main_intr_queue: QueueEntry;
@@ -335,10 +336,6 @@ unsafe extern "C" {
     /// `apboot_addr` of <i386/model_dep.h>: the physical page the AP boot
     /// code lives in, claimed by `biosmem_bootstrap()`.
     pub static mut apboot_addr: VmOffset;
-
-    pub static mut ifps_cache: KmemCache;
-
-    pub fn fp_load(thread: *mut Thread);
 
     pub static mut machine_task_iopb_cache: KmemCache;
 

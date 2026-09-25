@@ -370,8 +370,11 @@ pub(crate) unsafe fn set_self_state(
     let thread = current_thread();
     // SAFETY: `thread` is the running thread.
     unsafe {
-        glue::thread_set_syscall_return(thread, KERN_SUCCESS);
-        let code = glue::thread_setstatus(
+        crate::arch::i386::pcb_ffi::thread_set_syscall_return(
+            thread,
+            KERN_SUCCESS,
+        );
+        let code = crate::arch::i386::pcb_ffi::thread_setstatus(
             thread,
             flavor,
             scratch.as_mut_ptr(),

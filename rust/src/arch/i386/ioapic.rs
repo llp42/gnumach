@@ -173,7 +173,7 @@ pub static mut ivect: [InterruptHandler; NINTR] = {
         >(glue::hardclock)
     });
     table[1] = Some(kdintr);
-    table[13] = Some(glue::fpintr);
+    table[13] = Some(crate::arch::i386::fpu_ffi::fpintr);
     table
 };
 
