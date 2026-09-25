@@ -24,6 +24,7 @@ use crate::glue::time_value::{
 };
 use crate::kern::lock::SimpleLock;
 use crate::kern::machine;
+use crate::kern::priority;
 use crate::kern::processor::{self, PROCESSOR_IDLE};
 use crate::kern::queue::QueueEntry;
 use crate::kern::sched_prim::{thread_bind, thread_block};
@@ -57,7 +58,7 @@ const TIMER_LOW_FULL: c_uint = 0x8000_0000;
 /// `CPU_STATE_*` in <mach/machine.h>: the `cpu_ticks` index.
 const CPU_STATE_USER: c_int = 0;
 const CPU_STATE_SYSTEM: c_int = 1;
-const CPU_STATE_IDLE: c_int = 2;
+pub(crate) const CPU_STATE_IDLE: c_int = 2;
 
 /// `hz` of `kern/mach_clock.c`: the ticks per second.  The C initializer is
 /// `HZ`, and nothing writes it after the boot, but the remaining C half still
@@ -395,7 +396,7 @@ pub(crate) fn interrupt(usec: c_int, usermode: bool, basepri: bool) {
     // SAFETY: `thread` is the interrupted thread or null before the
     // scheduler exists, which is what the C passed; the routine reads it for
     // the quantum.
-    unsafe { glue::thread_quantum_update(my_cpu, thread, 1, state) };
+    unsafe { priority::thread_quantum_update(my_cpu, thread, 1, state) };
 
     if my_cpu == processor::master_cpu() {
         // SAFETY: `splhigh()` is the real asm routine, and its value is only

@@ -74,11 +74,7 @@ file, or `—` when the rest is ready too.
 | File | LOC | Friction | Free | Holds the rest |
 |---|---:|---:|---:|---|
 | `debug.c` | 114 | 3 | 0 | C variadics (`Panic`, `log`) |
-| `ipc_sched.c` | 163 | 4 | 0 | — |
-| `mach_factor.c` | 150 | 2 | 0 | `mach_factor[]`/`load_average[]` are NCPUS-sized |
 | `printf.c` | 592 | 5 | 0 | C-variadic definitions; blocked (see §8) |
-| `priority.c` | 196 | 4 | 0 | pset tail and `struct slock_irq` |
-| `syscall_sw.c` | 220 | 3 | 0 | trap table ABI; static stubs |
 
 ## 5. Outside `kern/`
 
@@ -374,7 +370,6 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `device/device_init.c` (`device_service_create`), `device/intr.c` (`irqgetstat`), `device/kmsg.c` (`kmsggetstat`) | `src/device/device_init.rs`, `intr.rs`, `kmsg.rs` | pending |
 | `device/chario.c` whole, with the `struct tty`, `struct ldisc_switch` and `struct tty_status` mirrors and the `tthiwat`, `ttlowat`, `linesw`, `tty_inq_size`, `tty_outq_size`, `pdma_default`, `pdma_timeouts` and `pdma_water_mark` globals it owned | `src/device/chario.rs`, `chario_ffi.rs` | pending |
 | `kern/ipc_mig.c` whole, with the `mach_msg`/`syscall_*` RPC stubs and the `port_name_to_*` send-right lookups | `src/kern/ipc_mig.rs`, `src/kern/ipc_mig_ffi.rs` | pending |
-| `kern/ipc_sched.c` (`thread_go`, `thread_will_wait`, `thread_will_wait_with_timeout`) | `src/kern/ipc_sched.rs` | pending |
 | `kern/ipc_tt.c` whole, with the `struct ipc_port`/`ipc_target`/`ipc_mqueue` field mirror its `ip_srights` bump reads | `src/kern/ipc_tt.rs`, `src/kern/ipc_tt_ffi.rs`, `src/ipc/mod.rs` | pending |
 | `kern/mach_clock.c` whole, with the `hz`, `tick`, `time`, `uptime`, `elapsed_ticks`, `softticks`, `mtime`, `clock_boottime_offset`, `timedelta`, `tickdelta`, `tickadj`, `bigadj`, `last_hpc_read`, `timeoutwheel`, `timeout_timers`, `nextsoftcheck`, `timeout_lock` and `twheel_lock` globals it owned, and the `read_time_stamp`, `host_set_time`, `host_adjust_time` and `host_adjust_time64` entries that had already moved | `src/kern/mach_clock.rs`, `src/kern/mach_clock_ffi.rs` | pending |
 | `kern/gsync.c` whole, with the `gsync_buckets` table, the `union gsync_key`, `struct gsync_waiter` and `struct vm_args` it owned | `src/kern/gsync.rs`, `src/kern/gsync_ffi.rs` | pending |
@@ -445,6 +440,10 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `i386/i386at/int_init.c` whole, with the static `int_fill` and the `int_entry_table` walk | `src/arch/i386/int_init.rs`, `int_init_ffi.rs` | pending |
 | `i386/i386/user_ldt.c` whole, with the `struct descriptor` mirror and the `user_ldt_free` entry `pcb.rs` calls | `src/arch/i386/user_ldt.rs`, `user_ldt_ffi.rs` | pending |
 | `i386/i386/db_interface.c` whole, with the `zero_dr` static and the `ddb_regs` global | `src/arch/i386/db_interface.rs`, `db_interface_ffi.rs` | pending |
+| `kern/ipc_sched.c` whole, with `thread_handoff` and the `check_processor_set`/`check_bound_processor` MACH_HOST helpers; the three earlier entries' adapters now sit in `ipc_sched_ffi.rs` | `src/kern/ipc_sched.rs`, `ipc_sched_ffi.rs` | pending |
+| `kern/mach_factor.c` whole, with the `avenrun` and `mach_factor` counters (now `AtomicI32`/`AtomicI64` arrays that keep the C `long[3]` layout), the file-private `fract[]` and the `LOAD_SCALE` constant | `src/kern/mach_factor.rs`, `mach_factor_ffi.rs` | pending |
+| `kern/priority.c` whole, with its `USAGE_THRESHOLD` constant and the `simple_lock_irq` critical section | `src/kern/priority.rs`, `priority_ffi.rs` | pending |
+| `kern/syscall_sw.c` whole, with the `mach_trap_table` and `mach_trap_count` the assembly indexes, the `mach_trap_t` mirror moved out of `debug_i386.rs`, the `kern_invalid_debug` flag and the `null_port`/`kern_invalid` stubs | `src/kern/syscall_sw.rs` | pending |
 
 `vm/vm_fault.c` was ported whole and rolled back in the same pass: the pinned
 toolchain turns the copy-object loop's `first_object->copy` null test into an

@@ -22,6 +22,7 @@ use crate::ipc::{
     MigReplyHeader,
 };
 use crate::kern::ast::{AST_HALT, AST_TERMINATE};
+use crate::kern::ipc_sched;
 use crate::kern::ipc_tt::{
     retrieve_task_self_fast, retrieve_thread_self_fast,
 };
@@ -987,11 +988,11 @@ pub(crate) unsafe fn raise(
         // destination's continuation matches.
         let handed = can_handoff
             && unsafe {
-                glue::thread_handoff(
+                ipc_sched::thread_handoff(
                     self_,
                     Some(crate::kern::exception_ffi::exception_raise_continue),
                     receiver,
-                ) != 0
+                )
             };
         if !handed {
             // SAFETY: both message queues are locked.

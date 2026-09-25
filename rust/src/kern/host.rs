@@ -11,6 +11,7 @@ use crate::arch::types::VmOffset;
 use crate::config::NCPUS;
 use crate::glue;
 use crate::kern::ipc_host::pset_name_to_port;
+use crate::kern::mach_factor;
 use crate::kern::machine;
 use crate::kern::processor::{self, Processor, ProcessorSet};
 use crate::kern::queue::{QueueEntry, queue_end, queue_first, queue_next};
@@ -313,15 +314,21 @@ pub(crate) fn info(
                 return Err(KernError::Failure);
             }
 
-            // SAFETY: both arrays are the C globals `mach_factor.c`
-            // defines.
-            unsafe {
-                for i in 0..3 {
-                    // The C assigned a `long` to an `integer_t`, a
-                    // deliberate truncation.
-                    info[i] = glue::avenrun[i] as c_int;
-                    info[3 + i] = glue::mach_factor[i] as c_int;
-                }
+            let avenrun = mach_factor::avenrun();
+            let factor = mach_factor::mach_factor();
+            for (i, (average, factor)) in
+                avenrun.iter().zip(factor.iter()).enumerate()
+            {
+                let Some(average_slot) = info.get_mut(i) else {
+                    return Err(KernError::Failure);
+                };
+                // The C assigned a `long` to an `integer_t`, a deliberate
+                // truncation.
+                *average_slot = *average as c_int;
+                let Some(factor_slot) = info.get_mut(3 + i) else {
+                    return Err(KernError::Failure);
+                };
+                *factor_slot = *factor as c_int;
             }
 
             Ok(HOST_LOAD_INFO_COUNT as c_uint)

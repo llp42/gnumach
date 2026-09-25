@@ -6,15 +6,22 @@
 //! The thread scheduling entries of `kern/ipc_sched.c`, declared in
 //! <kern/sched_prim.h> and <kern/ipc_sched.h>.
 
+use crate::arch::i386::pcb::stack_handoff;
+use crate::arch::i386::percpu::{
+    cpu_number, current_processor, current_stack,
+};
 use crate::glue;
+use crate::kern::ast::ast_context;
 use crate::kern::mach_clock::{self, reset_timeout_check};
 use crate::kern::sched_prim::{
     TH_RUN_WAIT, TH_RUN_WAIT_SUSP, TH_RUN_WAIT_SUSP_UNINT, TH_RUN_WAIT_UNINT,
     TH_WAIT_SUSP, TH_WAIT_SUSP_UNINT, TH_WAIT_UNINT, THREAD_AWAKENED,
-    thread_setrun,
+    thread_setrun, thread_wakeup_prim,
 };
-use crate::kern::thread::{TH_RUN, TH_SCHED_STATE, TH_WAIT, Thread};
-use core::ffi::c_uint;
+use crate::kern::thread::{
+    Continuation, TH_RUN, TH_SCHED_STATE, TH_SUSP, TH_SWAPPED, TH_WAIT, Thread,
+};
+use core::ffi::{c_int, c_uint};
 
 /// `convert_ipc_timeout_to_ticks()` of <kern/sched_prim.h>: round a
 /// millisecond timeout up to whole ticks.
@@ -25,13 +32,13 @@ pub(crate) fn ipc_timeout_to_ticks(msecs: c_uint) -> c_uint {
     msecs.wrapping_mul(hz as c_uint).wrapping_add(999) / 1000
 }
 
-/// `thread_go()` in C.
+/// `thread_go()` of kern/ipc_sched.c.
 ///
 /// # Safety
 ///
 /// `thread` must point at a live thread; IPC locks may be held, as the C
 /// documented.
-unsafe fn go(thread: *mut Thread) {
+pub(crate) unsafe fn thread_go(thread: *mut Thread) {
     let s = unsafe { glue::splsched() };
     // SAFETY: the caller's contract; the thread lock is taken at splsched
     // exactly as the C did, and it protects every field and the timer element
@@ -63,13 +70,13 @@ unsafe fn go(thread: *mut Thread) {
     }
 }
 
-/// `thread_will_wait()` in C.
+/// `thread_will_wait()` of kern/ipc_sched.c.
 ///
 /// # Safety
 ///
 /// `thread` must point at a live thread; the routine takes the thread lock
 /// itself.
-unsafe fn will_wait(thread: *mut Thread) {
+pub(crate) unsafe fn thread_will_wait(thread: *mut Thread) {
     let s = unsafe { glue::splsched() };
     // SAFETY: the caller's contract; the thread lock protects the two fields,
     // and `-1` is the C's "checkable by later assertions" marker.
@@ -82,13 +89,13 @@ unsafe fn will_wait(thread: *mut Thread) {
     }
 }
 
-/// `thread_will_wait_with_timeout()` in C.
+/// `thread_will_wait_with_timeout()` of kern/ipc_sched.c.
 ///
 /// # Safety
 ///
 /// `thread` must point at a live thread; the routine takes the thread lock
 /// itself.
-pub(crate) unsafe fn will_wait_with_timeout(
+pub(crate) unsafe fn thread_will_wait_with_timeout(
     thread: *mut Thread,
     msecs: c_uint,
 ) {
@@ -106,39 +113,95 @@ pub(crate) unsafe fn will_wait_with_timeout(
     }
 }
 
-/// `thread_go()` of kern/ipc_sched.c.
+/// `check_processor_set()` of kern/ipc_sched.c, the `MACH_HOST` arm both
+/// configured builds take.
 ///
 /// # Safety
 ///
-/// `thread` must point at a live thread, the caller must not hold its lock,
-/// and the caller may hold IPC locks.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn thread_go(thread: *mut Thread) {
-    // SAFETY: the caller's contract.
-    unsafe { go(thread) };
+/// `thread` must be a live thread and this must run on a live processor.
+unsafe fn check_processor_set(thread: *mut Thread) -> bool {
+    // SAFETY: the caller's contract; the running processor is initialized
+    // before any thread runs.
+    unsafe { (*current_processor()).processor_set == (*thread).processor_set }
 }
 
-/// `thread_will_wait()` of kern/ipc_sched.c.
+/// `check_bound_processor()` of kern/ipc_sched.c.
 ///
 /// # Safety
 ///
-/// `thread` must point at a live thread and the caller must not hold its lock.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn thread_will_wait(thread: *mut Thread) {
+/// `thread` must be a live thread and this must run on a live processor.
+unsafe fn check_bound_processor(thread: *mut Thread) -> bool {
     // SAFETY: the caller's contract.
-    unsafe { will_wait(thread) };
+    let bound = unsafe { (*thread).bound_processor };
+    bound.is_null() || bound == current_processor()
 }
 
-/// `thread_will_wait_with_timeout()` of kern/ipc_sched.c.
+/// `thread_handoff()` of kern/ipc_sched.c: switch to `new`, leaving `old`
+/// blocked with `continuation` as its resume point.
 ///
 /// # Safety
 ///
-/// `thread` must point at a live thread and the caller must not hold its lock.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn thread_will_wait_with_timeout(
-    thread: *mut Thread,
-    msecs: c_uint,
-) {
-    // SAFETY: the caller's contract.
-    unsafe { will_wait_with_timeout(thread, msecs) };
+/// `old` must be the running thread, `new` a live thread the caller has
+/// validated to be wait-and-swapped with the continuation its queue expects,
+/// and the caller must hold no thread lock.
+pub(crate) unsafe fn thread_handoff(
+    old: *mut Thread,
+    continuation: Continuation,
+    new: *mut Thread,
+) -> bool {
+    let s = unsafe { glue::splsched() };
+    // SAFETY: the caller's contract; the new thread's lock is taken at
+    // splsched exactly as the C did, and it protects the fields read below.
+    unsafe {
+        (*new).lock.lock();
+
+        let can_handoff = (*old).stack_privilege != current_stack()
+            && (*new).state() == (TH_WAIT | TH_SWAPPED)
+            && check_processor_set(new)
+            && check_bound_processor(new);
+        if !can_handoff {
+            (*new).lock.unlock();
+            glue::splx(s);
+            return false;
+        }
+
+        reset_timeout_check(&raw mut (*new).timer);
+        (*new).set_state(TH_RUN);
+        (*new).lock.unlock();
+
+        (*new).last_processor = current_processor();
+        ast_context(new, cpu_number());
+
+        stack_handoff(old, new);
+
+        (*old).lock.lock();
+        (*old).swap_func = continuation;
+        (*old).wait_result = -1;
+        match (*old).state() {
+            TH_RUN => (*old).set_state(TH_WAIT | TH_SWAPPED),
+            state if state == TH_RUN | TH_SUSP => {
+                (*old).set_state(TH_WAIT | TH_SUSP | TH_SWAPPED);
+                if (*old).wake_active() {
+                    (*old).set_wake_active(false);
+                    (*old).lock.unlock();
+                    thread_wakeup_prim(
+                        (*old).wake_active_event(),
+                        0,
+                        THREAD_AWAKENED,
+                    );
+                    glue::splx(s);
+                    return true;
+                }
+            }
+            _ => glue::Panic(
+                c"kern/ipc_sched.c".as_ptr(),
+                line!() as c_int,
+                c"thread_handoff".as_ptr(),
+                c"thread_handoff".as_ptr(),
+            ),
+        }
+        (*old).lock.unlock();
+        glue::splx(s);
+        true
+    }
 }

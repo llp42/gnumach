@@ -12,7 +12,9 @@ use crate::arch::i386::percpu::{current_processor, current_thread};
 use crate::glue;
 use crate::ipc::{IpcPort, IpcSpace, ipc_object};
 use crate::kern::ipc_kobject::IKOT_THREAD;
-use crate::kern::ipc_sched::{ipc_timeout_to_ticks, will_wait_with_timeout};
+use crate::kern::ipc_sched::{
+    ipc_timeout_to_ticks, thread_will_wait_with_timeout,
+};
 use crate::kern::mach_clock::{self, reset_timeout_check};
 use crate::kern::policy::POLICY_FIXEDPRI;
 use crate::kern::processor::Processor;
@@ -258,7 +260,7 @@ pub(crate) unsafe fn thread_switch(
         }
         SWITCH_OPTION_WAIT => {
             // SAFETY: the caller's contract.
-            unsafe { will_wait_with_timeout(cur_thread, option_time) }
+            unsafe { thread_will_wait_with_timeout(cur_thread, option_time) }
         }
         _ => return c_int::from(KernError::InvalidArgument),
     }

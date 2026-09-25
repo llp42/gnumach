@@ -65,7 +65,6 @@ libkernel_a_SOURCES += \
 	kern/ipc_host.h \
 	kern/ipc_kobject.h \
 	kern/ipc_mig.h \
-	kern/ipc_sched.c \
 	kern/ipc_sched.h \
 	kern/ipc_tt.h \
 	kern/kalloc.h \
@@ -75,13 +74,11 @@ libkernel_a_SOURCES += \
 	kern/lock.h \
 	kern/log2.h \
 	kern/mach_clock.h \
-	kern/mach_factor.c \
 	kern/mach_factor.h \
 	kern/machine.h \
 	kern/macros.h \
 	kern/printf.c \
 	kern/printf.h \
-	kern/priority.c \
 	kern/priority.h \
 	kern/processor.h \
 	kern/queue.h \
@@ -98,7 +95,6 @@ libkernel_a_SOURCES += \
 	kern/startup.h \
 	kern/syscall_emulation.h \
 	kern/syscall_subr.h \
-	kern/syscall_sw.c \
 	kern/syscall_sw.h \
 	kern/task.h \
 	kern/thread.h \
