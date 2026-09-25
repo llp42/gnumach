@@ -158,6 +158,7 @@ link error, not a fallback.
 | `kern/gsync.c` | `src/kern/gsync.rs`, `src/kern/gsync_ffi.rs` |
 | `i386/i386/fpu.c` | `src/arch/i386/fpu.rs`, `src/arch/i386/fpu_ffi.rs` |
 | `i386/i386/pcb.c` | `src/arch/i386/pcb.rs`, `src/arch/i386/pcb_ffi.rs` |
+| `i386/i386at/com.c` | `src/arch/i386/com.rs`, `src/arch/i386/com_ffi.rs` |
 
 Also deleted as dead: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `ipc/copy_user.c`'s `USER32`
@@ -225,13 +226,11 @@ a per-CPU accessor), not a shim to add quietly.
 
 ### The glue already in the tree
 
-Two `*_glue.c` files predate this rule, and two ordinary C files carry shim
-functions too. All of it is debt, not precedent:
+Two `*_glue.c` files predate this rule and carry shim functions. All of it
+is debt, not precedent:
 
 ```
 vm/vm_map_glue.c            vm/vm_external_glue.c
-
-i386/i386at/com.c           com_base_addr, com_irq
 ```
 
 They may shrink and they may be deleted. They may never grow, and no new
@@ -423,7 +422,7 @@ the C file it came out of.
   macro is ported first, so that there is a real symbol to declare.
 - `rust/src/panic.rs` — `#[panic_handler]`, routed into the kernel's `Panic()`.
 
-The three `*_glue.c` files in the C tree are pre-rule debt, listed under "The
+The two `*_glue.c` files in the C tree are pre-rule debt, listed under "The
 no-glue law". Nothing adds to them and nothing joins them.
 
 The C half is unchanged Mach: `kern/`, `ipc/`, `vm/`, `device/`, `i386/`,

@@ -43,7 +43,6 @@ if PLATFORM_at
 libkernel_a_SOURCES += \
 	i386/i386at/acpi_parse_apic.h \
 	x86_64/boothdr.S \
-	i386/i386at/com.c \
 	i386/i386at/com.h \
 	i386/i386at/comreg.h \
 	i386/i386at/cram.h \

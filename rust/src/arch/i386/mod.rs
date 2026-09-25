@@ -8,6 +8,8 @@ pub mod apic;
 pub mod ast_check;
 pub mod atomic_bits;
 pub mod biosmem;
+pub mod com;
+pub mod com_ffi;
 pub mod fpu;
 pub mod fpu_ffi;
 pub mod io_req;
