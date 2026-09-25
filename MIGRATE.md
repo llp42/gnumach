@@ -115,16 +115,11 @@ recorded in §9.
 | `kmsg.c` | 237 | 0 | — (the rest is message plumbing) |
 | `subrs.c` | 53 | 0 | `ifnet` fields |
 
-### `i386/` (10 files, 1,157 LOC)
+### `i386/` (5 files, 696 LOC)
 
 | File | LOC | Free | Holds the rest |
 |---|---:|---:|---|
-| `i386/hardclock.c` | 69 | 0 | `machine_slot` and interrupt plumbing |
-| `i386/machine_task.c` | 70 | 0 | `task.machine` fields |
-| `i386/percpu.c` | 31 | 0 | `struct percpu.self` field |
-| `i386/phys.c` | 164 | 0 | mapped-window internals for `pmap_copy_page` etc. |
 | `i386/pic.c` | 270 | 0 | not compiled in the APIC configuration |
-| `i386at/autoconf.c` | 127 | 0 | `bus_device`/`bus_ctlr` fields |
 | `i386at/conf.c` | 144 | 0 | static tables |
 | `i386at/cons_conf.c` | 48 | 0 | static tables |
 | `i386at/pic_isa.c` | 56 | 0 | not compiled in the APIC configuration |
@@ -445,6 +440,11 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `i386/i386at/int_init.c` whole, with the static `int_fill` and the `int_entry_table` walk | `src/arch/i386/int_init.rs`, `int_init_ffi.rs` | pending |
 | `i386/i386/user_ldt.c` whole, with the `struct descriptor` mirror and the `user_ldt_free` entry `pcb.rs` calls | `src/arch/i386/user_ldt.rs`, `user_ldt_ffi.rs` | pending |
 | `i386/i386/db_interface.c` whole, with the `zero_dr` static and the `ddb_regs` global | `src/arch/i386/db_interface.rs`, `db_interface_ffi.rs` | pending |
+| `i386/i386/phys.c` whole, with the `pmap_zero_page`, `pmap_copy_page`, `copy_to_phys` and `copy_from_phys` entries it had left after the earlier `kvtophys` move, the `INTEL_PTE_W()`/`INTEL_PTE_R()` templates built from the `pmap.rs` header constants, and the direct-map/window choice as a drop guard | `src/arch/i386/phys.rs`, `phys_ffi.rs` | pending |
+| `i386/i386/machine_task.c` whole, with the `machine_task_iopb_cache` global and the `machine_task_init`/`machine_task_terminate`/`machine_task_collect` entries | `src/arch/i386/machine_task.rs`, `machine_task_ffi.rs` | pending |
+| `i386/i386/hardclock.c` whole, with the `return_to_iret` comparison the interrupt entry relies on | `src/arch/i386/hardclock.rs`, `hardclock_ffi.rs` | pending |
+| `i386/i386/percpu.c` whole, with the NCPUS-sized `percpu_array` the boot assembly addresses by symbol and the `init_percpu` initializer | `src/arch/i386/percpu.rs`, `percpu_ffi.rs` | pending |
+| `i386/i386at/autoconf.c` whole, with the `bus_master_init`/`bus_device_init` tables, the `probeio` probe and the `take_dev_irq` vector setup, and the `chips/busses.c` walk they serve | `src/arch/i386/autoconf.rs`, `autoconf_ffi.rs` | pending |
 
 `vm/vm_fault.c` was ported whole and rolled back in the same pass: the pinned
 toolchain turns the copy-object loop's `first_object->copy` null test into an

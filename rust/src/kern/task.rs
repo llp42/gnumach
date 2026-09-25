@@ -8,7 +8,11 @@
 //! The task module's cores, which `kern/task.c` used to define and
 //! `kern/task.h` declares, and the `struct task` mirror of `kern/task.h`.
 
-use crate::arch::i386::machine_task::{MachineTask, machine_task_module_init};
+use crate::arch::i386::machine_task::MachineTask;
+use crate::arch::i386::machine_task_ffi::{
+    machine_task_collect, machine_task_init, machine_task_module_init,
+    machine_task_terminate,
+};
 use crate::arch::i386::percpu::{cpu_number, current_thread};
 use crate::arch::types::{VmOffset, VmSize};
 use crate::arch::vm_param::PAGE_SIZE;
@@ -616,7 +620,7 @@ pub(crate) unsafe fn create_kernel_task(
     unsafe {
         crate::kern::syscall_emulation::task_reference(task, parent);
         ipc_task_init(task, parent);
-        glue::machine_task_init(task);
+        machine_task_init(task);
 
         addr_of_mut!((*task).total_user_time).write(TimeValue64::default());
         addr_of_mut!((*task).total_system_time).write(TimeValue64::default());
@@ -739,7 +743,7 @@ pub(crate) unsafe fn deallocate(task: *mut Task) {
     // SAFETY: this is the last reference, so the machine data and emulation
     // vector belong to this call.
     unsafe {
-        glue::machine_task_terminate(task);
+        machine_task_terminate(task);
         crate::kern::syscall_emulation::task_deallocate(task);
     }
 
@@ -1745,7 +1749,7 @@ unsafe fn collect_scan() {
                 (*pset).lock.unlock();
                 (*all_psets_lock).unlock();
 
-                glue::machine_task_collect(task);
+                machine_task_collect(task);
                 glue::pmap_collect((*(*task).map.cast::<VmMap>()).pmap);
 
                 if !prev_task.is_null() {

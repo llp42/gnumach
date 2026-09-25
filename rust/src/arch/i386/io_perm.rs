@@ -7,7 +7,7 @@
 //! The I/O permission bitmap objects, which `i386/i386/io_perm.c` used to
 //! define and `i386/i386/io_perm.h` declares.
 
-use crate::arch::i386::machine_task::IOPB_BYTES;
+use crate::arch::i386::machine_task::{IOPB_BYTES, IOPB_CACHE};
 use crate::arch::i386::pcb;
 use crate::device::dev_lookup;
 use crate::device::ds_routines::{Device, DeviceEmulationOps};
@@ -318,7 +318,7 @@ pub(crate) unsafe fn modify(
         // SAFETY: this call took the lock above.
         unsafe { (*machine).iopb_lock.unlock() };
 
-        let cache = &raw mut glue::machine_task_iopb_cache;
+        let cache = &raw mut IOPB_CACHE;
         // SAFETY: the cache is initialized before any task runs, and its own
         // lock serializes the allocation.
         let allocated = unsafe { (*cache).alloc() };

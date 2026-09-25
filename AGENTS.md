@@ -191,6 +191,11 @@ link error, not a fallback.
 | `i386/i386at/int_init.c` | `src/arch/i386/int_init.rs`, `src/arch/i386/int_init_ffi.rs` |
 | `i386/i386/user_ldt.c` | `src/arch/i386/user_ldt.rs`, `src/arch/i386/user_ldt_ffi.rs` |
 | `i386/i386/db_interface.c` | `src/arch/i386/db_interface.rs`, `src/arch/i386/db_interface_ffi.rs` |
+| `i386/i386/phys.c` | `src/arch/i386/phys.rs`, `src/arch/i386/phys_ffi.rs` |
+| `i386/i386/machine_task.c` | `src/arch/i386/machine_task.rs`, `src/arch/i386/machine_task_ffi.rs` |
+| `i386/i386/hardclock.c` | `src/arch/i386/hardclock.rs`, `src/arch/i386/hardclock_ffi.rs` |
+| `i386/i386/percpu.c` | `src/arch/i386/percpu.rs`, `src/arch/i386/percpu_ffi.rs` |
+| `i386/i386at/autoconf.c` | `src/arch/i386/autoconf.rs`, `src/arch/i386/autoconf_ffi.rs` |
 
 Also deleted as dead: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `ipc/copy_user.c`'s `USER32`

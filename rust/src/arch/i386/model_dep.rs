@@ -15,8 +15,8 @@
 //! The `extern "C"` edge is in [`model_dep_ffi`].
 
 use crate::arch::i386::{
-    apic, biosmem, fpu, gdt, idt, int_init, ioapic, irq, ktss, ldt, mbinfo,
-    mp_desc, percpu, pit, pmap, rtc,
+    apic, autoconf, biosmem, fpu, gdt, idt, int_init, ioapic, irq, ktss, ldt,
+    mbinfo, mp_desc, percpu, pit, pmap, rtc,
 };
 use crate::arch::types::{VmOffset, VmSize};
 use crate::arch::vm_param::{PAGE_MASK, PAGE_SHIFT};
@@ -259,12 +259,9 @@ pub(crate) fn machine_init() {
     ioapic::ioapic_configure();
     pit::clkstart();
 
-    // SAFETY: `cninit` and `probeio` are the real C routines of
-    // `device/cons.c` and `i386/i386at/autoconf.c`.
-    unsafe {
-        glue::cninit();
-        glue::probeio();
-    }
+    // SAFETY: `cninit` is the real C routine of `device/cons.c`.
+    unsafe { glue::cninit() };
+    autoconf::probeio();
 
     inittodr();
 
@@ -675,9 +672,8 @@ fn i386at_init() {
     int_init::int_init();
     ldt::ldt_init();
     ktss::ktss_init();
-    // SAFETY: `init_percpu` is the real C routine of `i386/i386/percpu.c`,
-    // and this runs on the boot CPU.
-    unsafe { glue::init_percpu(0) };
+    // SAFETY: this runs on the boot CPU, and zero is below `NCPUS`.
+    unsafe { percpu::init(0) };
     mp_desc::mp_desc_init(0);
 
     pmap::pmap_remove_temporary_mapping();

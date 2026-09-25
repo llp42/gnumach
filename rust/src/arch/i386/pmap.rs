@@ -59,13 +59,13 @@ const INTEL_PTE_PFN: VmOffset = 0xffff_ffff_ffff_f000;
 #[cfg(target_pointer_width = "32")]
 const INTEL_PTE_PFN: VmOffset = 0xffff_f000;
 
-const INTEL_PTE_VALID: VmOffset = 0x0000_0001;
-const INTEL_PTE_WRITE: VmOffset = 0x0000_0002;
+pub(crate) const INTEL_PTE_VALID: VmOffset = 0x0000_0001;
+pub(crate) const INTEL_PTE_WRITE: VmOffset = 0x0000_0002;
 const INTEL_PTE_USER: VmOffset = 0x0000_0004;
 const INTEL_PTE_WTHRU: VmOffset = 0x0000_0008;
 const INTEL_PTE_NCACHE: VmOffset = 0x0000_0010;
-const INTEL_PTE_REF: VmOffset = 0x0000_0020;
-const INTEL_PTE_MOD: VmOffset = 0x0000_0040;
+pub(crate) const INTEL_PTE_REF: VmOffset = 0x0000_0020;
+pub(crate) const INTEL_PTE_MOD: VmOffset = 0x0000_0040;
 const INTEL_PTE_GLOBAL: VmOffset = 0x0000_0100;
 const INTEL_PTE_WIRED: VmOffset = 0x0000_0200;
 
@@ -242,7 +242,7 @@ const fn pagenum2lin(l4: usize, l3: usize, l2: usize, l1: usize) -> VmOffset {
 }
 
 /// `pa_to_pte()` of <i386/pmap.h>.
-const fn pa_to_pte(pa: VmOffset) -> VmOffset {
+pub(crate) const fn pa_to_pte(pa: VmOffset) -> VmOffset {
     pa & INTEL_PTE_PFN
 }
 
@@ -252,7 +252,7 @@ const fn pte_to_pa(pte: VmOffset) -> VmOffset {
 }
 
 /// `phystokv()` of <i386/vm_param.h>.
-const fn phystokv(pa: VmOffset) -> VmOffset {
+pub(crate) const fn phystokv(pa: VmOffset) -> VmOffset {
     pa.wrapping_add(VM_MIN_KERNEL_ADDRESS)
 }
 
@@ -527,7 +527,7 @@ pub static mut kernel_pmap: *mut Pmap = ptr::null_mut();
 const PMAP_NULL: *mut Pmap = ptr::null_mut();
 
 /// The kernel pmap the C global holds.
-fn kernel_pmap_ptr() -> *mut Pmap {
+pub(crate) fn kernel_pmap_ptr() -> *mut Pmap {
     // SAFETY: `kernel_pmap` is written once, in `pmap_bootstrap()`, before
     // any other CPU runs.
     unsafe { kernel_pmap }
