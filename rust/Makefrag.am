@@ -94,6 +94,8 @@ MACH_RS_SRCS = \
 	rust/src/kern/elf_load.rs \
 	rust/src/kern/exception.rs \
 	rust/src/kern/exception_ffi.rs \
+	rust/src/kern/gsync.rs \
+	rust/src/kern/gsync_ffi.rs \
 	rust/src/kern/host.rs \
 	rust/src/kern/host_ffi.rs \
 	rust/src/kern/ipc_host.rs \
@@ -107,6 +109,7 @@ MACH_RS_SRCS = \
 	rust/src/kern/list.rs \
 	rust/src/kern/lock.rs \
 	rust/src/kern/mach_clock.rs \
+	rust/src/kern/mach_clock_ffi.rs \
 	rust/src/kern/machine.rs \
 	rust/src/kern/mod.rs \
 	rust/src/kern/policy.rs \

@@ -17,6 +17,7 @@ use crate::arch::types::{VmOffset, VmSize};
 use crate::arch::vm_param::{PAGE_MASK, PAGE_SHIFT, PAGE_SIZE};
 use crate::glue;
 use crate::glue::time_value::TimeValue64;
+use crate::kern::mach_clock;
 use crate::vm::types::VmProt;
 use core::arch::asm;
 use core::ffi::c_int;
@@ -54,9 +55,9 @@ fn mapped_time_page(prot: VmProt) -> Option<VmOffset> {
         return None;
     }
 
-    // SAFETY: `mtime` is the global `kern/mach_clock.c` fills with the address
-    // of the page it wired at boot.
-    let address = unsafe { glue::mtime } as VmOffset;
+    // SAFETY: `mapable_time_init()` wired the page at boot, before `/dev/time`
+    // can be opened.
+    let address = unsafe { mach_clock::mapped_time_page() } as VmOffset;
     // SAFETY: `kernel_pmap` is the kernel's own pmap, so it maps `address`;
     // the C called `pmap_extract` with the same two values.
     let phys = unsafe { glue::pmap_extract(glue::kernel_pmap, address) };
@@ -82,14 +83,13 @@ fn set_wallclock(seconds: i64) {
     // SAFETY: `splhigh()` is the real asm function <i386/spl.h> declares, and
     // the value it returns is only handed back to `splx()`.
     let s = unsafe { glue::splhigh() };
-    // SAFETY: `time` is the wall-clock global `kern/mach_clock.c` defines, and
-    // an interrupt cannot see the store half-written at this level; the C took
-    // the same level around it.
+    // SAFETY: the clock interrupt is off, so it cannot see the store
+    // half-written; the C took the same level around it.
     unsafe {
-        glue::time = TimeValue64 {
+        mach_clock::set_wallclock(TimeValue64 {
             seconds,
             nanoseconds: 0,
-        }
+        })
     };
     // SAFETY: `s` is the level `splhigh()` returned.
     unsafe { glue::splx(s) };

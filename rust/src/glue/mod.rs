@@ -48,29 +48,6 @@ unsafe extern "C" {
 
     pub fn cngetc() -> c_int;
 
-    pub fn timeout(
-        fcn: Option<unsafe extern "C" fn(*mut c_void)>,
-        param: *mut c_void,
-        interval: c_int,
-    ) -> *mut c_void;
-    pub static mut time: time_value::TimeValue64;
-
-    pub static mut clock_boottime_offset: time_value::TimeValue64;
-
-    pub static mut timedelta: c_int;
-    pub static mut tickdelta: c_int;
-    pub static mut tickadj: c_uint;
-    pub static mut bigadj: c_uint;
-
-    pub fn host_set_time64(
-        host: *mut c_void,
-        new_time: time_value::TimeValue64,
-    ) -> c_int;
-
-    pub fn record_time_stamp(stamp: *mut time_value::TimeValue64);
-
-    pub static mtime: *mut time_value::MappedTimeValue;
-
     pub fn cpu_shutdown();
     pub fn action_thread_continue() -> !;
 
@@ -167,10 +144,6 @@ unsafe extern "C" {
     ) -> c_int;
 
     pub fn evc_notify_abort(thread: *mut Thread);
-
-    pub fn reset_timeout(t: *mut c_void) -> c_int;
-
-    pub fn set_timeout(t: *mut Timeout, interval: c_uint);
 
     pub fn smp_remote_ast(logical_id: c_uint);
     pub fn smp_pmap_update(logical_id: c_uint);
@@ -327,10 +300,21 @@ unsafe extern "C" {
 
     pub fn comgetc(unit: c_int) -> c_int;
 
-    pub static hz: c_int;
-    pub static elapsed_ticks: c_ulong;
+    /// `setsoftclock()` of <i386/spl.h>: raise the softclock interrupt.
+    pub fn setsoftclock();
+
+    /// `thread_quantum_update()` of <kern/priority.h>: charge the quantum.
+    pub fn thread_quantum_update(
+        mycpu: c_int,
+        thread: *mut Thread,
+        nticks: c_int,
+        state: c_int,
+    );
+
+    /// `master_cpu` of <kern/cpu_number.h>: the processor that keeps time.
+    pub static mut master_cpu: c_int;
+
     pub static rebootflag: c_int;
-    pub static tick: c_int;
 
     pub fn com_base_addr(unit: c_int) -> VmOffset;
     pub fn com_irq(unit: c_int) -> c_int;

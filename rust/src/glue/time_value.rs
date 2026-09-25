@@ -45,6 +45,35 @@ pub struct TimeValue64 {
 }
 
 impl TimeValue64 {
+    /// The `time_value64_add_nanos()` macro of <mach/time_value.h>: add
+    /// `nanos` and carry one whole second.
+    #[must_use]
+    pub const fn add_nanos(self, nanos: i64) -> Self {
+        let nanoseconds = self.nanoseconds.wrapping_add(nanos);
+        if nanoseconds >= TIME_NANOS_MAX {
+            Self {
+                seconds: self.seconds.wrapping_add(1),
+                nanoseconds: nanoseconds.wrapping_sub(TIME_NANOS_MAX),
+            }
+        } else {
+            Self {
+                seconds: self.seconds,
+                nanoseconds,
+            }
+        }
+    }
+
+    /// The `time_value64_add()` macro of <mach/time_value.h>: add the whole
+    /// seconds, then the nanoseconds with their carry.
+    #[must_use]
+    pub const fn add(self, addend: Self) -> Self {
+        Self {
+            seconds: self.seconds.wrapping_add(addend.seconds),
+            nanoseconds: self.nanoseconds,
+        }
+        .add_nanos(addend.nanoseconds)
+    }
+
     /// The `time_value64_sub()` macro of <mach/time_value.h>: subtract
     /// `subtrahend`, borrowing one second when the nanoseconds go negative.
     #[must_use]

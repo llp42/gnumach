@@ -14,7 +14,7 @@ use super::display::{
     dclear, dmvdown, dmvup, dput, scrolldn, scrollup, setpos,
 };
 use super::*;
-use crate::glue;
+use crate::kern::mach_clock;
 use core::ffi::{c_int, c_short};
 
 /// The most `\e[...]` parameters the C parser kept.
@@ -56,10 +56,10 @@ fn ring_bell() {
     super::kd_bellon();
     // SAFETY: the timeout table is the driver's and SPLKD is held.
     unsafe {
-        glue::timeout(
+        mach_clock::timeout(
             Some(super::kd_belloff),
             core::ptr::null_mut(),
-            glue::hz / 8,
+            mach_clock::hz / 8,
         );
     }
     state().kd_bellstate = true;

@@ -13,7 +13,7 @@ use crate::arch::i386::percpu::cpu_number;
 use crate::arch::i386::pio::Port;
 use crate::config::{NCPUS, NINTR};
 use crate::glue;
-use crate::kern::mach_clock::Timeout;
+use crate::kern::mach_clock::{self, Timeout};
 use crate::kern::queue::QueueEntry;
 use crate::spin::Mutex;
 use core::arch::asm;
@@ -469,10 +469,9 @@ fn measure_10x_apic_hz() -> u32 {
     // SAFETY: `unit` is the mapped local-APIC page.
     unsafe { apic::reg_write(&raw mut (*unit).init_count, start) };
 
-    // SAFETY: `set_timeout` is the real C routine <kern/mach_clock.h>
-    // declares; `timer` is a live element that stays at this address until
-    // the timeout expires.
-    unsafe { glue::set_timeout(&raw mut timer, 10) };
+    // SAFETY: `timer` is a live element that stays at this address until the
+    // timeout expires.
+    unsafe { mach_clock::set_timeout(&raw mut timer, 10) };
 
     loop {
         // SAFETY: `done` is written only by the expiry callback, through a

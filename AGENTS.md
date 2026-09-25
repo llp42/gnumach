@@ -152,6 +152,8 @@ link error, not a fallback.
 | `kern/host.c` | `src/kern/host.rs`, `src/kern/host_ffi.rs` |
 | `kern/exception.c` | `src/kern/exception.rs`, `src/kern/exception_ffi.rs` |
 | `device/chario.c` | `src/device/chario.rs`, `src/device/chario_ffi.rs` |
+| `kern/mach_clock.c` | `src/kern/mach_clock.rs`, `src/kern/mach_clock_ffi.rs` |
+| `kern/gsync.c` | `src/kern/gsync.rs`, `src/kern/gsync_ffi.rs` |
 
 Also deleted as dead: `device/blkio.c` and the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`).

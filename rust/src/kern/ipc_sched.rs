@@ -7,7 +7,7 @@
 //! <kern/sched_prim.h> and <kern/ipc_sched.h>.
 
 use crate::glue;
-use crate::kern::mach_clock::reset_timeout_check;
+use crate::kern::mach_clock::{self, reset_timeout_check};
 use crate::kern::sched_prim::{
     TH_RUN_WAIT, TH_RUN_WAIT_SUSP, TH_RUN_WAIT_SUSP_UNINT, TH_RUN_WAIT_UNINT,
     TH_WAIT_SUSP, TH_WAIT_SUSP_UNINT, TH_WAIT_UNINT, THREAD_AWAKENED,
@@ -19,9 +19,7 @@ use core::ffi::c_uint;
 /// `convert_ipc_timeout_to_ticks()` of <kern/sched_prim.h>: round a
 /// millisecond timeout up to whole ticks.
 pub(crate) fn ipc_timeout_to_ticks(msecs: c_uint) -> c_uint {
-    // SAFETY: `hz` is written once during the boot, before any thread can
-    // reach this, and only read afterwards.
-    let hz = unsafe { glue::hz };
+    let hz = mach_clock::hz;
     // The C expression is unsigned arithmetic over the `int` rate converted to
     // unsigned.
     msecs.wrapping_mul(hz as c_uint).wrapping_add(999) / 1000
@@ -99,7 +97,7 @@ unsafe fn will_wait_with_timeout(thread: *mut Thread, msecs: c_uint) {
         (*thread).lock.lock();
         (*thread).wait_result = -1;
         (*thread).set_state((*thread).state() | TH_WAIT);
-        glue::set_timeout(&raw mut (*thread).timer, ticks);
+        mach_clock::set_timeout(&raw mut (*thread).timer, ticks);
         (*thread).lock.unlock();
         glue::splx(s);
     }

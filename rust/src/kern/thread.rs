@@ -25,7 +25,9 @@ use crate::kern::ipc_tt::{
     ipc_thread_terminate,
 };
 use crate::kern::lock::SimpleLock;
-use crate::kern::mach_clock::{Timeout, read_time_stamp, reset_timeout_check};
+use crate::kern::mach_clock::{
+    self, Timeout, read_time_stamp, reset_timeout_check,
+};
 use crate::kern::policy::{POLICY_FIXEDPRI, POLICY_TIMESHARE, invalid_policy};
 use crate::kern::processor::{
     Processor, ProcessorSet, pset_deallocate, pset_reference,
@@ -710,9 +712,7 @@ impl Thread {
 ///
 /// Panics if the kernel's `tick` global is zero: the conversion divides by it.
 fn fixedpri_quantum(data: c_int) -> c_int {
-    // SAFETY: `tick` is the `int tick` of <kern/mach_clock.h>, initialized
-    // before any thread can call a policy setter and never written after.
-    let tick = unsafe { glue::tick };
+    let tick = mach_clock::tick;
     let temp = data.wrapping_mul(1000);
     let temp = if temp % tick != 0 {
         temp.wrapping_add(tick)
@@ -1586,7 +1586,7 @@ impl Thread {
         // written before the thread is visible to anything else.
         unsafe {
             new_thread.write(ptr::read(ptr::addr_of!(THREAD_TEMPLATE)));
-            glue::record_time_stamp(ptr::addr_of_mut!(
+            mach_clock::record_time_stamp(ptr::addr_of_mut!(
                 (*new_thread).creation_time
             ));
             (*new_thread).task = parent_task;
@@ -2507,7 +2507,8 @@ impl Thread {
 
                     ptr::addr_of_mut!((*sched).policy).write((*thread).policy);
                     let data = if (*thread).policy == POLICY_FIXEDPRI {
-                        (*thread).sched_data.wrapping_mul(glue::tick) / 1000
+                        (*thread).sched_data.wrapping_mul(mach_clock::tick)
+                            / 1000
                     } else {
                         0
                     };
@@ -2915,7 +2916,7 @@ pub(crate) unsafe fn consider_collect() {
     // The C's `hz / 1` and the usual arithmetic conversions reinterpret the
     // signed tick rate as unsigned; `hz` is positive and set before the
     // pageout daemon can run.
-    let hz = unsafe { glue::hz }.unsigned_abs();
+    let hz = mach_clock::hz.unsigned_abs();
     let mut max_rate = unsafe { THREAD_COLLECT_MAX_RATE };
     if max_rate == 0 {
         max_rate = hz;

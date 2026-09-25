@@ -9,6 +9,7 @@
 
 use crate::arch::i386::pio::Port;
 use crate::glue;
+use crate::kern::mach_clock;
 use core::ffi::c_int;
 use core::mem::{align_of, offset_of, size_of};
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -311,9 +312,9 @@ fn write_todc() -> Result<(), RtcError> {
     // SAFETY: `ospl` is the level `splclock()` returned.
     unsafe { glue::splx(ospl) };
 
-    // SAFETY: `time` is the wall-clock global `kern/mach_clock.c` defines,
-    // read at the level `splx()` just restored, as the C did.
-    let seconds = unsafe { glue::time.seconds };
+    // SAFETY: the wall clock is the maintained global, read at the level
+    // `splx()` just restored, as the C did.
+    let seconds = unsafe { mach_clock::wallclock() }.seconds;
     // `time_t` is `unsigned long long`, and the C assigned the int64 wall
     // clock to it; the clock is a post-epoch count, so the sign-extending cast
     // is that conversion.
