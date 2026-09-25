@@ -56,7 +56,6 @@ libkernel_a_SOURCES += \
 	kern/boot_script.h \
 	kern/bootstrap.h \
 	kern/cpu_number.h \
-	kern/debug.c \
 	kern/debug.h \
 	kern/eventcount.h \
 	kern/exception.h \

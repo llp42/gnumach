@@ -73,7 +73,6 @@ file, or `—` when the rest is ready too.
 
 | File | LOC | Friction | Free | Holds the rest |
 |---|---:|---:|---:|---|
-| `debug.c` | 100 | 3 | 0 | C variadic `Panic`, no caller left |
 | `printf.c` | 497 | 5 | 0 | `printf`/`_doprnt` only for `vm_fault.c`; the Rust side is `kprint!` (§11) |
 
 ## 5. Outside `kern/`
@@ -477,6 +476,10 @@ variadic leaves of `kern/printf.c` (`sprintf`, `snprintf`, `vsnprintf`,
 `iprintf`, `indent`, `sputc`, `snputc`), `printf_once` in
 <kern/printf.h>, and `kern/debug.c`'s `log` and its prototype went when
 their last Rust callers moved to `src/kern/console.rs` (§11).
+`kern/debug.c` itself, its `Panic`, `panicstr` and `paniccpu` included,
+went with the `vm_fault_unwire` panic call that became `kpanic!`.  The
+two unused `static inline` helpers of `ipc/port.h` that expanded the
+`panic()` macro went with it.
 
 ## 10. The glue debt
 
@@ -547,8 +550,8 @@ path:
 
 The only C caller of `printf` left is `vm/vm_fault.c`, for two
 diagnostics; no C caller of `Panic` remains.  When `vm_fault.c` moves,
-`printf.c` and the variadic declarations go with it, and `debug.c`
-defines nothing that is still called.
+`printf.c` and the variadic declarations go with it.  `debug.c` and the
+`Panic` declaration are already deleted.
 
 A boot-time differential harness formatted the same values through the C
 `_doprnt` and through `core::fmt`.  The differences below are the accepted

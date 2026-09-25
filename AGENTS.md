@@ -204,9 +204,10 @@ link error, not a fallback.
 
 Also deleted as dead: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), `i386/intel/read_fault.c` (body
-`#if`-ed out on every supported CPU), and `ipc/copy_user.c`'s `USER32`
-half (`copyoutmsg()` included), which never compiled in either configured
-build.
+`#if`-ed out on every supported CPU), `ipc/copy_user.c`'s `USER32` half
+(`copyoutmsg()` included), which never compiled in either configured
+build, and `kern/debug.c`, whose `Panic` lost its last caller when
+`vm_fault_unwire` moved to Rust.
 
 **Next:** a good candidate is a leaf, needs no allocation, and has a C
 definition that can be deleted in the same commit. `MIGRATE.md` §4 rates every
@@ -614,8 +615,8 @@ rediscovering them per port:
   `src/kern/console.rs`, which formats with `core::fmt` and writes through
   the `cnputc()` core; `CStrArg` is how a NUL-terminated C string becomes a
   `{}` argument, `write_cstr` is the `snprintf()` replacement, and
-  `kpanic!` is the Rust `Panic()`. The C `printf`/`Panic` symbols remain
-  only for the C files that still call them (`vm_fault.c`, `debug.c`).
+  `kpanic!` is the Rust `Panic()`. The C `printf` symbols remain only for
+  the one C file that still calls them, `vm_fault.c`.
 
 ### Edition 2024
 
