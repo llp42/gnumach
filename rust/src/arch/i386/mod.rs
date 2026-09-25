@@ -10,6 +10,7 @@ pub mod atomic_bits;
 pub mod autoconf;
 pub mod autoconf_ffi;
 pub mod biosmem;
+pub mod busses;
 pub mod com;
 pub mod com_ffi;
 pub mod db_interface;

@@ -244,14 +244,6 @@ unsafe extern "C" {
     pub fn sploff() -> c_ulong;
     pub fn splon(n: c_ulong);
 
-    pub fn configure_bus_master(
-        name: *const c_char,
-        virt: VmOffset,
-        phys: VmOffset,
-        adpt_no: c_int,
-        bus_name: *const c_char,
-    ) -> c_int;
-
     pub fn configure_bus_device(
         name: *const c_char,
         virt: VmOffset,

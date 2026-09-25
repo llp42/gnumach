@@ -121,11 +121,11 @@ declarations in `src/device/dev_name.rs` and `glue`, `IfNet` in
 | `i386at/conf.c` | 144 | 0 | static tables |
 | `i386at/cons_conf.c` | 48 | 0 | static tables |
 | `i386at/pic_isa.c` | 56 | 0 | not compiled in the APIC configuration |
-| `intel/read_fault.c` | 178 | 0 | dead: body is `#if`-ed out on every supported CPU |
 
-`chips/busses.c` (232 LOC) is still C, but the `struct bus_device`,
-`struct bus_ctlr` and `struct bus_driver` mirrors it reads now exist in
-`src/arch/i386/com.rs`, asserts included, so its field gap is closed.
+`chips/busses.c` moved to `src/arch/i386/busses.rs`; the `struct bus_device`,
+`struct bus_ctlr` and `struct bus_driver` mirrors it reads stay in
+`src/arch/i386/com.rs`, asserts included (§9).  `i386/intel/read_fault.c` was
+deleted as dead, its body being `#if`-ed out on every supported CPU (§9).
 There are no C files under `x86_64/`.
 
 ## 6. What to port next — the objective test
@@ -283,9 +283,9 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 
 ## 8. Deletions
 
-* `i386/intel/read_fault.c`: the body is
+* `i386/intel/read_fault.c` is deleted: the body is
   `#if (__i386__ && !(__i486__ || __i586__ || __i686__))`, compiled out
-  on every supported CPU.  Delete, do not port.
+  on every supported CPU.
 * `#if 0` blocks in `kern/exception.c` and `i386/i386at/kd.c`.  Delete
   before porting the surrounding code.  The `#if 0` bodies of
   `kern/{boot_script,bootstrap}.c`, `i386/i386at/com.c`,
@@ -451,6 +451,7 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `i386/i386/hardclock.c` whole, with the `return_to_iret` comparison the interrupt entry relies on | `src/arch/i386/hardclock.rs`, `hardclock_ffi.rs` | pending |
 | `i386/i386/percpu.c` whole, with the NCPUS-sized `percpu_array` the boot assembly addresses by symbol and the `init_percpu` initializer | `src/arch/i386/percpu.rs`, `percpu_ffi.rs` | pending |
 | `i386/i386at/autoconf.c` whole, with the `bus_master_init`/`bus_device_init` tables, the `probeio` probe and the `take_dev_irq` vector setup, and the `chips/busses.c` walk they serve | `src/arch/i386/autoconf.rs`, `autoconf_ffi.rs` | pending |
+| `chips/busses.c` whole, with the `bus_master_init[]`/`bus_device_init[]` walks and the `BusCtlr`/`BusDevice`/`BusDriver` mirrors it reads, which stay in `src/arch/i386/com.rs` | `src/arch/i386/busses.rs` | pending |
 
 `vm/vm_fault.c` was ported whole and rolled back in the same pass: the pinned
 toolchain turns the copy-object loop's `first_object->copy` null test into an
@@ -460,9 +461,11 @@ that loop is the trigger; `vm_fault.c` stays C until the toolchain or the loop
 shape changes.
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
-(`profil.h`, `profilparam.h`, `mpqueue`), and `i386/i386at/kd_glue.c`
-(`018c9cd8`).  `kern/rdxtree.c`'s `rdxtree_check_alignment`, never called
-by either build, went with that file's port.
+(`profil.h`, `profilparam.h`, `mpqueue`), `i386/i386at/kd_glue.c`
+(`018c9cd8`), and `i386/intel/read_fault.c`, whose body is
+`#if (__i386__ && !(__i486__ || __i586__ || __i686__))` and so is compiled
+out on every supported CPU.  `kern/rdxtree.c`'s `rdxtree_check_alignment`,
+never called by either build, went with that file's port.
 
 ## 10. The glue debt
 

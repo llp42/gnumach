@@ -198,9 +198,11 @@ link error, not a fallback.
 | `i386/i386/hardclock.c` | `src/arch/i386/hardclock.rs`, `src/arch/i386/hardclock_ffi.rs` |
 | `i386/i386/percpu.c` | `src/arch/i386/percpu.rs`, `src/arch/i386/percpu_ffi.rs` |
 | `i386/i386at/autoconf.c` | `src/arch/i386/autoconf.rs`, `src/arch/i386/autoconf_ffi.rs` |
+| `chips/busses.c` | `src/arch/i386/busses.rs` |
 
 Also deleted as dead: `device/blkio.c`, the `#if 0` profiling facility
-(`profil.h`, `profilparam.h`, `mpqueue`), and `ipc/copy_user.c`'s `USER32`
+(`profil.h`, `profilparam.h`, `mpqueue`), `i386/intel/read_fault.c` (body
+`#if`-ed out on every supported CPU), and `ipc/copy_user.c`'s `USER32`
 half (`copyoutmsg()` included), which never compiled in either configured
 build.
 

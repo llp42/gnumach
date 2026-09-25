@@ -51,6 +51,5 @@ libkernel_a_SOURCES += \
 	i386/i386/user_ldt.h \
 	i386/i386/vm_param.h \
 	i386/intel/pmap.h \
-	i386/intel/read_fault.c \
 	i386/intel/read_fault.h
 

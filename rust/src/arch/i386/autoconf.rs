@@ -32,12 +32,12 @@ const SENTINEL_CTLR: BusCtlr =
 /// `bus_master_init[]` of `i386/i386at/autoconf.c`: the AT-bus controller
 /// table, ended by a driver-less sentinel.
 #[unsafe(export_name = "bus_master_init")]
-static mut BUS_MASTER_INIT: [BusCtlr; 1] = [SENTINEL_CTLR];
+pub(crate) static mut BUS_MASTER_INIT: [BusCtlr; 1] = [SENTINEL_CTLR];
 
 /// `bus_device_init[]` of `i386/i386at/autoconf.c`: the AT-bus device table,
 /// ended by a driver-less sentinel.
 #[unsafe(export_name = "bus_device_init")]
-static mut BUS_DEVICE_INIT: [BusDevice; 4] = [
+pub(crate) static mut BUS_DEVICE_INIT: [BusDevice; 4] = [
     BusDevice {
         driver: ptr::addr_of_mut!(com::COMDRIVER),
         name: c"com".as_ptr().cast_mut(),
@@ -166,7 +166,7 @@ pub(crate) fn probeio() {
         // SAFETY: the C routine takes the entry's NUL-terminated name and the
         // literal bus name.
         if unsafe {
-            glue::configure_bus_master(
+            crate::arch::i386::busses::configure_bus_master(
                 name,
                 address,
                 phys,
