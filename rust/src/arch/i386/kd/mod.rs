@@ -248,7 +248,7 @@ pub(crate) use crate::utils::cell::SyncCell;
 /// state, the tty, and the few values other modules share.
 pub(crate) struct Kd {
     pub(crate) st: State,
-    pub(crate) tty: tty::Tty,
+    pub(crate) tty: crate::device::chario::Tty,
     pub(crate) kb_mode: c_int,
     pub(crate) state_bits: c_int,
     pub(crate) bitmap_start: usize,
@@ -258,7 +258,7 @@ impl Kd {
     const fn new() -> Self {
         Self {
             st: State::new(),
-            tty: tty::Tty::new(),
+            tty: crate::device::chario::Tty::new(),
             kb_mode: KB_ASCII,
             state_bits: KS_NORMAL,
             bitmap_start: C_BITMAP_START,

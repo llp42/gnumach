@@ -21,39 +21,7 @@ use crate::kern::thread::{StackResume, Thread};
 use crate::kern::timer::Timer;
 use crate::vm::types::{Pmap, VmObject, VmPage, VmProt, VmStatistics};
 use crate::vm::vm_map::{VmMap, VmMapEntry};
-use core::ffi::{c_char, c_int, c_short, c_uint, c_ulong, c_ushort, c_void};
-use core::mem::offset_of;
-
-/// `NSPEEDS` of <device/tty_status.h>: how many baud-rate slots `ttlowat[]`
-/// and `tthiwat[]` are indexed by.
-pub const NSPEEDS: usize = 18;
-
-/// `struct ldisc_switch` of <device/tty.h>: the entry points one line
-/// discipline provides.
-#[repr(C)]
-pub struct LdiscSwitch {
-    pub l_read:
-        Option<unsafe extern "C" fn(*mut c_void, *mut c_void) -> c_int>,
-    pub l_write:
-        Option<unsafe extern "C" fn(*mut c_void, *mut c_void) -> c_int>,
-    /// `l_rint`: feed one received character to the discipline.
-    pub l_rint: Option<unsafe extern "C" fn(c_uint, *mut c_void)>,
-    /// `l_modem`: report a modem carrier change.
-    pub l_modem: Option<unsafe extern "C" fn(*mut c_void, c_int) -> c_int>,
-    /// `l_start`: restart stalled output.
-    pub l_start: Option<unsafe extern "C" fn(*mut c_void)>,
-}
-
-const _: () = {
-    const PTR: usize = size_of::<*const c_void>();
-    assert!(size_of::<LdiscSwitch>() == 5 * PTR);
-    assert!(align_of::<LdiscSwitch>() == align_of::<*const c_void>());
-    assert!(offset_of!(LdiscSwitch, l_read) == 0);
-    assert!(offset_of!(LdiscSwitch, l_write) == PTR);
-    assert!(offset_of!(LdiscSwitch, l_rint) == 2 * PTR);
-    assert!(offset_of!(LdiscSwitch, l_modem) == 3 * PTR);
-    assert!(offset_of!(LdiscSwitch, l_start) == 4 * PTR);
-};
+use core::ffi::{c_char, c_int, c_uint, c_ulong, c_ushort, c_void};
 
 // The raw pointers below are to `#[repr(C)]` mirrors.
 #[expect(improper_ctypes)]
@@ -337,35 +305,6 @@ unsafe extern "C" {
     pub fn splon(n: c_ulong);
 
     pub fn comgetc(unit: c_int) -> c_int;
-
-    pub fn ttychars(tp: *mut c_void);
-    pub fn char_open(
-        dev: c_int,
-        tp: *mut c_void,
-        mode: c_int,
-        ior: *mut c_void,
-    ) -> c_int;
-    pub fn ttyclose(tp: *mut c_void);
-    pub fn tty_get_status(
-        tp: *mut c_void,
-        flavor: c_uint,
-        data: *mut c_int,
-        count: *mut u32,
-    ) -> c_int;
-    pub fn tty_set_status(
-        tp: *mut c_void,
-        flavor: c_uint,
-        data: *mut c_int,
-        count: u32,
-    ) -> c_int;
-    pub fn tty_portdeath(tp: *mut c_void, port: *mut c_void) -> c_int;
-
-    pub static linesw: [LdiscSwitch; 1];
-    pub static ttlowat: [c_short; NSPEEDS];
-
-    pub static tty_inq_size: c_uint;
-    pub static mut pdma_timeouts: [c_int; NSPEEDS];
-    pub static mut pdma_water_mark: [c_int; NSPEEDS];
 
     pub static hz: c_int;
     pub static elapsed_ticks: c_ulong;

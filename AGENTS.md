@@ -143,6 +143,7 @@ link error, not a fallback.
 | `i386/i386/apic.c` | `src/arch/i386/apic.rs` |
 | `i386/i386at/acpi_parse_apic.c` | `src/arch/i386/acpi_parse_apic.rs` |
 | `device/ds_routines.c` | `src/device/ds_routines.rs`, `src/device/ds_routines_ffi.rs` |
+| `device/chario.c` | `src/device/chario.rs`, `src/device/chario_ffi.rs` |
 
 Also deleted as dead: `device/blkio.c` and the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`).

@@ -37,6 +37,7 @@ MACH_RS_SRCS = \
 	rust/src/arch/vm_param.rs \
 	rust/src/config.rs \
 	rust/src/device/chario.rs \
+	rust/src/device/chario_ffi.rs \
 	rust/src/device/cirbuf.rs \
 	rust/src/device/dev_name.rs \
 	rust/src/device/dev_pager.rs \

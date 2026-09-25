@@ -75,6 +75,12 @@ impl QueueEntry {
         ptr::eq(self.next, self)
     }
 
+    /// Whether the entry was initialized: a zeroed C `static` has null links
+    /// until `queue_init()` sets them.
+    pub fn is_initialized(&self) -> bool {
+        !self.next.is_null()
+    }
+
     /// `queue_first()` in C.
     pub fn first(&self) -> Option<NonNull<QueueEntry>> {
         NonNull::new(self.next).filter(|p| !ptr::eq(p.as_ptr(), self))

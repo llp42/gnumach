@@ -187,7 +187,6 @@ EXTRA_DIST += \
 # particular drivers want the routines.
 # TODO.  Functions in device/subrs.c should each be moved elsewhere.
 libkernel_a_SOURCES += \
-	device/chario.c \
 	device/chario.h \
 	device/cirbuf.h \
 	device/conf.h \
