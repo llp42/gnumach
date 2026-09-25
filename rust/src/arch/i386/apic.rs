@@ -90,6 +90,9 @@ pub(crate) const APIC_IO_ENTRIES_SHIFT: u32 = 16;
 const ICR_LOW_FIELDS: u32 =
     0xff | (0x7 << 8) | (1 << 11) | (1 << 14) | (1 << 15) | (0x3 << 18);
 
+/// `SEND_PENDING` of <i386/apic.h>: the `delivery_status` bit of `icr_low`.
+const SEND_PENDING: u32 = 1 << 12;
+
 /// `cpu_id_lut` entries of `i386/i386/apic.c`.
 const CPU_ID_LUT_SIZE: usize = 256;
 
@@ -469,7 +472,7 @@ fn cpuid_leaf1() -> u32 {
 }
 
 /// `cpu_intr_save()` of <i386/cpu.h>: the current EFLAGS, interrupts off.
-fn intr_save() -> c_ulong {
+pub(crate) fn intr_save() -> c_ulong {
     let flags: c_ulong;
     // SAFETY: `pushf`, `pop` and `cli` are the instructions the C inline
     // expands to, and the stack stays balanced.
@@ -486,7 +489,7 @@ fn intr_save() -> c_ulong {
 }
 
 /// `cpu_intr_restore()` of <i386/cpu.h>: put `flags` back into EFLAGS.
-fn intr_restore(flags: c_ulong) {
+pub(crate) fn intr_restore(flags: c_ulong) {
     // SAFETY: `flags` came from `intr_save()`, so it holds a valid RFLAGS
     // image; the stack stays balanced.
     unsafe {
@@ -519,6 +522,15 @@ pub(crate) unsafe fn reg_write(reg: *mut ApicReg, value: u32) {
     // SAFETY: the caller promises the register is mapped; the volatile store
     // is the C's access through `volatile ApicLocalUnit *`.
     unsafe { ptr::write_volatile(&raw mut (*reg).r, value) }
+}
+
+/// The `lapic->icr_low.delivery_status == SEND_PENDING` test the IPI sender
+/// waits on.
+pub(crate) fn ipi_pending() -> bool {
+    let ptr = lapic_ptr();
+    // SAFETY: `ptr` is the mapped local-APIC page, and the read is the C's
+    // volatile access.
+    unsafe { reg_read(&raw const (*ptr).icr_low) & SEND_PENDING != 0 }
 }
 
 /// Publish the mapped local-APIC page, the C's `apic_lapic_init()`.
@@ -830,7 +842,7 @@ pub(crate) fn print_info() {
 }
 
 /// `apic_send_ipi()` in C: program both halves of the ICR and post them.
-fn send_ipi(
+pub(crate) fn send_ipi(
     dest_shorthand: c_uint,
     deliv_mode: c_uint,
     dest_mode: c_uint,

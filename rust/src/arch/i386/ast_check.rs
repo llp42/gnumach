@@ -6,7 +6,7 @@
 //! Remote AST delivery, which `i386/i386/ast_check.c` used to define and
 //! `kern/ast.h` declares.
 
-use crate::glue;
+use crate::arch::i386::smp;
 use crate::kern::processor::Processor;
 
 /// `APIC_LOGICAL_CPU_GROUPS` in <i386/apic.h>: the logical destination
@@ -32,7 +32,7 @@ pub unsafe extern "C" fn cause_ast_check(processor: *mut Processor) {
     // APIC_LOGICAL_CPU_GROUPS))`.
     let group = (slot_num as u32) % APIC_LOGICAL_CPU_GROUPS;
     let logical_id = 1u32 << group;
-    // SAFETY: `smp_remote_ast()` is the real C IPI routine, and `logical_id`
-    // is the APIC destination bit the C macro computes.
-    unsafe { glue::smp_remote_ast(logical_id) };
+    // The local APIC is initialized before any processor takes an AST, and
+    // `logical_id` is the APIC destination bit the C macro computes.
+    smp::remote_ast(logical_id);
 }

@@ -125,7 +125,7 @@ moved with them (§9).
 | `net_io.c` | 2168 | 0 | `ifnet`/`net_hash_entry` fields |
 | `subrs.c` | 53 | 0 | `ifnet` fields |
 
-### `i386/` (23 files, 4,180 LOC)
+### `i386/` (20 files, 3,109 LOC)
 
 | File | LOC | Free | Holds the rest |
 |---|---:|---:|---|
@@ -134,7 +134,6 @@ moved with them (§9).
 | `i386/gdt.c` | 141 | 0 | static `gdt_fill`, `reload_segs` |
 | `i386/hardclock.c` | 69 | 0 | `machine_slot` and interrupt plumbing |
 | `i386/idt.c` | 80 | 0 | static `idt_fill` |
-| `i386/io_perm.c` | 325 | 0 | `struct io_perm`; static bitmap helpers |
 | `i386/ktss.c` | 86 | 0 | static `ktss_fill` |
 | `i386/ldt.c` | 100 | 0 | static `ldt_fill` |
 | `i386/machine_task.c` | 70 | 0 | `task.machine` fields |
@@ -142,8 +141,6 @@ moved with them (§9).
 | `i386/percpu.c` | 31 | 0 | `struct percpu.self` field |
 | `i386/phys.c` | 164 | 0 | mapped-window internals for `pmap_copy_page` etc. |
 | `i386/pic.c` | 270 | 0 | not compiled in the APIC configuration |
-| `i386/smp.c` | 214 | 0 | static `smp_send_ipi` |
-| `i386/trap.c` | 532 | 0 | trap frames; `trap_type[]` static |
 | `i386/user_ldt.c` | 422 | 0 | `struct pcb` and descriptor structs |
 | `i386at/autoconf.c` | 127 | 0 | `bus_device`/`bus_ctlr` fields |
 | `i386at/conf.c` | 144 | 0 | static tables |
@@ -258,7 +255,7 @@ builds; a PAE i386 build would still need a `--cfg` plumbed through
 Apply it to the function **and to every callee**.  A `t` callee is the
 most common hidden blocker: the four `pmap_*attribute*` functions look
 free until `nm` shows their `phys_attribute_*` helpers are `static`, and
-`i386/i386/smp.c`'s `smp_send_ipi` is the same case.
+`i386/i386/ktss.c`'s `ktss_fill` is the same case.
 
 **Then parse.**  clang's AST dump over each C file with the build's own
 flags finds, per definition, its calls, its member accesses and its
@@ -314,12 +311,11 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 * `i386/intel/read_fault.c`: the body is
   `#if (__i386__ && !(__i486__ || __i586__ || __i686__))`, compiled out
   on every supported CPU.  Delete, do not port.
-* `#if 0` blocks in `kern/{exception,ipc_kobject}.c`,
-  `device/intr.c`, `i386/i386/{smp,trap}.c` and `i386/i386at/kd.c`.
-  Delete before porting the surrounding code.  `kern/boot_script.c`'s and
-  `kern/bootstrap.c`'s prints went with those whole-file ports, as did
-  `i386/i386at/com.c`'s, `kern/ipc_tt.c`'s four `#if 0` `retrieve_*`
-  bodies, and `i386/i386/{fpu,pcb}.c`'s.
+* `#if 0` blocks in `kern/{exception,ipc_kobject}.c`, `device/intr.c`,
+  and `i386/i386at/kd.c`.  Delete before porting the surrounding code.
+  The `#if 0` bodies of `kern/{boot_script,bootstrap}.c`,
+  `i386/i386at/com.c`, `kern/ipc_tt.c` (four `retrieve_*` bodies) and
+  `i386/i386/{fpu,pcb,smp,trap}.c` went with their whole-file ports.
 * Dead `#else /* MACH_HOST */` halves of `kern/machine.c:309`;
   `MACH_HOST` is 1 in both configured builds.  The `kern/task.c` and
   `kern/thread.c` halves went with their files.
@@ -442,6 +438,9 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `vm/memory_object.c` whole, with the `memory_manager_default` port and its lock | `src/vm/memory_object.rs`, `memory_object_ffi.rs`, `src/vm/error.rs` | pending |
 | `vm/vm_resident.c` whole, with the `vm_page_bucket_t` hash table, the fictitious-page list, the file-private counters and the `virtual_space_start`/`virtual_space_end` globals | `src/vm/vm_resident.rs`, `vm_resident_ffi.rs` | pending |
 | `kern/boot_script.c` and `kern/bootstrap.c` whole, with the `struct cmd` mirror of <kern/boot_script.h>, the `struct multiboot_raw_info`/`struct multiboot_raw_module` mirrors of <mach/machine/multiboot.h>, the parser's `cmds`/`symtab` statics and the `boot_host_port`/`boot_device_port` globals they owned | `src/kern/boot_script.rs`, `boot_script_ffi.rs`, `bootstrap.rs`, `bootstrap_ffi.rs` | pending |
+| `i386/i386/io_perm.c` whole, with the `IoPerm` mirror, the `taken_pci_cfg` static, the `device_emulation_ops` instance and the `no_senders()` handler it owned | `src/arch/i386/io_perm.rs`, `src/arch/i386/io_perm_ffi.rs` | pending |
+| `i386/i386/smp.c` whole, with the static `smp_send_ipi()` and the `smp_data_init()`, `wait_for_ipi()`, `smp_send_ipi_init()` and `smp_send_ipi_startup_twice()` helpers it owned | `src/arch/i386/smp.rs`, `src/arch/i386/smp_ffi.rs` | pending |
+| `i386/i386/trap.c` whole, with the `trap_type[]` table, the `user_page_fault_continue()` continuation and the `struct recovery` mirror its two table walks read | `src/arch/i386/trap.rs`, `src/arch/i386/trap_ffi.rs` | pending |
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `i386/i386at/kd_glue.c`

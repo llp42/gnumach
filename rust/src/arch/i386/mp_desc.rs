@@ -7,6 +7,7 @@
 //! which `i386/i386/mp_desc.c` used to define and `i386/i386/mp_desc.h` and
 //! `kern/lock.h` declare.
 
+use crate::arch::i386::smp;
 use crate::glue;
 use crate::kern::types::KernError;
 use core::ffi::{c_int, c_uint};
@@ -75,7 +76,7 @@ fn logical_id(cpu: c_int) -> u32 {
 /// Interrupt processor `cpu` to make it flush its pmap.
 #[unsafe(no_mangle)]
 pub extern "C" fn interrupt_processor(cpu: c_int) {
-    // SAFETY: `smp_pmap_update()` is the real C IPI routine, and `logical_id`
-    // is the APIC destination bit the C macro computes.
-    unsafe { glue::smp_pmap_update(logical_id(cpu)) };
+    // The local APIC is initialized before any processor runs, and
+    // `logical_id` is the APIC destination bit the C macro computes.
+    smp::pmap_update(logical_id(cpu));
 }

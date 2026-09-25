@@ -164,6 +164,9 @@ link error, not a fallback.
 | `vm/memory_object.c` | `src/vm/memory_object.rs`, `src/vm/memory_object_ffi.rs` |
 | `vm/vm_resident.c` | `src/vm/vm_resident.rs`, `src/vm/vm_resident_ffi.rs` |
 | `kern/boot_script.c`, `kern/bootstrap.c` | `src/kern/boot_script.rs`, `src/kern/boot_script_ffi.rs`, `src/kern/bootstrap.rs`, `src/kern/bootstrap_ffi.rs` |
+| `i386/i386/io_perm.c` | `src/arch/i386/io_perm.rs`, `src/arch/i386/io_perm_ffi.rs` |
+| `i386/i386/smp.c` | `src/arch/i386/smp.rs`, `src/arch/i386/smp_ffi.rs` |
+| `i386/i386/trap.c` | `src/arch/i386/trap.rs`, `src/arch/i386/trap_ffi.rs` |
 
 Also deleted as dead: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `ipc/copy_user.c`'s `USER32`
