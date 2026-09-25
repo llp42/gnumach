@@ -73,8 +73,8 @@ file, or `—` when the rest is ready too.
 
 | File | LOC | Friction | Free | Holds the rest |
 |---|---:|---:|---:|---|
-| `debug.c` | 114 | 3 | 0 | C variadics (`Panic`, `log`) |
-| `printf.c` | 592 | 5 | 0 | C-variadic definitions; blocked (see §8) |
+| `debug.c` | 100 | 3 | 0 | C variadic `Panic`, no caller left |
+| `printf.c` | 497 | 5 | 0 | `printf`/`_doprnt` only for `vm_fault.c`; the Rust side is `kprint!` (§11) |
 
 ## 5. Outside `kern/`
 
@@ -85,11 +85,11 @@ kernel's `copyinmsg()`, now `src/ipc/copy_user.rs`; the i386 kernel takes
 that entry point from `i386/i386/locore.S`, and the file's `USER32` half
 never compiled in either configured build (§8, §9).
 
-### `vm/` (1 file, 1,871 LOC)
+### `vm/` (1 file, 1,386 LOC)
 
 | File | LOC | Free | Holds the rest |
-|---|---:|---:|---:|
-| `vm_fault.c` | 1871 | 0 | the pinned toolchain folds the copy-object null test (§9) |
+|---|---:|---:|---|
+| `vm_fault.c` | 1386 | 0 | `vm_fault_page`'s copy-object test and the three functions that share its state, §9 |
 
 `memory_object.c`, `vm_resident.c`, `vm_kern.c`, `vm_pageout.c`,
 `vm_user.c`, `vm_debug.c` and `memory_object_proxy.c` are whole: the
@@ -97,28 +97,22 @@ never compiled in either configured build (§8, §9).
 table, the fictitious-page list, `virtual_space_start`/`virtual_space_end`,
 the kernel map globals, the pageout daemon's statics, the `vm_stat` block,
 the VM-debug info records and the proxy slab cache all moved with them
-(§9).  `vm_fault.c` was attempted and put back whole; the blocker is
-recorded in §9.
+(§9).  `vm_fault_cleanup`, `vm_fault_unwire`, `vm_fault_wire_fast` and
+`vm_fault_copy` moved in a second pass; `vm_fault_init`, `vm_fault_page`,
+`vm_fault_continue` and `vm_fault` stay because `vm_fault_page`'s
+copy-object retry loop is still the pinned-toolchain blocker, and the
+other three share its `vm_fault_state_cache` and helpers.
 
-### `device/` (1 file, 49 LOC)
+### `device/` (0 files)
 
-| File | LOC | Free | Holds the rest |
-|---|---|---:|---:|---|
-| `device_init.c` | 49 | 0 | the `master_device_port` global it still defines |
+`device_init.c` held only the `master_device_port` global; its Rust home
+is an `AtomicPtr` in `src/device/device_init.rs`.  `cons.c`, `dev_name.c`,
+`intr.c`, `kmsg.c` and `subrs.c` moved whole earlier (§9), and `constab`
+of `i386/i386at/cons_conf.c` and the `dev_name_list`/`dev_indirect_list`
+tables of `i386/i386at/conf.c` now live in `src/device/cons.rs` and
+`src/device/dev_name.rs`.
 
-`cons.c`, `dev_name.c`, `intr.c`, `kmsg.c` and `subrs.c` moved whole
-(§9).  Their headers stay for the C callers; the mirrors they read live in
-Rust now: `ConsDev` in `src/arch/i386/kd/mod.rs`, `DevOps` in
-`src/device/ds_routines.rs`, `DevIndirect` and the name tables'
-declarations in `src/device/dev_name.rs` and `glue`, `IfNet` in
-`src/device/net_io.rs`, and `IrqDev`/`UserIntr` in `src/arch/i386/irq.rs`.
-
-### `i386/` (2 files, 192 LOC)
-
-| File | LOC | Free | Holds the rest |
-|---|---|---:|---:|---|
-| `i386at/conf.c` | 144 | 0 | static tables |
-| `i386at/cons_conf.c` | 48 | 0 | static tables |
+### `i386/` (0 files)
 
 `chips/busses.c` moved to `src/arch/i386/busses.rs`; the `struct bus_device`,
 `struct bus_ctlr` and `struct bus_driver` mirrors it reads stay in
@@ -138,7 +132,7 @@ objects rather than the source.
 | 1 | Is every function it calls a real linker symbol, not a `#define` or `static inline`? | Port the definer first, or pick another function.  A shim is not available. |
 | 2 | Is every struct field it touches covered by a Rust mirror that exists **today**, laid out by `const` asserts?  `sizeof` and by-value passing count as field uses. | Mirror that struct first; §6.2. |
 | 3 | Does it avoid every array sized by a configure-time constant (`NCPUS`, `NINTR`, `NCOM`, `NIPL`)? | Blocked; §6.2. |
-| 4 | Is it non-variadic and free of `va_list`? | Blocked.  See `kern/printf.c`. |
+| 4 | Is it non-variadic and free of `va_list`? | Rust formats through `kprint!`; a C variadic entry stays only for an asm caller.  See §11. |
 | 5 | Is its inline assembly expressible with `core::arch::asm!`? | Blocked on the arch layer. |
 | 6 | Is it visible outside its own translation unit — non-`static`, with a prototype in a header? | Its callers move with it, or it waits.  A Rust definition of a `static` C function is unreachable, and adding the `extern` declaration that would reach it is writing C. |
 | 7 | Is the definition live in a buildable configuration, not a dead `#if` branch? | It is a deletion, not a port.  §8. |
@@ -274,10 +268,10 @@ classes.  A derivation is a snapshot of one afternoon's tree.
 Exit criterion for every step: both qemu architectures green, `rustfmt`
 and clippy clean, no new undefined symbols, and no new C.
 
-**Not in any phase: `kern/printf.c`.**  Its variadic definitions
-(`printf`, `iprintf`, `snprintf`, `vprintf`, `_doprnt`) cannot be written
-in the pinned toolchain.  The two non-variadic leaves, `printnum` and
-`safe_gets`, are Rust now (see §9).
+**`kern/printf.c` is C only for `vm_fault.c`.**  Every Rust caller moved
+to the `core::fmt` console (§11); the `printf`, `vprintf` and `_doprnt`
+definitions stay until that file moves, and `printnum`/`safe_gets` are
+Rust already (see §9).  The unused variadic leaves are deleted.
 
 ## 8. Deletions
 
@@ -460,20 +454,29 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `i386/i386/percpu.c` whole, with the NCPUS-sized `percpu_array` the boot assembly addresses by symbol and the `init_percpu` initializer | `src/arch/i386/percpu.rs`, `percpu_ffi.rs` | pending |
 | `i386/i386at/autoconf.c` whole, with the `bus_master_init`/`bus_device_init` tables, the `probeio` probe and the `take_dev_irq` vector setup, and the `chips/busses.c` walk they serve | `src/arch/i386/autoconf.rs`, `autoconf_ffi.rs` | pending |
 | `chips/busses.c` whole, with the `bus_master_init[]`/`bus_device_init[]` walks and the `BusCtlr`/`BusDevice`/`BusDriver` mirrors it reads, which stay in `src/arch/i386/com.rs` | `src/arch/i386/busses.rs` | pending |
+| `device/device_init.c` whole: `master_device_port` becomes an `AtomicPtr` with `Acquire`/`Release` ordering, and the file is deleted | `src/device/device_init.rs` | pending |
+| `i386/i386at/conf.c` and `i386/i386at/cons_conf.c` whole, with the `dev_name_list`/`dev_indirect_list` tables in their `SyncCell`s and `constab`; both files are deleted | `src/device/dev_name.rs`, `src/device/cons.rs` | pending |
+| `vm/vm_fault.c` (`vm_fault_cleanup`, `vm_fault_unwire`, `vm_fault_wire_fast`, `vm_fault_copy` and the file-private `vm_fault_copy_cleanup`); `vm_fault_init`, `vm_fault_page`, `vm_fault_continue` and `vm_fault` stay C | `src/vm/vm_fault.rs`, `src/vm/vm_fault_ffi.rs` | pending |
 
-`vm/vm_fault.c` was ported whole and rolled back in the same pass: the pinned
+`vm/vm_fault.c` was ported whole once and rolled back: the pinned
 toolchain turns the copy-object loop's `first_object->copy` null test into an
 `llvm.assume` (the optimized IR carries `!nonnull` on the load), so a null copy
 dereferences `copy_object->Lock` at offset 0x10 and panics.  The retry inside
-that loop is the trigger; `vm_fault.c` stays C until the toolchain or the loop
-shape changes.
+that loop is the trigger; the four functions that do not touch it have since
+moved to Rust, and the rest stays C until the toolchain or the loop shape
+changes.
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), `i386/i386at/kd_glue.c`
-(`018c9cd8`), and `i386/intel/read_fault.c`, whose body is
+(`018c9cd8`), the unreachable `i386/i386/pic.c`, `i386/i386/pic.h` and
+`i386/i386at/pic_isa.c` (§8), and `i386/intel/read_fault.c`, whose body is
 `#if (__i386__ && !(__i486__ || __i586__ || __i686__))` and so is compiled
 out on every supported CPU.  `kern/rdxtree.c`'s `rdxtree_check_alignment`,
-never called by either build, went with that file's port.
+never called by either build, went with that file's port.  The unused
+variadic leaves of `kern/printf.c` (`sprintf`, `snprintf`, `vsnprintf`,
+`iprintf`, `indent`, `sputc`, `snputc`), `printf_once` in
+<kern/printf.h>, and `kern/debug.c`'s `log` and its prototype went when
+their last Rust callers moved to `src/kern/console.rs` (§11).
 
 ## 10. The glue debt
 
@@ -521,3 +524,46 @@ The `gdt.c`/`idt.c`/`ktss.c`/`ldt.c`/`int_init.c` port declared
 `idt_inittab`, `int_entry_table`, `syscall` and `syscall64` in the same
 block; those are the generated tables and asm entries the port reads,
 which writes no C and is not debt.
+
+## 11. The Rust console (printf retirement)
+
+The Rust half no longer calls `kern/printf.c`.  `src/kern/console.rs`
+formats through `core::fmt`, and `src/kern/debug.rs` owns the Rust panic
+path:
+
+* `kprint!` writes to the console through the `cnputc()` core;
+  `write_cstr` formats into a fixed C-string buffer, the `snprintf()`
+  replacement.
+* `CStrArg` adapts a NUL-terminated C string to `{}` and keeps the `%s`
+  behavior, null included.  `CStrArg::from_ptr` is the one unsafe edge and
+  requires a NUL-terminated pointer.
+* `kpanic!` is the Rust `Panic()`: it takes the C function name, supplies
+  the Rust file and line, formats through the same console, and keeps the
+  `panic_lock`/`paniccpu`/`halt_all_cpus` sequence.  The printed file is
+  now the Rust source, not the deleted C name the old call sites passed.
+* `src/arch/i386/debug_i386.rs`'s `syscall_trace_print` keeps its
+  C-variadic edge for the `locore.S` call under `#ifdef DEBUG` and reads
+  the arguments with `VaList::next_arg`.
+
+The only C caller of `printf` left is `vm/vm_fault.c`, for two
+diagnostics; no C caller of `Panic` remains.  When `vm_fault.c` moves,
+`printf.c` and the variadic declarations go with it, and `debug.c`
+defines nothing that is still called.
+
+A boot-time differential harness formatted the same values through the C
+`_doprnt` and through `core::fmt`.  The differences below are the accepted
+drift; every other case the harness carried (positive `%d`, `%u`, `%x`,
+`%08x`, `%lx`, `%016lx`, `%llx`, `%ld`, `%lu`, `%p`, `%c`, `%s` including
+null, `%9s`, `%.*s`, `%-4d`) was byte-identical on both architectures.
+
+| Case | C `_doprnt` | `core::fmt` |
+|---|---|---|
+| negative `%d`, x86_64 only | `4294967291`, because `_doprnt` reads a `long` from the promoted `int` | `-5` |
+| `%zu` | signed hex plus a literal `u` (`42` printed `2au`) | decimal `42` |
+| `%zx` | signed hex plus a literal `x` (`0xabcd` printed `0xabcdx`) | hex `abcd` |
+| `%zd` | signed hex plus a literal `d` (`-42` printed `-2ad`) | decimal `-42` |
+| `%td` | the literal `td`, the argument ignored | decimal `-42` |
+| `%p` | lower-case hex, no `0x` | `{:x}`, the same |
+
+`%#lx`/`%#llx` map to `{:#x}` and keep the `0x` prefix; `%.*s` maps to
+`{:.*}`, `%9s` to `{:>9}` and `%-4d` to `{:<4}`.

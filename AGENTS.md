@@ -199,6 +199,8 @@ link error, not a fallback.
 | `i386/i386/percpu.c` | `src/arch/i386/percpu.rs`, `src/arch/i386/percpu_ffi.rs` |
 | `i386/i386at/autoconf.c` | `src/arch/i386/autoconf.rs`, `src/arch/i386/autoconf_ffi.rs` |
 | `chips/busses.c` | `src/arch/i386/busses.rs` |
+| `device/device_init.c`, `i386/i386at/conf.c`, `i386/i386at/cons_conf.c` | `src/device/device_init.rs`, `dev_name.rs`, `cons.rs` |
+| `vm/vm_fault.c` (`vm_fault_cleanup`, `vm_fault_unwire`, `vm_fault_wire_fast`, `vm_fault_copy`) | `src/vm/vm_fault.rs`, `vm_fault_ffi.rs` |
 
 Also deleted as dead: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), `i386/intel/read_fault.c` (body
@@ -608,8 +610,12 @@ rediscovering them per port:
   `memcpy`, which in this crate is a call to itself. The attribute is not
   unused: nothing tests for it.
 - **C strings.** `core::ffi::CStr` and `c"..."` literals, not a hand-rolled
-  NUL walk. `core::fmt` exists but drags in machinery; printing goes through
-  the kernel's own `printf`, declared in `glue`.
+  NUL walk. Printing goes through `kprint!`/`kprintln!` in
+  `src/kern/console.rs`, which formats with `core::fmt` and writes through
+  the `cnputc()` core; `CStrArg` is how a NUL-terminated C string becomes a
+  `{}` argument, `write_cstr` is the `snprintf()` replacement, and
+  `kpanic!` is the Rust `Panic()`. The C `printf`/`Panic` symbols remain
+  only for the C files that still call them (`vm_fault.c`, `debug.c`).
 
 ### Edition 2024
 
