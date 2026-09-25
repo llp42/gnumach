@@ -99,18 +99,21 @@ kernel's `copyinmsg()`, now `src/ipc/copy_user.rs`; the i386 kernel takes
 that entry point from `i386/i386/locore.S`, and the file's `USER32` half
 never compiled in either configured build (§8, §9).
 
-### `vm/` (8 files, 6,558 LOC)
+### `vm/` (6 files, 4,717 LOC)
 
 | File | LOC | Free | Holds the rest |
 |---|---:|---:|---|
-| `memory_object.c` | 1079 | 0 | `ipc_port` fields |
 | `memory_object_proxy.c` | 227 | 0 | cache statics |
 | `vm_debug.c` | 541 | 0 | the `hash_info_bucket_t` mirror landed; re-derive the rest |
 | `vm_fault.c` | 2024 | 0 | `vm_page`/task fields |
-| `vm_kern.c` | 812 | 0 | — |
+| `vm_kern.c` | 815 | 0 | — |
 | `vm_pageout.c` | 505 | 0 | `vm_page` fields |
-| `vm_resident.c` | 948 | 0 | the `vm_page_bucket_t` table, the fictitious-page statics and `vm_page_order` |
-| `vm_user.c` | 602 | 0 | `vm_page` fields for the rest |
+| `vm_user.c` | 605 | 0 | `vm_page` fields for the rest |
+
+`memory_object.c` and `vm_resident.c` are whole: the `memory_manager_default`
+port and its lock, the `vm_page_bucket_t` hash table, the fictitious-page
+list, `virtual_space_start`/`virtual_space_end` and the file-private statics
+moved with them (§9).
 
 ### `device/` (7 files, 3,275 LOC)
 
@@ -437,6 +440,8 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `i386/i386/fpu.c` whole, with the `fp_kind`, `fp_save_kind`, `fp_xsave_support`, `fp_xsave_size`, `fp_default_state`, `ifps_cache` and `mxcsr_feature_mask` globals it owned and the `I386FpSave`, `I386FpRegs`, `I386XfpSave` and save-state mirrors its bodies read | `src/arch/i386/fpu.rs`, `fpu_ffi.rs` | pending |
 | `i386/i386/pcb.c` whole, with the `pcb_cache` and `kernel_stack` globals it owned and the `Pcb`, `I386SavedState`, `I386InterruptState`, `I386MachineState`, `TaskTss`, `UserLdt` and thread-status mirrors its bodies read | `src/arch/i386/pcb.rs`, `pcb_ffi.rs` | pending |
 | `i386/i386at/com.c` whole, with the NCOM-sized `cominfo`/`com_tty`/`commodom`/`comcarrier`/`comfifo`/`comtimer_state`/`com_std` arrays, the `comdriver` bus record and the `BusDevice`/`BusCtlr`/`BusDriver` mirrors its body reads, and the two `com_base_addr`/`com_irq` shims §10 listed | `src/arch/i386/com.rs`, `src/arch/i386/com_ffi.rs` | pending |
+| `vm/memory_object.c` whole, with the `memory_manager_default` port and its lock | `src/vm/memory_object.rs`, `memory_object_ffi.rs`, `src/vm/error.rs` | pending |
+| `vm/vm_resident.c` whole, with the `vm_page_bucket_t` hash table, the fictitious-page list, the file-private counters and the `virtual_space_start`/`virtual_space_end` globals | `src/vm/vm_resident.rs`, `vm_resident_ffi.rs` | pending |
 
 Deleted dead code: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `i386/i386at/kd_glue.c`

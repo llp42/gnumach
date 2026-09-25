@@ -23,7 +23,6 @@ use crate::glue::{
     vm_object_reference, vm_object_shadow, vm_page_activate, vm_page_free,
     vm_page_lookup, vm_page_mem_size, vm_page_more_fictitious,
     vm_page_queue_lock, vm_page_remove, vm_page_replace, vm_page_wait,
-    vm_page_wire_count,
 };
 use crate::ipc::{IpcPort, IpcSpace, ipc_port};
 use crate::kern::list::{List, entry as list_entry};
@@ -465,7 +464,8 @@ unsafe fn page_steal(page: *mut VmPage) {
         vm_page_remove(page);
         if (*page).wire_count() > 0 {
             (*page).set_wire_count(0);
-            vm_page_wire_count -= 1;
+            crate::vm::vm_resident::VM_PAGE_WIRE_COUNT
+                .fetch_sub(1, Ordering::Relaxed);
         } else {
             vm_page::queues_remove(page);
         }
@@ -1358,7 +1358,9 @@ impl VmMapCopy {
     /// # Safety
     ///
     /// `copy` must hold the `PAGE_LIST` variant.
-    unsafe fn page_list(copy: NonNull<VmMapCopy>) -> *mut VmMapCopyPageList {
+    pub(crate) unsafe fn page_list(
+        copy: NonNull<VmMapCopy>,
+    ) -> *mut VmMapCopyPageList {
         // SAFETY: the caller promises the live variant.
         unsafe {
             addr_of_mut!((*copy.as_ptr()).c_u.c_p).cast::<VmMapCopyPageList>()

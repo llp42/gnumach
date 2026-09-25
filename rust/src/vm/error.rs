@@ -20,6 +20,8 @@ pub const KERN_NO_ACCESS: c_int = 8;
 pub const KERN_MEMORY_ERROR: c_int = 10;
 pub const KERN_INVALID_NAME: c_int = 15;
 pub const KERN_INVALID_TASK: c_int = 16;
+pub const KERN_INVALID_HOST: c_int = 22;
+pub const KERN_MEMORY_PRESENT: c_int = 23;
 pub const KERN_WRITE_PROTECTION_FAILURE: c_int = 24;
 /// `MACH_SEND_INTERRUPTED` of <mach/message.h>: the pager wait an object copy
 /// performs was interrupted.
@@ -50,6 +52,10 @@ pub enum Error {
     InvalidName,
     /// `KERN_INVALID_TASK`: the proxy call's IPC space is `IS_NULL`.
     InvalidTask,
+    /// `KERN_INVALID_HOST`: the host argument is `HOST_NULL`.
+    InvalidHost,
+    /// `KERN_MEMORY_PRESENT`: the data supply found the page already present.
+    MemoryPresent,
     /// `KERN_WRITE_PROTECTION_FAILURE`: the entry asks for `VM_PROT_NOTIFY`
     /// and the fault is a write.
     WriteProtectionFailure,
@@ -73,6 +79,8 @@ impl Error {
             Error::MemoryError => KERN_MEMORY_ERROR,
             Error::InvalidName => KERN_INVALID_NAME,
             Error::InvalidTask => KERN_INVALID_TASK,
+            Error::InvalidHost => KERN_INVALID_HOST,
+            Error::MemoryPresent => KERN_MEMORY_PRESENT,
             Error::WriteProtectionFailure => KERN_WRITE_PROTECTION_FAILURE,
             Error::SendInterrupted => MACH_SEND_INTERRUPTED,
         }
@@ -100,6 +108,8 @@ pub const fn error_from_kern_return(code: c_int) -> Result<(), Error> {
         KERN_MEMORY_ERROR => Err(Error::MemoryError),
         KERN_INVALID_NAME => Err(Error::InvalidName),
         KERN_INVALID_TASK => Err(Error::InvalidTask),
+        KERN_INVALID_HOST => Err(Error::InvalidHost),
+        KERN_MEMORY_PRESENT => Err(Error::MemoryPresent),
         KERN_WRITE_PROTECTION_FAILURE => Err(Error::WriteProtectionFailure),
         MACH_SEND_INTERRUPTED => Err(Error::SendInterrupted),
         _ => Err(Error::Failure),

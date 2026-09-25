@@ -16,10 +16,9 @@ use crate::glue::{
     self, Panic, ipc_kobject_set, memory_manager_default_reference,
     memory_object_copy, memory_object_create, memory_object_init,
     memory_object_terminate, pmap_is_modified, pmap_page_protect, printf,
-    vm_fault_cleanup, vm_fault_page, vm_object_external_count,
-    vm_page_fictitious_addr, vm_page_free, vm_page_grab_fictitious,
-    vm_page_insert, vm_page_lookup, vm_page_more_fictitious,
-    vm_page_queue_lock, vm_pageout_page, vm_stat,
+    vm_fault_cleanup, vm_fault_page, vm_page_fictitious_addr, vm_page_free,
+    vm_page_grab_fictitious, vm_page_insert, vm_page_lookup,
+    vm_page_more_fictitious, vm_page_queue_lock, vm_pageout_page, vm_stat,
 };
 use crate::ipc::{IpcPort, ipc_port, ipc_space};
 use crate::kern::debug::SoftDebugger;
@@ -44,6 +43,7 @@ use core::sync::atomic::{AtomicI32, AtomicIsize, AtomicU32, Ordering};
 const EVENT_INITIALIZED: u32 = 0;
 const EVENT_PAGER_READY: u32 = 1;
 const EVENT_PAGING_IN_PROGRESS: u32 = 2;
+const EVENT_ABSENT_COUNT: u32 = 3;
 
 /// `IKOT_*` of <kern/ipc_kobject.h>.
 const IKOT_NONE: c_uint = 0;
@@ -329,7 +329,7 @@ unsafe fn assert_wait_event(
 /// # Safety
 ///
 /// The object lock must be held.
-unsafe fn wakeup(object: *mut VmObject, event: u32) {
+pub(crate) unsafe fn wakeup(object: *mut VmObject, event: u32) {
     // SAFETY: the caller holds the object lock, and the object is live.
     unsafe {
         if (*object).wants(event) {
@@ -337,6 +337,29 @@ unsafe fn wakeup(object: *mut VmObject, event: u32) {
         }
         (*object).clear_want(event);
     }
+}
+
+/// `vm_object_wakeup(object, VM_OBJECT_EVENT_ABSENT_COUNT)` of the C.
+///
+/// # Safety
+///
+/// The object lock must be held.
+pub(crate) unsafe fn absent_release(object: *mut VmObject) {
+    // SAFETY: the caller holds the object lock, and the object is live.
+    unsafe {
+        (*object).absent_count = (*object).absent_count.wrapping_sub(1);
+        wakeup(object, EVENT_ABSENT_COUNT);
+    }
+}
+
+/// `vm_object_wakeup(object, VM_OBJECT_EVENT_PAGER_READY)` of the C.
+///
+/// # Safety
+///
+/// The object lock must be held.
+pub(crate) unsafe fn wakeup_pager_ready(object: *mut VmObject) {
+    // SAFETY: the caller holds the object lock, and the object is live.
+    unsafe { wakeup(object, EVENT_PAGER_READY) };
 }
 
 /// `vm_object_paging_begin()` of <vm/vm_object.h>.
@@ -418,7 +441,7 @@ unsafe fn page_free(page: *mut VmPage) {
 /// # Safety
 ///
 /// `page` must be a live page whose object lock the caller holds.
-unsafe fn page_wakeup(page: *mut VmPage) {
+pub(crate) unsafe fn page_wakeup(page: *mut VmPage) {
     // SAFETY: the caller promises the live page and its lock.
     unsafe {
         if (*page).is_wanted() {
@@ -730,7 +753,8 @@ pub(crate) unsafe fn terminate(object: *mut VmObject) {
 
         if !(*object).is_internal() {
             (*addr_of_mut!(vm_page_queue_lock)).lock();
-            vm_object_external_count -= 1;
+            vm_resident::VM_OBJECT_EXTERNAL_COUNT
+                .fetch_sub(1, Ordering::Relaxed);
             (*addr_of_mut!(vm_page_queue_lock)).unlock();
         }
 
@@ -1707,7 +1731,8 @@ pub(crate) unsafe fn enter(
                 } else {
                     (*object).set_internal(false);
                     (*object).set_temporary(false);
-                    vm_object_external_count += 1;
+                    vm_resident::VM_OBJECT_EXTERNAL_COUNT
+                        .fetch_add(1, Ordering::Relaxed);
                     (*object).set_pager_ready(false);
                     memory_object_init(
                         pager,

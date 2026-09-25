@@ -4,6 +4,8 @@
 //! Virtual memory; mirrors `vm/`.
 
 pub mod error;
+pub mod memory_object;
+pub mod memory_object_ffi;
 pub mod types;
 pub mod vm_external;
 pub mod vm_fault;

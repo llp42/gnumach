@@ -442,6 +442,49 @@ unsafe extern "C" {
     pub fn memory_manager_default_port(port: *mut c_void) -> c_int;
     pub static mut memory_manager_default: *mut c_void;
     pub fn memory_manager_default_reference() -> *mut c_void;
+    /// `memory_object_data_return()` of the MIG `memory_object_user`
+    /// stubs.
+    pub fn memory_object_data_return(
+        memory_object: *mut c_void,
+        memory_control: *mut c_void,
+        offset: VmOffset,
+        data: VmOffset,
+        data_cnt: c_uint,
+        dirty: c_int,
+        kernel_copy: c_int,
+    ) -> c_int;
+
+    /// `memory_object_lock_completed()` of the MIG `memory_object_user`
+    /// stubs.
+    pub fn memory_object_lock_completed(
+        memory_object: *mut c_void,
+        memory_object_poly: c_uint,
+        memory_control: *mut c_void,
+        offset: VmOffset,
+        length: VmSize,
+    ) -> c_int;
+
+    /// `memory_object_supply_completed()` of the MIG `memory_object_user`
+    /// stubs.
+    pub fn memory_object_supply_completed(
+        memory_object: *mut c_void,
+        memory_object_poly: c_uint,
+        memory_control: *mut c_void,
+        offset: VmOffset,
+        length: VmSize,
+        result: c_int,
+        error_offset: VmOffset,
+    ) -> c_int;
+
+    /// `memory_object_change_completed()` of the MIG `memory_object_user`
+    /// stubs.
+    pub fn memory_object_change_completed(
+        memory_object: *mut c_void,
+        memory_object_poly: c_uint,
+        may_cache: c_int,
+        copy_strategy: c_int,
+    ) -> c_int;
+
     pub fn memory_object_init(
         pager: *mut c_void,
         pager_request: *mut c_void,
@@ -469,11 +512,8 @@ unsafe extern "C" {
         pager_name: *mut c_void,
     ) -> c_int;
 
-    pub static mut vm_page_active_count: c_int;
-    pub static mut vm_page_inactive_count: c_int;
     pub static mut vm_page_fictitious_addr: VmOffset;
     pub static mut vm_stat: VmStatistics;
-    pub static mut vm_object_external_count: c_int;
     pub fn vm_page_grab_fictitious() -> *mut VmPage;
     pub fn vm_page_insert(
         page: *mut VmPage,
@@ -481,8 +521,6 @@ unsafe extern "C" {
         offset: VmOffset,
     );
     pub fn vm_page_remove(page: *mut VmPage);
-    pub static mut virtual_space_start: VmOffset;
-    pub static mut virtual_space_end: VmOffset;
     pub fn vm_page_wait(continuation: Option<unsafe extern "C" fn()>);
     pub fn vm_page_more_fictitious();
     pub fn vm_page_replace(
@@ -496,11 +534,14 @@ unsafe extern "C" {
     pub static mut vm_page_queue_free_lock: SimpleLock;
     pub fn vm_page_free(page: *mut VmPage);
 
-    pub static mut vm_page_wire_count: c_int;
-    pub static mut vm_page_laundry_count: c_int;
-    pub static mut vm_page_external_laundry_count: c_int;
-
     pub fn vm_pageout_resume();
+    pub fn vm_pageout_setup(
+        page: *mut VmPage,
+        paging_offset: VmOffset,
+        new_object: *mut VmObject,
+        new_offset: VmOffset,
+        flush: c_int,
+    ) -> *mut VmPage;
 
     pub fn memory_object_create_proxy(
         task: *mut c_void,
@@ -660,8 +701,6 @@ unsafe extern "C" {
 
     pub fn vm_page_bootstrap(startp: *mut VmOffset, endp: *mut VmOffset);
     pub fn vm_page_info_all();
-
-    pub static mut vm_page_cache: KmemCache;
 
     pub fn vm_object_bootstrap();
     pub fn vm_object_init();

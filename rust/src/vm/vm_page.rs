@@ -15,11 +15,9 @@ use crate::glue::{
     Panic, kernel_pmap, memory_manager_default, memory_manager_default_port,
     pmap_clear_modify, pmap_clear_reference, pmap_extract, pmap_is_modified,
     pmap_is_referenced, pmap_page_protect, printf, vm_object_collapse,
-    vm_object_collect, vm_object_pager_create, vm_page_active_count,
-    vm_page_external_laundry_count, vm_page_fictitious_addr, vm_page_free,
-    vm_page_inactive_count, vm_page_insert, vm_page_laundry_count,
-    vm_page_queue_free_lock, vm_page_queue_lock, vm_page_remove,
-    vm_page_wire_count, vm_pageout_page, vm_pageout_start, vm_stat,
+    vm_object_collect, vm_object_pager_create, vm_page_fictitious_addr,
+    vm_page_free, vm_page_insert, vm_page_queue_free_lock, vm_page_queue_lock,
+    vm_page_remove, vm_pageout_page, vm_pageout_start, vm_stat,
 };
 use crate::kern::list::{List, entry};
 use crate::kern::lock::SimpleLock;
@@ -395,9 +393,9 @@ pub(crate) unsafe fn wire(page: NonNull<VmPage>) {
         if !unsafe { (*ptr).is_private() }
             && !unsafe { (*ptr).is_fictitious() }
         {
-            // SAFETY: the page-queues lock guards the global count, as in
-            // the C.
-            unsafe { vm_page_wire_count += 1 };
+            // The page-queues lock guards the global count, as in the C;
+            // the atomic only makes the update indivisible.
+            vm_resident::VM_PAGE_WIRE_COUNT.fetch_add(1, Ordering::Relaxed);
         }
     }
 
@@ -1408,8 +1406,8 @@ unsafe fn seg_add_active_page(seg: *mut VmPageSeg, page: *mut VmPage) {
         (*page).set_reference(true);
         page_queue_push(addr_of_mut!((*seg).active_pages), page);
         lru_queue_push(addr_of_mut!((*state()).active_lru), page);
-        vm_page_active_count += 1;
     }
+    vm_resident::VM_PAGE_ACTIVE_COUNT.fetch_add(1, Ordering::Relaxed);
 }
 
 /// `vm_page_seg_remove_active_page()` in C.
@@ -1424,8 +1422,8 @@ unsafe fn seg_remove_active_page(seg: *mut VmPageSeg, page: *mut VmPage) {
         (*page).set_active(false);
         page_queue_remove(addr_of_mut!((*seg).active_pages), page);
         lru_queue_remove(page);
-        vm_page_active_count -= 1;
     }
+    vm_resident::VM_PAGE_ACTIVE_COUNT.fetch_sub(1, Ordering::Relaxed);
 }
 
 /// `vm_page_seg_add_inactive_page()` in C.
@@ -1440,8 +1438,8 @@ unsafe fn seg_add_inactive_page(seg: *mut VmPageSeg, page: *mut VmPage) {
         (*page).set_inactive(true);
         page_queue_push(addr_of_mut!((*seg).inactive_pages), page);
         lru_queue_push(addr_of_mut!((*state()).inactive_lru), page);
-        vm_page_inactive_count += 1;
     }
+    vm_resident::VM_PAGE_INACTIVE_COUNT.fetch_add(1, Ordering::Relaxed);
 }
 
 /// `vm_page_seg_remove_inactive_page()` in C.
@@ -1456,8 +1454,8 @@ unsafe fn seg_remove_inactive_page(seg: *mut VmPageSeg, page: *mut VmPage) {
         (*page).set_inactive(false);
         page_queue_remove(addr_of_mut!((*seg).inactive_pages), page);
         lru_queue_remove(page);
-        vm_page_inactive_count -= 1;
     }
+    vm_resident::VM_PAGE_INACTIVE_COUNT.fetch_sub(1, Ordering::Relaxed);
 }
 
 /// The page at the head of a `struct list`, or null.
@@ -2624,8 +2622,8 @@ pub(crate) unsafe fn unwire(page: *mut VmPage) {
         (*seg).lock.lock();
         seg_add_active_page(seg, page);
         (*seg).lock.unlock();
-        vm_page_wire_count -= 1;
     }
+    vm_resident::VM_PAGE_WIRE_COUNT.fetch_sub(1, Ordering::Relaxed);
 }
 
 /// `vm_page_deactivate()` in C.
@@ -2757,9 +2755,10 @@ unsafe fn check_usable() -> bool {
         i += 1;
     }
 
+    vm_resident::VM_PAGE_EXTERNAL_LAUNDRY_COUNT.store(-1, Ordering::Relaxed);
+
     // SAFETY: the free lock is held and the state is live.
     unsafe {
-        vm_page_external_laundry_count = -1;
         (*state()).alloc_paused = false;
         thread_wakeup_prim(
             addr_of_mut!((*state()).alloc_paused).cast(),
@@ -3005,8 +3004,8 @@ pub(crate) unsafe fn evict(should_wait: *mut c_int) -> bool {
     // SAFETY: the caller holds no free lock.
     unsafe {
         (*addr_of_mut!(vm_page_queue_free_lock)).lock();
-        vm_page_external_laundry_count = 0;
     }
+    vm_resident::VM_PAGE_EXTERNAL_LAUNDRY_COUNT.store(0, Ordering::Relaxed);
     let alloc_paused = unsafe { (*state()).alloc_paused };
     // SAFETY: the lock was taken above.
     unsafe { (*addr_of_mut!(vm_page_queue_free_lock)).unlock() };
@@ -3015,7 +3014,8 @@ pub(crate) unsafe fn evict(should_wait: *mut c_int) -> bool {
     unsafe {
         (*addr_of_mut!(vm_page_queue_lock)).lock();
     }
-    let pause = unsafe { vm_page_laundry_count } >= VM_PAGE_MAX_LAUNDRY;
+    let pause = vm_resident::VM_PAGE_LAUNDRY_COUNT.load(Ordering::Relaxed)
+        >= VM_PAGE_MAX_LAUNDRY;
     // SAFETY: the lock was taken above.
     unsafe {
         (*addr_of_mut!(vm_page_queue_lock)).unlock();
@@ -3043,8 +3043,9 @@ pub(crate) unsafe fn evict(should_wait: *mut c_int) -> bool {
     // SAFETY: the C re-takes the free lock before the decision.
     unsafe { (*addr_of_mut!(vm_page_queue_free_lock)).lock() };
 
-    if unsafe { vm_page_laundry_count } == 0
-        && unsafe { vm_page_external_laundry_count } == 0
+    if vm_resident::VM_PAGE_LAUNDRY_COUNT.load(Ordering::Relaxed) == 0
+        && vm_resident::VM_PAGE_EXTERNAL_LAUNDRY_COUNT.load(Ordering::Relaxed)
+            == 0
     {
         if evicted {
             // SAFETY: the caller promises the slot.

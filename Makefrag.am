@@ -140,7 +140,6 @@ libkernel_a_SOURCES += \
 libkernel_a_SOURCES += \
 	vm/memory_object_proxy.c \
 	vm/memory_object_proxy.h \
-	vm/memory_object.c \
 	vm/memory_object.h \
 	vm/pmap.h \
 	vm/vm_debug.c \
@@ -155,7 +154,6 @@ libkernel_a_SOURCES += \
 	vm/vm_page.h \
 	vm/vm_pageout.c \
 	vm/vm_pageout.h \
-	vm/vm_resident.c \
 	vm/vm_resident.h \
 	vm/vm_types.h \
 	vm/vm_user.c \

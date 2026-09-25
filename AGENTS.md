@@ -161,6 +161,8 @@ link error, not a fallback.
 | `kern/sched_prim.c` | `src/kern/sched_prim.rs`, `src/kern/sched_prim_ffi.rs` |
 | `kern/timer.c` | `src/kern/timer.rs`, `src/kern/timer_ffi.rs` |
 | `i386/i386at/com.c` | `src/arch/i386/com.rs`, `src/arch/i386/com_ffi.rs` |
+| `vm/memory_object.c` | `src/vm/memory_object.rs`, `src/vm/memory_object_ffi.rs` |
+| `vm/vm_resident.c` | `src/vm/vm_resident.rs`, `src/vm/vm_resident_ffi.rs` |
 
 Also deleted as dead: `device/blkio.c`, the `#if 0` profiling facility
 (`profil.h`, `profilparam.h`, `mpqueue`), and `ipc/copy_user.c`'s `USER32`

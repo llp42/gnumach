@@ -165,6 +165,8 @@ MACH_RS_SRCS = \
 	rust/src/utils/mod.rs \
 	rust/src/utils/string.rs \
 	rust/src/vm/error.rs \
+	rust/src/vm/memory_object.rs \
+	rust/src/vm/memory_object_ffi.rs \
 	rust/src/vm/mod.rs \
 	rust/src/vm/types.rs \
 	rust/src/vm/vm_external.rs \
