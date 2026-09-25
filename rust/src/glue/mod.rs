@@ -346,7 +346,6 @@ unsafe extern "C" {
         state: c_int,
     );
 
-
     pub static mut machine_task_iopb_cache: KmemCache;
 
     pub fn ipc_kobject_server(kmsg: *mut c_void) -> *mut c_void;

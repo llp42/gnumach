@@ -18,5 +18,6 @@ pub mod ds_routines_ffi;
 pub mod intr;
 pub mod kmsg;
 pub mod net_io;
+pub mod net_io_ffi;
 pub mod r#return;
 pub mod subrs;

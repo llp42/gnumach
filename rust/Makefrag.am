@@ -66,6 +66,7 @@ MACH_RS_SRCS = \
 	rust/src/device/kmsg.rs \
 	rust/src/device/mod.rs \
 	rust/src/device/net_io.rs \
+	rust/src/device/net_io_ffi.rs \
 	rust/src/device/return.rs \
 	rust/src/device/subrs.rs \
 	rust/src/ffi/mach_host.rs \
