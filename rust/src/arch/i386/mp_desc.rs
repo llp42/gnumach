@@ -14,7 +14,7 @@ use crate::arch::i386::apic;
 use crate::arch::i386::fpu;
 use crate::arch::i386::model_dep;
 use crate::arch::i386::pcb::{RealDescriptor, TaskTss};
-use crate::arch::i386::percpu::cpu_number;
+use crate::arch::i386::percpu::{self, cpu_number};
 use crate::arch::i386::{gdt, idt, int_init, ktss, ldt, pmap, smp};
 use crate::arch::types::VmOffset;
 use crate::config::NCPUS;
@@ -364,9 +364,9 @@ fn cpu_setup(cpu: c_int) -> ! {
     flush_instr_queue();
     ap_stage(cpu, c"paging");
 
-    // SAFETY: `init_percpu` is the real C routine of `i386/i386/percpu.c`,
-    // and `cpu` is a CPU the machine reported.
-    unsafe { glue::init_percpu(cpu) };
+    // SAFETY: `cpu` is a CPU the machine reported, and this runs on it
+    // before anything else touches its block.
+    unsafe { percpu::init(cpu) };
     mp_desc_init(cpu);
     ap_stage(cpu, c"mpdesc");
 

@@ -28,7 +28,6 @@ if HOST_x86_64
 #
 
 libkernel_a_SOURCES += \
-	i386/i386at/autoconf.c \
 	i386/i386at/autoconf.h \
 	i386/i386at/biosmem.h \
 	i386/i386at/conf.c \
@@ -65,7 +64,6 @@ endif
 
 libkernel_a_SOURCES += \
 	i386/i386/percpu.h \
-	i386/i386/percpu.c \
 	x86_64/cswitch.S \
 	x86_64/debug_trace.S \
 	x86_64/idt_inittab.S \
@@ -75,7 +73,6 @@ libkernel_a_SOURCES += \
 if PLATFORM_at
 libkernel_a_SOURCES += \
 	i386/i386/apic.h \
-	i386/i386/hardclock.c \
 	i386/i386/hardclock.h \
 	i386/i386/irq.h \
 	i386/i386/msr.h \

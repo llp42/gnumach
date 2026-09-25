@@ -259,12 +259,11 @@ pub(crate) fn machine_init() {
     ioapic::ioapic_configure();
     pit::clkstart();
 
-    // SAFETY: `cninit` and `probeio` are the console and AT-bus boot steps;
-    // the first moved to Rust with the `device/cons.c` port, the second is
-    // still the real C routine of `i386/i386at/autoconf.c`.
+    // SAFETY: `cninit` and `probeio` are the console and AT-bus boot steps,
+    // both Rust now.
     unsafe {
         crate::device::cons_ffi::cninit();
-        glue::probeio();
+        crate::arch::i386::autoconf::probeio();
     }
 
     inittodr();
@@ -676,9 +675,8 @@ fn i386at_init() {
     int_init::int_init();
     ldt::ldt_init();
     ktss::ktss_init();
-    // SAFETY: `init_percpu` is the real C routine of `i386/i386/percpu.c`,
-    // and this runs on the boot CPU.
-    unsafe { glue::init_percpu(0) };
+    // SAFETY: this runs on the boot CPU, and zero is below `NCPUS`.
+    unsafe { percpu::init(0) };
     mp_desc::mp_desc_init(0);
 
     pmap::pmap_remove_temporary_mapping();

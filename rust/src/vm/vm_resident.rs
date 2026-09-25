@@ -7,11 +7,12 @@
 
 //! Resident memory management, which `vm/vm_resident.c` used to define.
 
+use crate::arch::i386::phys;
 use crate::arch::types::{VmOffset, VmSize};
 use crate::arch::vm_param::{PAGE_SHIFT, PAGE_SIZE};
 use crate::glue::{
-    Panic, kernel_pmap, pmap_copy_page, pmap_enter, pmap_virtual_space,
-    pmap_zero_page, printf, vm_page_bootalloc,
+    Panic, kernel_pmap, pmap_enter, pmap_virtual_space, printf,
+    vm_page_bootalloc,
 };
 use crate::ipc::HashInfoBucket;
 use crate::kern::list::{List, entry};
@@ -1191,7 +1192,7 @@ pub(crate) unsafe fn zero_fill(page: NonNull<VmPage>) {
     // validator.
     unsafe { vm_page::check(page.as_ptr()) };
     // SAFETY: the page is live, so its physical address names real memory.
-    unsafe { pmap_zero_page((*page.as_ptr()).phys_addr) };
+    unsafe { phys::zero_page((*page.as_ptr()).phys_addr) };
 }
 
 /// `vm_page_copy()` in C: copy one page's physical memory to another.
@@ -1208,6 +1209,6 @@ pub(crate) unsafe fn copy(src: NonNull<VmPage>, dest: NonNull<VmPage>) {
     // SAFETY: both pages are live, so their physical addresses name real
     // memory.
     unsafe {
-        pmap_copy_page((*src.as_ptr()).phys_addr, (*dest.as_ptr()).phys_addr)
+        phys::copy_page((*src.as_ptr()).phys_addr, (*dest.as_ptr()).phys_addr)
     };
 }

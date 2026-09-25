@@ -12,6 +12,7 @@
 //! Every entry point runs at or above `spltty`, or at boot before interrupts
 //! are enabled, so [`COM`] needs no lock of its own.
 
+use crate::arch::i386::autoconf;
 use crate::arch::i386::com_ffi::{
     comattach, comgetstat, commctl, comprobe, comsetstat, comstart, comstop,
     comtimer,
@@ -214,7 +215,7 @@ static mut COM_STD: [VmOffset; NCOM] = [0; NCOM];
 
 /// `comdriver` of `i386/i386at/com.c`: the bus driver the AT bus table names.
 #[unsafe(export_name = "comdriver")]
-static mut COMDRIVER: BusDriver = BusDriver {
+pub(crate) static mut COMDRIVER: BusDriver = BusDriver {
     probe: Some(comprobe),
     slave: None,
     attach: Some(comattach),
@@ -488,36 +489,6 @@ pub(crate) fn irq(unit: c_int) -> c_int {
     unsafe { (*dev).sysdep1 as c_int }
 }
 
-/// The `bus_device_init[]` table of `i386/i386at/autoconf.c`, walked until
-/// its driver-less sentinel.
-struct BusDevices {
-    next: *mut BusDevice,
-}
-
-impl Iterator for BusDevices {
-    type Item = *mut BusDevice;
-
-    fn next(&mut self) -> Option<*mut BusDevice> {
-        // SAFETY: every entry up to the sentinel is an initialized table
-        // entry, and the sentinel's `driver` is null.
-        let driver = unsafe { ptr::addr_of!((*self.next).driver).read() };
-        if driver.is_null() {
-            return None;
-        }
-        let current = self.next;
-        // SAFETY: the sentinel terminates the array, so the step stays inside
-        // the table.
-        self.next = unsafe { self.next.add(1) };
-        Some(current)
-    }
-}
-
-fn bus_devices() -> BusDevices {
-    BusDevices {
-        next: ptr::addr_of_mut!(glue::bus_device_init),
-    }
-}
-
 /// `comprobe_general()` of `i386/i386at/com.c`.
 pub(crate) fn probe_general(
     address: VmOffset,
@@ -634,7 +605,7 @@ pub(crate) fn cnprobe(cp: &mut ConsDev) -> c_int {
 
     let mut unit = -1;
     let mut pri = CN_DEAD;
-    for device in bus_devices() {
+    for device in autoconf::bus_devices() {
         // SAFETY: every entry up to the sentinel is an initialized
         // `bus_device`, and the sentinel ends the walk.
         let (name, dev_unit, address) =
@@ -671,8 +642,7 @@ pub(crate) fn attach(dev: &BusDevice) {
         return;
     }
 
-    // SAFETY: the device table entry lives for the kernel's lifetime.
-    unsafe { glue::take_dev_irq(ptr::from_ref(dev)) };
+    autoconf::take_dev_irq(dev);
     // SAFETY: a literal format string with the values the C printed.
     unsafe {
         glue::printf(
@@ -710,8 +680,8 @@ pub(crate) fn cninit(cp: &ConsDev) -> c_int {
     let unit = unit as u8;
     let addr = port_addr(address);
 
-    // SAFETY: the device table entry lives for the kernel's lifetime.
-    unsafe { glue::take_dev_irq(dev) };
+    // SAFETY: `comcndev` is the live table entry `cnprobe()` selected.
+    autoconf::take_dev_irq(unsafe { &*dev });
 
     // SAFETY: the entry the probe selected, and nothing else runs yet.
     unsafe {
@@ -762,7 +732,7 @@ pub(crate) fn cninit(cp: &ConsDev) -> c_int {
 
 /// `com_reprobe()` of `i386/i386at/com.c`.
 fn reprobe(unit: c_int) -> bool {
-    for device in bus_devices() {
+    for device in autoconf::bus_devices() {
         // SAFETY: every entry up to the sentinel is an initialized
         // `bus_device`.
         let (driver, dev_unit, alive, ctlr, name, address, phys) = unsafe {

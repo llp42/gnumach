@@ -6,7 +6,6 @@
 pub mod mig;
 pub mod time_value;
 
-use crate::arch::i386::com::BusDevice;
 use crate::arch::i386::idt::IdtInitEntry;
 use crate::arch::i386::kd::ConsDev;
 use crate::arch::i386::model_dep::GdtDescrTmp;
@@ -17,8 +16,6 @@ use crate::device::ds_routines::DevOps;
 use crate::ipc::MachMsgHeader;
 use crate::kern::lock::SimpleLock;
 use crate::kern::processor::Processor;
-use crate::kern::slab::KmemCache;
-use crate::kern::task::Task;
 use crate::kern::thread::{Continuation, Thread};
 use crate::vm::types::{Pmap, VmObject, VmPage, VmProt};
 use crate::vm::vm_map::{VmMap, VmMapEntry};
@@ -106,10 +103,6 @@ unsafe extern "C" {
     pub static mut retry_table: Recovery;
     pub static mut retry_table_end: Recovery;
 
-    pub fn machine_task_init(task: *mut Task);
-    pub fn machine_task_terminate(task: *mut Task);
-    pub fn machine_task_collect(task: *mut Task);
-
     pub fn mach_notify_new_task(
         notify: *mut c_void,
         task: *mut c_void,
@@ -162,8 +155,9 @@ unsafe extern "C" {
     /// the generated interrupt entry points `int_fill()` installs.
     pub static int_entry_table: VmOffset;
 
-    /// `init_percpu()` of `i386/i386/percpu.c`: fill one CPU's per-CPU block.
-    pub fn init_percpu(cpu: c_int);
+    /// `return_to_iret` of `i386/i386/locore.S` and `x86_64/locore.S`: the
+    /// label `hardclock()` compares an interrupt's return address against.
+    pub static return_to_iret: c_char;
 
     /// `constab[]` of `i386/i386at/cons_conf.c`: the console table
     /// `cninit()` walks to its null entry.
@@ -182,9 +176,6 @@ unsafe extern "C" {
 
     /// `dev_indirect_count` of `i386/i386at/conf.c`.
     pub static dev_indirect_count: c_int;
-
-    /// `probeio()` of `i386/i386at/autoconf.c`: probe the ISA devices.
-    pub fn probeio();
 
     /// `discover_x86_cpu_type()` of `i386/i386/locore.S`.
     pub fn discover_x86_cpu_type() -> c_int;
@@ -253,18 +244,13 @@ unsafe extern "C" {
     pub fn sploff() -> c_ulong;
     pub fn splon(n: c_ulong);
 
-    pub fn hardclock(
-        iunit: c_int,
-        old_ipl: c_int,
-        ret_addr: *const c_char,
-        regs: *mut c_void,
-    );
-
-    /// `bus_device_init[]` of `i386/i386at/autoconf.c`: the AT-bus device
-    /// table, incomplete in C, so this declares its first element.
-    pub static mut bus_device_init: BusDevice;
-
-    pub fn take_dev_irq(dev: *const BusDevice);
+    pub fn configure_bus_master(
+        name: *const c_char,
+        virt: VmOffset,
+        phys: VmOffset,
+        adpt_no: c_int,
+        bus_name: *const c_char,
+    ) -> c_int;
 
     pub fn configure_bus_device(
         name: *const c_char,
@@ -276,8 +262,6 @@ unsafe extern "C" {
 
     /// `setsoftclock()` of <i386/spl.h>: raise the softclock interrupt.
     pub fn setsoftclock();
-
-    pub static mut machine_task_iopb_cache: KmemCache;
 
     pub fn ipc_kobject_server(kmsg: *mut c_void) -> *mut c_void;
 
@@ -312,7 +296,6 @@ unsafe extern "C" {
     pub fn pmap_collect(pmap: *mut Pmap);
     pub fn pmap_reference(pmap: *mut Pmap);
     pub static kernel_pmap: *mut Pmap;
-    pub fn pmap_pte(pmap: *mut Pmap, addr: VmOffset) -> *mut VmOffset;
     pub fn pmap_extract(pmap: *mut Pmap, address: VmOffset) -> VmOffset;
     pub fn pmap_map_bd(
         virt: VmOffset,

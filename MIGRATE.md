@@ -113,16 +113,11 @@ Rust now: `ConsDev` in `src/arch/i386/kd/mod.rs`, `DevOps` in
 declarations in `src/device/dev_name.rs` and `glue`, `IfNet` in
 `src/device/net_io.rs`, and `IrqDev`/`UserIntr` in `src/arch/i386/irq.rs`.
 
-### `i386/` (10 files, 1,157 LOC)
+### `i386/` (5 files, 696 LOC)
 
 | File | LOC | Free | Holds the rest |
 |---|---:|---:|---|
-| `i386/hardclock.c` | 69 | 0 | `machine_slot` and interrupt plumbing |
-| `i386/machine_task.c` | 70 | 0 | `task.machine` fields |
-| `i386/percpu.c` | 31 | 0 | `struct percpu.self` field |
-| `i386/phys.c` | 164 | 0 | mapped-window internals for `pmap_copy_page` etc. |
 | `i386/pic.c` | 270 | 0 | not compiled in the APIC configuration |
-| `i386at/autoconf.c` | 127 | 0 | `bus_device`/`bus_ctlr` fields |
 | `i386at/conf.c` | 144 | 0 | static tables |
 | `i386at/cons_conf.c` | 48 | 0 | static tables |
 | `i386at/pic_isa.c` | 56 | 0 | not compiled in the APIC configuration |
@@ -451,6 +446,11 @@ in the pinned toolchain.  The two non-variadic leaves, `printnum` and
 | `kern/mach_factor.c` whole, with the `avenrun` and `mach_factor` counters (now `AtomicI32`/`AtomicI64` arrays that keep the C `long[3]` layout), the file-private `fract[]` and the `LOAD_SCALE` constant | `src/kern/mach_factor.rs`, `mach_factor_ffi.rs` | pending |
 | `kern/priority.c` whole, with its `USAGE_THRESHOLD` constant and the `simple_lock_irq` critical section | `src/kern/priority.rs`, `priority_ffi.rs` | pending |
 | `kern/syscall_sw.c` whole, with the `mach_trap_table` and `mach_trap_count` the assembly indexes, the `mach_trap_t` mirror moved out of `debug_i386.rs`, the `kern_invalid_debug` flag and the `null_port`/`kern_invalid` stubs | `src/kern/syscall_sw.rs` | pending |
+| `i386/i386/phys.c` whole, with the `pmap_zero_page`, `pmap_copy_page`, `copy_to_phys` and `copy_from_phys` entries it had left after the earlier `kvtophys` move, the `INTEL_PTE_W()`/`INTEL_PTE_R()` templates built from the `pmap.rs` header constants, and the direct-map/window choice as a drop guard | `src/arch/i386/phys.rs`, `phys_ffi.rs` | pending |
+| `i386/i386/machine_task.c` whole, with the `machine_task_iopb_cache` global and the `machine_task_init`/`machine_task_terminate`/`machine_task_collect` entries | `src/arch/i386/machine_task.rs`, `machine_task_ffi.rs` | pending |
+| `i386/i386/hardclock.c` whole, with the `return_to_iret` comparison the interrupt entry relies on | `src/arch/i386/hardclock.rs`, `hardclock_ffi.rs` | pending |
+| `i386/i386/percpu.c` whole, with the NCPUS-sized `percpu_array` the boot assembly addresses by symbol and the `init_percpu` initializer | `src/arch/i386/percpu.rs`, `percpu_ffi.rs` | pending |
+| `i386/i386at/autoconf.c` whole, with the `bus_master_init`/`bus_device_init` tables, the `probeio` probe and the `take_dev_irq` vector setup, and the `chips/busses.c` walk they serve | `src/arch/i386/autoconf.rs`, `autoconf_ffi.rs` | pending |
 
 `vm/vm_fault.c` was ported whole and rolled back in the same pass: the pinned
 toolchain turns the copy-object loop's `first_object->copy` null test into an

@@ -168,9 +168,14 @@ pub static mut ivect: [InterruptHandler; NINTR] = {
     // the trampoline passes it the one `int` its own entry point ignores.
     table[0] = Some(unsafe {
         core::mem::transmute::<
-            unsafe extern "C" fn(c_int, c_int, *const c_char, *mut c_void),
+            unsafe extern "C" fn(
+                c_int,
+                c_int,
+                *const c_char,
+                *mut crate::arch::i386::pcb::I386InterruptState,
+            ),
             unsafe extern "C" fn(c_int),
-        >(glue::hardclock)
+        >(crate::arch::i386::hardclock_ffi::hardclock)
     });
     table[1] = Some(kdintr);
     table[13] = Some(crate::arch::i386::fpu_ffi::fpintr);

@@ -1,13 +1,19 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// Derived from i386/i386/percpu.h and i386/i386/cpu_number.h:
+// Derived from i386/i386/percpu.c, i386/i386/percpu.h and
+// i386/i386/cpu_number.h:
 //   Copyright (c) 2023 Free Software Foundation, Inc.
 //   Copyright (c) 1991,1990 Carnegie Mellon University.
 // Copyright (c) 2026 Leonardo Lopes Pereira <leonardolopespereira@outlook.com>
 
-//! The per-CPU block, which `i386/i386/percpu.h` declares and
-//! `i386/i386/cpu_number.h` and `kern/processor.h` read.
+//! The per-CPU block, which `i386/i386/percpu.c` used to define and
+//! `i386/i386/percpu.h`, `i386/i386/cpu_number.h` and `kern/processor.h`
+//! read.
+//!
+//! The `extern "C"` edge is in [`percpu_ffi`].
 
+use crate::arch::i386::apic;
 use crate::arch::types::VmOffset;
+use crate::config::NCPUS;
 use crate::kern::processor::Processor;
 use crate::kern::thread::Thread;
 use core::arch::asm;
@@ -117,10 +123,31 @@ pub unsafe fn set_active_thread(thread: *mut Thread) {
     }
 }
 
-// `percpu_array` in <i386/percpu.h>: one block per CPU.
-#[expect(improper_ctypes)]
-unsafe extern "C" {
-    static mut percpu_array: Percpu;
+/// `percpu_array` of <i386/percpu.h>: one block per CPU, which the boot code
+/// of `cpuboot.S` and `boothdr.S` addresses by symbol.
+#[unsafe(export_name = "percpu_array")]
+static mut PERCPU_ARRAY: [Percpu; NCPUS] =
+    // SAFETY: `struct percpu` is the C's `= {0}` image.  Every field is a raw
+    // pointer, an integer or a simple lock, all of which are valid when
+    // zeroed.
+    unsafe { core::mem::zeroed() };
+
+/// `init_percpu()` of `i386/i386/percpu.c`: point one CPU's block at itself
+/// and record its APIC and CPU ids.
+///
+/// # Safety
+///
+/// `cpu` must be a CPU number the machine reports, below `NCPUS`.
+pub(crate) unsafe fn init(cpu: c_int) {
+    let apic_id = apic::apic_get_current_cpu();
+    // SAFETY: the caller promises a live CPU number, so the block exists and
+    // this CPU is the only one touching it before it starts running.
+    unsafe {
+        let block = percpu_at(cpu);
+        (*block).self_ptr = block;
+        (*block).apic_id = apic_id;
+        (*block).cpu_id = cpu;
+    }
 }
 
 /// The `processor_ptr()` macro of <kern/processor.h>: CPU `cpu`'s processor
@@ -130,7 +157,7 @@ unsafe extern "C" {
 ///
 /// `cpu` must be a CPU number the machine reports, below `smp_get_numcpus()`.
 pub(crate) unsafe fn processor_ptr(cpu: c_int) -> *mut Processor {
-    // SAFETY: the caller promises a live CPU number, so the block the C array
+    // SAFETY: the caller promises a live CPU number, so the block the array
     // holds for it has a live processor.
     unsafe { &raw mut (*percpu_at(cpu)).processor }
 }
@@ -141,9 +168,13 @@ pub(crate) unsafe fn processor_ptr(cpu: c_int) -> *mut Processor {
 ///
 /// `cpu` must be a CPU number the machine reports, below `smp_get_numcpus()`.
 pub unsafe fn percpu_at(cpu: c_int) -> *mut Percpu {
-    // SAFETY: the caller promises a live CPU number, and the C array holds one
+    // SAFETY: the caller promises a live CPU number, and the array holds one
     // block for each CPU the probe counted.
-    unsafe { (&raw mut percpu_array).offset(cpu as isize) }
+    unsafe {
+        (&raw mut PERCPU_ARRAY)
+            .cast::<Percpu>()
+            .offset(cpu as isize)
+    }
 }
 
 const _: () = assert!(size_of::<Percpu>() == PERCPU_SIZE);
