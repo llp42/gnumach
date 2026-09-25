@@ -232,6 +232,8 @@ impl MsgReturn {
     pub(crate) const SEND_INVALID_TYPE: Self = Self(0x1000_000f);
     /// `MACH_SEND_INVALID_HEADER`.
     pub(crate) const SEND_INVALID_HEADER: Self = Self(0x1000_0010);
+    /// `MACH_RCV_TOO_LARGE`.
+    pub(crate) const RCV_TOO_LARGE: Self = Self(0x1000_4004);
     /// `MACH_RCV_INVALID_NOTIFY`.
     pub(crate) const RCV_INVALID_NOTIFY: Self = Self(0x1000_4007);
     /// `MACH_RCV_INVALID_DATA`.
@@ -254,6 +256,11 @@ impl MsgReturn {
     /// The `mach_msg_return_t` a C caller sees.
     pub(crate) const fn raw(self) -> c_int {
         self.0
+    }
+
+    /// The `mach_msg_return_t` a C callee returned.
+    pub(crate) const fn from_raw(code: c_int) -> Self {
+        Self(code)
     }
 }
 
@@ -590,7 +597,7 @@ impl MachMsgHeader {
     }
 
     /// `msgh_remote_port` of <mach/message.h>.
-    fn remote(&self) -> usize {
+    pub(crate) fn remote(&self) -> usize {
         self.remote_port
     }
 
@@ -680,6 +687,26 @@ impl Kmsg {
     unsafe fn set_size(self, size: usize) {
         // SAFETY: the caller promises the live message.
         unsafe { (*self.record()).size = size };
+    }
+
+    /// `kmsg->ikm_header.msgh_size` of <mach/message.h>.
+    ///
+    /// # Safety
+    ///
+    /// The message must be live.
+    pub(crate) unsafe fn header_size(self) -> c_uint {
+        // SAFETY: the caller promises the live message.
+        unsafe { (*self.header()).size() }
+    }
+
+    /// The `kmsg->ikm_header.msgh_seqno = seqno` assignment of `mach_msg()`.
+    ///
+    /// # Safety
+    ///
+    /// The message must be live and this call must own it.
+    pub(crate) unsafe fn set_header_seqno(self, seqno: c_uint) {
+        // SAFETY: the caller promises the live message.
+        unsafe { (*self.header()).seqno = seqno };
     }
 
     /// `ikm_marequest` of <ipc/ipc_kmsg.h>.

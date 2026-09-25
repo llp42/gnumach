@@ -19,7 +19,7 @@ use crate::glue::time_value::{RpcTimeValue, TimeValue, TimeValue64};
 use crate::ipc::IpcSpace;
 use crate::ipc::mach_port;
 use crate::kern::ast::{AST_BLOCK, AST_HALT, AST_TERMINATE, ast_on};
-use crate::kern::ipc_mig::mach_msg_abort_rpc;
+use crate::kern::ipc_mig::abort_rpc;
 use crate::kern::ipc_tt::{
     ipc_thread_disable, ipc_thread_enable, ipc_thread_init,
     ipc_thread_terminate,
@@ -635,9 +635,9 @@ impl Thread {
             return Err(KernError::Aborted);
         }
 
-        // SAFETY: as above; the Rust `mach_msg_abort_rpc()` takes the thread's
+        // SAFETY: as above; the Rust `abort_rpc()` takes the thread's
         // IPC lock itself.
-        unsafe { mach_msg_abort_rpc(thread) };
+        unsafe { abort_rpc(thread) };
 
         // SAFETY: as above; `release()` takes the thread lock.
         unsafe { Thread::release(thread) };

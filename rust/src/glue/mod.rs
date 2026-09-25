@@ -263,6 +263,23 @@ unsafe extern "C" {
         name: *const c_char,
         devp: *mut *mut c_void,
     ) -> c_int;
+    pub fn device_reference(device: *mut c_void);
+    pub fn device_deallocate(device: *mut c_void);
+    pub fn dev_port_lookup(port: *mut c_void) -> *mut c_void;
+    pub fn ds_device_write_trap(
+        dev: *mut c_void,
+        mode: c_uint,
+        recnum: c_ulong,
+        data: VmOffset,
+        count: VmSize,
+    ) -> c_int;
+    pub fn ds_device_writev_trap(
+        dev: *mut c_void,
+        mode: c_uint,
+        recnum: c_ulong,
+        iovec: *mut c_void,
+        count: VmSize,
+    ) -> c_int;
 
     pub static mut master_device_port: *mut c_void;
     pub fn spl0() -> c_int;
@@ -362,6 +379,27 @@ unsafe extern "C" {
 
     pub fn ipc_mqueue_init(mqueue: *mut c_void);
     pub fn ipc_mqueue_changed(mqueue: *mut c_void, mr: c_int);
+    pub fn ipc_mqueue_send(
+        kmsg: *mut c_void,
+        option: c_int,
+        timeout: c_uint,
+    ) -> c_int;
+    pub fn ipc_mqueue_copyin(
+        space: *mut c_void,
+        name: c_uint,
+        mqueuep: *mut *mut c_void,
+        objectp: *mut *mut c_void,
+    ) -> c_int;
+    pub fn ipc_mqueue_receive(
+        mqueue: *mut c_void,
+        option: c_int,
+        size: c_uint,
+        timeout: c_uint,
+        interruptible: c_int,
+        continuation: Option<unsafe extern "C" fn()>,
+        kmsgp: *mut *mut c_void,
+        seqnop: *mut c_uint,
+    ) -> c_int;
     pub fn ipc_pset_alloc(
         space: *mut c_void,
         namep: *mut c_uint,
@@ -417,6 +455,19 @@ unsafe extern "C" {
         map: *mut VmMap,
         addrp: *mut VmOffset,
         size: VmSize,
+    ) -> c_int;
+    pub fn vm_map(
+        target_map: *mut VmMap,
+        address: *mut VmOffset,
+        size: VmSize,
+        mask: VmOffset,
+        anywhere: c_int,
+        memory_object: *mut c_void,
+        offset: VmOffset,
+        copy: c_int,
+        cur_protection: c_int,
+        max_protection: c_int,
+        inheritance: c_int,
     ) -> c_int;
     pub fn kmem_alloc_pages(
         object: *mut VmObject,

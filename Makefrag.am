@@ -80,7 +80,6 @@ libkernel_a_SOURCES += \
 	kern/ipc_host.h \
 	kern/ipc_kobject.c \
 	kern/ipc_kobject.h \
-	kern/ipc_mig.c \
 	kern/ipc_mig.h \
 	kern/ipc_sched.c \
 	kern/ipc_sched.h \

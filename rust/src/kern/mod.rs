@@ -12,6 +12,7 @@ pub mod exception;
 pub mod host;
 pub mod ipc_host;
 pub mod ipc_mig;
+pub mod ipc_mig_ffi;
 pub mod ipc_sched;
 pub mod ipc_tt;
 pub mod ipc_tt_ffi;
